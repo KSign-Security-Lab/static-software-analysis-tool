@@ -11,7 +11,7 @@
     "generate:cpg": "sh -c 'python helpers/runner.py --mode cpg  --data \"${npm_config_data:?use --data=<path>}\"  ${npm_config_save:+--save \"$npm_config_save\"}'",
     "generate:kast": "sh -c 'python helpers/runner.py --mode kast --data \"${npm_config_data:?use --data=<path>}\"  ${npm_config_save:+--save \"$npm_config_save\"}'",
     "generate:full": "sh -c 'ts=$(date +%Y%m%d-%H%M%S); tmp=${npm_config_tmp:-tmp/$ts}; final=${npm_config_save:-result/${ts}-final}; data=\"${npm_config_data:?use --data=<path>}\"; python helpers/runner.py --mode cpg --data \"$data\" --save \"$tmp\" && python helpers/runner.py --mode kast --data \"$tmp\" --save \"$final\" && rm -rf \"$tmp\" && echo \"Final output: $final\"'",
-    "generate:dfg": "sh -c 'out=${npm_config_output:-result/dfg/$(date +%Y%m%d-%H%M%S)} && tsx src/script/generateDFG.ts \"$npm_config_data\" \"$out\"'",
+    "generate:dfg": "sh -c 'out=${npm_config_save:-result/dfg/$(date +%Y%m%d-%H%M%S)} && tsx src/script/generateDFG.ts \"$npm_config_data\" \"$out\"'",
     "mongoose": "npm run generate:cpg --data=\"mongoose\" --output=\"result/mongoose/cpg\" && npm run generate:kast --data=\"result/mongoose\" --output=\"result/mongoose/kast\"",
     "zephyr": "npm run generate:cpg --data=\"zephyr\" --output=\"result/zephyr/cpg\" && npm run generate:kast --data=\"result/zephyr\" --output=\"result/zephyr/kast\"",
     "type-check": "tsc --noEmit",
