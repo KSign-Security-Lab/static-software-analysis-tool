@@ -12,23 +12,52 @@ import { ASTGraph, ASTNodes } from "@/types/node";
 import { writeJSONFiles } from "@/utils/json";
 import { TreeToText } from "@/utils/treeToText";
 
-// Usage: node generateAST.js <input_json> [output_path_or_dir]
+// Usage: tsx src/script/generateAST.ts <input_json> <output_dir>
 const args: string[] = process.argv.slice(2);
-const firstArg: string | undefined = args[0];
-const secondArg: string | undefined = args[1];
-// If the second arg ends with .json, treat it as an exact output file path, otherwise as a directory
-const isExactJsonPath = typeof secondArg === "string" && secondArg.toLowerCase().endsWith(".json");
-const savePath: string = isExactJsonPath ? path.dirname(secondArg) : secondArg ? (firstArg ? path.dirname(firstArg) : "") : "";
 
-if (!firstArg) {
-  console.error("Usage: node generateAST.js <input_json> [output_dir]");
+// ---- Strict CLI validation ----
+if (args.length < 2) {
+  console.error("Usage: tsx src/script/generateAST.ts <input_json> <output_dir>");
   process.exit(1);
 }
 
-async function main(inputFile: string): Promise<void> {
-  // Ensure output directory exists
-  fs.mkdirSync(savePath, { recursive: true });
+const inputArg = path.resolve(args[0]);
+const outDirArg = path.resolve(args[1]);
 
+// 1) Ensure input is a SINGLE file with .json extension
+let inputStat: fs.Stats;
+try {
+  inputStat = fs.statSync(inputArg);
+} catch {
+  console.error(`Input not found: ${inputArg}`);
+  process.exit(1);
+}
+if (!inputStat.isFile()) {
+  console.error(`Input must be a single JSON file, not a directory: ${inputArg}`);
+  process.exit(1);
+}
+if (path.extname(inputArg).toLowerCase() !== ".json") {
+  console.error(`Input must be a .json file: ${inputArg}`);
+  process.exit(1);
+}
+
+// 2) Ensure output directory is PROVIDED and is a directory (create if needed)
+try {
+  if (fs.existsSync(outDirArg)) {
+    const st = fs.statSync(outDirArg);
+    if (!st.isDirectory()) {
+      console.error(`Output path must be a directory, not a file: ${outDirArg}`);
+      process.exit(1);
+    }
+  } else {
+    fs.mkdirSync(outDirArg, { recursive: true });
+  }
+} catch (e) {
+  console.error(`Failed to prepare output directory: ${outDirArg}\n${e instanceof Error ? e.message : String(e)}`);
+  process.exit(1);
+}
+
+async function main(inputFile: string, outDir: string): Promise<void> {
   // Read and parse single CPG JSON
   let root: CPGRoot;
   try {
@@ -80,13 +109,12 @@ async function main(inputFile: string): Promise<void> {
   let kastResult: ASTNodes[] = withContext("removeInvalidNodes", () => postProcessor.removeInvalidNodes(converted));
   kastResult = withContext("addCodeProperties", () => postProcessor.addCodeProperties(kastResult, root));
 
-  // Outputs next to specified output directory
+  // Output paths inside the provided output directory
   const parsed = path.parse(inputFile);
-  const astOutPath = path.join(savePath, `${parsed.name}_astTree${parsed.ext}`);
-  // If an exact JSON output path was provided, write the KAST (template) JSON to that exact path
-  const templateAstOutPath = isExactJsonPath ? secondArg : path.join(savePath, `${parsed.name}_templateTree${parsed.ext}`);
-  const textFile = path.join(savePath, `${parsed.name}_text.txt`);
-  const flattenOutPath = path.join(savePath, `${parsed.name}_flatten.json`);
+  const astOutPath = path.join(outDir, `${parsed.name}_astTree${parsed.ext}`);
+  const templateAstOutPath = path.join(outDir, `${parsed.name}_templateTree${parsed.ext}`);
+  const textFile = path.join(outDir, `${parsed.name}_text.txt`);
+  const flattenOutPath = path.join(outDir, `${parsed.name}_flatten.json`);
 
   // Write JSON outputs
   writeSingleJSON(ast, astOutPath);
@@ -121,8 +149,7 @@ function writeSingleJSON(item: ASTGraph[] | ASTNodes[] | TreeNode[], outPath: st
 }
 
 void (async () => {
-  // after the early-exit guard, firstArg is defined
-  await main(firstArg);
+  await main(inputArg, outDirArg);
 })().catch((err: unknown) => {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
