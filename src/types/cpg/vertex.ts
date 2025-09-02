@@ -1,5 +1,5 @@
 // vertex.ts
-import { GraphSON, GraphSONValue, VertexProperty } from "./core";
+import { GraphSON, GraphSONValue, VertexProperty } from "./index";
 
 export interface BindingVertexProperties {
   METHOD_FULL_NAME: VertexProperty<string[]>;

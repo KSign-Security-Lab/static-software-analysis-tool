@@ -1,5 +1,5 @@
 // edge.ts
-import { VertexLabel } from "./core";
+import { VertexLabel } from "./index";
 
 export type AliasOfEdgeProperties = object;
 export type ArgumentEdgeProperties = object;
