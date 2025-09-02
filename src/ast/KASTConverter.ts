@@ -57,6 +57,7 @@ import {
   TypeDeclVertexProperties,
 } from "@/types/cpg";
 import { ASTNodes } from "@/types/node";
+import { randomIntWithLength } from "@/utils";
 
 type CallOperatorsReturnTypes =
   | IAddressOfExpression
@@ -204,7 +205,7 @@ export class KASTConverter {
 
     const paramListWrapper: IParameterList = {
       nodeType: ASTNodeTypes.ParameterList,
-      id: Number(node.id) || -999,
+      id: randomIntWithLength(String(node.id).length) || -999,
       children: this.convertedChildren(node.children),
     };
 
@@ -457,7 +458,7 @@ export class KASTConverter {
         children: [
           {
             nodeType: ASTNodeTypes.Identifier,
-            id: Number(node.id) || -999,
+            id: randomIntWithLength(String(node.id).length) || -999,
             name: node.name,
             type: predefinedType ?? type,
             size,
@@ -626,7 +627,7 @@ export class KASTConverter {
     ) {
       const paramList: IParameterList = {
         nodeType: ASTNodeTypes.ParameterList,
-        id: Number(node.id) || -999,
+        id: randomIntWithLength(String(node.id).length) || -999,
         children: node.children
           .filter((child) => child.label === "METHOD_PARAMETER_IN")
           .map((child) => this.dispatchConvert(child))
@@ -636,7 +637,7 @@ export class KASTConverter {
         paramList.children = [
           {
             nodeType: ASTNodeTypes.ParameterDeclaration,
-            id: -999,
+            id: randomIntWithLength(String(node.id).length) || -999,
             name: "<empty>",
             type: "<empty>",
             children: [],

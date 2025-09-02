@@ -8,7 +8,7 @@ import { PostProcessor } from "@/ast/PostProcessor";
 import { validateCPGRoot } from "@/cpg/validate/zod";
 import { ASTNodeTypes } from "@/types/ast/BaseNode/BaseNode";
 import { CPGRoot, TreeNode } from "@/types/cpg";
-import { ASTGraph, ASTNodes } from "@/types/node";
+import { ASTFlattenedGraph, ASTNodes } from "@/types/node";
 import { writeJSONFiles } from "@/utils/json";
 import { TreeToText } from "@/utils/treeToText";
 
@@ -126,6 +126,23 @@ async function main(inputFile: string, outDir: string): Promise<void> {
 
   // Write flattened KAST
   const flatten = planationTool.flatten(kastResult);
+  // Check whether all nodes in the flattened KAST have unique id
+  function collectIdsFromFlatten(graph: ASTFlattenedGraph): number[] {
+    const ids: number[] = [];
+    for (const node of graph.nodes) {
+      if (typeof node.id === "number") {
+        ids.push(node.id);
+      }
+    }
+    return ids;
+  }
+
+  const flattenIds = collectIdsFromFlatten(flatten[0]);
+  const flattenUniqueIds = new Set(flattenIds);
+  if (flattenIds.length !== flattenUniqueIds.size) {
+    const duplicates = flattenIds.filter((id, idx) => flattenIds.indexOf(id) !== idx);
+    throw new Error(`Duplicate node ids found in flattened KAST: ${[...new Set(duplicates)].join(", ")}`);
+  }
   writeSingleJSON(flatten, flattenOutPath);
 
   // Simple verification statement
@@ -143,7 +160,7 @@ function withContext<T>(fnName: string, fn: () => T): T {
   }
 }
 
-function writeSingleJSON(item: ASTGraph[] | ASTNodes[] | TreeNode[], outPath: string): string {
+function writeSingleJSON(item: ASTFlattenedGraph[] | ASTNodes[] | TreeNode[], outPath: string): string {
   const [written] = writeJSONFiles([item], [outPath]);
   return written;
 }

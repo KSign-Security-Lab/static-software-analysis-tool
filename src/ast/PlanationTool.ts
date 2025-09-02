@@ -1,10 +1,5 @@
 import { ASTNodeTypes } from "@/types/ast/BaseNode/BaseNode";
-import { ASTNodes } from "@/types/node";
-
-export interface ASTGraph {
-  edges: { from: number; to: number }[];
-  nodes: (ASTNodes & { id: number })[];
-}
+import { ASTFlattenedGraph, ASTNodes } from "@/types/node";
 
 export class PlanationTool {
   private blacklist: Set<ASTNodeTypes>;
@@ -16,11 +11,11 @@ export class PlanationTool {
   }
 
   /**
-   * Given an array of root ASTNodes, returns one ASTGraph per root,
+   * Given an array of root ASTNodes, returns one ASTFlattenedGraph per root,
    * where each graph has a flat list of nodes (with unique ids) and edges.
    */
-  public flatten(astRoots: ASTNodes[], removeBlackList = false): ASTGraph[] {
-    const graphs: ASTGraph[] = [];
+  public flatten(astRoots: ASTNodes[], removeBlackList = false): ASTFlattenedGraph[] {
+    const graphs: ASTFlattenedGraph[] = [];
 
     for (const root of astRoots) {
       this.reset();

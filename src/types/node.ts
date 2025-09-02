@@ -40,12 +40,14 @@ import { IPointerDeclaration } from "@/types/ast/ProgramStructures/PointerDeclar
 import { ITranslationUnit } from "@/types/ast/ProgramStructures/TranslationUnit";
 import { IVariableDeclaration } from "@/types/ast/ProgramStructures/VariableDeclaration";
 
-export interface ASTGraph {
-  edges: { from: number; to: number }[];
-  nodes: (ASTNodes & { id: number })[];
-}
-
 export type ASTNodes = ASTBlockNodes | ASTControlStructureNodes | ASTExpressionNodes | ASTPreprocessorDirectiveNodes | ASTProgramStructureNodes;
+
+export type ASTFlattenedNode = ASTNodes & { id: number };
+
+export interface ASTFlattenedGraph {
+  edges: { from: number; to: number }[];
+  nodes: ASTFlattenedNode[];
+}
 
 type ASTBlockNodes = ICompoundStatement;
 
