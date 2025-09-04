@@ -328,7 +328,7 @@ def main():
     parser.add_argument(
         "--data", required=True, help="Path to source file or directory."
     )
-    parser.add_argument("--save", help="Output directory for results (root).")
+    parser.add_argument("--output", help="Output directory for results (root).")
     parser.add_argument(
         "--ext",
         nargs="*",
@@ -350,8 +350,8 @@ def main():
 
     data_path = Path(args.data).resolve()
 
-    if args.save:
-        out_root = os.path.abspath(args.save)
+    if args.output:
+        out_root = os.path.abspath(args.output)
     else:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         out_root = os.path.abspath(os.path.join("result", ts, args.mode))
