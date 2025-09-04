@@ -36,32 +36,32 @@ npm run generate:full --data="<input_directory>"
 Flags:
 
 - `--data=<path>`: Input directory (raw C sources) or CPG directory for KAST
-- `--save=<path>`: **[optional]** Output directory for CPG/KAST/DFG stages
+- `--output=<path>`: **[optional]** Output directory for CPG/KAST/DFG stages
 
 Common tasks:
 
 **[Full pipeline (CPG → KAST)]**
 
 ```bash
-npm run generate:full --data="<input_directory/input_file.c>" --save="<out_dir>"
+npm run generate:full --data="<input_directory/input_file.c>" --output="<out_dir>"
 ```
 
 **[Generate only CPG]**
 
 ```bash
-npm run generate:cpg --data="<input_directory/input_file.c>" --save="<out_dir>"
+npm run generate:cpg --data="<input_directory/input_file.c>" --output="<out_dir>"
 ```
 
 **[Generate only KAST] (from a CPG directory)**
 
 ```bash
-npm run generate:kast --data="<cpg_dir/input_file.json>" --save="<out_dir>"
+npm run generate:kast --data="<cpg_dir/input_file.json>" --output="<out_dir>"
 ```
 
 **🚧 [Under Development] 🚧 Generate DFG (from a KAST/AST directory)**
 
 ```bash
-npm run generate:dfg --data="<kast_or_ast_dir/input_file.json>" --save="<out_dir>"
+npm run generate:dfg --data="<kast_or_ast_dir/input_file.json>" --output="<out_dir>"
 ```
 
 ### Examples
@@ -82,7 +82,7 @@ npm run zephyr
 
 ## Output
 
-Outputs are written under `result/` by default (timestamped) unless `--save`/`--output` is provided.
+Outputs are written under `result/` by default (timestamped) unless `--output` is provided.
 Each source will include:
 
 - `*_astTree.json`: Basic AST Processed from CPG
