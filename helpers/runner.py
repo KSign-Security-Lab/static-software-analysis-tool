@@ -25,8 +25,30 @@ def replace_macros(src_root: str, macro_exts=(".c", ".h")):
     macros = {}
     define_lines = {}
 
+    print(f"Scanning for macro definitions in {src_root} ...", file=sys.stderr)
+
     # First pass: collect macro definitions
     for root, _, files in os.walk(src_root):
+        # Check for macro replaced files and skip both original and replaced from further processing
+        # Collect base names of files that have already been macro replaced
+        macro_replaced_bases = set()
+        for fname in files:
+            if "_macro_replaced." in fname:
+                base = fname.replace("_macro_replaced", "")
+                macro_replaced_bases.add(base)
+
+        # Filter out both the original and macro replaced files from files list
+        files[:] = [
+            fname
+            for fname in files
+            if not (
+                fname in macro_replaced_bases
+                or fname.replace("_macro_replaced", "") in macro_replaced_bases
+            )
+        ]
+
+        print(f"Found {len(files)} files to process.", file=sys.stderr)
+
         for fname in files:
             if any(fname.lower().endswith(ext) for ext in macro_exts):
                 path = os.path.join(root, fname)
@@ -321,7 +343,7 @@ def main():
     parser.add_argument(
         "--replace-macro",
         action="store_true",
-        default=False,
+        default=True,
         help="Scan and replace #define macros in C/C++ code before processing.",
     )
     args = parser.parse_args()
@@ -342,17 +364,15 @@ def main():
         src_root_dir = str(data_path)  # root directory
         input_is_file = False
 
-    # Optional macro replacement (only meaningful for C/C++ sources)
-    if args.replace_macro:
-        replace_macros(src_root_dir, (".c", ".h"))
-
     print(f"Scanning for source files under {src_root_dir} ...", file=sys.stderr)
     default_exts = (
-        [".c", ".cpp", ".h", ".hpp", ".json"]  # cpg: accept code + json
-        if args.mode == "cpg"
-        else [".json"]  # kast: ONLY json inputs
+        [".c", ".cpp"] if args.mode == "cpg" else [".json"]  # kast: ONLY json inputs
     )
     exts = args.ext if args.ext is not None else default_exts
+
+    # Optional macro replacement (only meaningful for C/C++ sources)
+    if args.replace_macro:
+        replace_macros(src_root_dir, default_exts)
 
     if input_is_file:
         src_files = [str(data_path)]
