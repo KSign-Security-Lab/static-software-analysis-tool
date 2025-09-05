@@ -1,6 +1,0 @@
-[submodule "mongoose"]
-	path = mongoose
-	url = https://github.com/cesanta/mongoose.git
-[submodule "zephyr"]
-	path = zephyr
-	url = https://github.com/zephyrproject-rtos/zephyr.git

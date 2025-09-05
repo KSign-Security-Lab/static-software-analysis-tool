@@ -1,52 +1,33 @@
 {
-  "name": "c-ast-generator",
-  "version": "2.4.3",
-  "description": "",
-  "main": "index.js",
-  "type": "module",
+  "name": "static-software-analysis-tool",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "start": "tsx src/parser/server.js",
-    "submodule": "git submodule update --init --recursive",
-    "update": "npm run submodule && git fetch && git pull",
-    "generate:cpg": "sh -c 'python helpers/runner.py --mode cpg  --data \"${npm_config_data:?use --data=<path>}\"  ${npm_config_output:+--output \"$npm_config_output\"}'",
-    "generate:kast": "sh -c 'python helpers/runner.py --mode kast --data \"${npm_config_data:?use --data=<path>}\"  ${npm_config_output:+--output \"$npm_config_output\"}'",
-    "generate:full": "sh -c 'ts=$(date +%Y%m%d-%H%M%S); tmp=${npm_config_tmp:-tmp/$ts}; final=${npm_config_output:-result/${ts}-final}; data=\"${npm_config_data:?use --data=<path>}\"; python helpers/runner.py --mode cpg --data \"$data\" --output \"$tmp\" && python helpers/runner.py --mode kast --data \"$tmp\" --output \"$final\" && rm -rf \"$tmp\" && echo \"Final output: $final\"'",
-    "generate:dfg": "sh -c 'python helpers/runner.py --mode dfg --data \"${npm_config_data:?use --data=<path>}\"  ${npm_config_output:+--output \"$npm_config_output\"}'",
-    "mongoose": "npm run generate:cpg --data=\"mongoose\" --output=\"result/mongoose/cpg\" && npm run generate:kast --data=\"result/mongoose\" --output=\"result/mongoose/kast\"",
-    "zephyr": "npm run generate:cpg --data=\"zephyr\" --output=\"result/zephyr/cpg\" && npm run generate:kast --data=\"result/zephyr\" --output=\"result/zephyr/kast\"",
-    "type-check": "tsc --noEmit",
-    "lint": "eslint .",
-    "lint:fix": "eslint --fix .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "type-check": "npm run -ws --if-present type-check",
+    "lint": "npm run -ws --if-present lint",
+    "lint:fix": "npm run -ws --if-present lint:fix",
+    "format": "npm run -ws --if-present format",
+    "format:check": "npm run -ws --if-present format:check",
+    "test": "npm -ws --if-present test",
+    "generate:cpg": "npm -w @ssat/core run generate:cpg",
+    "generate:kast": "npm -w @ssat/core run generate:kast",
+    "generate:full": "npm -w @ssat/core run generate:full",
+    "generate:dfg": "npm -w @ssat/core run generate:dfg"
+  },
+  "engines": {
+    "node": ">=18.17 <23"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keonoh00/C-AST-Generator.git"
+    "url": "git+https://github.com/keonoh00/static-software-analysis-tool.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/keonoh00/C-AST-Generator/issues"
+    "url": "https://github.com/keonoh00/static-software-analysis-tool/issues"
   },
-  "homepage": "https://github.com/keonoh00/C-AST-Generator#readme",
-  "devDependencies": {
-    "@eslint/js": "^9.27.0",
-    "@tsconfig/node22": "^22.0.2",
-    "@types/cli-progress": "^3.11.6",
-    "@types/express": "^5.0.3",
-    "eslint": "^9.27.0",
-    "eslint-plugin-perfectionist": "^4.15.0",
-    "prettier": "^3.5.3",
-    "tsx": "^4.19.4",
-    "typescript": "^5.8.3",
-    "typescript-eslint": "^8.33.0"
-  },
-  "dependencies": {
-    "cli-progress": "^3.12.0",
-    "express": "^5.1.0",
-    "zod": "^3.25.67"
-  }
+  "homepage": "https://github.com/keonoh00/static-software-analysis-tool#readme"
 }

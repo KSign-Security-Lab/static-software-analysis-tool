@@ -1,0 +1,14 @@
+{
+  "eslint.workingDirectories": [
+    { "mode": "auto" },
+    "packages/core"
+  ],
+  "eslint.useFlatConfig": true,
+  "eslint.experimental.useFlatConfig": true,
+  "eslint.validate": [
+    "typescript",
+    "typescriptreact",
+    "javascript"
+  ]
+}
+
