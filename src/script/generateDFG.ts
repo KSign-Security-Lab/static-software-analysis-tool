@@ -1,10 +1,12 @@
 import fs from "fs";
 import path from "path";
 
-import { CPGFilter } from "@/cpg/CPGFilter";
 import { validateCPGRoot } from "@/cpg/validate/zod";
 import { DFGBuilder } from "@/dfg/DFGBuilder";
+import DFGSync from "@/dfg/DFGSync";
 import { CPGRoot } from "@/types/cpg";
+import { IDFGGraph } from "@/types/dfg";
+import { ASTFlattenedGraph } from "@/types/node";
 import { writeJSONFiles } from "@/utils/json";
 
 // Usage: node generateDFG.js <input_json> [output_path_or_dir]
@@ -20,11 +22,17 @@ if (!firstArg) {
   process.exit(1);
 }
 
-async function main(inputFile: string): Promise<void> {
-  // Ensure output directory exists
-  fs.mkdirSync(savePath, { recursive: true });
+function verifyCPG(root: CPGRoot, inputFile: string): void {
+  try {
+    validateCPGRoot([root.export]);
+    console.log(`Verified CPG GraphSON: ${path.basename(inputFile)}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Validation failed for ${path.basename(inputFile)}: ${msg}`);
+  }
+}
 
-  // Read and parse single CPG JSON
+async function readCPG(inputFile: string): Promise<CPGRoot> {
   let root: CPGRoot;
   try {
     const raw = await fs.promises.readFile(inputFile, "utf8");
@@ -33,34 +41,46 @@ async function main(inputFile: string): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Read/parse error for ${path.basename(inputFile)}: ${msg}`);
   }
-
-  // Verify GraphSON structure
-  try {
-    validateCPGRoot([root.export]);
-    console.log(`Verified CPG GraphSON: ${path.basename(inputFile)}`);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Validation failed for ${path.basename(inputFile)}: ${msg}`);
-  }
-
-  const filter = new CPGFilter(root);
-  const dfgBuilder = new DFGBuilder();
-  const rawDFG = dfgBuilder.build(filter.filterDFG());
-
-  // Build output path following generateAST style
-  const parsed = path.parse(inputFile);
-  const outPath = isExactJsonPath ? secondArg : path.join(savePath, `${parsed.name}_dfg${parsed.ext}`);
-
-  // Write JSON outputs
-  writeSingleJSON(rawDFG, outPath);
-
-  // Simple verification statement
-  console.log(`Generated: ${path.basename(outPath)}`);
+  return root;
 }
 
 function writeSingleJSON(item: unknown, outPath: string): string {
   const [written] = writeJSONFiles([item], [outPath]);
   return written;
+}
+
+function saveOutput(dfg: IDFGGraph, inputFile: string): void {
+  const parsed = path.parse(inputFile);
+  const outPath = isExactJsonPath ? secondArg : path.join(savePath, `${parsed.name}_dfg${parsed.ext}`);
+
+  writeSingleJSON(dfg, outPath);
+  console.log(`Generated: ${path.basename(outPath)}`);
+}
+
+async function readAST(inputFile: string): Promise<ASTFlattenedGraph> {
+  const raw = await fs.promises.readFile(inputFile, "utf8");
+  return JSON.parse(raw) as ASTFlattenedGraph;
+}
+
+function syncDFG(dfg: IDFGGraph, ast: ASTFlattenedGraph): IDFGGraph {
+  const dfgSync = new DFGSync(dfg, ast);
+  return dfgSync.sync();
+}
+
+async function main(inputFile: string): Promise<void> {
+  fs.mkdirSync(savePath, { recursive: true });
+
+  const root = await readCPG(inputFile);
+
+  verifyCPG(root, inputFile);
+
+  const dfgBuilder = new DFGBuilder(root);
+  const rawDFG = dfgBuilder.build();
+  const ast = await readAST(inputFile);
+
+  const syncedDFG = syncDFG(rawDFG, ast);
+
+  saveOutput(syncedDFG, inputFile);
 }
 
 void (async () => {

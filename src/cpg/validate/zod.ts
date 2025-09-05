@@ -43,7 +43,7 @@ const SingleCPGRootSchema = GraphSON(GraphDataSchema);
 // Array of Root GraphSON objects
 const CPGRootArraySchema = z.array(SingleCPGRootSchema);
 
-export type CPGRoot = z.infer<typeof SingleCPGRootSchema>;
+type CPGRoot = z.infer<typeof SingleCPGRootSchema>;
 
 /**
  * Parses and validates unknown JSON.

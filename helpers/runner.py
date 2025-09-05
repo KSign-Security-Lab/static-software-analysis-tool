@@ -264,6 +264,51 @@ def process_file_kast(task):
     return (src_file, True, "OK")
 
 
+def process_file_dfg(task):
+    src_file, src_root, out_root = task
+    rel_path = os.path.relpath(src_file, src_root)
+    base_no_ext, ext = os.path.splitext(rel_path)
+
+    if base_no_ext in (".", ""):
+        base_no_ext = os.path.splitext(os.path.basename(src_file))[0]
+
+    if ext.lower() != ".json":
+        return (src_file, False, "dfg expects .json CPG inputs")
+
+    # Put outputs for this file under out_root/<rel/path/without_ext>/
+    out_dir = os.path.join(out_root, base_no_ext)
+
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception as e:
+        return (src_file, False, f"Failed to create output dir: {e}")
+
+    # Run exactly as your working manual call
+    cmd = ["npx", "tsx", "src/script/generateDFG.ts", src_file, out_dir]
+    proc = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
+
+    if proc.returncode != 0:
+        msg = proc.stderr.strip() or "dfg command returned non-zero exit"
+        return (src_file, False, f"dfg failed: {msg}")
+
+    # Validate the four expected outputs
+    name = os.path.basename(base_no_ext)  # file name without extension
+    expected = [
+        os.path.join(out_dir, f"{name}_dfg.json"),
+    ]
+    missing = [p for p in expected if not os.path.isfile(p)]
+    if missing:
+        return (
+            src_file,
+            False,
+            f"dfg missing expected outputs: {', '.join(os.path.basename(m) for m in missing)}",
+        )
+
+    return (src_file, True, "OK")
+
+
 # ---------------------------
 # Orchestration
 # ---------------------------
@@ -277,9 +322,14 @@ def run_tasks(mode, src_files, src_root, out_root, workers):
     if mode == "cpg":
         tasks = [(fpath, src_root, out_root) for fpath in src_files]
         worker = process_file_cpg
-    else:  # "kast"
+    elif mode == "kast":
         tasks = [(fpath, src_root, out_root) for fpath in src_files]
         worker = process_file_kast
+    elif mode == "dfg":
+        tasks = [(fpath, src_root, out_root) for fpath in src_files]
+        worker = process_file_dfg
+    else:
+        raise ValueError(f"Invalid mode: {mode}")
 
     successes = 0
     failures = []
@@ -323,7 +373,10 @@ def main():
         description="Batch processor: 'cpg' (joern-parse/export) or 'kast' (tsx AST generator)."
     )
     parser.add_argument(
-        "--mode", required=True, choices=["cpg", "kast"], help="Run mode: cpg or kast."
+        "--mode",
+        required=True,
+        choices=["cpg", "kast", "dfg"],
+        help="Run mode: cpg or kast or dfg.",
     )
     parser.add_argument(
         "--data", required=True, help="Path to source file or directory."
@@ -366,7 +419,9 @@ def main():
 
     print(f"Scanning for source files under {src_root_dir} ...", file=sys.stderr)
     default_exts = (
-        [".c", ".cpp"] if args.mode == "cpg" else [".json"]  # kast: ONLY json inputs
+        [".c", ".cpp"]
+        if args.mode == "cpg"
+        else [".json"]  # kast: ONLY json inputs or dfg: ONLY json inputs
     )
     exts = args.ext if args.ext is not None else default_exts
 
