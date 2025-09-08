@@ -216,7 +216,7 @@ def process_file_cpg(task):
     return (src_file, True, "OK")
 
 
-def process_file_kast(task):
+def process_file_template(task):
     src_file, src_root, out_root = task
     rel_path = os.path.relpath(src_file, src_root)
     base_no_ext, ext = os.path.splitext(rel_path)
@@ -225,7 +225,7 @@ def process_file_kast(task):
         base_no_ext = os.path.splitext(os.path.basename(src_file))[0]
 
     if ext.lower() != ".json":
-        return (src_file, False, "kast expects .json CPG inputs")
+        return (src_file, False, "template expects .json CPG inputs")
 
     # Put outputs for this file under out_root/<rel/path/without_ext>/
     out_dir = os.path.join(out_root, base_no_ext)
@@ -236,14 +236,14 @@ def process_file_kast(task):
         return (src_file, False, f"Failed to create output dir: {e}")
 
     # Run exactly as your working manual call
-    cmd = ["npx", "tsx", "script/generateAST.ts", src_file, out_dir]
+    cmd = ["npx", "tsx", "script/generateTemplate.ts", src_file, out_dir]
     proc = subprocess.run(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
 
     if proc.returncode != 0:
-        msg = proc.stderr.strip() or "kast command returned non-zero exit"
-        return (src_file, False, f"kast failed: {msg}")
+        msg = proc.stderr.strip() or "template command returned non-zero exit"
+        return (src_file, False, f"template failed: {msg}")
 
     # Validate the four expected outputs
     name = os.path.basename(base_no_ext)  # file name without extension
@@ -258,7 +258,7 @@ def process_file_kast(task):
         return (
             src_file,
             False,
-            f"kast missing expected outputs: {', '.join(os.path.basename(m) for m in missing)}",
+            f"template missing expected outputs: {', '.join(os.path.basename(m) for m in missing)}",
         )
 
     return (src_file, True, "OK")
@@ -322,9 +322,9 @@ def run_tasks(mode, src_files, src_root, out_root, workers):
     if mode == "cpg":
         tasks = [(fpath, src_root, out_root) for fpath in src_files]
         worker = process_file_cpg
-    elif mode == "kast":
+    elif mode == "template":
         tasks = [(fpath, src_root, out_root) for fpath in src_files]
-        worker = process_file_kast
+        worker = process_file_template
     elif mode == "dfg":
         tasks = [(fpath, src_root, out_root) for fpath in src_files]
         worker = process_file_dfg
@@ -370,13 +370,13 @@ def run_tasks(mode, src_files, src_root, out_root, workers):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Batch processor: 'cpg' (joern-parse/export) or 'kast' (tsx AST generator)."
+        description="Batch processor: 'cpg' (joern-parse/export) or 'template' (tsx AST generator)."
     )
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["cpg", "kast", "dfg"],
-        help="Run mode: cpg or kast or dfg.",
+        choices=["cpg", "template", "dfg"],
+        help="Run mode: cpg or template or dfg.",
     )
     parser.add_argument(
         "--data", required=True, help="Path to source file or directory."
@@ -421,7 +421,7 @@ def main():
     default_exts = (
         [".c", ".cpp"]
         if args.mode == "cpg"
-        else [".json"]  # kast: ONLY json inputs or dfg: ONLY json inputs
+        else [".json"]  # template: ONLY json inputs or dfg: ONLY json inputs
     )
     exts = args.ext if args.ext is not None else default_exts
 

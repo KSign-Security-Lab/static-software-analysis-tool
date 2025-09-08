@@ -1,5 +1,5 @@
 import { TreeNode } from "../types/cpg";
-import { ASTNodes } from "../types/node";
+import { TemplateNodes } from "../types/node";
 
 export class TreeToText {
   private blacklistProps: Set<string>;
@@ -15,7 +15,7 @@ export class TreeToText {
   /**
    * Entry: convert an ASTNodes into a text tree.
    */
-  public convert(root: ASTNodes): string {
+  public convert(root: TemplateNodes): string {
     const lines: string[] = [];
     this.buildLines(root, "", true, lines, 0);
     return lines.join("\n");
@@ -29,7 +29,7 @@ export class TreeToText {
    * @param lines Collector for output lines.
    * @param depth Current depth (root=0, children=1, ...).
    */
-  private buildLines(node: ASTNodes | TreeNode, prefix: string, isLast: boolean, lines: string[], depth: number): void {
+  private buildLines(node: TemplateNodes | TreeNode, prefix: string, isLast: boolean, lines: string[], depth: number): void {
     let typeName: string;
     if ("nodeType" in node && typeof node.nodeType === "string") {
       typeName = node.nodeType;
@@ -53,7 +53,7 @@ export class TreeToText {
   /**
    * Format all keys except nodeType, label, children, and any in blacklistProps into "(k=v, ...)".
    */
-  private formatAttributes(node: ASTNodes | TreeNode): string {
+  private formatAttributes(node: TemplateNodes | TreeNode): string {
     const parts: string[] = [];
     for (const [key, value] of Object.entries(node)) {
       if (key === "nodeType" || key === "label" || key === "children") {

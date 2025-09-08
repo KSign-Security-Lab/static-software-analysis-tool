@@ -34,15 +34,15 @@
     "paths": {
       "@/*": ["*"],
       "@/types/*": ["types/*"],
-      "@/ast/*": ["ast/*"],
+      "@/template/*": ["template/*"],
       "@/cpg/*": ["cpg/*"],
       "@/dfg/*": ["dfg/*"],
       "@/utils/*": ["utils/*"],
       "@/script/*": ["script/*"]
-    } /* Map '@/' to package root (ast, dfg, types, utils, script). */,
+    } /* Map '@/' to package root (template, dfg, types, utils, script). */,
     // "rootDirs": [],                                   /* Allow multiple folders to be treated as one when resolving modules. */
     // "typeRoots": ["node_modules/@types"],            /* Use default resolution across workspace. */
-    "types": ["node"],                                  /* Include Node.js ambient types. */
+    "types": ["node"] /* Include Node.js ambient types. */,
     // "allowUmdGlobalAccess": true,                     /* Allow accessing UMD globals from modules. */
     // "moduleSuffixes": [],                             /* List of file name suffixes to search when resolving a module. */
     // "allowImportingTsExtensions": true,               /* Allow imports to include TypeScript file extensions. Requires '--moduleResolution bundler' and either '--noEmit' or '--emitDeclarationOnly' to be set. */
@@ -119,5 +119,5 @@
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true /* Skip type checking all .d.ts files. */
   },
-  "include": ["utils/**/*", "types/**/*", "script/**/*", "dfg/**/*", "cpg/**/*", "ast/**/*"]
+  "include": ["utils/**/*", "types/**/*", "script/**/*", "dfg/**/*", "cpg/**/*", "template/**/*"]
 }

@@ -1,11 +1,11 @@
 import { IDFGGraph } from "../types/dfg";
-import { ASTFlattenedGraph } from "../types/node";
+import { TemplateFlattenedGraph } from "../types/node";
 
 class DFGSync {
   private readonly dfg: IDFGGraph;
-  private readonly ast: ASTFlattenedGraph;
+  private readonly ast: TemplateFlattenedGraph;
 
-  constructor(dfg: IDFGGraph, ast: ASTFlattenedGraph) {
+  constructor(dfg: IDFGGraph, ast: TemplateFlattenedGraph) {
     this.dfg = dfg;
     this.ast = ast;
   }

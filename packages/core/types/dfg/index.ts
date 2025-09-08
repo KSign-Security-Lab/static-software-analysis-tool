@@ -1,4 +1,4 @@
-import { ASTNodeTypes } from "../ast/BaseNode/BaseNode";
+import { TemplateNodeTypes } from "../template/BaseNode/BaseNode";
 
 export enum FlowType {
   BASE = "BASE",
@@ -22,7 +22,7 @@ export interface IDFGEdgeFeature {
 }
 
 export interface IDFGNodeFeature {
-  nodeType: ASTNodeTypes;
+  nodeType: TemplateNodeTypes;
   inDegreeDFG: number;
   outDegreeDFG: number;
   defCount: number;

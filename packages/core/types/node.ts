@@ -1,57 +1,62 @@
-import { ICompoundStatement } from "./ast/Block/CompoundStatement";
-import { IBreakStatement } from "./ast/ControlStructures/BreakStatement";
-import { ICaseLabel } from "./ast/ControlStructures/CaseLabel";
-import { IContinueStatement } from "./ast/ControlStructures/ContinueStatement";
-import { IDefaultLabel } from "./ast/ControlStructures/DefaultLabel";
-import { IDoWhileStatement } from "./ast/ControlStructures/DoWhileStatement";
-import { IForStatement } from "./ast/ControlStructures/ForStatement";
-import { IGotoStatement } from "./ast/ControlStructures/GotoStatement";
-import { IIfStatement } from "./ast/ControlStructures/IfStatement";
-import { ILabel } from "./ast/ControlStructures/Label";
-import { IReturnStatement } from "./ast/ControlStructures/ReturnStatement";
-import { ISwitchStatement } from "./ast/ControlStructures/SwitchStatement";
-import { IWhileStatement } from "./ast/ControlStructures/WhileStatement";
-import { IEnumType } from "./ast/DataTypes/EnumType";
-import { IStructType } from "./ast/DataTypes/StructType";
-import { ITypeDefinition } from "./ast/DataTypes/TypeDefinition";
-import { IUnionType } from "./ast/DataTypes/UnionType";
-import { IAddressOfExpression } from "./ast/Expressions/AddressOfExpression";
-import { IArraySizeAllocation } from "./ast/Expressions/ArraySizeAllocation";
-import { IArraySubscriptExpression } from "./ast/Expressions/ArraySubscriptExpression";
-import { IAssignmentExpression } from "./ast/Expressions/AssignmentExpression";
-import { IBinaryExpression } from "./ast/Expressions/BinaryExpression";
-import { ICastExpression } from "./ast/Expressions/CastExpression";
-import { IIdentifier } from "./ast/Expressions/Identifier";
-import { ILiteral } from "./ast/Expressions/Literal";
-import { IMemberAccess } from "./ast/Expressions/MemberAccess";
-import { IPointerDereference } from "./ast/Expressions/PointerDereference";
-import { ISizeOfExpression } from "./ast/Expressions/SizeOfExpression";
-import { IStandardLibCall } from "./ast/Expressions/StandardLibCall";
-import { IUnaryExpression } from "./ast/Expressions/UnaryExpression";
-import { IUserDefinedCall } from "./ast/Expressions/UserDefinedCall";
-import { IIncludeDirective } from "./ast/PreprocessorDirectives/IncludeDirective";
-import { IMacroDefinition } from "./ast/PreprocessorDirectives/MacroDefinition";
-import { IArrayDeclaration } from "./ast/ProgramStructures/ArrayDeclaration";
-import { IFunctionDeclaration } from "./ast/ProgramStructures/FunctionDeclaration";
-import { IFunctionDefinition } from "./ast/ProgramStructures/FunctionDefinition";
-import { IParameterDeclaration } from "./ast/ProgramStructures/ParameterDeclaration";
-import { IParameterList } from "./ast/ProgramStructures/ParameterList";
-import { IPointerDeclaration } from "./ast/ProgramStructures/PointerDeclaration";
-import { ITranslationUnit } from "./ast/ProgramStructures/TranslationUnit";
-import { IVariableDeclaration } from "./ast/ProgramStructures/VariableDeclaration";
+import { ICompoundStatement } from "./template/Block/CompoundStatement";
+import { IBreakStatement } from "./template/ControlStructures/BreakStatement";
+import { ICaseLabel } from "./template/ControlStructures/CaseLabel";
+import { IContinueStatement } from "./template/ControlStructures/ContinueStatement";
+import { IDefaultLabel } from "./template/ControlStructures/DefaultLabel";
+import { IDoWhileStatement } from "./template/ControlStructures/DoWhileStatement";
+import { IForStatement } from "./template/ControlStructures/ForStatement";
+import { IGotoStatement } from "./template/ControlStructures/GotoStatement";
+import { IIfStatement } from "./template/ControlStructures/IfStatement";
+import { ILabel } from "./template/ControlStructures/Label";
+import { IReturnStatement } from "./template/ControlStructures/ReturnStatement";
+import { ISwitchStatement } from "./template/ControlStructures/SwitchStatement";
+import { IWhileStatement } from "./template/ControlStructures/WhileStatement";
+import { IEnumType } from "./template/DataTypes/EnumType";
+import { IStructType } from "./template/DataTypes/StructType";
+import { ITypeDefinition } from "./template/DataTypes/TypeDefinition";
+import { IUnionType } from "./template/DataTypes/UnionType";
+import { IAddressOfExpression } from "./template/Expressions/AddressOfExpression";
+import { IArraySizeAllocation } from "./template/Expressions/ArraySizeAllocation";
+import { IArraySubscriptExpression } from "./template/Expressions/ArraySubscriptExpression";
+import { IAssignmentExpression } from "./template/Expressions/AssignmentExpression";
+import { IBinaryExpression } from "./template/Expressions/BinaryExpression";
+import { ICastExpression } from "./template/Expressions/CastExpression";
+import { IIdentifier } from "./template/Expressions/Identifier";
+import { ILiteral } from "./template/Expressions/Literal";
+import { IMemberAccess } from "./template/Expressions/MemberAccess";
+import { IPointerDereference } from "./template/Expressions/PointerDereference";
+import { ISizeOfExpression } from "./template/Expressions/SizeOfExpression";
+import { IStandardLibCall } from "./template/Expressions/StandardLibCall";
+import { IUnaryExpression } from "./template/Expressions/UnaryExpression";
+import { IUserDefinedCall } from "./template/Expressions/UserDefinedCall";
+import { IIncludeDirective } from "./template/PreprocessorDirectives/IncludeDirective";
+import { IMacroDefinition } from "./template/PreprocessorDirectives/MacroDefinition";
+import { IArrayDeclaration } from "./template/ProgramStructures/ArrayDeclaration";
+import { IFunctionDeclaration } from "./template/ProgramStructures/FunctionDeclaration";
+import { IFunctionDefinition } from "./template/ProgramStructures/FunctionDefinition";
+import { IParameterDeclaration } from "./template/ProgramStructures/ParameterDeclaration";
+import { IParameterList } from "./template/ProgramStructures/ParameterList";
+import { IPointerDeclaration } from "./template/ProgramStructures/PointerDeclaration";
+import { ITranslationUnit } from "./template/ProgramStructures/TranslationUnit";
+import { IVariableDeclaration } from "./template/ProgramStructures/VariableDeclaration";
 
-export type ASTNodes = ASTBlockNodes | ASTControlStructureNodes | ASTExpressionNodes | ASTPreprocessorDirectiveNodes | ASTProgramStructureNodes;
+export type TemplateNodes =
+  | TemplateBlockNodes
+  | TemplateControlStructureNodes
+  | TemplateExpressionNodes
+  | TemplatePreprocessorDirectiveNodes
+  | TemplateProgramStructureNodes;
 
-export type ASTFlattenedNode = ASTNodes & { id: number };
+export type TemplateFlattenedNode = TemplateNodes & { id: number };
 
-export interface ASTFlattenedGraph {
+export interface TemplateFlattenedGraph {
   edges: { from: number; to: number }[];
-  nodes: ASTFlattenedNode[];
+  nodes: TemplateFlattenedNode[];
 }
 
-type ASTBlockNodes = ICompoundStatement;
+type TemplateBlockNodes = ICompoundStatement;
 
-type ASTControlStructureNodes =
+type TemplateControlStructureNodes =
   | IBreakStatement
   | ICaseLabel
   | IContinueStatement
@@ -69,7 +74,7 @@ type ASTControlStructureNodes =
   | IUnionType
   | IWhileStatement;
 
-type ASTExpressionNodes =
+type TemplateExpressionNodes =
   | IAddressOfExpression
   | IArraySizeAllocation
   | IArraySubscriptExpression
@@ -85,9 +90,9 @@ type ASTExpressionNodes =
   | IUnaryExpression
   | IUserDefinedCall;
 
-type ASTPreprocessorDirectiveNodes = IIncludeDirective | IMacroDefinition;
+type TemplatePreprocessorDirectiveNodes = IIncludeDirective | IMacroDefinition;
 
-type ASTProgramStructureNodes =
+type TemplateProgramStructureNodes =
   | IArrayDeclaration
   | IFunctionDeclaration
   | IFunctionDefinition

@@ -6,7 +6,7 @@ import { DFGBuilder } from "../dfg/DFGBuilder";
 import DFGSync from "../dfg/DFGSync";
 import { CPGRoot } from "../types/cpg";
 import { IDFGGraph } from "../types/dfg";
-import { ASTFlattenedGraph } from "../types/node";
+import { TemplateFlattenedGraph } from "../types/node";
 import { writeJSONFiles } from "../utils/json";
 
 // Usage: tsx script/generateDFG.ts <input_json> [output_path_or_dir]
@@ -57,12 +57,12 @@ function saveOutput(dfg: IDFGGraph, inputFile: string): void {
   console.log(`Generated: ${path.basename(outPath)}`);
 }
 
-async function readAST(inputFile: string): Promise<ASTFlattenedGraph> {
+async function readAST(inputFile: string): Promise<TemplateFlattenedGraph> {
   const raw = await fs.promises.readFile(inputFile, "utf8");
-  return JSON.parse(raw) as ASTFlattenedGraph;
+  return JSON.parse(raw) as TemplateFlattenedGraph;
 }
 
-function syncDFG(dfg: IDFGGraph, ast: ASTFlattenedGraph): IDFGGraph {
+function syncDFG(dfg: IDFGGraph, ast: TemplateFlattenedGraph): IDFGGraph {
   const dfgSync = new DFGSync(dfg, ast);
   return dfgSync.sync();
 }
