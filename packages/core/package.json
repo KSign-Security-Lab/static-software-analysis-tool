@@ -4,6 +4,7 @@
   "description": "",
   "type": "module",
   "scripts": {
+    "start:ast": "cd ../.. && PYTHONPATH=. python -m uvicorn packages.core.ast.server:app --reload --reload-dir packages/core --port 8000",
     "generate:cpg": "sh -c 'python helpers/runner.py --mode cpg  --data \"${npm_config_data:?use --data=<path>}\"  ${npm_config_output:+--output \"$npm_config_output\"}'",
     "generate:template": "sh -c 'python helpers/runner.py --mode template --data \"${npm_config_data:?use --data=<path>}\"  ${npm_config_output:+--output \"$npm_config_output\"}'",
     "generate:full": "sh -c 'ts=$(date +%Y%m%d-%H%M%S); tmp=${npm_config_tmp:-tmp/$ts}; final=${npm_config_output:-result/${ts}-final}; data=\"${npm_config_data:?use --data=<path>}\"; python helpers/runner.py --mode cpg --data \"$data\" --output \"$tmp\" && python helpers/runner.py --mode template --data \"$tmp\" --output \"$final\" && rm -rf \"$tmp\" && echo \"Final output: $final\"'",

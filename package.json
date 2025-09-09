@@ -11,6 +11,7 @@
     "format": "npm run -ws --if-present format",
     "format:check": "npm run -ws --if-present format:check",
     "test": "npm -ws --if-present test",
+    "start:ast": "npm -w @ssat/core run start:ast",
     "generate:cpg": "npm -w @ssat/core run generate:cpg",
     "generate:kast": "npm -w @ssat/core run generate:kast",
     "generate:full": "npm -w @ssat/core run generate:full",

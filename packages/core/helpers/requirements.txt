@@ -1,1 +1,7 @@
 tqdm==4.67.1
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=1.10
+
+# optional (recommended)
+gunicorn>=21.2
