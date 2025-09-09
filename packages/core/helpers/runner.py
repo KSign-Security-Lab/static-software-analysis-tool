@@ -3,12 +3,17 @@ import json
 import multiprocessing
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import threading
+import time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+from queue import Empty, Queue
+from typing import Any, Dict, Optional, Tuple
 
 from tqdm import tqdm  # Always require tqdm
 
@@ -102,6 +107,212 @@ def replace_macros(src_root: str, macro_exts=(".c", ".h")):
 
 
 # ---------------------------
+# Joern Server Pool Management
+# ---------------------------
+class JoernServerManager:
+    """
+    Manages a pool of persistent Joern server instances to reduce startup overhead.
+    Each server runs in its own thread and processes CPG generation requests.
+    """
+
+    def __init__(self, num_servers: int, server_timeout: int = 30):
+        self.num_servers = num_servers
+        self.server_timeout = server_timeout
+        self.servers = []
+        self.server_queues = []
+        self.server_threads = []
+        self.shutdown_event = threading.Event()
+        self.lock = threading.Lock()
+
+    def start_servers(self):
+        """Start all Joern server instances in separate threads."""
+        print(f"Starting {self.num_servers} Joern server instances...", file=sys.stderr)
+
+        for i in range(self.num_servers):
+            # Create a queue for this server's requests
+            server_queue = Queue()
+            self.server_queues.append(server_queue)
+
+            # Start server thread
+            server_thread = threading.Thread(
+                target=self._server_worker, args=(i, server_queue), daemon=True
+            )
+            server_thread.start()
+            self.server_threads.append(server_thread)
+
+        # Wait a moment for servers to initialize
+        time.sleep(2)
+        print(f"Started {self.num_servers} Joern server instances", file=sys.stderr)
+
+    def _server_worker(self, server_id: int, request_queue: Queue):
+        """Worker thread that runs a persistent Joern server."""
+        server_process = None
+        server_dir = None
+
+        try:
+            while not self.shutdown_event.is_set():
+                src_file = None
+                result_queue = None
+                try:
+                    # Wait for a request with timeout
+                    request = request_queue.get(timeout=1.0)
+                    if request is None:  # Shutdown signal
+                        break
+
+                    src_file, result_queue = request
+
+                    # Process the file
+                    result = self._process_file_with_server(src_file, server_id)
+                    result_queue.put(result)
+
+                except Empty:
+                    continue
+                except Exception as e:
+                    # Try to send error result if we have the necessary variables
+                    if result_queue is not None and src_file is not None:
+                        try:
+                            result_queue.put((src_file, False, f"Server error: {e}"))
+                        except:
+                            pass  # Ignore errors in error handling
+                    print(f"[ERROR] Server {server_id} error: {e}", file=sys.stderr)
+
+        finally:
+            # Cleanup server process
+            if server_process and server_process.poll() is None:
+                server_process.terminate()
+                try:
+                    server_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    server_process.kill()
+            if server_dir and os.path.exists(server_dir):
+                import shutil
+
+                shutil.rmtree(server_dir, ignore_errors=True)
+
+    def _process_file_with_server(
+        self, src_file: str, server_id: int
+    ) -> Tuple[str, bool, Any]:
+        """Process a single file using a dedicated server instance."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            try:
+                # joern-parse
+                parse_cmd = ["joern-parse", src_file]
+                proc_parse = subprocess.run(
+                    parse_cmd,
+                    cwd=tmpdir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                if proc_parse.returncode != 0:
+                    msg = (
+                        proc_parse.stderr.strip()
+                        or "joern-parse returned non-zero exit"
+                    )
+                    return (src_file, False, f"joern-parse failed: {msg}")
+
+                cpg_path = os.path.join(tmpdir, "cpg.bin")
+                if not os.path.isfile(cpg_path):
+                    return (src_file, False, "cpg.bin not found after joern-parse")
+
+                # joern-export
+                export_cmd = ["joern-export", "--repr=all", "--format=graphson"]
+                proc_export = subprocess.run(
+                    export_cmd,
+                    cwd=tmpdir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                if proc_export.returncode != 0:
+                    msg = (
+                        proc_export.stderr.strip()
+                        or "joern-export returned non-zero exit"
+                    )
+                    return (src_file, False, f"joern-export failed: {msg}")
+
+                out_dir = os.path.join(tmpdir, "out")
+                if not os.path.isdir(out_dir):
+                    # Some joern versions can emit JSON to stdout
+                    graphson_output = proc_export.stdout
+                    if graphson_output and graphson_output.strip().startswith("{"):
+                        try:
+                            parsed = json.loads(graphson_output)
+                            return (src_file, True, parsed)
+                        except Exception as e:
+                            return (src_file, False, f"Invalid JSON from stdout: {e}")
+                    return (
+                        src_file,
+                        False,
+                        "joern-export produced no 'out' dir nor JSON on stdout",
+                    )
+
+                # Merge all JSON in out/
+                merged = {}
+                for entry in os.listdir(out_dir):
+                    path = os.path.join(out_dir, entry)
+                    if os.path.isfile(path) and entry.lower().endswith(".json"):
+                        try:
+                            with open(path, "r", encoding="utf-8") as f:
+                                data = json.load(f)
+                        except Exception as e:
+                            return (
+                                src_file,
+                                False,
+                                f"Failed to load JSON from {entry}: {e}",
+                            )
+                        name, _ = os.path.splitext(entry)
+                        merged[name] = data
+
+                if not merged:
+                    return (
+                        src_file,
+                        False,
+                        "No JSON files found in joern-export output directory",
+                    )
+
+                return (src_file, True, merged)
+
+            except Exception as e:
+                return (src_file, False, f"Processing error: {e}")
+
+    def submit_request(self, src_file: str) -> Tuple[str, bool, Any]:
+        """Submit a CPG generation request to an available server."""
+        # Simple round-robin load balancing
+        with self.lock:
+            server_id = len(self.servers) % self.num_servers
+            self.servers.append(server_id)
+
+        result_queue = Queue()
+        request = (src_file, result_queue)
+
+        # Submit to the selected server
+        self.server_queues[server_id].put(request)
+
+        # Wait for result
+        try:
+            result = result_queue.get(timeout=self.server_timeout)
+            return result
+        except Empty:
+            return (src_file, False, "Server timeout")
+
+    def shutdown(self):
+        """Shutdown all server instances."""
+        print("Shutting down Joern servers...", file=sys.stderr)
+        self.shutdown_event.set()
+
+        # Send shutdown signals to all servers
+        for queue in self.server_queues:
+            queue.put(None)
+
+        # Wait for all threads to finish
+        for thread in self.server_threads:
+            thread.join(timeout=5)
+
+        print("Joern servers shutdown complete", file=sys.stderr)
+
+
+# ---------------------------
 # File discovery
 # ---------------------------
 def gather_source_files(src_root: str, exts):
@@ -120,7 +331,42 @@ def gather_source_files(src_root: str, exts):
     return src_files
 
 
-def process_file_cpg(task):
+def process_file_cpg(task: Tuple[str, str, str, JoernServerManager]):
+    """Process a single file for CPG generation using the server pool."""
+    src_file, src_root, out_root, server_manager = task
+    rel_path = os.path.relpath(src_file, src_root)
+    base, _ext = os.path.splitext(rel_path)
+
+    # When src_root == parent dir of a single file, rel_path can be just the filename.
+    # If anything collapses to "." or "", fall back to the basename.
+    if base in (".", ""):
+        base = os.path.splitext(os.path.basename(src_file))[0]
+
+    out_rel_path = base + ".json"
+    out_file = os.path.join(out_root, out_rel_path)
+
+    try:
+        os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    except Exception as e:
+        return (src_file, False, f"Failed to create output dir: {e}")
+
+    # Submit request to server pool
+    file_path, success, result = server_manager.submit_request(src_file)
+
+    if not success:
+        return (file_path, False, result)
+
+    # Write the result to output file
+    try:
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        return (file_path, True, "OK")
+    except Exception as e:
+        return (file_path, False, f"Failed writing JSON: {e}")
+
+
+def process_file_cpg_legacy(task):
+    """Legacy CPG processing function (kept for fallback)."""
     src_file, src_root, out_root = task
     rel_path = os.path.relpath(src_file, src_root)
     base, _ext = os.path.splitext(rel_path)
@@ -312,7 +558,7 @@ def process_file_dfg(task):
 # ---------------------------
 # Orchestration
 # ---------------------------
-def run_tasks(mode, src_files, src_root, out_root, workers):
+def run_tasks(mode, src_files, src_root, out_root, workers, server_mode=False):
     total = len(src_files)
     print(f"Found {total} files to process.", file=sys.stderr)
     if total == 0:
@@ -334,30 +580,146 @@ def run_tasks(mode, src_files, src_root, out_root, workers):
     successes = 0
     failures = []
 
-    print(
-        f"Processing {total} files with {workers} workers in '{mode}' mode ...",
-        file=sys.stderr,
-    )
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        future_to_file = {executor.submit(worker, task): task[0] for task in tasks}
-        pbar = tqdm(total=total, desc="Files processed", unit="file")
-        for future in as_completed(future_to_file):
-            src_file = future_to_file[future]
+    if mode == "cpg":
+        if server_mode:
+            # Use the new server pool approach for CPG mode
+            print(
+                f"Processing {total} files with server pool in '{mode}' mode ...",
+                file=sys.stderr,
+            )
+
+            # Create and start server manager
+            server_manager = JoernServerManager(num_servers=workers)
+            server_manager.start_servers()
+
             try:
-                file_path, ok, msg = future.result()
-            except Exception as e:
-                failures.append((src_file, f"Exception: {e}"))
-                print(
-                    f"[ERROR] Unexpected exception for {src_file}: {e}", file=sys.stderr
-                )
-            else:
-                if ok:
-                    successes += 1
+                # Create tasks with server manager
+                tasks = [
+                    (fpath, src_root, out_root, server_manager) for fpath in src_files
+                ]
+
+                # Use ThreadPoolExecutor for better integration with server pool
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    future_to_file = {
+                        executor.submit(process_file_cpg, task): task[0]
+                        for task in tasks
+                    }
+                    pbar = tqdm(total=total, desc="Files processed", unit="file")
+                    for future in as_completed(future_to_file):
+                        src_file = future_to_file[future]
+                        try:
+                            file_path, ok, msg = future.result()
+                        except Exception as e:
+                            failures.append((src_file, f"Exception: {e}"))
+                            print(
+                                f"[ERROR] Unexpected exception for {src_file}: {e}",
+                                file=sys.stderr,
+                            )
+                        else:
+                            if ok:
+                                successes += 1
+                            else:
+                                failures.append((file_path, msg))
+                                print(f"[FAIL] {file_path}: {msg}", file=sys.stderr)
+                        pbar.update(1)
+                    pbar.close()
+            finally:
+                # Always shutdown servers
+                server_manager.shutdown()
+        else:
+            # Use legacy approach for CPG mode
+            tasks = [(fpath, src_root, out_root) for fpath in src_files]
+            worker = process_file_cpg_legacy
+
+            print(
+                f"Processing {total} files with {workers} workers in '{mode}' mode (legacy) ...",
+                file=sys.stderr,
+            )
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_file = {
+                    executor.submit(worker, task): task[0] for task in tasks
+                }
+                pbar = tqdm(total=total, desc="Files processed", unit="file")
+                for future in as_completed(future_to_file):
+                    src_file = future_to_file[future]
+                    try:
+                        file_path, ok, msg = future.result()
+                    except Exception as e:
+                        failures.append((src_file, f"Exception: {e}"))
+                        print(
+                            f"[ERROR] Unexpected exception for {src_file}: {e}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        if ok:
+                            successes += 1
+                        else:
+                            failures.append((file_path, msg))
+                            print(f"[FAIL] {file_path}: {msg}", file=sys.stderr)
+                    pbar.update(1)
+                pbar.close()
+
+    elif mode == "kast":
+        tasks = [(fpath, src_root, out_root) for fpath in src_files]
+        worker = process_file_template
+
+        print(
+            f"Processing {total} files with {workers} workers in '{mode}' mode ...",
+            file=sys.stderr,
+        )
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            future_to_file = {executor.submit(worker, task): task[0] for task in tasks}
+            pbar = tqdm(total=total, desc="Files processed", unit="file")
+            for future in as_completed(future_to_file):
+                src_file = future_to_file[future]
+                try:
+                    file_path, ok, msg = future.result()
+                except Exception as e:
+                    failures.append((src_file, f"Exception: {e}"))
+                    print(
+                        f"[ERROR] Unexpected exception for {src_file}: {e}",
+                        file=sys.stderr,
+                    )
                 else:
-                    failures.append((file_path, msg))
-                    print(f"[FAIL] {file_path}: {msg}", file=sys.stderr)
-            pbar.update(1)
-        pbar.close()
+                    if ok:
+                        successes += 1
+                    else:
+                        failures.append((file_path, msg))
+                        print(f"[FAIL] {file_path}: {msg}", file=sys.stderr)
+                pbar.update(1)
+            pbar.close()
+
+    elif mode == "dfg":
+        tasks = [(fpath, src_root, out_root) for fpath in src_files]
+        worker = process_file_dfg
+
+        print(
+            f"Processing {total} files with {workers} workers in '{mode}' mode ...",
+            file=sys.stderr,
+        )
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            future_to_file = {executor.submit(worker, task): task[0] for task in tasks}
+            pbar = tqdm(total=total, desc="Files processed", unit="file")
+            for future in as_completed(future_to_file):
+                src_file = future_to_file[future]
+                try:
+                    file_path, ok, msg = future.result()
+                except Exception as e:
+                    failures.append((src_file, f"Exception: {e}"))
+                    print(
+                        f"[ERROR] Unexpected exception for {src_file}: {e}",
+                        file=sys.stderr,
+                    )
+                else:
+                    if ok:
+                        successes += 1
+                    else:
+                        failures.append((file_path, msg))
+                        print(f"[FAIL] {file_path}: {msg}", file=sys.stderr)
+                pbar.update(1)
+            pbar.close()
+    else:
+        raise ValueError(f"Invalid mode: {mode}")
 
     print(f"Done. Successes: {successes}, Failures: {len(failures)}", file=sys.stderr)
     if failures:
@@ -394,9 +756,15 @@ def main():
         help="Number of parallel workers. Defaults to CPU count.",
     )
     parser.add_argument(
+        "--server-mode",
+        action="store_true",
+        default=False,
+        help="Use server pool mode for CPG processing (reduces startup overhead).",
+    )
+    parser.add_argument(
         "--replace-macro",
         action="store_true",
-        default=True,
+        default=False,
         help="Scan and replace #define macros in C/C++ code before processing.",
     )
     args = parser.parse_args()
@@ -441,9 +809,10 @@ def main():
     run_tasks(
         mode=args.mode,
         src_files=src_files,
-        src_root=src_root_dir,  # IMPORTANT: pass the DIRECTORY as the relpath root
+        src_root=src_root_dir,
         out_root=out_root,
         workers=args.workers,
+        server_mode=args.server_mode,
     )
 
 

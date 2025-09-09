@@ -1,8 +1,8 @@
-import type { IIdentifier } from "@/types/template/Expressions/Identifier";
+import type { IIdentifier } from "../types/template/Expressions/Identifier";
 
-import { CPGRoot, EdgeGeneric, FieldIdentifierVertexProperties, MemberVertexProperties, VertexGeneric } from "@/types/cpg";
-import { TemplateNodes } from "@/types/node";
-import { TemplateNodeTypes } from "@/types/template/BaseNode/BaseNode";
+import { CPGRoot, EdgeGeneric, FieldIdentifierVertexProperties, MemberVertexProperties, VertexGeneric } from "../types/cpg";
+import { TemplateNodes } from "../types/node";
+import { TemplateNodeTypes } from "../types/template/BaseNode/BaseNode";
 
 export class PostProcessor {
   /**

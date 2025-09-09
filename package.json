@@ -2,7 +2,8 @@
   "name": "static-software-analysis-tool",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "web"
   ],
   "scripts": {
     "type-check": "npm run -ws --if-present type-check",
@@ -12,10 +13,18 @@
     "format:check": "npm run -ws --if-present format:check",
     "test": "npm -ws --if-present test",
     "start:ast": "npm -w @ssat/core run start:ast",
+    "start:joern": "npm -w @ssat/core run start:joern",
+    "start:all": "concurrently \"npm run start:joern\" \"npm run start:ast\" \"npm run web:dev\" --names \"Joern,AST,Web\" --prefix-colors \"blue,green,yellow\"",
     "generate:cpg": "npm -w @ssat/core run generate:cpg",
     "generate:kast": "npm -w @ssat/core run generate:kast",
     "generate:full": "npm -w @ssat/core run generate:full",
-    "generate:dfg": "npm -w @ssat/core run generate:dfg"
+    "generate:dfg": "npm -w @ssat/core run generate:dfg",
+    "web:dev": "npm -w @ssat/web run dev",
+    "web:build": "npm -w @ssat/web run build",
+    "web:start": "npm -w @ssat/web run start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
   },
   "engines": {
     "node": ">=18.17 <23"

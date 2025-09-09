@@ -31,15 +31,15 @@
     "moduleResolution": "node10",
     // "rootDir": "./",                                  /* Specify the root folder within your source files. */
     "baseUrl": "./" /* Specify the base directory to resolve non-relative module names. */,
-    "paths": {
-      "@/*": ["*"],
-      "@/types/*": ["types/*"],
-      "@/template/*": ["template/*"],
-      "@/cpg/*": ["cpg/*"],
-      "@/dfg/*": ["dfg/*"],
-      "@/utils/*": ["utils/*"],
-      "@/script/*": ["script/*"]
-    } /* Map '@/' to package root (template, dfg, types, utils, script). */,
+    // "paths": {
+    //   "@/*": ["*"],
+    //   "@/types/*": ["types/*"],
+    //   "@/ast/*": ["ast/*"],
+    //   "@/cpg/*": ["cpg/*"],
+    //   "@/dfg/*": ["dfg/*"],
+    //   "@/utils/*": ["utils/*"],
+    //   "@/script/*": ["script/*"]
+    // } /* Map '@/' to package root (ast, dfg, types, utils, script). */,
     // "rootDirs": [],                                   /* Allow multiple folders to be treated as one when resolving modules. */
     // "typeRoots": ["node_modules/@types"],            /* Use default resolution across workspace. */
     "types": ["node"] /* Include Node.js ambient types. */,
@@ -119,13 +119,5 @@
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true /* Skip type checking all .d.ts files. */
   },
-  "include": [
-    "utils/**/*",
-    "types/**/*",
-    "script/**/*",
-    "dfg/**/*",
-    "cpg/**/*",
-    "template/**/*",
-    "ast/**/*"
-  ]
+  "include": ["utils/**/*", "types/**/*", "script/**/*", "dfg/**/*", "cpg/**/*", "template/**/*", "ast/**/*"]
 }
