@@ -20,10 +20,7 @@ export async function POST(req: Request) {
       try {
         parsed = JSON.parse(templateData);
       } catch {
-        return NextResponse.json(
-          { status: 400, ok: false, error: "Invalid template data (JSON parse failed)." },
-          { status: 400 }
-        );
+        return NextResponse.json({ status: 400, ok: false, error: "Invalid template data (JSON parse failed)." }, { status: 400 });
       }
 
       // Accept either a single function root or an array; pick the first if array
@@ -38,10 +35,7 @@ export async function POST(req: Request) {
       try {
         cpgInput = JSON.parse(cpgData) as CPGRoot;
       } catch {
-        return NextResponse.json(
-          { status: 400, ok: false, error: "Invalid CPG data (JSON parse failed)." },
-          { status: 400 }
-        );
+        return NextResponse.json({ status: 400, ok: false, error: "Invalid CPG data (JSON parse failed)." }, { status: 400 });
       }
 
       const astResult = await astHandler.getASTFromCPG(cpgInput);
@@ -59,10 +53,7 @@ export async function POST(req: Request) {
     }
 
     if (!cSource) {
-      return NextResponse.json(
-        { status: 400, ok: false, error: "No input provided. Supply template, CPG JSON, or C source." },
-        { status: 400 }
-      );
+      return NextResponse.json({ status: 400, ok: false, error: "No input provided. Supply template, CPG JSON, or C source." }, { status: 400 });
     }
 
     const cpgInput = await cpgHandler.getCPGData(cSource, { filename, cleanAfter: false, cleanupTempDir: false });
@@ -70,9 +61,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ status: 200, ok: true, message: "AST generated from C source.", data: astResult });
   } catch (error) {
-    return NextResponse.json(
-      { status: 500, ok: false, error: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ status: 500, ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
