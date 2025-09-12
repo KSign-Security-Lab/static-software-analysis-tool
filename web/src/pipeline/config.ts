@@ -1,4 +1,4 @@
-import type { PipelineData } from "./types";
+import { InputType, type PipelineData } from "./types";
 
 export const pipelineOptions: PipelineData = {
   stages: [
@@ -7,7 +7,7 @@ export const pipelineOptions: PipelineData = {
       name: "CPG Generation",
       description: "Generate Code Property Graph from C source code",
       requires: ["joern-server"],
-      inputs: ["c-source"],
+      inputs: [InputType.CSource],
       outputs: ["cpg-data"],
       apiEndpoint: "/api/cpg",
     },
@@ -16,7 +16,7 @@ export const pipelineOptions: PipelineData = {
       name: "DFG Generation",
       description: "Generate Data Flow Graph from CPG data",
       requires: ["cpg-data"],
-      inputs: ["c-source", "cpg-data"],
+      inputs: [InputType.CSource, InputType.CpgData],
       outputs: ["dfg-data"],
       apiEndpoint: "/api/dfg",
     },
@@ -25,7 +25,7 @@ export const pipelineOptions: PipelineData = {
       name: "Template Generation",
       description: "Generate Template artifacts from CPG data",
       requires: ["cpg-data"],
-      inputs: ["c-source", "cpg-data"],
+      inputs: [InputType.CSource, InputType.CpgData],
       outputs: ["template-data"],
       apiEndpoint: "/api/template",
     },
@@ -34,7 +34,7 @@ export const pipelineOptions: PipelineData = {
       name: "AST Generation",
       description: "Generate Abstract Syntax Tree using Template-derived function AST",
       requires: ["template-data", "ast-server"],
-      inputs: ["c-source", "cpg-data", "template-data"],
+      inputs: [InputType.CSource, InputType.CpgData, InputType.TemplateData],
       outputs: ["ast-data"],
       apiEndpoint: "/api/ast",
     },
@@ -58,4 +58,3 @@ export const pipelineOptions: PipelineData = {
     },
   },
 };
-

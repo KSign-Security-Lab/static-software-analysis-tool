@@ -4,7 +4,7 @@
 // This file provides clean, consolidated imports for all template types
 
 // Re-export commonly used types for convenience
-export type { IBaseNode, TemplateFlattenedGraph, TemplateFlattenedNode, TemplateNodes, TemplateNodeTypes } from "../node";
+export type { IBaseNode, TemplateFlattenedNode, TemplateNodes, TemplateNodeTypes } from "../node";
 // Base types and utilities
 export * from "./BaseNode/BaseTypes";
 

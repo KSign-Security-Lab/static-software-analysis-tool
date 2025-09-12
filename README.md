@@ -6,8 +6,9 @@ This tool extracts CPGs from C code, converts them to KAST format, and provides 
 ## Features
 
 - Generates CPGs (Code Property Graphs) using Joern and keeps original directory layout
-- Converts CPGs to KAST (KSIGN-style AST) with post-processing
-- Generates DFGs from KAST/AST outputs when needed
+- Converts CPGs to Template (AST based on KSIGN-style) with post-processing
+- Generates ASTs from Template outputs when needed
+- Generates DFGs from Template outputs when needed
 
 ## Prerequisites
 
@@ -21,47 +22,40 @@ This tool extracts CPGs from C code, converts them to KAST format, and provides 
 
 ```bash
 npm install
-pip install -r helpers/requirements.txt
+pip install -r packages/core/helpers/requirements.txt
 ```
 
 ### 2. Run the tool
 
-Quickstart:
-
-```bash
-# End-to-end (CPG → KAST) on a folder of C files
-npm run generate:full --data="<input_directory>"
-```
-
 Flags:
 
-- `--data=<path>`: Input directory (raw C sources) or CPG directory for KAST
-- `--output=<path>`: **[optional]** Output directory for CPG/KAST/DFG stages
+- `--data=<path>`: Input directory (raw C sources) or CPG directory for Template
+- `--output=<path>`: Output directory for CPG/Template/AST/DFG stages
 
 Common tasks:
-
-**[Full pipeline (CPG → KAST)]**
-
-```bash
-npm run generate:full --data="<input_directory/input_file.c>" --output="<out_dir>"
-```
 
 **[Generate only CPG]**
 
 ```bash
-npm run generate:cpg --data="<input_directory/input_file.c>" --output="<out_dir>"
+npm run generate:cpg --data="<input_directory or input_file.c>" --output="<out_dir>"
 ```
 
-**[Generate only KAST] (from a CPG directory)**
+**[Generate only Template] (from a CPG directory)**
 
 ```bash
-npm run generate:kast --data="<cpg_dir/input_file.json>" --output="<out_dir>"
+npm run generate:template --data="<cpg_dir or cpg_file.json>" --output="<out_dir>"
 ```
 
-**🚧 [Under Development] 🚧 Generate DFG (from a KAST/AST directory)**
+**[Generate only AST] (from a Template directory)**
 
 ```bash
-npm run generate:dfg --data="<kast_or_ast_dir/input_file.json>" --output="<out_dir>"
+npm run generate:ast --data="<template_dir or template_file.json>" --output="<out_dir>"
+```
+
+**🚧 [Under Development] 🚧 Generate DFG (from a Template directory)**
+
+```bash
+npm run generate:dfg --data="<template_dir or template_file.json>" --output="<out_dir>"
 ```
 
 ### Examples
@@ -72,12 +66,6 @@ npm run submodule
 
 # End-to-end on Juliet C testcases
 npm run generate:full --data="data/C/testcases"
-
-# Mongoose sample
-npm run mongoose
-
-# Zephyr sample
-npm run zephyr
 ```
 
 ## Output
@@ -92,7 +80,7 @@ Each source will include:
 
 ## Development
 
-### Directory Structure Overview
+### Directory Structure Overview (Old)
 
 ```bash
 .

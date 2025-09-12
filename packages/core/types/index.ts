@@ -13,7 +13,7 @@ export * from "./dfg";
 export * from "./node";
 
 // Re-export commonly used types for convenience
-export type { IBaseNode, TemplateFlattenedGraph, TemplateFlattenedNode, TemplateNodes, TemplateNodeTypes } from "./node";
+export type { IBaseNode, TemplateFlattenedNode, TemplateNodes, TemplateNodeTypes } from "./node";
 
 // Template types (consolidated) - excluding conflicting exports
 export {

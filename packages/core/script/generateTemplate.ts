@@ -8,7 +8,7 @@ import { TemplateConverter } from "../template/TemplateConverter";
 import { TemplateExtractor } from "../template/TemplateExtractor";
 import { CPGRoot, TreeNode } from "../types/cpg";
 import { TemplateFlattenedGraph, TemplateNodes } from "../types/node";
-import { TemplateNodeTypes } from "../types/template/BaseNode/BaseNode";
+import { TemplateNodeTypes } from "../types/template/BaseNode/BaseTypes";
 import { writeJSONFiles } from "../utils/json";
 import { TreeToText } from "../utils/treeToText";
 

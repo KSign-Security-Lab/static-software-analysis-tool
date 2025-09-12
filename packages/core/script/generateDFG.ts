@@ -3,22 +3,22 @@ import path from "path";
 
 import { validateCPGRoot } from "../cpg/validate/zod";
 import { DFGBuilder } from "../dfg/DFGBuilder";
-import DFGSync from "../dfg/DFGSync";
+import { IASTGraph } from "../types/ast";
 import { CPGRoot } from "../types/cpg";
 import { IDFGGraph } from "../types/dfg";
-import { TemplateFlattenedGraph } from "../types/node";
 import { writeJSONFiles } from "../utils/json";
 
-// Usage: tsx script/generateDFG.ts <input_json> [output_path_or_dir]
+// Usage: tsx script/generateDFG.ts <input_cpg> <ast_file> <output_dir>
 const args: string[] = process.argv.slice(2);
-const firstArg: string | undefined = args[0];
-const secondArg: string | undefined = args[1];
-// If the second arg ends with .json, treat it as an exact output file path, otherwise as a directory
-const isExactJsonPath = typeof secondArg === "string" && secondArg.toLowerCase().endsWith(".json");
-const savePath: string = isExactJsonPath ? path.dirname(secondArg) : secondArg ? secondArg : firstArg ? path.dirname(firstArg) : "";
+const cpgFile: string | undefined = args[0];
+const astFile: string | undefined = args[1];
+const outputDir: string | undefined = args[2];
 
-if (!firstArg) {
-  console.error("Usage: tsx script/generateDFG.ts <input_json> [output_dir]");
+if (!cpgFile || !astFile || !outputDir) {
+  console.error("Usage: tsx script/generateDFG.ts <input_cpg> <ast_file> <output_dir>");
+  console.error("  input_cpg: Path to CPG JSON file");
+  console.error("  ast_file:  Path to AST JSON file");
+  console.error("  output_dir: Output directory for DFG file");
   process.exit(1);
 }
 
@@ -49,43 +49,58 @@ function writeSingleJSON(item: unknown, outPath: string): string {
   return written;
 }
 
-function saveOutput(dfg: IDFGGraph, inputFile: string): void {
-  const parsed = path.parse(inputFile);
-  const outPath = isExactJsonPath ? secondArg : path.join(savePath, `${parsed.name}_dfg${parsed.ext}`);
+function saveOutput(dfg: IDFGGraph, cpgFile: string, outputDir: string): void {
+  const parsed = path.parse(cpgFile);
+  const outPath = path.join(outputDir, `${parsed.name}_dfg${parsed.ext}`);
 
   writeSingleJSON(dfg, outPath);
   console.log(`Generated: ${path.basename(outPath)}`);
 }
 
-async function readAST(inputFile: string): Promise<TemplateFlattenedGraph> {
-  const raw = await fs.promises.readFile(inputFile, "utf8");
-  return JSON.parse(raw) as TemplateFlattenedGraph;
+async function readAST(astFile: string): Promise<IASTGraph> {
+  try {
+    const raw = await fs.promises.readFile(astFile, "utf8");
+    return JSON.parse(raw) as IASTGraph;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Read/parse error for AST file ${path.basename(astFile)}: ${msg}`);
+  }
 }
 
-function syncDFG(dfg: IDFGGraph, ast: TemplateFlattenedGraph): IDFGGraph {
-  const dfgSync = new DFGSync(dfg, ast);
-  return dfgSync.sync();
-}
+async function main(cpgFile: string, astFile: string, outputDir: string): Promise<void> {
+  // Ensure output directory exists
+  fs.mkdirSync(outputDir, { recursive: true });
 
-async function main(inputFile: string): Promise<void> {
-  fs.mkdirSync(savePath, { recursive: true });
+  // Verify files exist
+  if (!fs.existsSync(cpgFile)) {
+    throw new Error(`CPG file not found: ${cpgFile}`);
+  }
+  if (!fs.existsSync(astFile)) {
+    throw new Error(`AST file not found: ${astFile}`);
+  }
 
-  const root = await readCPG(inputFile);
+  console.log(`Processing CPG: ${path.basename(cpgFile)}`);
+  console.log(`Using AST: ${path.basename(astFile)}`);
+  console.log(`Output directory: ${outputDir}`);
 
-  verifyCPG(root, inputFile);
+  // Read and validate CPG
+  const root = await readCPG(cpgFile);
+  verifyCPG(root, cpgFile);
 
-  const dfgBuilder = new DFGBuilder(root);
-  const rawDFG = dfgBuilder.build();
-  const ast = await readAST(inputFile);
+  // Read AST file
+  const ast = await readAST(astFile);
 
-  const syncedDFG = syncDFG(rawDFG, ast);
+  // Generate DFG using CPG + AST
+  const dfgBuilder = new DFGBuilder();
+  const dfg = dfgBuilder.build(root, ast);
 
-  saveOutput(syncedDFG, inputFile);
+  // Save DFG output
+  saveOutput(dfg, cpgFile, outputDir);
 }
 
 void (async () => {
-  // after the early-exit guard, firstArg is defined
-  await main(firstArg);
+  // All arguments are validated above
+  await main(cpgFile, astFile, outputDir);
 })().catch((err: unknown) => {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);

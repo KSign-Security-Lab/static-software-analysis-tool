@@ -1,5 +1,5 @@
 import { TemplateFlattenedGraph, TemplateNodes } from "../types/node";
-import { TemplateNodeTypes } from "../types/template/BaseNode/BaseNode";
+import { TemplateNodeTypes } from "../types/template/BaseNode/BaseTypes";
 
 export class PlanationTool {
   private blacklist: Set<TemplateNodeTypes>;

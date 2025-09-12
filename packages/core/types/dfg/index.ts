@@ -1,4 +1,4 @@
-import { TemplateNodeTypes } from "../template/BaseNode/BaseNode";
+import { TemplateNodeTypes } from "../template/BaseNode/BaseTypes";
 
 export enum FlowType {
   BASE = "BASE",

@@ -53,7 +53,7 @@ import {
   IVariableDeclaration,
   IWhileStatement,
 } from "../types/template";
-import { TemplateNodeTypes } from "../types/template/BaseNode/BaseNode";
+import { TemplateNodeTypes } from "../types/template/BaseNode/BaseTypes";
 import { randomIntWithLength } from "../utils";
 import { BinaryUnaryTypeWrapper } from "./BinaryUnaryTypeWrapper";
 import { BinaryExpressionOperatorMap } from "./config/BinaryExpression";

@@ -2,7 +2,7 @@ import type { IIdentifier } from "../types/template";
 
 import { CPGRoot, EdgeGeneric, FieldIdentifierVertexProperties, MemberVertexProperties, VertexGeneric } from "../types/cpg";
 import { TemplateNodes } from "../types/node";
-import { TemplateNodeTypes } from "../types/template/BaseNode/BaseNode";
+import { TemplateNodeTypes } from "../types/template/BaseNode/BaseTypes";
 
 export class PostProcessor {
   /**

@@ -6,6 +6,11 @@
     "web"
   ],
   "scripts": {
+    "generate:full": "npm run -w @ssat/core generate:full",
+    "generate:cpg": "npm run -w @ssat/core generate:cpg",
+    "generate:template": "npm run -w @ssat/core generate:template",
+    "generate:dfg": "npm run -w @ssat/core generate:dfg",
+    "generate:ast": "npm run -w @ssat/core generate:ast",
     "type-check": "npm run -ws --if-present type-check",
     "lint": "npm run -ws --if-present lint",
     "lint:fix": "npm run -ws --if-present lint:fix",
