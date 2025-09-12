@@ -3,7 +3,7 @@ import path from "path";
 
 import { validateCPGRoot } from "../cpg/validate/zod";
 import { DFGBuilder } from "../dfg/DFGBuilder";
-import { IASTGraph } from "../types/ast";
+import { IASTResult } from "../types/ast";
 import { CPGRoot } from "../types/cpg";
 import { IDFGGraph } from "../types/dfg";
 import { writeJSONFiles } from "../utils/json";
@@ -49,7 +49,7 @@ function writeSingleJSON(item: unknown, outPath: string): string {
   return written;
 }
 
-function saveOutput(dfg: IDFGGraph, cpgFile: string, outputDir: string): void {
+function saveOutput(dfg: IDFGGraph[], cpgFile: string, outputDir: string): void {
   const parsed = path.parse(cpgFile);
   const outPath = path.join(outputDir, `${parsed.name}_dfg${parsed.ext}`);
 
@@ -57,10 +57,10 @@ function saveOutput(dfg: IDFGGraph, cpgFile: string, outputDir: string): void {
   console.log(`Generated: ${path.basename(outPath)}`);
 }
 
-async function readAST(astFile: string): Promise<IASTGraph> {
+async function readAST(astFile: string): Promise<IASTResult[]> {
   try {
     const raw = await fs.promises.readFile(astFile, "utf8");
-    return JSON.parse(raw) as IASTGraph;
+    return JSON.parse(raw) as IASTResult[];
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Read/parse error for AST file ${path.basename(astFile)}: ${msg}`);

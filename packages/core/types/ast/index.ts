@@ -40,7 +40,7 @@ interface EdgeASTGuard {
   guard_branch: number;
 }
 
-interface IASTResult {
+export interface IASTResult {
   nodes: IASTNode[];
   edges_ast_pc: EdgeASTPC[];
   edges_ast_sb: EdgeASTSB[];

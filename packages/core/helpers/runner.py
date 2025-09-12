@@ -685,11 +685,7 @@ def process_file_ast(task):
 
     # Process each function in the template data
     try:
-        all_nodes = []
-        edges_pc = []
-        edges_sb = []
-        edges_guard = []
-        node_id_counter = 0
+        ast_graph = []
 
         # Handle both single function and array of functions
         full_template = (
@@ -717,103 +713,11 @@ def process_file_ast(task):
             if not isinstance(func_data, dict):
                 continue
 
-            # Extract function name
-            func_name = func_data.get("name", "unknown")
-
             # Create AST extractor and run
             extractor = ASTExtractorV1_12(func_data, lift_pure_cond_calls=False)
             ast_result = extractor.run()
 
-            # Process the AST result to create the correct format
-            # Support multiple shapes from extractor and normalize to ast_result: { nodes, edges_ast_* }
-            data = (
-                ast_result.get("ast_result") if isinstance(ast_result, dict) else None
-            )
-            if isinstance(data, dict) and "nodes" in data:
-                # Already in expected shape
-                for node in data.get("nodes", []):
-                    node["function_name"] = func_name
-                    if "id" not in node and "orig_id" in node:
-                        node["id"] = node["orig_id"]
-                    if "id" not in node:
-                        node["id"] = node_id_counter
-                        node_id_counter += 1
-                    all_nodes.append(node)
-                # Keep original edge tuples/objects as-is
-                edges_pc.extend(data.get("edges_ast_pc", []))
-                edges_sb.extend(data.get("edges_ast_sb", []))
-                edges_guard.extend(data.get("edges_ast_guard", []))
-            elif isinstance(ast_result, dict) and "nodes" in ast_result:
-                # Has nodes and maybe specific edge arrays or generic edges
-                for node in ast_result.get("nodes", []):
-                    node["function_name"] = func_name
-                    if "id" not in node and "orig_id" in node:
-                        node["id"] = node["orig_id"]
-                    if "id" not in node:
-                        node["id"] = node_id_counter
-                        node_id_counter += 1
-                    all_nodes.append(node)
-                if (
-                    "edges_ast_pc" in ast_result
-                    or "edges_ast_sb" in ast_result
-                    or "edges_ast_guard" in ast_result
-                ):
-                    # Keep original edge tuples/objects as-is; DFG only checks non-empty
-                    edges_pc.extend(ast_result.get("edges_ast_pc", []))
-                    edges_sb.extend(ast_result.get("edges_ast_sb", []))
-                    edges_guard.extend(ast_result.get("edges_ast_guard", []))
-                elif "edges" in ast_result:
-                    converted_pc = []
-                    for e in ast_result.get("edges", []):
-                        if isinstance(e, dict):
-                            u = e.get("from", e.get("source", 0))
-                            v = e.get("to", e.get("destination", 0))
-                            converted_pc.append((u, v, 0))
-                        elif isinstance(e, (list, tuple)) and len(e) >= 2:
-                            converted_pc.append((e[0], e[1], 0))
-                    edges_pc.extend(converted_pc)
-                    edges_sb.extend(converted_pc)
-                    edges_guard.extend(
-                        [
-                            {"src": u, "dst": v, "guard_kind": 0, "guard_branch": 0}
-                            for (u, v, _w) in converted_pc
-                        ]
-                    )
-
-        # Ensure non-empty edge arrays for validator
-        if all_nodes and not edges_pc:
-            if len(all_nodes) >= 2:
-                u = all_nodes[0].get("id", all_nodes[0].get("orig_id", 0))
-                v = all_nodes[1].get("id", all_nodes[1].get("orig_id", u))
-            else:
-                u = v = all_nodes[0].get("id", all_nodes[0].get("orig_id", 0))
-            edges_pc.append((u, v, 0))
-        if all_nodes and not edges_sb:
-            if len(all_nodes) >= 2:
-                u = all_nodes[0].get("id", all_nodes[0].get("orig_id", 0))
-                v = all_nodes[1].get("id", all_nodes[1].get("orig_id", u))
-            else:
-                u = v = all_nodes[0].get("id", all_nodes[0].get("orig_id", 0))
-            edges_sb.append((u, v, 1))
-        if all_nodes and not edges_guard:
-            if len(all_nodes) >= 2:
-                u = all_nodes[0].get("id", all_nodes[0].get("orig_id", 0))
-                v = all_nodes[1].get("id", all_nodes[1].get("orig_id", u))
-            else:
-                u = v = all_nodes[0].get("id", all_nodes[0].get("orig_id", 0))
-            edges_guard.append({"src": u, "dst": v, "guard_kind": 0, "guard_branch": 0})
-
-        # Create the final AST graph structure matching the TS validator expectations
-        # Shape: { ast_result: { nodes, edges_ast_pc, edges_ast_sb, edges_ast_guard } }
-        # Reuse extracted edges for all three edge arrays to satisfy non-empty checks
-        ast_graph = {
-            "ast_result": {
-                "nodes": all_nodes,
-                "edges_ast_pc": edges_pc,
-                "edges_ast_sb": edges_sb,
-                "edges_ast_guard": edges_guard,
-            }
-        }
+            ast_graph.append(ast_result)
 
         # Write the result
         name = os.path.basename(base_no_ext)  # file name without extension
