@@ -473,8 +473,15 @@ def process_file_template(task):
     if ext.lower() != ".json":
         return (src_file, False, "template expects .json CPG inputs")
 
-    # Put outputs for this file under out_root/<rel/path/without_ext>/
-    out_dir = os.path.join(out_root, base_no_ext)
+    # Create output directory preserving relative path structure but without filename subdirectory
+    # Extract relative path from src_file and create corresponding output structure
+    rel_path = os.path.relpath(src_file, src_root)
+    rel_dir = os.path.dirname(rel_path)
+
+    if rel_dir and rel_dir != ".":
+        out_dir = os.path.join(out_root, rel_dir)
+    else:
+        out_dir = out_root
 
     try:
         os.makedirs(out_dir, exist_ok=True)
@@ -491,13 +498,9 @@ def process_file_template(task):
         msg = proc.stderr.strip() or "template command returned non-zero exit"
         return (src_file, False, f"template failed: {msg}")
 
-    # Validate the four expected outputs
     name = os.path.basename(base_no_ext)  # file name without extension
     expected = [
-        os.path.join(out_dir, f"{name}_astTree.json"),
         os.path.join(out_dir, f"{name}_templateTree.json"),
-        os.path.join(out_dir, f"{name}_text.txt"),
-        os.path.join(out_dir, f"{name}_flatten.json"),
     ]
     missing = [p for p in expected if not os.path.isfile(p)]
     if missing:
@@ -521,8 +524,15 @@ def process_file_dfg(task):
     if ext.lower() != ".json":
         return (src_file, False, "dfg expects .json CPG inputs")
 
-    # Put outputs for this file under out_root/<rel/path/without_ext>/
-    out_dir = os.path.join(out_root, base_no_ext)
+    # Create output directory preserving relative path structure but without filename subdirectory
+    # Extract relative path from src_file and create corresponding output structure
+    rel_path = os.path.relpath(src_file, src_root)
+    rel_dir = os.path.dirname(rel_path)
+
+    if rel_dir and rel_dir != ".":
+        out_dir = os.path.join(out_root, rel_dir)
+    else:
+        out_dir = out_root
 
     try:
         os.makedirs(out_dir, exist_ok=True)
@@ -539,7 +549,6 @@ def process_file_dfg(task):
         msg = proc.stderr.strip() or "dfg command returned non-zero exit"
         return (src_file, False, f"dfg failed: {msg}")
 
-    # Validate the four expected outputs
     name = os.path.basename(base_no_ext)  # file name without extension
     expected = [
         os.path.join(out_dir, f"{name}_dfg.json"),
@@ -553,6 +562,104 @@ def process_file_dfg(task):
         )
 
     return (src_file, True, "OK")
+
+
+def process_file_ast(task):
+    """Process a single file for AST extraction using ASTExtractor."""
+    src_file, src_root, out_root = task
+    rel_path = os.path.relpath(src_file, src_root)
+    base_no_ext, ext = os.path.splitext(rel_path)
+
+    if base_no_ext in (".", ""):
+        base_no_ext = os.path.splitext(os.path.basename(src_file))[0]
+
+    if ext.lower() != ".json":
+        return (src_file, False, "ast expects .json template inputs")
+
+    # Create output directory preserving relative path structure but without filename subdirectory
+    # Extract relative path from src_file and create corresponding output structure
+    rel_path = os.path.relpath(src_file, src_root)
+    rel_dir = os.path.dirname(rel_path)
+
+    if rel_dir and rel_dir != ".":
+        out_dir = os.path.join(out_root, rel_dir)
+    else:
+        out_dir = out_root
+
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+    except Exception as e:
+        return (src_file, False, f"Failed to create output dir: {e}")
+
+    # Import ASTExtractor
+    try:
+        ast_extractor_path = os.path.join(os.path.dirname(__file__), "..", "ast")
+        sys.path.insert(0, ast_extractor_path)
+        from ASTExtractor import (  # pyright: ignore[reportMissingImports]
+            ASTExtractorV1_12,
+        )
+    except ImportError as e:
+        return (src_file, False, f"Failed to import ASTExtractor: {e}")
+
+    # Read the template JSON file
+    try:
+        with open(src_file, "r", encoding="utf-8") as f:
+            template_data = json.load(f)
+    except Exception as e:
+        return (src_file, False, f"Failed to read template file: {e}")
+
+    # Process each function in the template data
+    try:
+        results = []
+
+        # Handle both single function and array of functions
+        full_template = (
+            template_data if isinstance(template_data, list) else [template_data]
+        )
+
+        # Recursively find all FunctionDefinition nodes
+        def find_function_definitions(nodes):
+            """Recursively find all FunctionDefinition nodes in the AST tree."""
+            functions = []
+            if isinstance(nodes, dict):
+                if nodes.get("nodeType") == "FunctionDefinition":
+                    functions.append(nodes)
+                # Search in children
+                for child in nodes.get("children", []):
+                    functions.extend(find_function_definitions(child))
+            elif isinstance(nodes, list):
+                for node in nodes:
+                    functions.extend(find_function_definitions(node))
+            return functions
+
+        functions = find_function_definitions(full_template)
+
+        for func_data in functions:
+            if not isinstance(func_data, dict):
+                continue
+
+            # Extract function name
+            func_name = func_data.get("name", "unknown")
+
+            # Create AST extractor and run
+            extractor = ASTExtractorV1_12(func_data, lift_pure_cond_calls=False)
+            ast_result = extractor.run()
+
+            # Add function name to result
+            ast_result["function_name"] = func_name
+            results.append(ast_result)
+
+        # Write the result
+        name = os.path.basename(base_no_ext)  # file name without extension
+        output_file = os.path.join(out_dir, f"{name}_ast.json")
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+
+        return (src_file, True, "OK")
+
+    except Exception as e:
+        return (src_file, False, f"AST extraction failed: {e}")
 
 
 # ---------------------------
@@ -574,6 +681,9 @@ def run_tasks(mode, src_files, src_root, out_root, workers, server_mode=False):
     elif mode == "dfg":
         tasks = [(fpath, src_root, out_root) for fpath in src_files]
         worker = process_file_dfg
+    elif mode == "ast":
+        tasks = [(fpath, src_root, out_root) for fpath in src_files]
+        worker = process_file_ast
     else:
         raise ValueError(f"Invalid mode: {mode}")
 
@@ -659,7 +769,7 @@ def run_tasks(mode, src_files, src_root, out_root, workers, server_mode=False):
                     pbar.update(1)
                 pbar.close()
 
-    elif mode == "kast":
+    elif mode == "template":
         tasks = [(fpath, src_root, out_root) for fpath in src_files]
         worker = process_file_template
 
@@ -718,6 +828,36 @@ def run_tasks(mode, src_files, src_root, out_root, workers, server_mode=False):
                         print(f"[FAIL] {file_path}: {msg}", file=sys.stderr)
                 pbar.update(1)
             pbar.close()
+
+    elif mode == "ast":
+        tasks = [(fpath, src_root, out_root) for fpath in src_files]
+        worker = process_file_ast
+
+        print(
+            f"Processing {total} files with {workers} workers in '{mode}' mode ...",
+            file=sys.stderr,
+        )
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            future_to_file = {executor.submit(worker, task): task[0] for task in tasks}
+            pbar = tqdm(total=total, desc="Files processed", unit="file")
+            for future in as_completed(future_to_file):
+                src_file = future_to_file[future]
+                try:
+                    file_path, ok, msg = future.result()
+                except Exception as e:
+                    failures.append((src_file, f"Exception: {e}"))
+                    print(
+                        f"[ERROR] Unexpected exception for {src_file}: {e}",
+                        file=sys.stderr,
+                    )
+                else:
+                    if ok:
+                        successes += 1
+                    else:
+                        failures.append((file_path, msg))
+                        print(f"[FAIL] {file_path}: {msg}", file=sys.stderr)
+                pbar.update(1)
+            pbar.close()
     else:
         raise ValueError(f"Invalid mode: {mode}")
 
@@ -737,8 +877,8 @@ def main():
     parser.add_argument(
         "--mode",
         required=True,
-        choices=["cpg", "template", "dfg"],
-        help="Run mode: cpg or template or dfg.",
+        choices=["cpg", "template", "dfg", "ast"],
+        help="Run mode: cpg, template, dfg, or ast.",
     )
     parser.add_argument(
         "--data", required=True, help="Path to source file or directory."

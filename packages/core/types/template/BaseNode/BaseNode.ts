@@ -1,52 +1,33 @@
-import { TemplateNodes } from "../../node";
+// Re-export types from BaseTypes to maintain backward compatibility
+export { ExtractNodeType, IBaseNode, isDeclaration, isExpression, isNodeType, isStatement, NodeWithType, TemplateNodeTypes } from "./BaseTypes";
 
-export enum TemplateNodeTypes {
-  AddressOfExpression = "AddressOfExpression",
-  ArrayDeclaration = "ArrayDeclaration",
-  ArraySizeAllocation = "ArraySizeAllocation",
-  ArraySubscriptExpression = "ArraySubscriptExpression",
-  AssignmentExpression = "AssignmentExpression",
-  BinaryExpression = "BinaryExpression",
-  BreakStatement = "BreakStatement",
-  CaseLabel = "CaseLabel",
-  CastExpression = "CastExpression",
-  CompoundStatement = "CompoundStatement",
-  ContinueStatement = "ContinueStatement",
-  DefaultLabel = "DefaultLabel",
-  DoWhileStatement = "DoWhileStatement",
-  EnumType = "EnumType",
-  ForStatement = "ForStatement",
-  FunctionDeclaration = "FunctionDeclaration",
-  FunctionDefinition = "FunctionDefinition",
-  GotoStatement = "GotoStatement",
-  Identifier = "Identifier",
-  IfStatement = "IfStatement",
-  IncludeDirective = "IncludeDirective",
-  Label = "Label",
-  Literal = "Literal",
-  MacroDefinition = "MacroDefinition",
-  MemberAccess = "MemberAccess",
-  ParameterDeclaration = "ParameterDeclaration",
-  ParameterList = "ParameterList",
-  PointerDeclaration = "PointerDeclaration",
-  PointerDereference = "PointerDereference",
-  ReturnStatement = "ReturnStatement",
-  SizeOfExpression = "SizeOfExpression",
-  StandardLibCall = "StandardLibCall",
-  StructType = "StructType",
-  SwitchStatement = "SwitchStatement",
-  TranslationUnit = "TranslationUnit",
-  TypeDefinition = "TypeDefinition",
-  UnaryExpression = "UnaryExpression",
-  UnionType = "UnionType",
-  UserDefinedCall = "UserDefinedCall",
-  VariableDeclaration = "VariableDeclaration",
-  WhileStatement = "WhileStatement",
-}
-
-export interface IBaseNode {
-  children?: TemplateNodes[];
-  code?: string;
-  id: number;
-  nodeType: TemplateNodeTypes;
-}
+// Re-export utility types
+export type {
+  DataTypeNodes,
+  DeclarationNodes,
+  DeepMapNodeProperties,
+  ExpressionNodes,
+  ExtractNodeTypes,
+  FilterByNodeType,
+  FilterByNodeTypes,
+  FindNodesMatching,
+  FindNodesOfType,
+  FindNodesWithPropertyValue,
+  HasChildOfType,
+  HasChildren,
+  HasProperty,
+  HasPropertyOfType,
+  IsLeaf,
+  MapNodeProperties,
+  NamedNodes,
+  NodeChildren,
+  NodeDescendants,
+  NodeParent,
+  OmitNodeProperties,
+  OperatorNodes,
+  PartialNode,
+  PickNodeProperties,
+  RequiredNode,
+  StatementNodes,
+  TypedNodes,
+} from "./UtilityTypes";

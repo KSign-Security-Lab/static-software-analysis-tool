@@ -1,79 +1,115 @@
-import { ICompoundStatement } from "./template/Block/CompoundStatement";
-import { IBreakStatement } from "./template/ControlStructures/BreakStatement";
-import { ICaseLabel } from "./template/ControlStructures/CaseLabel";
-import { IContinueStatement } from "./template/ControlStructures/ContinueStatement";
-import { IDefaultLabel } from "./template/ControlStructures/DefaultLabel";
-import { IDoWhileStatement } from "./template/ControlStructures/DoWhileStatement";
-import { IForStatement } from "./template/ControlStructures/ForStatement";
-import { IGotoStatement } from "./template/ControlStructures/GotoStatement";
-import { IIfStatement } from "./template/ControlStructures/IfStatement";
-import { ILabel } from "./template/ControlStructures/Label";
-import { IReturnStatement } from "./template/ControlStructures/ReturnStatement";
-import { ISwitchStatement } from "./template/ControlStructures/SwitchStatement";
-import { IWhileStatement } from "./template/ControlStructures/WhileStatement";
-import { IEnumType } from "./template/DataTypes/EnumType";
-import { IStructType } from "./template/DataTypes/StructType";
-import { ITypeDefinition } from "./template/DataTypes/TypeDefinition";
-import { IUnionType } from "./template/DataTypes/UnionType";
-import { IAddressOfExpression } from "./template/Expressions/AddressOfExpression";
-import { IArraySizeAllocation } from "./template/Expressions/ArraySizeAllocation";
-import { IArraySubscriptExpression } from "./template/Expressions/ArraySubscriptExpression";
-import { IAssignmentExpression } from "./template/Expressions/AssignmentExpression";
-import { IBinaryExpression } from "./template/Expressions/BinaryExpression";
-import { ICastExpression } from "./template/Expressions/CastExpression";
-import { IIdentifier } from "./template/Expressions/Identifier";
-import { ILiteral } from "./template/Expressions/Literal";
-import { IMemberAccess } from "./template/Expressions/MemberAccess";
-import { IPointerDereference } from "./template/Expressions/PointerDereference";
-import { ISizeOfExpression } from "./template/Expressions/SizeOfExpression";
-import { IStandardLibCall } from "./template/Expressions/StandardLibCall";
-import { IUnaryExpression } from "./template/Expressions/UnaryExpression";
-import { IUserDefinedCall } from "./template/Expressions/UserDefinedCall";
-import { IIncludeDirective } from "./template/PreprocessorDirectives/IncludeDirective";
-import { IMacroDefinition } from "./template/PreprocessorDirectives/MacroDefinition";
-import { IArrayDeclaration } from "./template/ProgramStructures/ArrayDeclaration";
-import { IFunctionDeclaration } from "./template/ProgramStructures/FunctionDeclaration";
-import { IFunctionDefinition } from "./template/ProgramStructures/FunctionDefinition";
-import { IParameterDeclaration } from "./template/ProgramStructures/ParameterDeclaration";
-import { IParameterList } from "./template/ProgramStructures/ParameterList";
-import { IPointerDeclaration } from "./template/ProgramStructures/PointerDeclaration";
-import { ITranslationUnit } from "./template/ProgramStructures/TranslationUnit";
-import { IVariableDeclaration } from "./template/ProgramStructures/VariableDeclaration";
+// Import all node interfaces from consolidated files
+import {
+  IAddressOfExpression,
+  IArrayDeclaration,
+  IArraySizeAllocation,
+  IArraySubscriptExpression,
+  IAssignmentExpression,
+  IBinaryExpression,
+  IBreakStatement,
+  ICaseLabel,
+  ICastExpression,
+  ICompoundStatement,
+  IContinueStatement,
+  IDefaultLabel,
+  IDoWhileStatement,
+  IEnumType,
+  IForStatement,
+  IFunctionDeclaration,
+  IFunctionDefinition,
+  IGotoStatement,
+  IIdentifier,
+  IIfStatement,
+  IIncludeDirective,
+  ILabel,
+  ILiteral,
+  IMacroDefinition,
+  IMemberAccess,
+  IParameterDeclaration,
+  IParameterList,
+  IPointerDeclaration,
+  IPointerDereference,
+  IReturnStatement,
+  ISizeOfExpression,
+  IStandardLibCall,
+  IStructType,
+  ISwitchStatement,
+  ITranslationUnit,
+  ITypeDefinition,
+  IUnaryExpression,
+  IUnionType,
+  IUserDefinedCall,
+  IVariableDeclaration,
+  IWhileStatement,
+} from "./template";
+import { IBaseNode, TemplateNodeTypes } from "./template/BaseNode/BaseTypes";
 
+/**
+ * Union type of all possible template nodes
+ * This is the main type that represents any node in the template AST
+ */
 export type TemplateNodes =
+  | IBaseNode
   | TemplateBlockNodes
   | TemplateControlStructureNodes
+  | TemplateDataTypesNodes
   | TemplateExpressionNodes
   | TemplatePreprocessorDirectiveNodes
   | TemplateProgramStructureNodes;
 
+/**
+ * A template node with a guaranteed unique ID
+ * Used for flattened representations where every node has an ID
+ */
 export type TemplateFlattenedNode = TemplateNodes & { id: number };
 
+/**
+ * A graph representation of flattened template nodes
+ * Contains nodes and edges between them
+ */
 export interface TemplateFlattenedGraph {
+  /** Array of edges connecting nodes */
   edges: { from: number; to: number }[];
+  /** Array of nodes in the graph */
   nodes: TemplateFlattenedNode[];
 }
 
+// ============================================================================
+// NODE CATEGORIES
+// ============================================================================
+
+/**
+ * Block-level nodes (compound statements, etc.)
+ */
 type TemplateBlockNodes = ICompoundStatement;
 
+/**
+ * Control structure nodes (if, for, while, switch, etc.)
+ * Note: Data types have been moved to their own category
+ */
 type TemplateControlStructureNodes =
   | IBreakStatement
   | ICaseLabel
   | IContinueStatement
   | IDefaultLabel
   | IDoWhileStatement
-  | IEnumType
   | IForStatement
   | IGotoStatement
   | IIfStatement
   | ILabel
   | IReturnStatement
-  | IStructType
   | ISwitchStatement
-  | ITypeDefinition
-  | IUnionType
   | IWhileStatement;
 
+/**
+ * Data type nodes (structs, enums, unions, type definitions)
+ * Moved from ControlStructures for better organization
+ */
+type TemplateDataTypesNodes = IEnumType | IStructType | ITypeDefinition | IUnionType;
+
+/**
+ * Expression nodes (binary, unary, calls, literals, etc.)
+ */
 type TemplateExpressionNodes =
   | IAddressOfExpression
   | IArraySizeAllocation
@@ -90,8 +126,14 @@ type TemplateExpressionNodes =
   | IUnaryExpression
   | IUserDefinedCall;
 
+/**
+ * Preprocessor directive nodes (includes, macros, etc.)
+ */
 type TemplatePreprocessorDirectiveNodes = IIncludeDirective | IMacroDefinition;
 
+/**
+ * Program structure nodes (functions, variables, parameters, etc.)
+ */
 type TemplateProgramStructureNodes =
   | IArrayDeclaration
   | IFunctionDeclaration
@@ -101,3 +143,111 @@ type TemplateProgramStructureNodes =
   | IPointerDeclaration
   | ITranslationUnit
   | IVariableDeclaration;
+
+// ============================================================================
+// UTILITY TYPES
+// ============================================================================
+
+/**
+ * Extract the node type from a template node
+ */
+export type ExtractTemplateNodeType<T> = T extends { nodeType: infer U } ? U : never;
+
+/**
+ * Create a node type that extends IBaseNode with a specific nodeType
+ */
+export type TemplateNodeWithType<T extends TemplateNodeTypes> = IBaseNode & {
+  nodeType: T;
+};
+
+/**
+ * Type guard to check if a node is of a specific type
+ */
+export function isTemplateNodeType<T extends TemplateNodeTypes>(node: IBaseNode, nodeType: T): node is TemplateNodeWithType<T> {
+  return node.nodeType === nodeType;
+}
+
+/**
+ * Type guard to check if a node is a control structure
+ */
+export function isControlStructure(node: IBaseNode): node is TemplateControlStructureNodes {
+  const controlTypes = [
+    TemplateNodeTypes.BreakStatement,
+    TemplateNodeTypes.CaseLabel,
+    TemplateNodeTypes.ContinueStatement,
+    TemplateNodeTypes.DefaultLabel,
+    TemplateNodeTypes.DoWhileStatement,
+    TemplateNodeTypes.ForStatement,
+    TemplateNodeTypes.GotoStatement,
+    TemplateNodeTypes.IfStatement,
+    TemplateNodeTypes.Label,
+    TemplateNodeTypes.ReturnStatement,
+    TemplateNodeTypes.SwitchStatement,
+    TemplateNodeTypes.WhileStatement,
+  ];
+  return controlTypes.includes(node.nodeType);
+}
+
+/**
+ * Type guard to check if a node is a data type
+ */
+export function isDataType(node: IBaseNode): node is TemplateDataTypesNodes {
+  const dataTypeTypes = [TemplateNodeTypes.EnumType, TemplateNodeTypes.StructType, TemplateNodeTypes.TypeDefinition, TemplateNodeTypes.UnionType];
+  return dataTypeTypes.includes(node.nodeType);
+}
+
+/**
+ * Type guard to check if a node is an expression
+ */
+export function isExpression(node: IBaseNode): node is TemplateExpressionNodes {
+  const expressionTypes = [
+    TemplateNodeTypes.AddressOfExpression,
+    TemplateNodeTypes.ArraySizeAllocation,
+    TemplateNodeTypes.ArraySubscriptExpression,
+    TemplateNodeTypes.AssignmentExpression,
+    TemplateNodeTypes.BinaryExpression,
+    TemplateNodeTypes.CastExpression,
+    TemplateNodeTypes.Identifier,
+    TemplateNodeTypes.Literal,
+    TemplateNodeTypes.MemberAccess,
+    TemplateNodeTypes.PointerDereference,
+    TemplateNodeTypes.SizeOfExpression,
+    TemplateNodeTypes.StandardLibCall,
+    TemplateNodeTypes.UnaryExpression,
+    TemplateNodeTypes.UserDefinedCall,
+  ];
+  return expressionTypes.includes(node.nodeType);
+}
+
+/**
+ * Type guard to check if a node is a program structure
+ */
+export function isProgramStructure(node: IBaseNode): node is TemplateProgramStructureNodes {
+  const programStructureTypes = [
+    TemplateNodeTypes.ArrayDeclaration,
+    TemplateNodeTypes.FunctionDeclaration,
+    TemplateNodeTypes.FunctionDefinition,
+    TemplateNodeTypes.ParameterDeclaration,
+    TemplateNodeTypes.ParameterList,
+    TemplateNodeTypes.PointerDeclaration,
+    TemplateNodeTypes.TranslationUnit,
+    TemplateNodeTypes.VariableDeclaration,
+  ];
+  return programStructureTypes.includes(node.nodeType);
+}
+
+/**
+ * Type guard to check if a node is a preprocessor directive
+ */
+export function isPreprocessorDirective(node: IBaseNode): node is TemplatePreprocessorDirectiveNodes {
+  const preprocessorTypes = [TemplateNodeTypes.IncludeDirective, TemplateNodeTypes.MacroDefinition];
+  return preprocessorTypes.includes(node.nodeType);
+}
+
+// ============================================================================
+// RE-EXPORTS
+// ============================================================================
+
+// Re-export commonly used types for convenience
+export { IBaseNode, TemplateNodeTypes } from "./template/BaseNode/BaseTypes";
+export type { ExtractNodeType, NodeWithType } from "./template/BaseNode/BaseTypes";

@@ -1,10 +1,11 @@
-# ignore lint error
-# pylint: disable=all
-# basepyright ignore
-# type: ignore
 
-import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+import json, re, math, argparse, random
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Any, Set
+
+import torch
+from torch import nn
+from torch.utils.data import Dataset, DataLoader
 
 # ----------------------------
 # 수정 내용
@@ -15,53 +16,42 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 # 유지할 노드 유형 (statement level)
 KEEP_TYPES = {
-    "VariableDeclaration",
-    "ArrayDeclaration",
-    "PointerDeclaration",
+    "VariableDeclaration","ArrayDeclaration","PointerDeclaration",
     "AssignmentExpression",
-    "IfStatement",
-    "ForStatement",
-    "WhileStatement",
-    "DoWhileStatement",
-    "SwitchStatement",  # code = 조건식만 저장
-    "BreakStatement",  # 순서/디버그용(학습 제외)
+    "IfStatement","ForStatement","WhileStatement","DoWhileStatement",
+    "SwitchStatement",    # code = 조건식만 저장
+    "BreakStatement",     # 순서/디버그용(학습 제외)
     "ContinueStatement",  # 순서/디버그용(학습 제외)
-    "StandardLibCall",
-    "UserDefinedCall",
-}
+    "StandardLibCall","UserDefinedCall"}
 
 SCHEMA_VERSION = "v1.11-fd1"
 # node type → id (학습용 정수 id; 필요 시 확장
 NODE_TYPE_ID = {
-    "FunctionEntry": 1,  # ← 최하위 기본 타입
+    "FunctionEntry": 1,                  # ← 최하위 기본 타입
     "VariableDeclaration": 2,
     "ArrayDeclaration": 3,
     "PointerDeclaration": 4,
     "AssignmentExpression": 5,
     # 제어문 블록은 기존 대역 유지
-    "IfStatement": 10,
-    "ForStatement": 11,
-    "WhileStatement": 12,
-    "DoWhileStatement": 13,
+    "IfStatement": 10, "ForStatement": 11, "WhileStatement": 12, "DoWhileStatement": 13,
     "SwitchStatement": 14,
     # 순서/디버그 전용
-    "BreakStatement": 20,
-    "ContinueStatement": 21,
+    "BreakStatement": 20, "ContinueStatement": 21,
     # 호출류
-    "StandardLibCall": 30,
-    "UserDefinedCall": 31,
-    "CallExpression": 32,
+    "StandardLibCall": 30, "UserDefinedCall": 31, "CallExpression": 32,
     # (선택) 사용한다면 FunctionExit도 예약
     # "FunctionExit": 6,
 }
 
 # guard kind → onehot index (if, loop, switch)
-_GK = {1: 0, 2: 1, 4: 2}
+_GK = {1:0, 2:1, 4:2}
 
 
-CASE_LABEL_TYPES = {"CaseLabel", "DefaultLabel"}
-CONTROL_NODES = {"IfStatement", "ForStatement", "WhileStatement", "SwitchStatement"}
-CALL_NODE_TYPES = {"CallExpression", "StandardLibCall", "UserDefinedCall"}
+
+
+CASE_LABEL_TYPES = {"CaseLabel","DefaultLabel"}
+CONTROL_NODES = {"IfStatement","ForStatement","WhileStatement","SwitchStatement"}
+CALL_NODE_TYPES = {"CallExpression","StandardLibCall","UserDefinedCall"}
 
 # 리프팅 대상 호출 의미 카테고리
 # 1:mem_alloc, 2:mem_copy, 3:ext_input, 5:mem_set, 6:net_connect, 7:net_close, 8:socket_create
@@ -70,96 +60,37 @@ LIFTABLE_SEM_CATS = {1, 2, 3, 5, 6, 7, 8}
 
 # 1) 고정 ID
 CALL_SEM_ID = {
-    "none": 0,
-    "mem_alloc": 1,
-    "mem_copy": 2,
-    "ext_input": 3,
-    "format_print": 4,
-    "mem_set": 5,
-    "net_connect": 6,
-    "net_close": 7,
-    "socket_create": 8,
-    "parse_int_unchecked": 9,
-    "parse_int_checked": 10,
+    "none":0,
+    "mem_alloc":1, "mem_copy":2, "ext_input":3, "format_print":4,
+    "mem_set":5, "net_connect":6, "net_close":7, "socket_create":8,
+    "parse_int_unchecked":9, "parse_int_checked":10
 }
 
 # 우선순위: mem_copy > ext_input > mem_alloc > format_print > none
 CALL_PRIORITY = [
     "none",
-    "mem_alloc",
-    "mem_copy",
-    "ext_input",
-    "format_print",
-    "mem_set",
-    "net_connect",
-    "net_close",
-    "socket_create",
-    "parse_int_unchecked",
-    "parse_int_checked",  # id 9, 10
+    "mem_alloc","mem_copy","ext_input","format_print",
+    "mem_set","net_connect","net_close","socket_create",
+    "parse_int_unchecked","parse_int_checked"   # id 9, 10
 ]
 
 
 # ---3) 카테고리 정의(사람이 읽기 쉬운 dict-of-sets) ---
 CALL_SEM = {
     # 기존 4종 유지
-    "mem_alloc": {
-        "malloc",
-        "calloc",
-        "realloc",
-        "alloca",
-        "ALLOCA",
-        "_alloca",
-        "new",
-        "new[]",
-    },
-    "mem_copy": {
-        "memcpy",
-        "memmove",
-        "strcpy",
-        "strcat",
-    },  # ← snprintf/sprintf는 아래로 이동
-    "ext_input": {
-        "fgets",
-        "gets",
-        "scanf",
-        "fscanf",
-        "getline",
-        "read",
-        "recv",
-        "recvfrom",
-        "fread",
-    },
-    "format_print": {
-        "printf",
-        "fprintf",
-        "vprintf",
-        "vfprintf",
-        "puts",
-        "printIntLine",
-        "sprintf",
-        "vsprintf",
-        "snprintf",
-        "vsnprintf",
-    },  # ← printf 계열은 여기
-    "mem_set": {"memset", "bzero"},
-    "net_connect": {"connect"},
-    "net_close": {"closesocket", "close", "close_socket", "CLOSE_SOCKET"},
-    "socket_create": {"socket", "WSASocket", "wsasocket"},
-    "parse_int_unchecked": {"atoi", "atol", "atoll", "_atoi64"},
-    "parse_int_checked": {
-        "strtol",
-        "strtoul",
-        "strtoll",
-        "strtoull",
-        "strtoimax",
-        "strtoumax",
-        "wcstol",
-        "wcstoul",
-        "wcstoll",
-        "wcstoull",
-        "wcstoimax",
-        "wcstoumax",
-    },
+    "mem_alloc":     {"malloc","calloc","realloc","alloca","ALLOCA","_alloca","new","new[]"},
+    "mem_copy":      {"memcpy","memmove","strcpy","strcat"},                  # ← snprintf/sprintf는 아래로 이동
+    "ext_input":     {"fgets","gets","scanf","fscanf","getline","read","recv","recvfrom","fread"},
+    "format_print":  {"printf","fprintf","vprintf","vfprintf","puts","printIntLine",
+                      "sprintf","vsprintf","snprintf","vsnprintf"},           # ← printf 계열은 여기
+    "mem_set":       {"memset","bzero"},
+    "net_connect":   {"connect"},
+    "net_close":     {"closesocket","close","close_socket","CLOSE_SOCKET"},
+    "socket_create": {"socket","WSASocket","wsasocket"},
+
+    "parse_int_unchecked": {"atoi","atol","atoll","_atoi64"},
+    "parse_int_checked": {"strtol","strtoul","strtoll","strtoull","strtoimax","strtoumax",
+                          "wcstol","wcstoul","wcstoll","wcstoull","wcstoimax","wcstoumax"},
 }
 
 
@@ -170,85 +101,87 @@ for cat in CALL_PRIORITY:
     for nm in CALL_SEM.get(cat, ()):
         CALL_SEM_MAP.setdefault(nm.lower(), cid)  # 먼저 온(우선순위 높은) 매핑을 보존
 
-
 def call_sem_cat_id_from_name(name: str) -> int:
     return CALL_SEM_MAP.get((name or "").lower(), 0)
 
 
 # 언바운디드 위험(길이 인자 없음/형식문자 폭 지정 필요)
-UNBOUNDED_CALLS = {"gets", "strcpy", "strcat", "sprintf", "vsprintf"}
+UNBOUNDED_CALLS = {
+    "gets","strcpy","strcat","sprintf","vsprintf"
+}
 
 # dst/size 슬롯(간이) — AST 플래그 계산용
 API_SLOTS = {
     # mem_set/copy
-    "memset": {"dst": 0, "size": 2},
-    "memcpy": {"dst": 0, "size": 2},
-    "memmove": {"dst": 0, "size": 2},
-    "strcpy": {"dst": 0, "size": None},  # 없음
-    "strcat": {"dst": 0, "size": None},  # 없음
-    # 입력
-    "recv": {"dst": 1, "size": 2},
-    "recvfrom": {"dst": 1, "size": 2},
-    "read": {"dst": 1, "size": 2},
-    "fread": {"dst": 1, "size": 2},
-    "fgets": {"dst": 0, "size": 1},
-    "getline": {"dst": None, "size": None},  # 동적, AST에선 size 연결 없음
-    "scanf": {"dst": None, "size": None},  # 포맷 파싱 필요
-    "fscanf": {"dst": None, "size": None},
-    # 네트워크
-    "connect": {"dst": 1, "size": 2},  # addr/addrlen (메모리 dst 연계는 의미 약함)
-}
-# compute_call_flags에 반영 포인트
-# call_flag_danger_unbounded = 1 if name in UNBOUNDED_CALLS
-# call_size_kind, call_len_linked_to_dst_extended, call_flag_sizeof_non_dst는 API_SLOTS[name]["size"] 기준으로 size 인자를 뽑아 계산
-# call_dst_is_field = 1 if dst가 s.field/p->field
-# format_print 계열은 call_flag_has_varargs 적절히 세팅(특히 v* 계열
+    "memset":   {"dst":0, "size":2},
+    "memcpy":   {"dst":0, "size":2},
+    "memmove":  {"dst":0, "size":2},
+    "strcpy":   {"dst":0, "size":None},  # 없음
+    "strcat":   {"dst":0, "size":None},  # 없음
 
+    # 입력
+    "recv":     {"dst":1, "size":2},
+    "recvfrom": {"dst":1, "size":2},
+    "read":     {"dst":1, "size":2},
+    "fread":    {"dst":1, "size":2},
+    "fgets":    {"dst":0, "size":1},
+    "getline":  {"dst":None, "size":None},  # 동적, AST에선 size 연결 없음
+    "scanf":    {"dst":None, "size":None},  # 포맷 파싱 필요
+    "fscanf":   {"dst":None, "size":None},
+
+    # 네트워크
+    "connect":  {"dst":1, "size":2},  # addr/addrlen (메모리 dst 연계는 의미 약함)
+}
+#compute_call_flags에 반영 포인트
+#call_flag_danger_unbounded = 1 if name in UNBOUNDED_CALLS
+#call_size_kind, call_len_linked_to_dst_extended, call_flag_sizeof_non_dst는 API_SLOTS[name]["size"] 기준으로 size 인자를 뽑아 계산
+#call_dst_is_field = 1 if dst가 s.field/p->field
+#format_print 계열은 call_flag_has_varargs 적절히 세팅(특히 v* 계열
+                                              
 
 # ---- mem-alloc helpers ----
-MEM_ALLOC_FUNCS_LOWER = {"malloc", "calloc", "realloc", "alloca", "_alloca"}
-MEM_ALLOC_FUNCS_RAW = {"ALLOCA", "new[]"}  # 대소문자 보존 토큰
+MEM_ALLOC_FUNCS_LOWER = {"malloc","calloc","realloc","alloca","_alloca"}
+MEM_ALLOC_FUNCS_RAW   = {"ALLOCA","new[]"}  # 대소문자 보존 토큰
 
 
 # 무제한 쓰기 계열
-UNBOUNDED = {"gets", "strcpy", "strcat", "sprintf", "vsprintf"}
+UNBOUNDED = {"gets","strcpy","strcat","sprintf","vsprintf"}
 # 표준 라이브러리 호출 판별(간단): CALL_SEM 집합들과 UNBOUNDED 합집합 기반
 STD_FUNCTIONS = set().union(*CALL_SEM.values(), UNBOUNDED)
 
+ 
 
 def _node_type_id(nt: str) -> int:
     return NODE_TYPE_ID.get(nt, 0)
 
-
+def _is_mem_alloc_name(fname: str) -> bool:
+     f = (fname or "").strip()
+     fl = f.lower()
+     return (fl in MEM_ALLOC_FUNCS_LOWER) or (f in MEM_ALLOC_FUNCS_RAW)
+ 
 def _node_contains_sizeof(n: Any) -> bool:
-    """AST 노드 트리 내부에 sizeof 사용 흔적이 있는지 (보수적) 탐지."""
-    if not isinstance(n, dict):
-        return False
-    code = n.get("code") or ""
-    if "sizeof" in code:
-        return True
-    for c in n.get("children") or []:
-        if _node_contains_sizeof(c):
-            return True
-    return False
+     """AST 노드 트리 내부에 sizeof 사용 흔적이 있는지 (보수적) 탐지."""
+     if not isinstance(n, dict):
+         return False
+     code = (n.get("code") or "")
+     if "sizeof" in code:
+         return True
+     for c in (n.get("children") or []):
+         if _node_contains_sizeof(c):
+             return True
+     return False
 
 
 def _strip_sizeof(s: str) -> str:
     """문자열에서 sizeof(...) 블록을 제거해 식별자 탐지 오탐을 줄임"""
     out = []
-    i = 0
-    L = len(s)
-    depth = 0
-    in_sizeof = False
+    i = 0; L = len(s); depth = 0; in_sizeof = False
     while i < L:
         if not in_sizeof and s.startswith("sizeof", i):
-            j = i + 6
-            while j < L and s[j].isspace():
-                j += 1
+            j = i+6
+            while j < L and s[j].isspace(): j += 1
             if j < L and s[j] == "(":
-                in_sizeof = True
-                depth = 0
-                i = j
+                in_sizeof = True; depth = 0; i = j
                 # 균형 괄호 스킵
                 while i < L:
                     if s[i] == "(":
@@ -262,8 +195,7 @@ def _strip_sizeof(s: str) -> str:
                 continue
         out.append(s[i])
         i += 1
-    return "".join(out)
-
+    return "".join(out) 
 
 def _find_matching_paren(s: str, start: int) -> int:
     """문자열 s에서 start 위치의 '('에 대응하는 ')' 인덱스 반환 (없으면 -1)"""
@@ -278,30 +210,27 @@ def _find_matching_paren(s: str, start: int) -> int:
                 return i
     return -1
 
-
 def _simple_parse_args(code: str, fname: str) -> List[str]:
     """code에서 fname( ... )의 최초 호출 인자 목록을 best-effort로 파싱"""
-    pattern = r"\b" + re.escape(fname) + r"\s*\("
+    pattern = r'\b' + re.escape(fname) + r'\s*\('
     m = re.search(pattern, code or "")
     if not m:
         return []
-    l = m.end() - 1
+    l = m.end()-1
     r = _find_matching_paren(code, l)
     if r == -1:
         return []
-    inner = code[l + 1 : r]
+    inner = code[l+1:r]
     # 최상위 콤마로 분리
     args = []
-    cur = []
-    depth = 0
+    cur = []; depth = 0
     for ch in inner:
         if ch == "(":
             depth += 1
         elif ch == ")":
             depth -= 1
         if ch == "," and depth == 0:
-            args.append("".join(cur).strip())
-            cur = []
+            args.append("".join(cur).strip()); cur = []
         else:
             cur.append(ch)
     if cur:
@@ -313,7 +242,7 @@ def norm_val(n: Optional[int], cap: int = 100) -> float:
     """0..cap을 0..1로 정규화. None/음수는 0.0"""
     if n is None:
         return 0.0
-    return min(max(int(n), 0), cap) / float(cap)
+    return min(max(int(n),0), cap)/float(cap)
 
 
 def parse_array_size_state_and_norm(code: str) -> Tuple[int, float]:
@@ -322,7 +251,7 @@ def parse_array_size_state_and_norm(code: str) -> Tuple[int, float]:
       - state: 0=NA(배열 아님), 1=CONST, 2=NONCONST
       - norm : CONST일 때 정규화 값, 그 외 0.0
     """
-    dims = re.findall(r"\[[^\]]+\]", code or "")
+    dims = re.findall(r'\[[^\]]+\]', code or "")
     if not dims:
         return 0, 0.0
     nonconst = False
@@ -331,9 +260,9 @@ def parse_array_size_state_and_norm(code: str) -> Tuple[int, float]:
     for d in dims:
         expr = d.strip()[1:-1]
         expr_wo_sizeof = _strip_sizeof(expr)
-        if re.search(r"[A-Za-z_]\w*", expr_wo_sizeof):
+        if re.search(r'[A-Za-z_]\w*', expr_wo_sizeof):
             nonconst = True
-        if re.fullmatch(r"\d+", expr.strip()):
+        if re.fullmatch(r'\d+', expr.strip()):
             product *= int(expr.strip())
         else:
             evaluable = False
@@ -346,23 +275,33 @@ def parse_array_size_state_and_norm(code: str) -> Tuple[int, float]:
         return 1, 0.0
 
 
+
+
+   
+
+
+
+
+
+
 class ASTExtractorV1_12:
 
-    def __init__(self, ast_json: Dict[str, Any], *, lift_pure_cond_calls: bool = False):
-
+    def __init__(self, ast_json: Dict[str, Any], *,
+                 lift_pure_cond_calls: bool = False):
+                
         self.ast = ast_json
         # id -> AST node map for quick lookup
         self.idmap: Dict[int, Dict[str, Any]] = {}
         self.parent: Dict[int, int] = {}
-
+        
         def _idx(n, parent_id: Optional[int] = None):
             if isinstance(n, dict):
-                nid = n.get("id")
+                nid = n.get('id')
                 if isinstance(nid, int):
                     self.idmap[nid] = n
                     if isinstance(parent_id, int):
-                        self.parent[nid] = parent_id
-                for c in n.get("children") or []:
+                       self.parent[nid] = parent_id
+                for c in (n.get("children") or []):
                     _idx(c, nid)
             elif isinstance(n, list):
                 for x in n:
@@ -370,85 +309,77 @@ class ASTExtractorV1_12:
 
         _idx(self.ast)
 
-        self.nodes: List[Dict[str, Any]] = []
-        self.id2sid: Dict[int, int] = {}  # AST orig_id -> created sid (중복 방지
+        self.nodes: List[Dict[str,Any]] = []
+        self.id2sid: Dict[int, int] = {}   # AST orig_id -> created sid (중복 방지
 
-        self.edges_pc: List[Tuple[int, int, int]] = []  # (src, dst, 0)
-        self.edges_sb: List[Tuple[int, int, int]] = []  # (src, dst, 1)
+        self.edges_pc: List[Tuple[int,int,int]] = []   # (src, dst, 0)
+        self.edges_sb: List[Tuple[int,int,int]] = []   # (src, dst, 1)
         # GUARD 에지는 학습에선 guard_kind만 쓰고, guard_branch는 디버그 전용
-        self.edges_ast_guard: List[Dict[str, Any]] = (
-            []
-        )  # {"src","dst","edge_type":2,"guard_kind", "guard_branch"(dbg)}
+        self.edges_ast_guard: List[Dict[str,Any]] = [] # {"src","dst","edge_type":2,"guard_kind", "guard_branch"(dbg)}
 
         self.sid_counter = 1
 
-        self.LIFT_PURE_COND_CALLS = lift_pure_cond_calls
+        self.LIFT_PURE_COND_CALLS = lift_pure_cond_calls  
 
         # switch 라벨 표현 모드: "label"(권장) | "numeric"
-        self.SWITCH_BRANCH_MODE = "int"  # "int"로 기본값 변경 (label은 debug로만 보존)
-        self._switch_case_map: Dict[int, Dict[str, int]] = {}
+        self.SWITCH_BRANCH_MODE = "int"    # "int"로 기본값 변경 (label은 debug로만 보존)
+        self._switch_case_map: Dict[int, Dict[str,int]] = {}
 
-        func_name = self.ast.get("name", "<func>")
-        func_orig_id = (
-            self.ast.get("id") if isinstance(self.ast.get("id"), int) else None
-        )
+        func_name = self.ast.get("name","<func>")
+        func_orig_id = self.ast.get("id") if isinstance(self.ast.get("id"), int) else None
 
-        self.nodes.append(
-            {
-                "sid": 0,
-                "node_type": "FunctionEntry",
-                "code": f"<entry:{func_name}>",
-                "orig_id": func_orig_id,
-                # 학습용 feat (AST-GNN 전용 피처만)
-                "feat": {
-                    "node_type_id": _node_type_id(
-                        "FunctionEntry"
-                    ),  # ← 정수 ID (FunctionEntry=1)
-                    "train_mask": 1,
-                    "in_loop": 0,
-                    "is_loop": 0,
-                    "ctx_guard_strength": 0,
-                    "ctx_upper_bound_norm": 0.0,
-                    "is_buffer_decl": 0,
-                    "buffer_size_state": 0,
-                    "buffer_size_norm": 0.0,
-                    "call_sem_cat_id": 0,
-                    # 호출/사이즈 관련 AST 보강 플래그(비호출이므로 0)
-                    "call_flag_danger_unbounded": 0,
-                    "call_flag_len_linked_to_dst": 0,
-                    "call_flag_sizeof_non_dst": 0,
-                    "call_flag_has_varargs": 0,
-                    "call_dst_is_field": 0,
-                    "call_size_kind": 0,
-                    "call_len_linked_to_dst_extended": 0,
-                    "call_size_is_sizeof_base_struct": 0,
-                    "call_size_mismatch_field": 0,
-                    "alloc_sizeof_state": 0,
-                },
-                # debug는 추가 메모가 있을 때만 붙임(중복 금지)
+        self.nodes.append({
+            "sid": 0,
+            "node_type": "FunctionEntry",
+            "code": f"<entry:{func_name}>",
+            "orig_id": func_orig_id,
+            # 학습용 feat (AST-GNN 전용 피처만)
+            "feat": {
+                "node_type_id": _node_type_id("FunctionEntry"),  # ← 정수 ID (FunctionEntry=1)
+                "train_mask": 1,
+                "in_loop": 0,
+                "is_loop": 0,
+                "ctx_guard_strength": 0,
+                "ctx_upper_bound_norm": 0.0,
+                "is_buffer_decl": 0,
+                "buffer_size_state": 0,
+                "buffer_size_norm": 0.0,
+                "call_sem_cat_id": 0,
+                # 호출/사이즈 관련 AST 보강 플래그(비호출이므로 0)
+                "call_flag_danger_unbounded": 0,
+                "call_flag_len_linked_to_dst": 0,
+                "call_flag_sizeof_non_dst": 0,
+                "call_flag_has_varargs": 0,
+                "call_dst_is_field": 0,
+                "call_size_kind": 0,
+                "call_len_linked_to_dst_extended": 0,
+                "call_size_is_sizeof_base_struct": 0,
+                "call_size_mismatch_field": 0,
+                "alloc_sizeof_state": 0
             }
-        )
+            # debug는 추가 메모가 있을 때만 붙임(중복 금지)
+        })  
 
-    def run(self) -> Dict[str, Any]:
+    def run(self) -> Dict[str,Any]:
         # Added: emit ParameterDeclaration as prologue
         self._emit_param_statements_prologue()
         """함수 AST에서 CompoundStatement를 찾아 평탄화 수행"""
         func_body = None
-        for c in self.ast.get("children") or []:
+        for c in (self.ast.get("children") or []):
             if isinstance(c, dict) and c.get("nodeType") == "CompoundStatement":
                 func_body = c
                 break
         if func_body is not None:
             _first, _last = self._process_block(func_body, 0, {}, 0)
-
+        
         # postprocess control nodes for call semantics
         self._postprocess_control_calls()
         return {
-            "nodes": self.nodes,  # 각 노드: {sid, node_type_id, code, orig_id, feat{...}, debug{...}}
-            "edges_ast_pc": self.edges_pc,  # (변경 없음) [(parent_sid, child_sid, 0)]
-            "edges_ast_sb": self.edges_sb,  # (변경 없음) [(prev_sid, next_sid, 1)]
-            "edges_ast_guard": self.edges_ast_guard,  # (변경 없음) [{src, dst, guard_kind, guard_branch}]
-        }
+            "nodes": self.nodes,                # 각 노드: {sid, node_type_id, code, orig_id, feat{...}, debug{...}}
+            "edges_ast_pc": self.edges_pc,      # (변경 없음) [(parent_sid, child_sid, 0)]
+            "edges_ast_sb": self.edges_sb,      # (변경 없음) [(prev_sid, next_sid, 1)]
+            "edges_ast_guard": self.edges_ast_guard # (변경 없음) [{src, dst, guard_kind, guard_branch}]
+    }
 
         def _extract_for_condition_code(self, for_node: dict) -> str:
             """
@@ -460,12 +391,8 @@ class ASTExtractorV1_12:
             try:
                 # Prefer AST child[1] code if present
                 if isinstance(for_node, dict):
-                    kids = for_node.get("children") or []
-                    cond = (
-                        kids[1]
-                        if len(kids) >= 2 and isinstance(kids[1], dict)
-                        else None
-                    )
+                    kids = (for_node.get("children") or [])
+                    cond = kids[1] if len(kids) >= 2 and isinstance(kids[1], dict) else None
                     if isinstance(cond, dict):
                         c = cond.get("code")
                         if isinstance(c, str) and c.strip():
@@ -477,48 +404,40 @@ class ASTExtractorV1_12:
                     return ""
 
                 # find parentheses content
-                m = re.search(r"for\s*\((.*)\)", s, flags=re.IGNORECASE | re.DOTALL)
+                m = re.search(r'for\s*\((.*)\)', s, flags=re.IGNORECASE | re.DOTALL)
                 inner = m.group(1) if m else s
 
                 # split top-level by semicolons (avoid semicolons within nested parens)
                 parts = []
-                buf = []
-                depth = 0
+                buf = []; depth = 0
                 for ch in inner:
-                    if ch == "(":
-                        depth += 1
-                    elif ch == ")":
-                        depth = max(depth - 1, 0)
-                    if ch == ";" and depth == 0:
-                        parts.append("".join(buf).strip())
-                        buf = []
+                    if ch == '(': depth += 1
+                    elif ch == ')': depth = max(depth-1, 0)
+                    if ch == ';' and depth == 0:
+                        parts.append(''.join(buf).strip()); buf = []
                     else:
                         buf.append(ch)
-                parts.append("".join(buf).strip())
+                parts.append(''.join(buf).strip())
                 if len(parts) >= 2:
                     return parts[1].strip()
                 return ""
             except Exception:
                 return ""
 
-    def _process_block(
-        self,
-        block_node: Dict[str, Any],
-        parent_sid: int,
-        active_guards: Dict[str, Dict[str, Any]],
-        in_loop: int,
-    ) -> Tuple[Optional[int], Optional[int]]:
+    def _process_block(self, block_node: Dict[str,Any], parent_sid: int,
+                   active_guards: Dict[str, Dict[str,Any]], in_loop: int) -> Tuple[Optional[int], Optional[int]]:
         """
         블록(CompoundStatement) 내부를 순회하며 statement-level 노드를 생성
         - edges_ast_pc: parent→child
         - edges_ast_sb: statement order
         - edges_ast_guard: (guard_stmt → first_stmt_in_block, {guard_kind, guard_branch})
         """
-        # Break/Continue는 _make_node가 train_mask=0을 설정하므로, 이후에 self.nodes[...]로 덮어쓰는 코드 제거.
-        # Switch 평탄화 후 외부 SB는 항상 스위치 노드에서 다음 문장으로 이어지도록 유지(sb_prev = sid_sw 고정).
-        # edges_ast_guard는 공통 헬퍼(_emit_guard)로 생성 → 학습은 guard_kind만, guard_branch는 디버그용 문자열 유지(옵션 numeric 모드도 지원).
-        # If/For/While/DoWhile의 가드 에지도 모두 _emit_guard 경유.
-        # 불필요하게 계산만 하던 gfeat 제거(집계는 DFG 단계에서 사용)
+        #Break/Continue는 _make_node가 train_mask=0을 설정하므로, 이후에 self.nodes[...]로 덮어쓰는 코드 제거.
+        #Switch 평탄화 후 외부 SB는 항상 스위치 노드에서 다음 문장으로 이어지도록 유지(sb_prev = sid_sw 고정).
+        #edges_ast_guard는 공통 헬퍼(_emit_guard)로 생성 → 학습은 guard_kind만, guard_branch는 디버그용 문자열 유지(옵션 numeric 모드도 지원).
+        #If/For/While/DoWhile의 가드 에지도 모두 _emit_guard 경유.
+        #불필요하게 계산만 하던 gfeat 제거(집계는 DFG 단계에서 사용)
+
 
         # --- guard edge emitter (디버그용 라벨 유지, 학습은 kind만 사용) ---
         def _emit_guard(src_sid: int, dst_sid: int, guard_kind: int, branch_label: Any):
@@ -531,12 +450,7 @@ class ASTExtractorV1_12:
             mode = getattr(self, "SWITCH_BRANCH_MODE", "label")  # "label" | "numeric"
             gb = branch_label
 
-            edge = {
-                "src": src_sid,
-                "dst": dst_sid,
-                "edge_type": 2,
-                "guard_kind": guard_kind,
-            }
+            edge = {"src": src_sid, "dst": dst_sid, "edge_type": 2, "guard_kind": guard_kind}
 
             if guard_kind == 4 and mode == "int":
                 # switch만 정수 인코딩 + 원문 라벨 디버그 보존
@@ -560,17 +474,16 @@ class ASTExtractorV1_12:
 
             self.edges_ast_guard.append(edge)
 
+
         sb_prev: Optional[int] = None
         first_sid: Optional[int] = None
 
-        for ch in block_node.get("children") or []:
+        for ch in (block_node.get("children") or []):
             t = ch.get("nodeType")
 
             # 중첩 블록
             if t == "CompoundStatement":
-                child_first, child_last = self._process_block(
-                    ch, parent_sid, dict(active_guards), in_loop
-                )
+                child_first, child_last = self._process_block(ch, parent_sid, dict(active_guards), in_loop)
                 if child_first is not None:
                     if sb_prev is not None:
                         self.edges_sb.append((sb_prev, child_first, 1))
@@ -581,16 +494,8 @@ class ASTExtractorV1_12:
 
             # ContinueStatement: 제어 이전만 표시(DFG 없음, 학습 제외)
             if t == "ContinueStatement":
-                sid_ct = self._make_node(
-                    "ContinueStatement",
-                    "continue",
-                    in_loop,
-                    0,
-                    0,
-                    0,
-                    0.0,
-                    orig_id=ch.get("id"),
-                )
+                sid_ct = self._make_node("ContinueStatement", "continue", in_loop, 0, 0, 0, 0.0,
+                                        orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_ct, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_ct, 1))
@@ -608,10 +513,8 @@ class ASTExtractorV1_12:
             # ------------------------------------------------------------
             if t in CASE_LABEL_TYPES:
                 c_first, c_last = self._process_case_block(
-                    label_node=ch,
-                    switch_sid=parent_sid,
-                    active_guards=active_guards,
-                    in_loop=in_loop,
+                    label_node=ch, switch_sid=parent_sid,
+                    active_guards=active_guards, in_loop=in_loop
                 )
                 if c_first is not None:
                     if sb_prev is not None:
@@ -623,16 +526,8 @@ class ASTExtractorV1_12:
 
             # BreakStatement: 제어 이전만 표시(DFG 없음)
             if t == "BreakStatement":
-                sid_br = self._make_node(
-                    "BreakStatement",
-                    "break",
-                    in_loop,
-                    0,
-                    0,
-                    0,
-                    0.0,
-                    orig_id=ch.get("id"),
-                )
+                sid_br = self._make_node("BreakStatement", "break", in_loop, 0, 0, 0, 0.0,
+                                        orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_br, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_br, 1))
@@ -641,41 +536,23 @@ class ASTExtractorV1_12:
                 sb_prev = sid_br
                 continue
 
+
             if t == "IfStatement":
                 kids = ch.get("children", []) or []
                 cond = kids[0] if len(kids) >= 1 and isinstance(kids[0], dict) else None
-                then_block = (
-                    kids[1] if len(kids) >= 2 and isinstance(kids[1], dict) else None
-                )
-                else_block = (
-                    kids[2] if len(kids) >= 3 and isinstance(kids[2], dict) else None
-                )
+                then_block = kids[1] if len(kids) >= 2 and isinstance(kids[1], dict) else None
+                else_block = kids[2] if len(kids) >= 3 and isinstance(kids[2], dict) else None
 
                 # 1) (신규) 조건식 내 부작용 호출 리프팅: If 앞에 '호출 Statement' 삽입
                 if isinstance(cond, dict):
                     sb_prev, _lifted_sid = self._maybe_lift_call_in_condition(
-                        parent_sid=parent_sid,
-                        sb_prev=sb_prev,
-                        in_loop=in_loop,
-                        cond_node=cond,
+                        parent_sid=parent_sid, sb_prev=sb_prev, in_loop=in_loop, cond_node=cond
                     )
 
                 # 2) IfStatement 노드 생성 (조건식 '코드'만)
-                cond_code = (
-                    cond.get("code", "")
-                    if isinstance(cond, dict)
-                    else ch.get("code", "")
-                )
-                sid_if = self._make_node(
-                    "IfStatement",
-                    cond_code,
-                    in_loop,
-                    0,
-                    0,
-                    0,
-                    0.0,
-                    orig_id=ch.get("id"),
-                )
+                cond_code = cond.get("code","") if isinstance(cond, dict) else ch.get("code","")
+                sid_if = self._make_node("IfStatement", cond_code, in_loop, 0, 0, 0, 0.0,
+                                        orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_if, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_if, 1))
@@ -685,45 +562,30 @@ class ASTExtractorV1_12:
 
                 # 3) 가드 컨텍스트 집계
                 cond_guards = self._guards_from_condition_ast(cond)
-
                 def _push_guards(base: dict, add: dict) -> dict:
                     pushed = dict(base)
-                    for v, g in (add or {}).items():
-                        pushed[v] = {
-                            "lower": g.get("lower", 0),
-                            "upper": g.get("upper", 0),
-                            "upper_const": g.get("upper_const", 0.0),
-                        }
+                    for v,g in (add or {}).items():
+                        pushed[v] = {"lower": g.get("lower",0), "upper": g.get("upper",0),
+                                    "upper_const": g.get("upper_const",0.0)}
                     return pushed
 
                 # 4) THEN
-                if (
-                    isinstance(then_block, dict)
-                    and then_block.get("nodeType") == "CompoundStatement"
-                ):
-                    then_first, _then_last = self._process_block(
-                        then_block,
-                        sid_if,
-                        _push_guards(active_guards, cond_guards),
-                        in_loop,
-                    )
+                if isinstance(then_block, dict) and then_block.get("nodeType") == "CompoundStatement":
+                    then_first, _then_last = self._process_block(then_block, sid_if,
+                                                                _push_guards(active_guards, cond_guards),
+                                                                in_loop)
                     if then_first is not None:
                         _emit_guard(sid_if, then_first, 1, 0)  # then=0
 
                 # 5) ELSE
-                if (
-                    isinstance(else_block, dict)
-                    and else_block.get("nodeType") == "CompoundStatement"
-                ):
-                    else_first, _else_last = self._process_block(
-                        else_block,
-                        sid_if,
-                        dict(active_guards),  # 반전 없이 컨텍스트만 유지
-                        in_loop,
-                    )
+                if isinstance(else_block, dict) and else_block.get("nodeType") == "CompoundStatement":
+                    else_first, _else_last = self._process_block(else_block, sid_if,
+                                                                dict(active_guards),  # 반전 없이 컨텍스트만 유지
+                                                                in_loop)
                     if else_first is not None:
-                        _emit_guard(sid_if, else_first, 1, 1)  # else=1
+                       _emit_guard(sid_if, else_first, 1, 1)  # else=1
                 continue
+
 
             # ForStatement
             # if t == "ForStatement":
@@ -753,16 +615,8 @@ class ASTExtractorV1_12:
             #     continue
             if t == "ForStatement":
                 # Create loop node
-                sid_for = self._make_node(
-                    "ForStatement",
-                    ch.get("code", ""),
-                    in_loop,
-                    1,
-                    0,
-                    0,
-                    0.0,
-                    orig_id=ch.get("id"),
-                )
+                sid_for = self._make_node("ForStatement", ch.get("code",""), in_loop, 1, 0, 0, 0.0,
+                                        orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_for, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_for, 1))
@@ -774,57 +628,36 @@ class ASTExtractorV1_12:
                 cond_ast = kids[1] if len(kids) > 1 else None
 
                 # Parse condition (AST) and also infer lower-bound from init/inc header
-                guards_cond = (
-                    self._guards_from_condition_ast(cond_ast)
-                    if isinstance(cond_ast, dict)
-                    else {}
-                )
-                guards_hdr = self._guards_from_for_header(ch) or {}
+                guards_cond = self._guards_from_condition_ast(cond_ast) if isinstance(cond_ast, dict) else {}
+                guards_hdr  = self._guards_from_for_header(ch) or {}
 
                 # Merge guards: OR for lower/upper, max for upper_const
                 lguards = dict(guards_cond)
                 for v, g in guards_hdr.items():
-                    cur = lguards.get(v, {"lower": 0, "upper": 0, "upper_const": 0.0})
-                    cur["lower"] = int(cur.get("lower", 0)) | int(g.get("lower", 0))
-                    cur["upper"] = int(cur.get("upper", 0)) | int(g.get("upper", 0))
-                    cur["upper_const"] = max(
-                        float(cur.get("upper_const", 0.0)),
-                        float(g.get("upper_const", 0.0)),
-                    )
+                    cur = lguards.get(v, {"lower":0,"upper":0,"upper_const":0.0})
+                    cur["lower"] = int(cur.get("lower",0)) | int(g.get("lower",0))
+                    cur["upper"] = int(cur.get("upper",0)) | int(g.get("upper",0))
+                    cur["upper_const"] = max(float(cur.get("upper_const",0.0)),
+                                            float(g.get("upper_const",0.0)))
                     lguards[v] = cur
 
                 pushed = dict(active_guards)
-                for v, g in (lguards or {}).items():
-                    pushed[v] = {
-                        "lower": g.get("lower", 0),
-                        "upper": g.get("upper", 0),
-                        "upper_const": g.get("upper_const", 0.0),
-                    }
+                for v,g in (lguards or {}).items():
+                    pushed[v] = {"lower": g.get("lower",0),
+                                "upper": g.get("upper",0),
+                                "upper_const": g.get("upper_const",0.0)}
 
                 body = kids[3] if len(kids) > 3 else None
-                if (
-                    isinstance(body, dict)
-                    and body.get("nodeType") == "CompoundStatement"
-                ):
-                    body_first, _body_last = self._process_block(
-                        body, sid_for, pushed, 1
-                    )
+                if isinstance(body, dict) and body.get("nodeType") == "CompoundStatement":
+                    body_first, _body_last = self._process_block(body, sid_for, pushed, 1)
                     if body_first is not None:
                         _emit_guard(sid_for, body_first, 2, 2)  # loop-body=2
                 continue
 
             # WhileStatement
             if t == "WhileStatement":
-                sid_while = self._make_node(
-                    "WhileStatement",
-                    ch.get("code", ""),
-                    in_loop,
-                    1,
-                    0,
-                    0,
-                    0.0,
-                    orig_id=ch.get("id"),
-                )
+                sid_while = self._make_node("WhileStatement", ch.get("code",""), in_loop, 1, 0, 0, 0.0,
+                                            orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_while, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_while, 1))
@@ -834,61 +667,30 @@ class ASTExtractorV1_12:
 
                 kids = ch.get("children", []) or []
                 cond = kids[0] if len(kids) > 0 else None
-                # cond_code = cond.get("code","") if isinstance(cond, dict) else ""
+                #cond_code = cond.get("code","") if isinstance(cond, dict) else ""
                 lguards = self._guards_from_condition_ast(cond)
 
                 pushed = dict(active_guards)
-                for v, g in lguards.items():
-                    pushed[v] = {
-                        "lower": g.get("lower", 0),
-                        "upper": g.get("upper", 0),
-                        "upper_const": g.get("upper_const", 0.0),
-                    }
+                for v,g in lguards.items():
+                    pushed[v] = {"lower": g.get("lower",0), "upper": g.get("upper",0), "upper_const": g.get("upper_const",0.0)}
 
                 body = kids[1] if len(kids) > 1 else None
-                if (
-                    isinstance(body, dict)
-                    and body.get("nodeType") == "CompoundStatement"
-                ):
+                if isinstance(body, dict) and body.get("nodeType") == "CompoundStatement":
                     body_first, _ = self._process_block(body, sid_while, pushed, 1)
                     if body_first is not None:
                         _emit_guard(sid_while, body_first, 2, 2)  # loop-body=2
                 continue
 
             # DoWhileStatement (바디 먼저 실행, 조건식만 code에 기록)
-            if t in {"DoWhileStatement", "DoStatement"}:
+            if t in {"DoWhileStatement","DoStatement"}:
                 kids = ch.get("children") or []
                 # body: 첫 CompoundStatement, cond: 마지막 비-CompoundStatement
-                body = next(
-                    (
-                        k
-                        for k in kids
-                        if isinstance(k, dict)
-                        and k.get("nodeType") == "CompoundStatement"
-                    ),
-                    None,
-                )
-                cond = next(
-                    (
-                        k
-                        for k in reversed(kids)
-                        if isinstance(k, dict)
-                        and k.get("nodeType") != "CompoundStatement"
-                    ),
-                    None,
-                )
-                cond_code = cond.get("code", "") if isinstance(cond, dict) else ""
+                body = next((k for k in kids if isinstance(k, dict) and k.get("nodeType")=="CompoundStatement"), None)
+                cond = next((k for k in reversed(kids) if isinstance(k, dict) and k.get("nodeType")!="CompoundStatement"), None)
+                cond_code = cond.get("code","") if isinstance(cond, dict) else ""
 
-                sid_do = self._make_node(
-                    "DoWhileStatement",
-                    cond_code,
-                    in_loop,
-                    1,
-                    0,
-                    0,
-                    0.0,
-                    orig_id=ch.get("id"),
-                )
+                sid_do = self._make_node("DoWhileStatement", cond_code, in_loop, 1, 0, 0, 0.0,
+                                         orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_do, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_do, 1))
@@ -899,18 +701,11 @@ class ASTExtractorV1_12:
                 # 가드(루프) 증거 주입 컨텍스트 구성
                 lguards = self._guards_from_condition_ast(cond) if cond_code else {}
                 pushed = dict(active_guards)
-                for v, g in lguards.items():
-                    pushed[v] = {
-                        "lower": g.get("lower", 0),
-                        "upper": g.get("upper", 0),
-                        "upper_const": g.get("upper_const", 0.0),
-                    }
+                for v,g in lguards.items():
+                    pushed[v] = {"lower": g.get("lower",0), "upper": g.get("upper",0), "upper_const": g.get("upper_const",0.0)}
 
                 # 바디 평탄화 + 루프 가드 에지 생성
-                if (
-                    isinstance(body, dict)
-                    and body.get("nodeType") == "CompoundStatement"
-                ):
+                if isinstance(body, dict) and body.get("nodeType") == "CompoundStatement":
                     body_first, _ = self._process_block(body, sid_do, pushed, 1)
                     if body_first is not None:
                         _emit_guard(sid_do, body_first, 2, 2)  # loop=2
@@ -918,19 +713,11 @@ class ASTExtractorV1_12:
                 continue
 
             # SwitchStatement (노드 생성 + case/default 가드 에지 생성)
-            if t == "SwitchStatement":
-
+            if t == "SwitchStatement":               
+                
                 cond_code = self._extract_switch_condition_code(ch)
-                sid_sw = self._make_node(
-                    "SwitchStatement",
-                    cond_code,
-                    in_loop,
-                    0,
-                    0,
-                    0,
-                    0.0,
-                    orig_id=ch.get("id"),
-                )
+                sid_sw = self._make_node("SwitchStatement", cond_code, in_loop, 0, 0, 0, 0.0,
+                                        orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_sw, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_sw, 1))
@@ -940,22 +727,16 @@ class ASTExtractorV1_12:
                 # 바디에서 CaseLabel/DefaultLabel 직접 순회
                 body = self._find_switch_body(ch)
                 local_prev = None
-                for elem in (
-                    body.get("children") if body else (ch.get("children") or [])
-                ):
+                for elem in (body.get("children") if body else (ch.get("children") or [])):
                     et = elem.get("nodeType")
                     if et in CASE_LABEL_TYPES:
-                        c_first, c_last = self._process_case_block(
-                            elem, sid_sw, active_guards, in_loop
-                        )
+                        c_first, c_last = self._process_case_block(elem, sid_sw, active_guards, in_loop)
                         if c_first is not None:
                             if local_prev is not None:
                                 self.edges_sb.append((local_prev, c_first, 1))
                             local_prev = c_last or c_first
                     else:
-                        cf, cl = self._process_block(
-                            {"children": [elem]}, sid_sw, active_guards, in_loop
-                        )
+                        cf, cl = self._process_block({"children":[elem]}, sid_sw, active_guards, in_loop)
                         if cf is not None:
                             if local_prev is not None:
                                 self.edges_sb.append((local_prev, cf, 1))
@@ -965,36 +746,17 @@ class ASTExtractorV1_12:
                 sb_prev = sid_sw
                 continue
 
+            
             # 표준/사용자 정의 호출 노드 직접 처리
-            if t in {"StandardLibCall", "UserDefinedCall"}:
+            if t in {"StandardLibCall","UserDefinedCall"}:
                 call_name = ch.get("name") or ""
-                code = ch.get("code", "")
-                any_lower = (
-                    1
-                    if any(g.get("lower", 0) == 1 for g in active_guards.values())
-                    else 0
-                )
-                any_upper = (
-                    1
-                    if any(g.get("upper", 0) == 1 for g in active_guards.values())
-                    else 0
-                )
-                upper_norm = max(
-                    (g.get("upper_const", 0.0) for g in active_guards.values()),
-                    default=0.0,
-                )
+                code = ch.get("code","")
+                any_lower = 1 if any(g.get("lower",0)==1 for g in active_guards.values()) else 0
+                any_upper = 1 if any(g.get("upper",0)==1 for g in active_guards.values()) else 0
+                upper_norm = max((g.get("upper_const",0.0) for g in active_guards.values()), default=0.0)
 
-                sid_cur = self._make_node(
-                    t,
-                    code,
-                    in_loop,
-                    0,
-                    any_lower,
-                    any_upper,
-                    upper_norm,
-                    name_hint=call_name,
-                    orig_id=ch.get("id"),
-                )
+                sid_cur = self._make_node(t, code, in_loop, 0, any_lower, any_upper, upper_norm,
+                                        name_hint=call_name, orig_id=ch.get("id"))
                 self.edges_pc.append((parent_sid, sid_cur, 0))
                 if sb_prev is not None:
                     self.edges_sb.append((sb_prev, sid_cur, 1))
@@ -1003,68 +765,40 @@ class ASTExtractorV1_12:
                 sb_prev = sid_cur
                 continue
 
+            
             # AssignmentExpression RHS에 메모리 할당 호출이 있으면 AST-GNN 피처 보정 ----
             # target 예: data = (int*)ALLOCA(10), data = malloc(n), data = calloc(k, sizeof(int))
             if t == "AssignmentExpression":
                 # 컨텍스트 가드 집계
-                any_lower = (
-                    1
-                    if any(g.get("lower", 0) == 1 for g in active_guards.values())
-                    else 0
-                )
-                any_upper = (
-                    1
-                    if any(g.get("upper", 0) == 1 for g in active_guards.values())
-                    else 0
-                )
-                upper_norm = max(
-                    (g.get("upper_const", 0.0) for g in active_guards.values()),
-                    default=0.0,
-                )
+                any_lower = 1 if any(g.get("lower",0)==1 for g in active_guards.values()) else 0
+                any_upper = 1 if any(g.get("upper",0)==1 for g in active_guards.values()) else 0
+                upper_norm = max((g.get("upper_const",0.0) for g in active_guards.values()), default=0.0)
 
-                code_txt = ch.get("code", "")
+                code_txt = ch.get("code","")
                 kids = ch.get("children") or []
                 lhs = kids[0] if len(kids) >= 1 and isinstance(kids[0], dict) else None
                 rhs = kids[1] if len(kids) >= 2 and isinstance(kids[1], dict) else None
 
                 # RHS에서 첫 호출 탐색 (캐스트/괄호 벗겨 핵심만 검사)
-                rhs_core = (
-                    self._unwrap_ast(
-                        rhs, strip_addr=False, strip_cast=True, strip_paren=True
-                    )
-                    if isinstance(rhs, dict)
-                    else None
-                )
-                calln = (
-                    self._find_first_call_node(rhs_core)
-                    if isinstance(rhs_core, dict)
-                    else None
-                )
+                rhs_core = self._unwrap_ast(rhs, strip_addr=False, strip_cast=True, strip_paren=True) if isinstance(rhs, dict) else None
+                calln = self._find_first_call_node(rhs_core) if isinstance(rhs_core, dict) else None
 
                 # 1) 호출이 있으면: 호출 노드를 먼저 "문장"으로 만든다
                 if isinstance(calln, dict):
                     fname = calln.get("name") or ""
                     ctype = calln.get("nodeType") or "CallExpression"
-                    if ctype not in {
-                        "StandardLibCall",
-                        "UserDefinedCall",
-                        "CallExpression",
-                    }:
+                    if ctype not in {"StandardLibCall","UserDefinedCall","CallExpression"}:
                         ctype = "CallExpression"
 
                     # 호출 노드 생성 (is_loop=0)
-
+                        
                     sid_call = self._make_node(
                         node_type=ctype,
-                        code=calln.get("code", ""),
-                        in_loop=in_loop,
-                        is_loop=0,
-                        guard_lower=any_lower,
-                        guard_upper=any_upper,
-                        upper_norm=upper_norm,
-                        name_hint=fname,
-                        orig_id=calln.get("id"),
-                        debug_extra={"split_from_assign": 1},
+                        code=calln.get("code",""),
+                        in_loop=in_loop, is_loop=0,
+                        guard_lower=any_lower, guard_upper=any_upper, upper_norm=upper_norm,
+                        name_hint=fname, orig_id=calln.get("id"),
+                        debug_extra={"split_from_assign": 1}
                     )
                     # PC / SB 연결
                     self.edges_pc.append((parent_sid, sid_call, 0))
@@ -1079,14 +813,10 @@ class ASTExtractorV1_12:
                     sid_asg = self._make_node(
                         node_type="AssignmentExpression",
                         code=code_txt,
-                        in_loop=in_loop,
-                        is_loop=0,
-                        guard_lower=any_lower,
-                        guard_upper=any_upper,
-                        upper_norm=upper_norm,
-                        name_hint="",
-                        orig_id=ch.get("id"),
-                        debug_extra={"has_call_on_rhs": 1},
+                        in_loop=in_loop, is_loop=0,
+                        guard_lower=any_lower, guard_upper=any_upper, upper_norm=upper_norm,
+                        name_hint="", orig_id=ch.get("id"),
+                        debug_extra={"has_call_on_rhs": 1}
                     )
                     self.edges_pc.append((parent_sid, sid_asg, 0))
                     if sb_prev is not None:
@@ -1097,25 +827,20 @@ class ASTExtractorV1_12:
 
                     # (선택) 디버그 힌트: LHS/RHS 요약
                     try:
-                        self.nodes[-1].setdefault("debug", {})["lhs_code"] = (
-                            lhs.get("code", "") if isinstance(lhs, dict) else ""
-                        )
+                        self.nodes[-1].setdefault("debug", {})["lhs_code"] = lhs.get("code","") if isinstance(lhs, dict) else ""
                     except Exception:
                         pass
 
                     continue  # AssignmentExpression 처리 끝
 
+
                 # ---- 호출이 없으면: 기존처럼 대입 노드만 생성 ----
                 sid_asg = self._make_node(
                     node_type="AssignmentExpression",
                     code=code_txt,
-                    in_loop=in_loop,
-                    is_loop=0,
-                    guard_lower=any_lower,
-                    guard_upper=any_upper,
-                    upper_norm=upper_norm,
-                    name_hint="",
-                    orig_id=ch.get("id"),
+                    in_loop=in_loop, is_loop=0,
+                    guard_lower=any_lower, guard_upper=any_upper, upper_norm=upper_norm,
+                    name_hint="", orig_id=ch.get("id")
                 )
                 self.edges_pc.append((parent_sid, sid_asg, 0))
                 if sb_prev is not None:
@@ -1123,35 +848,22 @@ class ASTExtractorV1_12:
                 if first_sid is None:
                     first_sid = sid_asg
                 sb_prev = sid_asg
-                continue  # ← 제너릭 분기 건너뜀 (중복 방지
+                continue # ← 제너릭 분기 건너뜀 (중복 방지
 
             # =======================
             # 제너릭 fallback (AssignmentExpression 포함 X)
             # =======================
 
             # statement-level 노드만 유지 (전용 핸들러가 있는 타입은 제너릭에서 스킵)
-            GENERIC_SKIP = {
-                "IfStatement",
-                "ForStatement",
-                "WhileStatement",
-                "DoWhileStatement",
-                "SwitchStatement",
-                "BreakStatement",
-                "ContinueStatement",
-            }
+            GENERIC_SKIP = {"IfStatement","ForStatement","WhileStatement","DoWhileStatement",
+                            "SwitchStatement","BreakStatement","ContinueStatement"}
             if t not in KEEP_TYPES or t in GENERIC_SKIP:
                 continue
 
-            code = ch.get("code", "")
-            any_lower = (
-                1 if any(g.get("lower", 0) == 1 for g in active_guards.values()) else 0
-            )
-            any_upper = (
-                1 if any(g.get("upper", 0) == 1 for g in active_guards.values()) else 0
-            )
-            upper_norm = max(
-                (g.get("upper_const", 0.0) for g in active_guards.values()), default=0.0
-            )
+            code = ch.get("code","")
+            any_lower = 1 if any(g.get("lower",0)==1 for g in active_guards.values()) else 0
+            any_upper = 1 if any(g.get("upper",0)==1 for g in active_guards.values()) else 0
+            upper_norm = max((g.get("upper_const",0.0) for g in active_guards.values()), default=0.0)
 
             debug_extra = None
             if t == "PointerDeclaration":
@@ -1159,60 +871,45 @@ class ASTExtractorV1_12:
                     "decl_name": ch.get("name"),
                     "pointingType": ch.get("pointingType"),
                     "ptr_level": ch.get("level"),
-                    "storage": ch.get("storage"),
+                    "storage": ch.get("storage")
                 }
-
-            name_hint = ch.get("name", "") or ch.get("spelling", "") or ""
+         
+            
+            name_hint = ch.get("name","") or ch.get("spelling","") or ""
             sid_cur = self._make_node(
-                t,
-                code,
-                in_loop,
-                0,
-                any_lower,
-                any_upper,
-                upper_norm,
-                name_hint=name_hint,
-                orig_id=ch.get("id"),
-                debug_extra=debug_extra,
-            )
-
+                     t, code, in_loop, 0, any_lower, any_upper, upper_norm,
+                     name_hint=name_hint, orig_id=ch.get("id"), debug_extra=debug_extra)
+            
             self.edges_pc.append((parent_sid, sid_cur, 0))
             if sb_prev is not None:
                 self.edges_sb.append((sb_prev, sid_cur, 1))
             if first_sid is None:
                 first_sid = sid_cur
-            sb_prev = sid_cur
+            sb_prev = sid_cur     
 
         return first_sid, sb_prev
 
+    
     def _postprocess_control_calls(self):
         """
         For control statements (If/While/For/Do*), inspect a call inside the condition.
         - v1.11: 컨트롤 노드의 학습 feat는 중립 유지(수정 금지).
         - 조건식 내 호출의 sem/flags는 debug에만 기록한다.
         """
-        CONTROL_NODES = {
-            "IfStatement",
-            "WhileStatement",
-            "ForStatement",
-            "DoWhileStatement",
-            "DoStatement",
-        }
+        CONTROL_NODES = {"IfStatement", "WhileStatement", "ForStatement", "DoWhileStatement", "DoStatement"}
 
         # API별 dst/size 슬롯 정의(필요 최소)
-        def _slot(
-            fname: str, args: list[dict]
-        ) -> tuple[Optional[dict], Optional[dict]]:
+        def _slot(fname: str, args: list[dict]) -> tuple[Optional[dict], Optional[dict]]:
             f = (fname or "").lower()
-            if f in {"memcpy", "memmove", "strncpy"} and len(args) >= 3:
+            if f in {"memcpy","memmove","strncpy"} and len(args) >= 3:
                 return args[0], args[2]
             if f in {"memset"} and len(args) >= 3:
                 return args[0], args[2]
-            if f in {"snprintf", "vsnprintf"} and len(args) >= 2:
+            if f in {"snprintf","vsnprintf"} and len(args) >= 2:
                 return args[0], args[1]
             if f in {"fgets"} and len(args) >= 2:
                 return args[0], args[1]
-            if f in {"read", "recv"} and len(args) >= 3:
+            if f in {"read","recv"} and len(args) >= 3:
                 return args[1], args[2]
             if f in {"connect"} and len(args) >= 3:
                 return args[1], args[2]  # addr, addrlen (len-linked 의미는 약함)
@@ -1241,13 +938,11 @@ class ASTExtractorV1_12:
             fname = call_node.get("name") or ""
             sem_id = call_sem_cat_id_from_name(fname)
 
+            
             # 기본 플래그(문자열/휴리스틱 기반) 산출
-            flags = (
-                self.compute_call_flags(
-                    fname=fname, call_ast=call_node, code=call_node.get("code", "")
-                )
-                or {}
-            )
+            flags = self.compute_call_flags(
+                fname=fname, call_ast=call_node, code=call_node.get("code","")
+            ) or {}
 
             # --- AST 기반 정밀 보정 (디버그용) ---
             try:
@@ -1259,23 +954,15 @@ class ASTExtractorV1_12:
 
             if isinstance(dst_node, dict) and isinstance(size_node, dict):
                 # & / () / cast 를 옵션대로 제거하여 '실제 dst' 추출
-                dst_core = (
-                    self._unwrap_ast(
-                        dst_node, strip_addr=True, strip_cast=True, strip_paren=True
-                    )
-                    or dst_node
-                )
-
+                dst_core = self._unwrap_ast(dst_node, strip_addr=True, strip_cast=True, strip_paren=True) or dst_node
+                
                 # 매크로/중첩에서도 동작하도록 AST 재귀로 sizeof 존재 여부 판정
                 sizeof_present = self._contains_sizeof_node(size_node)
 
+
                 # dst 후보명(식별자/필드 풀네임) 수집
                 try:
-                    dst_names = set(
-                        self._idents_from_ast_node(
-                            dst_core, skip_sizeof=True, skip_callee=True
-                        )
-                    )
+                    dst_names = set(self._idents_from_ast_node(dst_core, skip_sizeof=True, skip_callee=True))
                 except Exception:
                     dst_names = set()
                 dst_full = self._fullname_from_expr(dst_core)
@@ -1286,29 +973,22 @@ class ASTExtractorV1_12:
                 linked = False
                 if dst_names:
                     sizeof_idents = set()
-
                     def _collect_sizeof_idents(node):
                         if not isinstance(node, dict):
                             return
                         nt = node.get("nodeType") or ""
-                        if nt in {
-                            "SizeOfExpression",
-                            "SizeOf",
-                            "TypeSizeOf",
-                            "UnarySizeOf",
-                        }:
+                        if nt in {"SizeOfExpression","SizeOf","TypeSizeOf","UnarySizeOf"}:
                             # 피연산(타입/식) 코드 추출
                             targ = (node.get("children") or [None])[0]
                             code_t = self._code_of(targ)
                             if code_t:
                                 sizeof_idents.add(code_t.replace(" ", ""))
-                        for ch in node.get("children") or []:
+                        for ch in (node.get("children") or []):
                             _collect_sizeof_idents(ch)
-
                     _collect_sizeof_idents(size_node)
 
                     for dn in dst_names:
-                        base = dn.split(".")[0]
+                        base = dn.split('.')[0]
                         cand = {dn, f"*{dn}", f"{dn}[0]", base}
                         if any(c.replace(" ", "") in sizeof_idents for c in cand):
                             linked = True
@@ -1317,7 +997,8 @@ class ASTExtractorV1_12:
                 # 보정: sizeof가 있고 dst와 연계되면 len_linked=1, 아니면 sizeof_non_dst=1
                 if sizeof_present:
                     flags["call_flag_len_linked_to_dst"] = 1 if linked else 0
-                    flags["call_flag_sizeof_non_dst"] = 0 if linked else 1
+                    flags["call_flag_sizeof_non_dst"] = 0 if linked else 1                 
+
 
             # --- debug에만 남김 ---
             dbg = n.setdefault("debug", {})
@@ -1326,41 +1007,35 @@ class ASTExtractorV1_12:
                 "sem_id": int(sem_id),
                 "flags": {
                     "danger_unbounded": int(flags.get("call_flag_danger_unbounded", 0)),
-                    "len_linked_to_dst": int(
-                        flags.get("call_flag_len_linked_to_dst", 0)
-                    ),
+                    "len_linked_to_dst": int(flags.get("call_flag_len_linked_to_dst", 0)),
                     "sizeof_non_dst": int(flags.get("call_flag_sizeof_non_dst", 0)),
                     "has_varargs": int(flags.get("call_flag_has_varargs", 0)),
                     "alloc_sizeof_state": int(flags.get("alloc_sizeof_state", 0)),
-                },
+                }
             }
             # feat는 수정하지 않음
 
-    def _process_case_block(
-        self,
-        label_node: Dict[str, Any],
-        switch_sid: int,
-        active_guards: Dict[str, Dict[str, Any]],
-        in_loop: int,
-    ):
+    def _process_case_block(self, label_node: Dict[str,Any], switch_sid: int,
+                            active_guards: Dict[str, Dict[str,Any]], in_loop: int):
         """CaseLabel/DefaultLabel 컨테이너의 자식 Statement들을 평탄화하고
         첫 Statement에 switch-guard를 부여한다.
         - guard_branch: 정수 인코딩(기본). default=-1, 그 외 case는 '상수 표현'을 정수로 파싱
         - debug.guard_label: 원래 라벨 문자열 보존"""
 
+
+
+
         label_str = self._normalize_case_label(label_node)
         first_sid, prev_sid = None, None
 
         # 모드: "label"(레거시) | "int"(스펙 권장, 기본)
-        mode = getattr(self, "SWITCH_BRANCH_MODE", "int")  # "label" | "int"
+        mode = getattr(self, "SWITCH_BRANCH_MODE", "int") # "label" | "int"
         if mode not in ("label", "int"):
             mode = "int"
 
-        for elem in label_node.get("children") or []:
+        for elem in (label_node.get("children") or []):
             # 자식 하나를 Statement처럼 처리 (parent = switch_sid)
-            cf, cl = self._process_block(
-                {"children": [elem]}, switch_sid, active_guards, in_loop
-            )
+            cf, cl = self._process_block({"children": [elem]}, switch_sid, active_guards, in_loop)
             if cf is None:
                 continue
 
@@ -1371,8 +1046,8 @@ class ASTExtractorV1_12:
                     "src": switch_sid,
                     "dst": first_sid,
                     "edge_type": 2,
-                    "guard_kind": 4,
-                }
+                    "guard_kind": 4
+                }   
                 if mode == "int":
                     # default:-1, 그 외 case는 상수 표현을 정수로 파싱
                     if label_str == "default":
@@ -1409,7 +1084,7 @@ class ASTExtractorV1_12:
                 ch = bytes(payload, "utf-8").decode("unicode_escape")
                 return ord(ch[0]) if ch else 0
             # 16진
-            if s.lower().startswith(("+0x", "-0x", "0x")):
+            if s.lower().startswith(("+0x","-0x","0x")):
                 return int(s, 16)
             # 8진 (0으로 시작, 0/±0은 아래 10진 경로에서도 동작)
             if re.fullmatch(r"[+-]?0[0-7]+", s):
@@ -1427,15 +1102,16 @@ class ASTExtractorV1_12:
         if s not in m_sw:
             m_sw[s] = len(m_sw)
         return m_sw[s]
+    
 
-    def _normalize_case_label(self, node: Dict[str, Any]) -> str:
+    def _normalize_case_label(self, node: Dict[str,Any]) -> str:
         t = node.get("nodeType")
         code = (node.get("code") or "").strip()
         if t == "DefaultLabel":
             return "default"
         # 예: "case 7:" → "7"
         if code.lower().startswith("case"):
-            s = code[len("case") :].strip()
+            s = code[len("case"):].strip()
             if s.endswith(":"):
                 s = s[:-1].strip()
             return s or "case"
@@ -1443,37 +1119,28 @@ class ASTExtractorV1_12:
 
     def _find_switch_body(self, sw_node):
         # 다양한 AST 변형 대비: CompoundStatement / BlockStatement 우선
-        for k in sw_node.get("children") or []:
-            if isinstance(k, dict) and k.get("nodeType") in {
-                "CompoundStatement",
-                "BlockStatement",
-            }:
+        for k in (sw_node.get("children") or []):
+            if isinstance(k, dict) and k.get("nodeType") in {"CompoundStatement","BlockStatement"}:
                 return k
         return None
 
     def _extract_switch_condition_code(self, sw_node):
         # 조건식만 뽑아 code로 사용 (전량 pretty-printed code 금지)
         # 보통 children 중 CompoundStatement가 아닌 첫 노드가 조건식
-        for k in sw_node.get("children") or []:
-            if isinstance(k, dict) and k.get("nodeType") not in {
-                "CompoundStatement",
-                "BlockStatement",
-                "CaseLabel",
-                "DefaultLabel",
-            }:
-                return k.get("code", "")
+        for k in (sw_node.get("children") or []):
+            if isinstance(k, dict) and k.get("nodeType") not in {"CompoundStatement","BlockStatement","CaseLabel","DefaultLabel"}:
+                return k.get("code","")
         # fallback
-        code = sw_node.get("code", "")
+        code = sw_node.get("code","")
         # "switch(7) { ... }" 형태면 괄호 안만 대충 추출
         try:
-            l = code.find("(")
-            r = code.find(")")
-            if 0 <= l < r:
-                return code[l + 1 : r]
+            l = code.find('('); r = code.find(')')
+            if 0 <= l < r: return code[l+1:r]
         except Exception:
             pass
         return code
-
+    
+  
     def _guards_from_condition_ast(self, cond_ast: dict) -> dict:
         """
         조건식 AST에서 변수별 가드 증거를 추출한다.
@@ -1493,7 +1160,7 @@ class ASTExtractorV1_12:
         def _norm_val(k: int) -> float:
             try:
                 k = int(k)
-                if k <= 0:
+                if k <= 0: 
                     return 0.0
                 # 프로젝트 일관: 10 -> 0.1 로 보이니 1/k 채택
                 return 1.0 / float(k)
@@ -1501,9 +1168,9 @@ class ASTExtractorV1_12:
                 return 0.0
 
         def _is_int_literal(n: dict) -> bool:
-            if not isinstance(n, dict):
+            if not isinstance(n, dict): 
                 return False
-            if n.get("nodeType") in {"Literal", "IntegerLiteral", "NumberLiteral"}:
+            if n.get("nodeType") in {"Literal","IntegerLiteral","NumberLiteral"}:
                 t = (n.get("type") or "").lower()
                 return "int" in t or t == ""  # 일부 파서에서 type 비울 수 있음
             return False
@@ -1518,22 +1185,18 @@ class ASTExtractorV1_12:
                     return int(str(v).strip())
                 except Exception:
                     # fallback: 코드에서 추출
-                    code = n.get("code", "")
+                    code = n.get("code","")
                     import re
-
-                    m = re.search(r"-?\d+", code)
+                    m = re.search(r'-?\d+', code)
                     return int(m.group(0)) if m else None
             # Unary - <literal>
-            if (
-                n.get("nodeType") in {"UnaryOperator", "UnaryExpression"}
-                and n.get("operator") == "-"
-            ):
+            if n.get("nodeType") in {"UnaryOperator","UnaryExpression"} and n.get("operator") == "-":
                 kids = n.get("children") or []
                 k0 = kids[0] if kids else None
                 val = _int_from_node(k0)
                 return -val if isinstance(val, int) else None
             # 괄호로 감싼 케이스 (ParenthesizedExpression 류)
-            if n.get("nodeType") in {"ParenExpression", "ParenthesizedExpression"}:
+            if n.get("nodeType") in {"ParenExpression","ParenthesizedExpression"}:
                 ks = n.get("children") or []
                 return _int_from_node(ks[0]) if ks else None
             return None
@@ -1548,21 +1211,14 @@ class ASTExtractorV1_12:
             if nt == "MemberAccess":
                 kids = n.get("children") or []
                 base = kids[0] if len(kids) > 0 else None
-                field = kids[1] if len(kids) > 1 else None
+                field= kids[1] if len(kids) > 1 else None
                 b = _ident_name(base)
                 f = _ident_name(field)
                 if b and f:
                     return f"{b}.{f}"
                 return b or f
             # 괄호/캐스트로 감싼 경우 풀어주기
-            if nt in {
-                "ParenExpression",
-                "ParenthesizedExpression",
-                "CStyleCastExpression",
-                "CXXStaticCastExpr",
-                "UnaryOperator",
-                "UnaryExpression",
-            }:
+            if nt in {"ParenExpression","ParenthesizedExpression","CStyleCastExpression","CXXStaticCastExpr","UnaryOperator","UnaryExpression"}:
                 kids = n.get("children") or []
                 return _ident_name(kids[0]) if kids else None
             return None
@@ -1570,13 +1226,13 @@ class ASTExtractorV1_12:
         def _emit_lower(var: str):
             if not var:
                 return
-            e = out.setdefault(var, {"lower": 0, "upper": 0, "upper_const": 0.0})
+            e = out.setdefault(var, {"lower":0,"upper":0,"upper_const":0.0})
             e["lower"] = 1
 
         def _emit_upper(var: str, k: int | None):
             if not var:
                 return
-            e = out.setdefault(var, {"lower": 0, "upper": 0, "upper_const": 0.0})
+            e = out.setdefault(var, {"lower":0,"upper":0,"upper_const":0.0})
             e["upper"] = 1
             if isinstance(k, int):
                 e["upper_const"] = max(e["upper_const"], _norm_val(k))  # 최대값 유지
@@ -1593,42 +1249,38 @@ class ASTExtractorV1_12:
                 b = ch[1] if len(ch) > 1 else None
 
                 # 논리연산: && / ||
-                if op in {"&&", "and", "AND"}:
-                    visit(a)
-                    visit(b)
-                    return
-                if op in {"||", "or", "OR"}:
+                if op in {"&&","and","AND"}:
+                    visit(a); visit(b); return
+                if op in {"||","or","OR"}:
                     # 보수적으로 두 쪽 모두 반영(합집합)
-                    visit(a)
-                    visit(b)
-                    return
+                    visit(a); visit(b); return
 
                 # 비교연산
-                if op in {"<", "<=", ">", ">="}:
+                if op in {"<","<=",">",">="}:
                     # 케이스 1) var ? const
-                    v_left = _ident_name(a)
+                    v_left  = _ident_name(a)
                     k_right = _int_from_node(b)
 
                     # 케이스 2) const ? var  (좌우 뒤집힘)
-                    k_left = _int_from_node(a)
+                    k_left  = _int_from_node(a)
                     v_right = _ident_name(b)
 
                     if v_left:
-                        if op in {">", ">="}:
+                        if op in {">",">="}:
                             # x > 0, x >= 0 → lower
                             if (k_right is not None) and k_right == 0:
                                 _emit_lower(v_left)
-                        elif op in {"<", "<="}:
+                        elif op in {"<","<="}:
                             # x < K, x <= K → upper(+const)
                             _emit_upper(v_left, k_right)
                         return
 
                     if v_right:
                         # 뒤집힌 비교는 연산자 방향 반대로 해석
-                        if op in {">", ">="}:
+                        if op in {">",">="}:
                             # K > x ⇒ x < K
                             _emit_upper(v_right, k_left)
-                        elif op in {"<", "<="}:
+                        elif op in {"<","<="}:
                             # K < x ⇒ x > K  (K가 0일 때만 lower 인정; 일반 K는 무시)
                             if (k_left is not None) and k_left == 0:
                                 _emit_lower(v_right)
@@ -1638,26 +1290,21 @@ class ASTExtractorV1_12:
                     return
 
             # 괄호/캐스트/단항은 내부로
-            if nt in {
-                "ParenExpression",
-                "ParenthesizedExpression",
-                "CStyleCastExpression",
-                "CXXStaticCastExpr",
-                "UnaryOperator",
-                "UnaryExpression",
-            }:
-                for c in n.get("children") or []:
+            if nt in {"ParenExpression","ParenthesizedExpression","CStyleCastExpression","CXXStaticCastExpr",
+                    "UnaryOperator","UnaryExpression"}:
+                for c in (n.get("children") or []):
                     visit(c)
                 return
 
             # 논리식이 다른 노드(예: ConditionalOperator 등)면 하위 탐색
-            for c in n.get("children") or []:
+            for c in (n.get("children") or []):
                 visit(c)
 
         visit(cond_ast)
 
-        return out
 
+        return out
+    
     def _guards_from_for_header(self, for_ast: dict) -> dict:
         """
         for (init; cond; inc) 에서 init/inc를 읽어 하한 가드(lower)를 보강.
@@ -1668,60 +1315,45 @@ class ASTExtractorV1_12:
         out = {}
 
         def _emit_lower(v):
-            if not v:
-                return
-            e = out.setdefault(v, {"lower": 0, "upper": 0, "upper_const": 0.0})
+            if not v: return
+            e = out.setdefault(v, {"lower":0,"upper":0,"upper_const":0.0})
             e["lower"] = 1
 
         if not isinstance(for_ast, dict) or for_ast.get("nodeType") != "ForStatement":
             return out
 
-        kids = for_ast.get("children") or []
+        kids = (for_ast.get("children") or [])
         init = kids[0] if len(kids) >= 1 else None
-        inc = kids[2] if len(kids) >= 3 else None
+        inc  = kids[2] if len(kids) >= 3 else None
 
         # helper: 정수리터럴 추출
         def _int_from(n):
-            if not isinstance(n, dict):
-                return None
-            if n.get("nodeType") in {"Literal", "IntegerLiteral", "NumberLiteral"}:
-                try:
-                    return int(str(n.get("value")).strip())
-                except:
-                    return None
-            if (
-                n.get("nodeType") in {"UnaryOperator", "UnaryExpression"}
-                and n.get("operator") == "-"
-            ):
+            if not isinstance(n, dict): return None
+            if n.get("nodeType") in {"Literal","IntegerLiteral","NumberLiteral"}:
+                try: return int(str(n.get("value")).strip())
+                except: return None
+            if n.get("nodeType") in {"UnaryOperator","UnaryExpression"} and n.get("operator") == "-":
                 ks = n.get("children") or []
                 v = _int_from(ks[0]) if ks else None
                 return -v if isinstance(v, int) else None
-            if n.get("nodeType") in {"ParenExpression", "ParenthesizedExpression"}:
+            if n.get("nodeType") in {"ParenExpression","ParenthesizedExpression"}:
                 ks = n.get("children") or []
                 return _int_from(ks[0]) if ks else None
             return None
 
         # helper: 식별자 이름 추출 (Identifier/MemberAccess)
         def _ident(n):
-            if not isinstance(n, dict):
-                return None
+            if not isinstance(n, dict): return None
             nt = n.get("nodeType")
             if nt == "Identifier":
-                nm = n.get("name")
-                return nm if isinstance(nm, str) and nm else None
+                nm = n.get("name"); return nm if isinstance(nm,str) and nm else None
             if nt == "MemberAccess":
                 ks = n.get("children") or []
-                b = _ident(ks[0] if len(ks) > 0 else None)
-                f = _ident(ks[1] if len(ks) > 1 else None)
+                b = _ident(ks[0] if len(ks)>0 else None)
+                f = _ident(ks[1] if len(ks)>1 else None)
                 return f"{b}.{f}" if b and f else (b or f)
-            if nt in {
-                "ParenExpression",
-                "ParenthesizedExpression",
-                "CStyleCastExpression",
-                "CXXStaticCastExpr",
-                "UnaryOperator",
-                "UnaryExpression",
-            }:
+            if nt in {"ParenExpression","ParenthesizedExpression","CStyleCastExpression","CXXStaticCastExpr",
+                    "UnaryOperator","UnaryExpression"}:
                 ks = n.get("children") or []
                 return _ident(ks[0]) if ks else None
             return None
@@ -1729,15 +1361,9 @@ class ASTExtractorV1_12:
         # 1) init: i = K (K>=0)
         init_var = None
         init_nonneg = False
-        if (
-            isinstance(init, dict)
-            and init.get("nodeType") == "AssignmentExpression"
-            and init.get("operator") == "="
-        ):
+        if isinstance(init, dict) and init.get("nodeType") == "AssignmentExpression" and init.get("operator") == "=":
             ch = init.get("children") or []
-            lhs, rhs = (ch[0] if len(ch) > 0 else None), (
-                ch[1] if len(ch) > 1 else None
-            )
+            lhs, rhs = (ch[0] if len(ch)>0 else None), (ch[1] if len(ch)>1 else None)
             init_var = _ident(lhs)
             kv = _int_from(rhs)
             init_nonneg = isinstance(kv, int) and kv >= 0
@@ -1747,46 +1373,28 @@ class ASTExtractorV1_12:
         inc_nondecreasing = False
         if isinstance(inc, dict):
             nt = inc.get("nodeType")
-            if nt in {"UnaryOperator", "UnaryExpression"} and inc.get("operator") in {
-                "++"
-            }:
+            if nt in {"UnaryOperator","UnaryExpression"} and inc.get("operator") in {"++"}:
                 ks = inc.get("children") or []
                 inc_var = _ident(ks[0]) if ks else None
                 inc_nondecreasing = True
             elif nt == "AssignmentExpression" and inc.get("operator") in {"+="}:
                 ch = inc.get("children") or []
-                lhs, rhs = (ch[0] if len(ch) > 0 else None), (
-                    ch[1] if len(ch) > 1 else None
-                )
+                lhs, rhs = (ch[0] if len(ch)>0 else None), (ch[1] if len(ch)>1 else None)
                 inc_var = _ident(lhs)
                 step = _int_from(rhs)
                 inc_nondecreasing = isinstance(step, int) and step >= 0
 
         # 3) 결론: init와 inc가 같은 변수이고 init_nonneg & inc_nondecreasing면 lower=1
-        if (
-            init_var
-            and inc_var
-            and init_var == inc_var
-            and init_nonneg
-            and inc_nondecreasing
-        ):
+        if init_var and inc_var and init_var == inc_var and init_nonneg and inc_nondecreasing:
             _emit_lower(init_var)
 
         return out
 
-    def _make_node(
-        self,
-        node_type: str,
-        code: str,
-        in_loop: int,
-        is_loop: int,
-        guard_lower: int,
-        guard_upper: int,
-        upper_norm: float,
-        name_hint: str = "",
-        orig_id: Optional[int] = None,
-        debug_extra: dict | None = None,
-    ) -> int:
+    
+    def _make_node(self, node_type: str, code: str, in_loop: int, is_loop: int,
+                guard_lower: int, guard_upper: int, upper_norm: float,
+                name_hint: str = "", orig_id: Optional[int] = None,
+                debug_extra: dict | None = None) -> int:
         """Statement-level 노드 생성 + AST-GNN '학습용 feat' / '디버그용 debug' 분리 주입.
         - DFG-GNN 전용 피처(예: is_buffer_access, is_sink_assign 등)는 여기서 절대 넣지 않음.
         - node_type_id는 정수 ID로 저장해 모델 임베딩에 바로 사용 가능.
@@ -1798,23 +1406,16 @@ class ASTExtractorV1_12:
         self.sid_counter += 1
 
         # --- 호출 노드면 AST 기반으로 의미/플래그 계산, 아니면 중립 플래그 ---
-        if node_type in {"StandardLibCall", "UserDefinedCall", "CallExpression"}:
+        if node_type in {"StandardLibCall","UserDefinedCall","CallExpression"}:
             call_sem_cat_id = call_sem_cat_id_from_name(name_hint) if name_hint else 0
 
             raw_ast = self.idmap.get(orig_id) if isinstance(orig_id, int) else None
             # 1) 인자 리스트 노드면 그대로 사용
             call_ast = None
-            if isinstance(raw_ast, dict) and raw_ast.get("nodeType") in {
-                "ParameterList",
-                "ArgumentList",
-            }:
+            if isinstance(raw_ast, dict) and raw_ast.get("nodeType") in {"ParameterList","ArgumentList"}:
                 call_ast = raw_ast
             # 2) 호출 노드면 그대로 사용
-            elif isinstance(raw_ast, dict) and raw_ast.get("nodeType") in {
-                "CallExpression",
-                "StandardLibCall",
-                "UserDefinedCall",
-            }:
+            elif isinstance(raw_ast, dict) and raw_ast.get("nodeType") in {"CallExpression","StandardLibCall","UserDefinedCall"}:
                 call_ast = raw_ast
             # 3) 그 외에는 안전하게 부모로 상승(루프 가드 있음)
             elif isinstance(raw_ast, dict):
@@ -1823,10 +1424,8 @@ class ASTExtractorV1_12:
             # (옵션) 디버그
             # if name_hint == "memset":
             #     print(f"[_make_node] fname={name_hint} raw={getattr(raw_ast,'get',lambda k:None)('nodeType') if isinstance(raw_ast,dict) else type(raw_ast)} -> call_ast={getattr(call_ast,'get',lambda k:None)('nodeType') if isinstance(call_ast,dict) else None}")
-
-            call_flags = self.compute_call_flags(
-                fname=name_hint, call_ast=call_ast, code=code
-            )
+           
+            call_flags = self.compute_call_flags(fname=name_hint, call_ast=call_ast, code=code)
 
         else:
             call_sem_cat_id = 0
@@ -1841,7 +1440,7 @@ class ASTExtractorV1_12:
                 "call_len_linked_to_dst_extended": 0,
                 "call_size_is_sizeof_base_struct": 0,
                 "call_size_mismatch_field": 0,
-                "alloc_sizeof_state": 0,
+                "alloc_sizeof_state": 0
             }
 
         # 버퍼 선언 컨텍스트
@@ -1856,7 +1455,7 @@ class ASTExtractorV1_12:
 
         # 학습 마스킹
         train_mask = 1
-        if node_type in {"BreakStatement", "ContinueStatement"}:
+        if node_type in {"BreakStatement","ContinueStatement"}:
             train_mask = 0
         # 필요 시 Return도 마스킹
         # if node_type == "ReturnStatement": train_mask = 0
@@ -1865,28 +1464,29 @@ class ASTExtractorV1_12:
         feat = {
             "node_type_id": _node_type_id(node_type),
             "train_mask": train_mask,
+
             "in_loop": in_loop,
             "is_loop": is_loop,
             "ctx_guard_strength": ctx_strength,
             "ctx_upper_bound_norm": (upper_norm if guard_upper else 0.0),
+
             "is_buffer_decl": is_buf_decl,
             "buffer_size_state": buf_state,
             "buffer_size_norm": buf_norm,
+
             "call_sem_cat_id": call_sem_cat_id,
             "call_flag_danger_unbounded": call_flags["call_flag_danger_unbounded"],
             "call_flag_len_linked_to_dst": call_flags["call_flag_len_linked_to_dst"],
             "call_flag_sizeof_non_dst": call_flags["call_flag_sizeof_non_dst"],
             "call_flag_has_varargs": call_flags["call_flag_has_varargs"],
+
             # AST-GNN 보강 피처
             "call_dst_is_field": call_flags["call_dst_is_field"],
             "call_size_kind": call_flags["call_size_kind"],
-            "call_len_linked_to_dst_extended": call_flags[
-                "call_len_linked_to_dst_extended"
-            ],
-            "call_size_is_sizeof_base_struct": call_flags[
-                "call_size_is_sizeof_base_struct"
-            ],
+            "call_len_linked_to_dst_extended": call_flags["call_len_linked_to_dst_extended"],
+            "call_size_is_sizeof_base_struct": call_flags["call_size_is_sizeof_base_struct"],
             "call_size_mismatch_field": call_flags["call_size_mismatch_field"],
+
             "alloc_sizeof_state": call_flags["alloc_sizeof_state"],
         }
 
@@ -1908,12 +1508,10 @@ class ASTExtractorV1_12:
 
         return sid
 
-    def compute_call_flags(
-        self,
-        fname: str | None = None,
-        call_ast: dict | None = None,
-        code: str | None = None,
-    ) -> Dict[str, int]:
+    
+    def compute_call_flags(self, fname: str | None = None,
+                       call_ast: dict | None = None,
+                       code: str | None = None) -> Dict[str, int]:
         """
         AST-GNN 전용 호출 플래그 계산 (AST JSON 스키마 우선, 문자열 폴백)
         - len-linked: sizeof(dst|*dst|dst[0]|base.field)일 때만 1
@@ -1936,13 +1534,9 @@ class ASTExtractorV1_12:
             if "sizeof(" in _code(n):
                 return True
             # 파서에 따라 SizeOfExpression nodeType이 있는 경우
-            if n.get("nodeType") in {
-                "SizeOfExpression",
-                "SizeofExpr",
-                "SizeofExpression",
-            }:
+            if n.get("nodeType") in {"SizeOfExpression", "SizeofExpr", "SizeofExpression"}:
                 return True
-            for c in n.get("children") or []:
+            for c in (n.get("children") or []):
                 if isinstance(c, dict) and _contains_sizeof_node(c):
                     return True
             return False
@@ -1956,10 +1550,10 @@ class ASTExtractorV1_12:
                 return 0
             if _contains_sizeof_node(size_node):
                 # sizeof(...) 토큰을 치환 후 연산자 남는지 확인 (문자열 폴백)
-                sz_repl = re.sub(r"\bsizeof\s*\([^()]*\)", "SZ", _norm(s))
-                return 4 if re.search(r"[+\-*/]", sz_repl) else 3
+                sz_repl = re.sub(r'\bsizeof\s*\([^()]*\)', 'SZ', _norm(s))
+                return 4 if re.search(r'[+\-*/]', sz_repl) else 3
             # 리터럴 정수?
-            return 1 if re.fullmatch(r"\d+", _norm(s)) else 2
+            return 1 if re.fullmatch(r'\d+', _norm(s)) else 2
 
         def _dst_is_field_from_ast(dst_node: dict | None) -> tuple[int, str, str]:
             """dst가 base.field / base->field인지 판정. (is_field, base, fieldName)"""
@@ -1978,18 +1572,14 @@ class ASTExtractorV1_12:
 
         def _idents_of(node: dict | None) -> set[str]:
             try:
-                return set(
-                    self._idents_from_ast_node(node, skip_sizeof=True, skip_callee=True)
-                )
+                return set(self._idents_from_ast_node(node, skip_sizeof=True, skip_callee=True))
             except Exception:
                 return set()
 
         def _unwrap_dst(node: dict | None) -> dict | None:
             """&/캐스트/괄호 제거해 실제 dst를 얻음."""
             try:
-                return self._unwrap_ast(
-                    node, strip_addr=True, strip_cast=True, strip_paren=True
-                )
+                return self._unwrap_ast(node, strip_addr=True, strip_cast=True, strip_paren=True)
             except Exception:
                 return node
 
@@ -2010,38 +1600,16 @@ class ASTExtractorV1_12:
         low = (fname or "").lower()
 
         # varargs (printf 계열)
-        if low in {
-            "printf",
-            "fprintf",
-            "vprintf",
-            "vfprintf",
-            "sprintf",
-            "snprintf",
-            "vsprintf",
-            "vsnprintf",
-        }:
+        if low in {"printf", "fprintf", "vprintf", "vfprintf", "sprintf", "snprintf", "vsprintf", "vsnprintf"}:
             flags["call_flag_has_varargs"] = 1
 
         # 위험(unbounded) - 외부 세트 있으면 사용, 없으면 기본
-        UNBOUNDED_LOCAL = set(
-            getattr(
-                self, "UNBOUNDED", {"gets", "strcpy", "strcat", "sprintf", "vsprintf"}
-            )
-        )
+        UNBOUNDED_LOCAL = set(getattr(self, "UNBOUNDED", {"gets", "strcpy", "strcat", "sprintf", "vsprintf"}))
         if low in UNBOUNDED_LOCAL:
             flags["call_flag_danger_unbounded"] = 1
 
         # alloc sizeof state
-        if low in {
-            "malloc",
-            "calloc",
-            "realloc",
-            "alloca",
-            "_alloca",
-            "ALLOCA",
-            "new",
-            "new[]",
-        }:
+        if low in {"malloc", "calloc", "realloc", "alloca", "_alloca", "ALLOCA", "new", "new[]"}:
             # AST가 있으면 모든 인자에서 sizeof 존재 여부 확인
             if isinstance(call_ast, dict):
                 kids = self._get_call_args_from_ast(call_ast)
@@ -2051,17 +1619,13 @@ class ASTExtractorV1_12:
                 args = []
                 if code:
                     l, r = code.find("("), code.rfind(")")
-                    sig = code[l + 1 : r] if (l != -1 and r != -1 and r > l) else ""
+                    sig = code[l+1:r] if (l != -1 and r != -1 and r > l) else ""
                     args = [p.strip() for p in sig.split(",")] if sig else []
                 joined = ",".join(args)
-            flags["alloc_sizeof_state"] = (
-                2 if re.search(r"\bsizeof\s*\(", joined) else 1
-            )
+            flags["alloc_sizeof_state"] = 2 if re.search(r'\bsizeof\s*\(', joined) else 1
 
         # ---------- dst/size 슬롯 결정 ----------
-        def _slot_from_ast(
-            name: str, args: list[dict]
-        ) -> tuple[dict | None, dict | None]:
+        def _slot_from_ast(name: str, args: list[dict]) -> tuple[dict | None, dict | None]:
             n = (name or "").lower()
             if n in {"memcpy", "memmove", "strncpy"} and len(args) >= 3:
                 return args[0], args[2]
@@ -2074,11 +1638,12 @@ class ASTExtractorV1_12:
             if n in {"read", "recv"} and len(args) >= 3:
                 return args[1], args[2]
             if n in {"connect"} and len(args) >= 3:
-                return args[1], args[2]  # addr, addrlen
+                return args[1], args[2]   # addr, addrlen
             return None, None
 
         # ---------- 본체: AST 경로 ----------
         if isinstance(call_ast, dict):
+          
 
             args = self._get_call_args_from_ast(call_ast)  # list[dict]
 
@@ -2107,22 +1672,20 @@ class ASTExtractorV1_12:
                 # 기본 링크: sizeof(dst) | sizeof(*dst) | sizeof(dst[0])
                 if size_code and dst_names:
                     for dn in dst_names:
-                        if (
-                            f"sizeof({dn})" in size_code
-                            or f"sizeof(*{dn})" in size_code
-                            or f"sizeof({dn}[0])" in size_code
-                        ):
+                        if (f"sizeof({dn})" in size_code or
+                            f"sizeof(*{dn})" in size_code or
+                            f"sizeof({dn}[0])" in size_code):
                             linked = True
                             break
 
                 # 확장 링크: sizeof(base.field)
                 linked_ext = False
                 if is_field and base_name and field_name:
-                    pat_field = rf"\bsizeof\s*\(\s*{re.escape(base_name)}\s*\.\s*{re.escape(field_name)}\s*\)\s*"
+                    pat_field = rf'\bsizeof\s*\(\s*{re.escape(base_name)}\s*\.\s*{re.escape(field_name)}\s*\)\s*'
                     if re.search(pat_field, size_code):
                         linked_ext = True
                     # sizeof(base) → base 전체
-                    pat_base = rf"\bsizeof\s*\(\s*{re.escape(base_name)}\s*\)\s*"
+                    pat_base = rf'\bsizeof\s*\(\s*{re.escape(base_name)}\s*\)\s*'
                     if re.search(pat_base, size_code):
                         flags["call_size_is_sizeof_base_struct"] = 1
 
@@ -2137,21 +1700,22 @@ class ASTExtractorV1_12:
                 # 필드 dst인데 size가 필드와 불연계/베이스 전체면 mismatch
                 if is_field:
                     if flags["call_size_is_sizeof_base_struct"] == 1 or (
-                        sizeof_present
-                        and flags["call_flag_len_linked_to_dst"] == 0
-                        and flags["call_len_linked_to_dst_extended"] == 0
+                        sizeof_present and flags["call_flag_len_linked_to_dst"] == 0 and
+                        flags["call_len_linked_to_dst_extended"] == 0
                     ):
                         flags["call_size_mismatch_field"] = 1
 
             # connect: len-linked는 의미 없음(메모리 dst 개념 아님) → 위 계산값 그대로 둠
             return flags
-
+        
+        
         # ---------- 폴백: 문자열 경로 (기존 로직) ----------
         # ※ 기존 compute_call_flags(code, fname) 호출을 깨지 않기 위해 유지
         return self._compute_call_flags_fallback(code or "", fname or "")
 
-    # ---- AST helpers
-    def _find_first_call_node(self, node: dict) -> dict | None:
+
+# ---- AST helpers 
+    def _find_first_call_node(self, node: dict) -> dict|None:
         if not isinstance(node, dict):
             return None
         nt = node.get("nodeType")
@@ -2160,13 +1724,13 @@ class ASTExtractorV1_12:
             if not self._is_macro_constant_call(node):
                 return node
             # continue search in children
-        for ch in node.get("children") or []:
+        for ch in (node.get("children") or []):
             if isinstance(ch, dict):
                 f = self._find_first_call_node(ch)
                 if f is not None:
                     return f
         return None
-
+    
     def _nearest_call_node(self, node: dict | None, max_hops: int = 64) -> dict | None:
         """노드에서 위로 올라가 가장 가까운 호출 노드를 찾는다(루프 가드 포함)."""
         cur = node
@@ -2186,15 +1750,10 @@ class ASTExtractorV1_12:
             hops += 1
             if hops > max_hops:
                 return None
-        return (
-            cur
-            if isinstance(cur, dict) and cur.get("nodeType") in CALL_NODE_TYPES
-            else None
-        )
+        return cur if isinstance(cur, dict) and cur.get("nodeType") in CALL_NODE_TYPES else None
 
-    def _maybe_lift_call_in_condition(
-        self, parent_sid: int, sb_prev: int | None, in_loop: int, cond_node: dict
-    ) -> tuple[int | None, int | None]:
+    def _maybe_lift_call_in_condition(self, parent_sid: int, sb_prev: int | None,
+                                  in_loop: int, cond_node: dict) -> tuple[int | None, int | None]:
         """
         조건식 AST 안에서 '첫 호출'을 찾아 Statement 노드로 리프팅해 If 앞에 배치.
         반환: (new_sb_prev, lifted_call_sid)  // 없으면 (sb_prev, None)
@@ -2213,13 +1772,11 @@ class ASTExtractorV1_12:
         if self._is_macro_constant_call(call_node):
             return sb_prev, None
 
-        fname = call_node.get("name") or ""
-        sem_id = call_sem_cat_id_from_name(
-            fname
-        )  # 0:none, 1:mem_alloc, 2:mem_copy, 3:ext_input, 5:mem_set, 6.. 등
+        fname = (call_node.get("name") or "")
+        sem_id = call_sem_cat_id_from_name(fname)  # 0:none, 1:mem_alloc, 2:mem_copy, 3:ext_input, 5:mem_set, 6.. 등
 
         # 리프팅 대상 필터
-        lift_ok = sem_id in LIFTABLE_SEM_CATS
+        lift_ok = (sem_id in LIFTABLE_SEM_CATS)
         if not lift_ok and getattr(self, "LIFT_PURE_COND_CALLS", False):
             # 옵션: 순수 파서도 리프팅(예: atoi/strtol 계열: 9/10로 설계했었다면 여기에 반영)
             lift_ok = sem_id in {9, 10}
@@ -2239,14 +1796,10 @@ class ASTExtractorV1_12:
             call_sid = self._make_node(
                 node_type=ctype,
                 code=call_node.get("code", ""),
-                in_loop=in_loop,
-                is_loop=0,
-                guard_lower=0,
-                guard_upper=0,
-                upper_norm=0.0,  # 조건 평가 전 실행 → 가드 0
-                name_hint=fname,
-                orig_id=orig_id,
-                debug_extra={"lifted_from_condition": 1},
+                in_loop=in_loop, is_loop=0,
+                guard_lower=0, guard_upper=0, upper_norm=0.0,   # 조건 평가 전 실행 → 가드 0
+                name_hint=fname, orig_id=orig_id,
+                debug_extra={"lifted_from_condition": 1}
             )
 
         # PC: parent → call
@@ -2258,28 +1811,25 @@ class ASTExtractorV1_12:
         # 리프팅된 호출을 새로운 sb 체인의 끝으로 반환
         return call_sid, call_sid
 
+
     def _get_call_args_from_ast(self, node: dict | None) -> list[dict]:
         """Call/ParameterList/ArgumentList 어디를 주어도 인자 리스트를 반환."""
         if not isinstance(node, dict):
             return []
         nt = node.get("nodeType")
         # 바로 리스트 노드가 들어온 경우
-        if nt in {"ParameterList", "ArgumentList"}:
+        if nt in {"ParameterList","ArgumentList"}:
             return [c for c in (node.get("children") or []) if isinstance(c, dict)]
-
+        
         # 호출 노드인 경우, 내부 리스트 검색
         kids = node.get("children") or []
         for ch in kids:
-            if isinstance(ch, dict) and ch.get("nodeType") in {
-                "ParameterList",
-                "ArgumentList",
-            }:
+            if isinstance(ch, dict) and ch.get("nodeType") in {"ParameterList","ArgumentList"}:
                 return [c for c in (ch.get("children") or []) if isinstance(c, dict)]
         return []
 
-    def _find_array_length_for_var(self, var_name: str) -> str | None:
+    def _find_array_length_for_var(self, var_name: str) -> str|None:
         import re as _re
-
         if not var_name:
             return None
         stack = [self.ast]
@@ -2291,58 +1841,46 @@ class ASTExtractorV1_12:
                 length = n.get("length")
                 if isinstance(length, str) and length:
                     return length
-                code = n.get("code", "") or ""
+                code = n.get("code","") or ""
                 m = _re.search(r"\[\s*(.*?)\s*\]", code)
                 if m:
                     return m.group(1)
             stack.extend([c for c in (n.get("children") or []) if isinstance(c, dict)])
         return None
 
-    def _unwrap_ast(
-        self,
-        node: dict | None,
-        strip_addr: bool = False,
-        strip_cast: bool = True,
-        strip_paren: bool = True,
-    ) -> dict | None:
-        """AST 표현식에서 바깥 래핑을 옵션대로 벗겨 내부 '핵심' 표현식을 반환."""
-        n = node
-        while isinstance(n, dict):
-            nt = n.get("nodeType")
+    
+    def _unwrap_ast(self, node: dict | None,
+                    strip_addr: bool = False,
+                    strip_cast: bool = True,
+                    strip_paren: bool = True) -> dict | None:
+            """AST 표현식에서 바깥 래핑을 옵션대로 벗겨 내부 '핵심' 표현식을 반환."""
+            n = node
+            while isinstance(n, dict):
+                nt = n.get("nodeType")
 
-            # 우리 AST 스키마에서는 이런 타입이 없음
-            # if strip_paren and nt in {"ParenExpression","ParenExpr"}:
-            #    kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
-            #    n = kids[0] if kids else None
-            #    continue
+                # 우리 AST 스키마에서는 이런 타입이 없음
+                #if strip_paren and nt in {"ParenExpression","ParenExpr"}:
+                #    kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
+                #    n = kids[0] if kids else None
+                #    continue
 
-            if strip_cast and nt in {"CastExpression", "CStyleCastExpr"}:
-                kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
-                n = next(
-                    (
-                        c
-                        for c in kids
-                        if c.get("nodeType")
-                        not in {"TypeRef", "TypeName", "TypeSpecifier"}
-                    ),
-                    None,
-                )
-                continue
+                if strip_cast and nt in {"CastExpression","CStyleCastExpr"}:
+                    kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
+                    n = next((c for c in kids
+                            if c.get("nodeType") not in {"TypeRef","TypeName","TypeSpecifier"}), None)
+                    continue
 
-            if strip_addr and (
-                nt == "AddressOfExpression"
-                or (nt == "UnaryOperator" and n.get("operator") in {"&", "&amp;"})
-            ):
-                kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
-                n = kids[0] if kids else None
-                continue
-            break
-        return n
-
+                if strip_addr and (nt == "AddressOfExpression" or
+                                (nt == "UnaryOperator" and n.get("operator") in {"&","&amp;"})):
+                    kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
+                    n = kids[0] if kids else None
+                    continue
+                break
+            return n
+    
     # 헬퍼: 주어진 AST id 아래에서 평탄화된 "첫 문장" sid 찾기
     def _first_stmt_sid_under(self, ast_id: int) -> int | None:
         from collections import deque
-
         q = deque([ast_id])
         seen = set()
         while q:
@@ -2356,11 +1894,11 @@ class ASTExtractorV1_12:
             node = self.idmap.get(nid)
             if not isinstance(node, dict):
                 continue
-            for c in node.get("children") or []:
+            for c in (node.get("children") or []):
                 if isinstance(c, dict):
                     q.append(c.get("id"))
         return None
-
+    
     def _zero_call_flags(self) -> dict:
         return {
             "call_flag_danger_unbounded": 0,
@@ -2384,16 +1922,10 @@ class ASTExtractorV1_12:
             return False
         if node.get("nodeType") not in CALL_NODE_TYPES:
             return False
-        for ch in node.get("children") or []:
-            if isinstance(ch, dict) and ch.get("nodeType") in {
-                "ParameterList",
-                "ArgumentList",
-            }:
-                for cc in ch.get("children") or []:
-                    if (
-                        isinstance(cc, dict)
-                        and cc.get("nodeType") == "CompoundStatement"
-                    ):
+        for ch in (node.get("children") or []):
+            if isinstance(ch, dict) and ch.get("nodeType") in {"ParameterList","ArgumentList"}:
+                for cc in (ch.get("children") or []):
+                    if isinstance(cc, dict) and cc.get("nodeType") == "CompoundStatement":
                         return True
         return False
 
@@ -2415,8 +1947,8 @@ class ASTExtractorV1_12:
             if not isinstance(n, dict):
                 continue
 
-            nt = (n.get("nodeType") or n.get("kind") or "").strip()
-            op = (n.get("operator") or n.get("op") or "").strip().lower()
+            nt   = (n.get("nodeType") or n.get("kind") or "").strip()
+            op   = (n.get("operator") or n.get("op") or "").strip().lower()
             name = (n.get("name") or n.get("spelling") or "").strip().lower()
             code = (n.get("code") or "").replace(" ", "")
 
@@ -2437,7 +1969,7 @@ class ASTExtractorV1_12:
                 return True
 
             # descend
-            for ch in n.get("children") or []:
+            for ch in (n.get("children") or []):
                 if isinstance(ch, dict):
                     stack.append(ch)
 
@@ -2461,44 +1993,36 @@ class ASTExtractorV1_12:
         if isinstance(c, str) and c.strip():
             return c.strip()
 
+       
+
+    
     def _is_macro_const_call(self, node: Any) -> bool:
         """UserDefinedCall + ParameterList + CompoundStatement + Literal… pattern -> macro constant."""
         if not isinstance(node, dict) or (node.get("nodeType") != "UserDefinedCall"):
             return False
         kids = node.get("children") or []
-        if not kids:
-            return False
-        plist = (
-            kids[0]
-            if isinstance(kids[0], dict) and kids[0].get("nodeType") == "ParameterList"
-            else None
-        )
-        if not plist:
-            return False
+        if not kids: return False
+        plist = kids[0] if isinstance(kids[0], dict) and kids[0].get("nodeType")=="ParameterList" else None
+        if not plist: return False
         # find CompoundStatement with only literals (or nested trivial nodes)
         stack = [plist]
         while stack:
             n = stack.pop()
-            if not isinstance(n, dict):
+            if not isinstance(n, dict): 
                 continue
             if n.get("nodeType") == "CompoundStatement":
                 # consider macro-constant if it has a Literal descendant
-                for ch in n.get("children") or []:
-                    if isinstance(ch, dict) and ch.get("nodeType") in {
-                        "Literal",
-                        "StringLiteral",
-                        "IntegerLiteral",
-                        "CharacterLiteral",
-                    }:
+                for ch in (n.get("children") or []):
+                    if isinstance(ch, dict) and ch.get("nodeType") in {"Literal","StringLiteral","IntegerLiteral","CharacterLiteral"}:
                         return True
-            for ch in n.get("children") or []:
+            for ch in (n.get("children") or []):
                 if isinstance(ch, dict):
                     stack.append(ch)
         return False
 
     def _macro_literal(self, node: Any) -> Any:
         """Return the first Literal node under the macro call node; else None."""
-        if not isinstance(node, dict):
+        if not isinstance(node, dict): 
             return None
         # accept UserDefinedCall and its ParameterList subtree
         root = node
@@ -2508,16 +2032,11 @@ class ASTExtractorV1_12:
         stack = [root]
         while stack:
             n = stack.pop()
-            if not isinstance(n, dict):
+            if not isinstance(n, dict): 
                 continue
-            if n.get("nodeType") in {
-                "Literal",
-                "StringLiteral",
-                "IntegerLiteral",
-                "CharacterLiteral",
-            }:
+            if n.get("nodeType") in {"Literal","StringLiteral","IntegerLiteral","CharacterLiteral"}:
                 return n
-            for ch in n.get("children") or []:
+            for ch in (n.get("children") or []):
                 if isinstance(ch, dict):
                     stack.append(ch)
         return None
@@ -2525,24 +2044,17 @@ class ASTExtractorV1_12:
     def _resolve_macro_like_expr(self, node: Any) -> Any:
         """If node is a macro-constant call, return its literal node; otherwise original node."""
         try:
-            if (
-                isinstance(node, dict)
-                and node.get("nodeType") == "UserDefinedCall"
-                and self._is_macro_const_call(node)
-            ):
+            if isinstance(node, dict) and node.get("nodeType") == "UserDefinedCall" and self._is_macro_const_call(node):
                 lit = self._macro_literal(node)
                 if isinstance(lit, dict):
                     return lit
         except Exception:
             pass
         return node
-
-    # -------------------------------------------------
+    #-------------------------------------------------
     # DFGExtractor에도 있는 Helper 함수
-    # ---------------------------------------------------
-    def _idents_from_ast_node(
-        self, n, *, skip_sizeof: bool = True, skip_callee: bool = True
-    ):
+    #---------------------------------------------------
+    def _idents_from_ast_node(self, n, *, skip_sizeof: bool = True, skip_callee: bool = True):
         """
         AST 서브트리에서 '식별자 토큰'을 수집한다.
         - field-sensitivity: MemberAccess는 'base.field[.sub...]' 하나의 토큰으로 수집
@@ -2553,7 +2065,6 @@ class ASTExtractorV1_12:
         반환: 리스트(중복 제거, 입력 순서 보존)
         """
         import re
-
         out = []
         seen = set()
 
@@ -2564,7 +2075,7 @@ class ASTExtractorV1_12:
                 seen.add(name)
                 out.append(name)
 
-        def is_dict(x):
+        def is_dict(x): 
             return isinstance(x, dict)
 
         def children(x):
@@ -2578,14 +2089,10 @@ class ASTExtractorV1_12:
             if not is_dict(x):
                 return False
             nt = node_type(x)
-            if nt in {
-                "SizeOfExpr",
-                "UnaryExprOrTypeTraitExpr",
-                "UnaryExpressionOrTypeTraitExpr",
-            }:
+            if nt in {"SizeOfExpr", "UnaryExprOrTypeTraitExpr", "UnaryExpressionOrTypeTraitExpr"}:
                 return True
             code = x.get("code")
-            if isinstance(code, str) and re.match(r"^\s*sizeof\s*\(", code):
+            if isinstance(code, str) and re.match(r'^\s*sizeof\s*\(', code):
                 # 노드 자체가 sizeof(...) 한 덩어리인 경우에만 True
                 return True
             return False
@@ -2623,7 +2130,7 @@ class ASTExtractorV1_12:
             if nt == "ArraySubscriptExpression":
                 kids = children(x)
                 base = kids[0] if len(kids) > 0 else None
-                idx = kids[1] if len(kids) > 1 else None
+                idx  = kids[1] if len(kids) > 1 else None
                 if is_dict(base):
                     # base는 가능하면 풀네임 1개만 기록
                     try:
@@ -2648,13 +2155,7 @@ class ASTExtractorV1_12:
                 return
 
             # PointerDereference / AddressOf / Paren / Cast / UnaryOperator → 내부로 재귀
-            if nt in {
-                "PointerDereference",
-                "AddressOf",
-                "ParenExpression",
-                "CastExpression",
-                "UnaryOperator",
-            }:
+            if nt in {"PointerDereference", "AddressOf", "ParenExpression", "CastExpression", "UnaryOperator"}:
                 for c in children(x):
                     walk(c)
                 return
@@ -2665,7 +2166,7 @@ class ASTExtractorV1_12:
 
         walk(n)
         return out
-
+    
     def _fullname_from_expr(self, n):
         """Return identifier (with field-sensitivity, e.g., 's.charFirst') from an expression.
         Handles PointerDereference/Unary '*'/'&', Cast/Paren, and ArraySubscript base.
@@ -2675,25 +2176,22 @@ class ASTExtractorV1_12:
             return None
 
         # 1) unwrap cast/paren first
-        n = self._unwrap_ast(n, strip_cast=True)
+        n = self._unwrap_ast(n,strip_cast=True)
 
         # 2) if array subscript, resolve its base first-child
         if isinstance(n, dict) and n.get("nodeType") == "ArraySubscriptExpression":
             kids = n.get("children") or []
             n = kids[0] if kids else n
-            n = self._unwrap_ast(n, strip_cast=True)
+            n = self._unwrap_ast(n,strip_cast=True)
 
         # 3) peel pointer dereference or address-of to reach the underlying lvalue
         while isinstance(n, dict) and (
-            n.get("nodeType") == "PointerDereference"
-            or (
-                n.get("nodeType") in {"UnaryOperator", "UnaryExpression"}
-                and n.get("operator") in {"*", "&"}
-            )
+            n.get("nodeType") == "PointerDereference" or
+            (n.get("nodeType") in {"UnaryOperator","UnaryExpression"} and n.get("operator") in {"*","&"})
         ):
             kids = n.get("children") or []
             n = kids[0] if kids else n
-            n = self._unwrap_ast(n, strip_cast=True)
+            n = self._unwrap_ast(n,strip_cast=True)
 
         # 4) member access wins (field-sensitivity)
         if self._is_member_access(n):
@@ -2704,14 +2202,14 @@ class ASTExtractorV1_12:
             return n.get("name")
 
         return None
-
+    
     # --------------------------------------------------------------------
     # Field-sensitive helpers (MemberAccess / MemberExpression)
     # --------------------------------------------------------------------
-
+ 
     def _is_member_access(self, n):
         return isinstance(n, dict) and n.get("nodeType") == "MemberAccess"
-
+    
     def _member_parts(self, n):
         """Return (base_name, field_name, full_name='base.field') for a member access node."""
         if not self._is_member_access(n):
@@ -2719,16 +2217,8 @@ class ASTExtractorV1_12:
         kids = n.get("children") or []
         base = kids[0] if len(kids) > 0 else None
         field = kids[1] if len(kids) > 1 else None
-        base_name = (
-            base.get("name")
-            if isinstance(base, dict) and base.get("nodeType") == "Identifier"
-            else None
-        )
-        field_name = (
-            field.get("name")
-            if isinstance(field, dict) and field.get("nodeType") == "Identifier"
-            else None
-        )
+        base_name = base.get("name") if isinstance(base, dict) and base.get("nodeType") == "Identifier" else None
+        field_name = field.get("name") if isinstance(field, dict) and field.get("nodeType") == "Identifier" else None
         full = f"{base_name}.{field_name}" if base_name and field_name else None
         return base_name, field_name, full
 
@@ -2745,11 +2235,8 @@ class ASTExtractorV1_12:
                 return
             # Locate ParameterList (or ArgumentList fallback)
             plist = None
-            for ch in func.get("children") or []:
-                if isinstance(ch, dict) and ch.get("nodeType") in {
-                    "ParameterList",
-                    "ArgumentList",
-                }:
+            for ch in (func.get("children") or []):
+                if isinstance(ch, dict) and ch.get("nodeType") in {"ParameterList", "ArgumentList"}:
                     plist = ch
                     break
             if not isinstance(plist, dict):
@@ -2757,11 +2244,8 @@ class ASTExtractorV1_12:
 
             entry_sid = 0  # FunctionEntry sid is fixed to 0 in this extractor
             prev_sid = None
-            for p in plist.get("children") or []:
-                if (
-                    not isinstance(p, dict)
-                    or p.get("nodeType") != "ParameterDeclaration"
-                ):
+            for p in (plist.get("children") or []):
+                if not isinstance(p, dict) or p.get("nodeType") != "ParameterDeclaration":
                     continue
                 orig_id = p.get("id") if isinstance(p.get("id"), int) else None
                 # Skip if this orig_id already mapped to some sid (avoid duplicate emission)
@@ -2773,17 +2257,14 @@ class ASTExtractorV1_12:
                 sid = self._make_node(
                     node_type="ParameterDeclaration",
                     code=code,
-                    in_loop=0,
-                    is_loop=0,
-                    guard_lower=0,
-                    guard_upper=0,
-                    upper_norm=0.0,
+                    in_loop=0, is_loop=0,
+                    guard_lower=0, guard_upper=0, upper_norm=0.0,
                     name_hint=name_hint,
                     orig_id=orig_id,
-                    debug_extra={"origin": "param_prologue"},
+                    debug_extra={"origin": "param_prologue"}
                 )
                 # AST edges
-                self.edges_pc.append((entry_sid, sid, 0))  # PC: entry -> param
+                self.edges_pc.append((entry_sid, sid, 0))   # PC: entry -> param
                 if prev_sid is not None:
                     self.edges_sb.append((prev_sid, sid, 1))  # SB within prologue
                 prev_sid = sid

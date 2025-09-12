@@ -1,4 +1,4 @@
-import type { IIdentifier } from "../types/template/Expressions/Identifier";
+import type { IIdentifier } from "../types/template";
 
 import { CPGRoot, EdgeGeneric, FieldIdentifierVertexProperties, MemberVertexProperties, VertexGeneric } from "../types/cpg";
 import { TemplateNodes } from "../types/node";

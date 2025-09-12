@@ -13,45 +13,47 @@ import {
   TypeDeclVertexProperties,
 } from "../types/cpg";
 import { TemplateNodes } from "../types/node";
+import {
+  IAddressOfExpression,
+  IArrayDeclaration,
+  IArraySizeAllocation,
+  IArraySubscriptExpression,
+  IAssignmentExpression,
+  IBinaryExpression,
+  IBreakStatement,
+  ICaseLabel,
+  ICastExpression,
+  ICompoundStatement,
+  IDefaultLabel,
+  IDoWhileStatement,
+  IForStatement,
+  IFunctionDeclaration,
+  IFunctionDefinition,
+  IGotoStatement,
+  IIdentifier,
+  IIfStatement,
+  IIncludeDirective,
+  ILabel,
+  ILiteral,
+  IMemberAccess,
+  IParameterDeclaration,
+  IParameterList,
+  IPointerDeclaration,
+  IPointerDereference,
+  IReturnStatement,
+  ISizeOfExpression,
+  IStandardLibCall,
+  IStructType,
+  ISwitchStatement,
+  ITranslationUnit,
+  ITypeDefinition,
+  IUnaryExpression,
+  IUnionType,
+  IUserDefinedCall,
+  IVariableDeclaration,
+  IWhileStatement,
+} from "../types/template";
 import { TemplateNodeTypes } from "../types/template/BaseNode/BaseNode";
-import { ICompoundStatement } from "../types/template/Block/CompoundStatement";
-import { IBreakStatement } from "../types/template/ControlStructures/BreakStatement";
-import { ICaseLabel } from "../types/template/ControlStructures/CaseLabel";
-import { IDefaultLabel } from "../types/template/ControlStructures/DefaultLabel";
-import { IDoWhileStatement } from "../types/template/ControlStructures/DoWhileStatement";
-import { IForStatement } from "../types/template/ControlStructures/ForStatement";
-import { IGotoStatement } from "../types/template/ControlStructures/GotoStatement";
-import { IIfStatement } from "../types/template/ControlStructures/IfStatement";
-import { ILabel } from "../types/template/ControlStructures/Label";
-import { IReturnStatement } from "../types/template/ControlStructures/ReturnStatement";
-import { ISwitchStatement } from "../types/template/ControlStructures/SwitchStatement";
-import { IWhileStatement } from "../types/template/ControlStructures/WhileStatement";
-import { IStructType } from "../types/template/DataTypes/StructType";
-import { ITypeDefinition } from "../types/template/DataTypes/TypeDefinition";
-import { IUnionType } from "../types/template/DataTypes/UnionType";
-import { IAddressOfExpression } from "../types/template/Expressions/AddressOfExpression";
-import { IArraySizeAllocation } from "../types/template/Expressions/ArraySizeAllocation";
-import { IArraySubscriptExpression } from "../types/template/Expressions/ArraySubscriptExpression";
-import { IAssignmentExpression } from "../types/template/Expressions/AssignmentExpression";
-import { IBinaryExpression } from "../types/template/Expressions/BinaryExpression";
-import { ICastExpression } from "../types/template/Expressions/CastExpression";
-import { IIdentifier } from "../types/template/Expressions/Identifier";
-import { ILiteral } from "../types/template/Expressions/Literal";
-import { IMemberAccess } from "../types/template/Expressions/MemberAccess";
-import { IPointerDereference } from "../types/template/Expressions/PointerDereference";
-import { ISizeOfExpression } from "../types/template/Expressions/SizeOfExpression";
-import { IStandardLibCall } from "../types/template/Expressions/StandardLibCall";
-import { IUnaryExpression } from "../types/template/Expressions/UnaryExpression";
-import { IUserDefinedCall } from "../types/template/Expressions/UserDefinedCall";
-import { IIncludeDirective } from "../types/template/PreprocessorDirectives/IncludeDirective";
-import { IArrayDeclaration } from "../types/template/ProgramStructures/ArrayDeclaration";
-import { IFunctionDeclaration } from "../types/template/ProgramStructures/FunctionDeclaration";
-import { IFunctionDefinition } from "../types/template/ProgramStructures/FunctionDefinition";
-import { IParameterDeclaration } from "../types/template/ProgramStructures/ParameterDeclaration";
-import { IParameterList } from "../types/template/ProgramStructures/ParameterList";
-import { IPointerDeclaration } from "../types/template/ProgramStructures/PointerDeclaration";
-import { ITranslationUnit } from "../types/template/ProgramStructures/TranslationUnit";
-import { IVariableDeclaration } from "../types/template/ProgramStructures/VariableDeclaration";
 import { randomIntWithLength } from "../utils";
 import { BinaryUnaryTypeWrapper } from "./BinaryUnaryTypeWrapper";
 import { BinaryExpressionOperatorMap } from "./config/BinaryExpression";
