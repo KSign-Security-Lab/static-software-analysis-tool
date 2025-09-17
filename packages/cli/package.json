@@ -1,23 +1,17 @@
 {
-  "name": "@ssat/core",
+  "name": "@ssat/cli",
   "version": "2.4.3",
-  "description": "Static Software Analysis Tool Core Processing Modules",
+  "description": "Static Software Analysis Tool CLI",
   "type": "module",
-  "main": "./index.ts",
-  "exports": {
-    ".": {
-      "types": "./index.ts",
-      "default": "./index.ts"
-    },
-    "./endpoint": {
-      "types": "./endpoint/index.ts",
-      "default": "./endpoint/index.ts"
-    },
-    "./types/*": "./types/*"
+  "main": "src/index.js",
+  "bin": {
+    "ssat": "src/index.js"
   },
   "scripts": {
-    "start:ast": "cd ../.. && PYTHONPATH=. python -m uvicorn packages.core.ast.server:app --reload --reload-dir packages/core --port 8000",
-    "start:joern": "joern --server --server-host 0.0.0.0 --server-port 8080",
+    "generate:cpg": "tsx src/index.ts cpg",
+    "generate:template": "tsx src/index.ts template",
+    "generate:ast": "tsx src/index.ts ast",
+    "generate:dfg": "tsx src/index.ts dfg",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
@@ -26,12 +20,15 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "python-shell": "^5.0.0",
+    "@ssat/core": "workspace:*",
+    "cli-progress": "^3.12.0",
+    "commander": "^12.1.0",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",
     "@tsconfig/node22": "^22.0.2",
+    "@types/cli-progress": "^3.11.6",
     "@types/node": "^22.10.2",
     "eslint": "^9.27.0",
     "eslint-plugin-perfectionist": "^4.15.0",

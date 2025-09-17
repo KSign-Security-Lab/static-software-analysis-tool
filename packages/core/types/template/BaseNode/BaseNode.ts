@@ -1,5 +1,5 @@
 // Re-export types from BaseTypes to maintain backward compatibility
-export { ExtractNodeType, IBaseNode, isDeclaration, isExpression, isNodeType, isStatement, NodeWithType, TemplateNodeTypes } from "./BaseTypes.ts";
+export { ExtractNodeType, IBaseNode, isDeclaration, isExpression, isNodeType, isStatement, NodeWithType, TemplateNodeTypes } from "./BaseTypes";
 
 // Re-export utility types
 export type {
@@ -30,4 +30,4 @@ export type {
   RequiredNode,
   StatementNodes,
   TypedNodes,
-} from "./UtilityTypes.ts";
+} from "./UtilityTypes";

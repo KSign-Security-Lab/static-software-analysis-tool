@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import templateHandler from "../../../src/handlers/TemplateHandler";
 import cpgHandler from "../../../src/handlers/CPGHandler";
-import { CPGRoot } from "@ssat/core/types/cpg";
+import { type CPGRoot } from "@ssat/core";
 
 export async function POST(req: Request) {
   try {
@@ -51,24 +51,18 @@ export async function POST(req: Request) {
       }
 
       // Generate CPG data using CPGHandler
-      cpgInput = await cpgHandler.getCPGData(cSource, {
-        filename,
-        cleanAfter: false,
-        cleanupTempDir: false,
-      });
+      cpgInput =
+        file && file instanceof File ? await cpgHandler.getCPGDataFromCFile(cSource, filename) : await cpgHandler.getCPGDataFromCSource(cSource);
     }
 
     // Generate template from CPG data
-    const templateData = await templateHandler.generateTemplate(cpgInput, {
-      includeTextLines: true,
-      includeFlattened: true,
-    });
+    const templateData = await templateHandler.generateTemplate(cpgInput);
 
     return NextResponse.json({
       status: 200,
       ok: true,
       message: "Template generation completed successfully.",
-      data: templateData.templateResult,
+      data: templateData,
     });
   } catch (error) {
     return NextResponse.json(

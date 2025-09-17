@@ -119,5 +119,17 @@
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true /* Skip type checking all .d.ts files. */
   },
-  "include": ["utils/**/*", "types/**/*", "script/**/*", "dfg/**/*", "cpg/**/*", "template/**/*", "ast/**/*"]
+  "include": [
+    "src/**/*",
+    "utils/**/*",
+    "types/**/*",
+    "script/**/*",
+    "dfg/**/*",
+    "cpg/**/*",
+    "template/**/*",
+    "ast/**/*",
+    "helpers/**/*",
+    "endpoint/**/*",
+    "index.ts"
+  ]
 }

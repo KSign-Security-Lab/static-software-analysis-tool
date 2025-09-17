@@ -1,28 +1,29 @@
 {
-  "name": "static-software-analysis-tool",
+  "name": "@ssat/root",
   "private": true,
   "workspaces": [
-    "packages/*",
+    "packages/cli",
+    "packages/core",
+    "packages/agent",
     "web"
   ],
   "scripts": {
-    "generate:full": "npm run -w @ssat/core generate:full",
-    "generate:cpg": "npm run -w @ssat/core generate:cpg",
-    "generate:template": "npm run -w @ssat/core generate:template",
-    "generate:dfg": "npm run -w @ssat/core generate:dfg",
-    "generate:ast": "npm run -w @ssat/core generate:ast",
-    "type-check": "npm run -ws --if-present type-check",
-    "lint": "npm run -ws --if-present lint",
-    "lint:fix": "npm run -ws --if-present lint:fix",
-    "format": "npm run -ws --if-present format",
-    "format:check": "npm run -ws --if-present format:check",
-    "test": "npm -ws --if-present test",
-    "start:ast": "npm -w @ssat/core run start:ast",
-    "start:joern": "npm -w @ssat/core run start:joern",
-    "start:all": "concurrently \"npm run start:joern\" \"npm run start:ast\" \"npm run web:dev\" --names \"Joern,AST,Web\" --prefix-colors \"blue,green,yellow\"",
-    "web:dev": "npm -w @ssat/web run dev",
-    "web:build": "npm -w @ssat/web run build",
-    "web:start": "npm -w @ssat/web run start"
+    "generate:cpg": "yarn workspace @ssat/cli generate:cpg",
+    "generate:template": "yarn workspace @ssat/cli generate:template",
+    "generate:dfg": "yarn workspace @ssat/cli generate:dfg",
+    "generate:ast": "yarn workspace @ssat/cli generate:ast",
+    "type-check": "yarn workspaces run --if-present type-check",
+    "lint": "yarn workspaces run --if-present lint",
+    "lint:fix": "yarn workspaces run --if-present lint:fix",
+    "format": "yarn workspaces run --if-present format",
+    "format:check": "yarn workspaces run --if-present format:check",
+    "test": "yarn workspaces run --if-present test",
+    "start:ast": "yarn workspace @ssat/core start:ast",
+    "start:joern": "yarn workspace @ssat/core start:joern",
+    "start:all": "concurrently \"yarn start:joern\" \"yarn start:ast\" \"yarn web:dev\" --names \"Joern,AST,Web\" --prefix-colors \"blue,green,yellow\"",
+    "web:dev": "yarn workspace @ssat/web dev",
+    "web:build": "yarn workspace @ssat/web build",
+    "web:start": "yarn workspace @ssat/web start"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

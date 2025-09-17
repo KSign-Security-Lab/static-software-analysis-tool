@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import cpgHandler from "@/src/handlers/CPGHandler";
+import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
@@ -30,11 +30,8 @@ export async function POST(req: Request) {
     }
 
     // Generate CPG data using CPGHandler
-    const cpgData = await cpgHandler.getCPGData(cSource, {
-      filename,
-      cleanAfter: false, // Keep project for potential queries
-      cleanupTempDir: false,
-    });
+    const cpgData =
+      file && file instanceof File ? await cpgHandler.getCPGDataFromCFile(cSource, filename) : await cpgHandler.getCPGDataFromCSource(cSource);
 
     return NextResponse.json({
       status: 200,

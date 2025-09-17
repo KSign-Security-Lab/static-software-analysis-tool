@@ -5,10 +5,16 @@ This tool extracts CPGs from C code, converts them to KAST format, and provides 
 
 ## Features
 
-- Generates CPGs (Code Property Graphs) using Joern and keeps original directory layout
-- Converts CPGs to Template (AST based on KSIGN-style) with post-processing
-- Generates ASTs from Template outputs when needed
-- Generates DFGs from Template outputs when needed
+- **Modern CLI Interface**: Uses Commander.js for intuitive command-line interface with proper help system
+- **Progress Tracking**: Visual progress bars during processing (suppressed in debug mode)
+- **Flexible Input/Output**: Support for single files or directories with custom output paths
+- **Multiple Conversion Stages**:
+  - Generates CPGs (Code Property Graphs) using Joern
+  - Converts CPGs to Template (AST based on KSIGN-style) with post-processing
+  - Generates ASTs from Template outputs when needed
+  - Generates DFGs from Template outputs when needed
+- **Debugging Support**: Verbose and debug modes for detailed processing information
+- **File Extension Control**: Customizable file extensions for processing
 
 ## Prerequisites
 
@@ -21,62 +27,165 @@ This tool extracts CPGs from C code, converts them to KAST format, and provides 
 ### 1. Install dependencies
 
 ```bash
-npm install
+yarn install
 pip install -r packages/core/helpers/requirements.txt
 ```
 
-### 2. Run the tool
+### 2. CLI Commands
 
-Flags:
+The tool provides four main commands for different conversion stages:
 
-- `--data=<path>`: Input directory (raw C sources) or CPG directory for Template
-- `--output=<path>`: Output directory for CPG/Template/AST/DFG stages
-
-Common tasks:
-
-**[Generate only CPG]**
+#### Generate Code Property Graph (CPG)
 
 ```bash
-npm run generate:cpg --data="<input_directory or input_file.c>" --output="<out_dir>"
+yarn generate:cpg --data <input> [options]
 ```
 
-**[Generate only Template] (from a CPG directory)**
+**Required Options:**
+
+- `-d, --data <path>`: Input C source file or directory
+
+**Options:**
+
+- `-o, --output <path>`: Output directory (default: `result/cpg_<timestamp>`)
+- `--ext <extensions>`: File extensions to process (comma-separated, default: "c")
+- `--replace-macro`: Replace macros in source files (default: true)
+- `--no-replace-macro`: Skip macro replacement
+- `--keep-intermediate`: Keep intermediate files
+- `-v, --verbose`: Verbose output
+- `--debug`: Enable debug mode
+- `-h, --help`: Display help
+
+#### Generate Template
 
 ```bash
-npm run generate:template --data="<cpg_dir or cpg_file.json>" --output="<out_dir>"
+yarn generate:template --data <input> [options]
 ```
 
-**[Generate only AST] (from a Template directory)**
+**Required Options:**
+
+- `-d, --data <path>`: Input CPG file or directory
+
+**Options:**
+
+- `-o, --output <path>`: Output directory (default: `result/template_<timestamp>`)
+- `--ext <extensions>`: File extensions to process (comma-separated, default: "json")
+- `--keep-intermediate`: Keep intermediate files
+- `-v, --verbose`: Verbose output
+- `--debug`: Enable debug mode
+- `-h, --help`: Display help
+
+#### Generate Abstract Syntax Tree (AST)
 
 ```bash
-npm run generate:ast --data="<template_dir or template_file.json>" --output="<out_dir>"
+yarn generate:ast --data <input> [options]
 ```
 
-**🚧 [Under Development] 🚧 Generate DFG (from a Template directory)**
+**Required Options:**
+
+- `-d, --data <path>`: Input Template file or directory
+
+**Options:**
+
+- `-o, --output <path>`: Output directory (default: `result/ast_<timestamp>`)
+- `--ext <extensions>`: File extensions to process (comma-separated, default: "json")
+- `--keep-intermediate`: Keep intermediate files
+- `-v, --verbose`: Verbose output
+- `--debug`: Enable debug mode
+- `-h, --help`: Display help
+
+#### Generate Data Flow Graph (DFG)
 
 ```bash
-npm run generate:dfg --data="<template_dir or template_file.json>" --output="<out_dir>"
+yarn generate:dfg --data <input> [options]
 ```
 
-### Examples
+**Required Options:**
+
+- `-d, --data <path>`: Input Template file or directory
+
+**Options:**
+
+- `-o, --output <path>`: Output directory (default: `result/dfg_<timestamp>`)
+- `--ext <extensions>`: File extensions to process (comma-separated, default: "json")
+- `--keep-intermediate`: Keep intermediate files
+- `-v, --verbose`: Verbose output
+- `--debug`: Enable debug mode
+- `-h, --help`: Display help
+
+### 3. Usage Examples
+
+**Basic usage:**
 
 ```bash
-# Initialize submodules (open-source samples)
-npm run submodule
+# Generate CPG from a single C file
+yarn generate:cpg --data input.c
 
-# End-to-end on Juliet C testcases
-npm run generate:full --data="data/C/testcases"
+# Generate CPG from a directory
+yarn generate:cpg --data src/
+
+# Generate Template from CPG
+yarn generate:template --data cpg_output/
+```
+
+**Advanced usage with options:**
+
+```bash
+# Generate CPG with custom output and verbose mode
+yarn generate:cpg --data input.c --output custom-output --verbose
+
+# Generate CPG with debug mode and custom file extensions
+yarn generate:cpg --data src/ --debug --ext c,h --no-replace-macro
+
+# Generate Template with intermediate files kept
+yarn generate:template --data cpg_output/ --keep-intermediate --verbose
+```
+
+**Get help:**
+
+```bash
+# Show help for a specific command
+yarn generate:cpg --help
+
+# Show help for all commands
+yarn generate:cpg
+```
+
+### 4. Pipeline Examples
+
+```bash
+# Complete pipeline: C → CPG → Template → AST → DFG
+yarn generate:cpg --data src/ --output pipeline/cpg
+yarn generate:template --data pipeline/cpg/ --output pipeline/template
+yarn generate:ast --data pipeline/template/ --output pipeline/ast
+yarn generate:dfg --data pipeline/template/ --output pipeline/dfg
 ```
 
 ## Output
 
 Outputs are written under `result/` by default (timestamped) unless `--output` is provided.
-Each source will include:
 
-- `*_astTree.json`: Basic AST Processed from CPG
-- `*_templateTree.json`: KAST (KSIGN-style AST) Modified for our use case
-- `*_flatten.json`: Flattened KAST (KSIGN-style AST)
-- `*_text.txt`: Textual representation of KAST (KSIGN-style AST)
+**CPG Output:**
+
+- `cpg_result.json`: Code Property Graph in JSON format
+
+**Template Output:**
+
+- `template_result.json`: Template artifacts (KAST-style AST) in JSON format
+
+**AST Output:**
+
+- `ast_result.json`: Abstract Syntax Tree in JSON format
+
+**DFG Output:**
+
+- `dfg_result.json`: Data Flow Graph in JSON format
+
+**Progress and Logging:**
+
+- Progress bars are shown during processing (suppressed in debug mode)
+- Verbose mode provides detailed file processing information
+- Debug mode shows additional debugging information
 
 ## Development
 
@@ -147,8 +256,8 @@ Each source will include:
 
 Root files and configs:
 
-- `package.json`: NPM scripts (`generate:cpg`, `generate:kast`, `generate:full`, `generate:dfg`), dependencies, metadata
-- `package-lock.json`: Exact dependency lockfile
+- `package.json`: Yarn scripts (`generate:cpg`, `generate:kast`, `generate:full`, `generate:dfg`), dependencies, metadata
+- `yarn.lock`: Exact dependency lockfile
 - `tsconfig.json`: TypeScript compiler options
 - `eslint.config.js`: ESLint configuration
 - `README.md`: Project documentation (this file)

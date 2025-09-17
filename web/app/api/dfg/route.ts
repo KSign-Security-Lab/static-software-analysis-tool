@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import dfgHandler from "@/src/handlers/DFGHandler";
 import cpgHandler from "@/src/handlers/CPGHandler";
-import { CPGRoot } from "@ssat/core/types/cpg";
+import { type CPGRoot } from "@ssat/core";
 
 export async function POST(req: Request) {
   try {
@@ -51,11 +51,8 @@ export async function POST(req: Request) {
       }
 
       // Generate CPG data using CPGHandler
-      cpgInput = await cpgHandler.getCPGData(cSource, {
-        filename,
-        cleanAfter: false,
-        cleanupTempDir: false,
-      });
+      cpgInput =
+        file && file instanceof File ? await cpgHandler.getCPGDataFromCFile(cSource, filename) : await cpgHandler.getCPGDataFromCSource(cSource);
     }
 
     // Generate DFG from CPG data

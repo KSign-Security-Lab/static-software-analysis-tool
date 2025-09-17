@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import astHandler from "@/src/handlers/ASTHandler";
 import cpgHandler from "@/src/handlers/CPGHandler";
-import { CPGRoot } from "@ssat/core/types/cpg";
-import { TemplateNodes } from "@ssat/core/types/node";
+import { type CPGRoot, type TemplateNodes } from "@ssat/core";
 
 export async function POST(req: Request) {
   try {
@@ -24,7 +23,7 @@ export async function POST(req: Request) {
       }
 
       // Accept either a single function root or an array; pick the first if array
-      const templateRoot: TemplateNodes = (Array.isArray(parsed) ? parsed[0] : parsed) as TemplateNodes;
+      const templateRoot: TemplateNodes[] = (Array.isArray(parsed) ? parsed : [parsed]) as TemplateNodes[];
       const astResult = await astHandler.getASTFromTemplate(templateRoot);
       return NextResponse.json({ status: 200, ok: true, message: "AST generated from template.", data: astResult });
     }
@@ -56,7 +55,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ status: 400, ok: false, error: "No input provided. Supply template, CPG JSON, or C source." }, { status: 400 });
     }
 
-    const cpgInput = await cpgHandler.getCPGData(cSource, { filename, cleanAfter: false, cleanupTempDir: false });
+    const cpgInput =
+      file && file instanceof File ? await cpgHandler.getCPGDataFromCFile(cSource, filename) : await cpgHandler.getCPGDataFromCSource(cSource);
     const astResult = await astHandler.getASTFromCPG(cpgInput);
 
     return NextResponse.json({ status: 200, ok: true, message: "AST generated from C source.", data: astResult });

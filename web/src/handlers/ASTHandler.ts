@@ -1,63 +1,28 @@
-import templateHandler from "@/src/handlers/TemplateHandler";
-import { CPGRoot } from "@ssat/core/types/cpg";
-import { TemplateNodes } from "@ssat/core/types/node";
+import { generateAst as convertToAST, generateTemplate as convertToTemplate, type IASTResult, type CPGRoot, type TemplateNodes } from "@ssat/core";
 
 class ASTHandler {
-  private readonly baseUrl: string;
-
-  constructor(baseUrl?: string) {
-    const envUrl = process.env.AST_SERVER_URL || process.env.NEXT_PUBLIC_AST_SERVER_URL || "http://localhost:8000";
-    const resolved = (baseUrl ?? envUrl).replace(/\/+$/, "");
-    this.baseUrl = resolved;
+  constructor() {
+    // No external dependencies needed - uses clean conversion functions
   }
 
   // Send a single function-level template AST to the Python server
-  async getASTFromTemplate(templateAst: TemplateNodes) {
-    try {
-      const response = await fetch(`${this.baseUrl}/run`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ast: templateAst,
-          options: {
-            lift_pure_cond_calls: false,
-          },
-        }),
-      });
+  async getASTFromTemplate(templateAst: TemplateNodes[]): Promise<IASTResult[]> {
+    const result = await convertToAST(templateAst);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`AST server error (${this.baseUrl}/run): ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Normalize common network error message
-      if (msg.toLowerCase().includes("fetch failed")) {
-        throw new Error(`Failed to reach AST server at ${this.baseUrl}/run. Ensure it is running and reachable. Original: ${msg}`);
-      }
-      throw new Error(msg);
-    }
+    return result;
   }
 
   // Convenience: derive Template from CPG, then get AST for the first function
-  async getASTFromCPG(cpgData: CPGRoot) {
-    const template = await templateHandler.generateTemplate(cpgData, {
-      includeTextLines: false,
-      includeFlattened: false,
-    });
+  async getASTFromCPG(cpgData: CPGRoot): Promise<IASTResult[]> {
+    const template = await convertToTemplate(cpgData);
 
-    const roots = template.templateResult;
+    const roots = template;
     if (!roots || roots.length === 0) {
       throw new Error("No function templates generated from CPG data");
     }
 
     // For now, pick the first function root. Could be extended to choose by name.
-    return this.getASTFromTemplate(roots[0]);
+    return this.getASTFromTemplate(roots);
   }
 }
 
