@@ -16,6 +16,7 @@
     "./types/*": "./types/*"
   },
   "scripts": {
+    "scripts:help": "node -e \"const p=JSON.parse(require('fs').readFileSync('./packages/core/package.json','utf8')); const i=p.scriptsInfo||{}; console.log('Core scripts\\n==========='); for (const [k,v] of Object.entries(i)) console.log(k.padEnd(20),' - ',v);\"",
     "start:ast": "cd ../.. && PYTHONPATH=. python -m uvicorn packages.core.ast.server:app --reload --reload-dir packages/core --port 8000",
     "start:joern": "joern --server --server-host 0.0.0.0 --server-port 8080",
     "type-check": "tsc --noEmit",
@@ -24,6 +25,17 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "scriptsInfo": {
+    "scripts:help": "List Core workspace scripts with descriptions",
+    "start:ast": "Start AST FastAPI server",
+    "start:joern": "Start Joern code analysis server",
+    "type-check": "Type-check Core workspace",
+    "lint": "Run ESLint",
+    "lint:fix": "Run ESLint with --fix",
+    "format": "Run Prettier write",
+    "format:check": "Run Prettier check",
+    "test": "Run Core tests (if present)"
   },
   "dependencies": {
     "python-shell": "^5.0.0",

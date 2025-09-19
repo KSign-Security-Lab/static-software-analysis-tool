@@ -160,6 +160,7 @@ export type TemplateNodeWithType<T extends TemplateNodeTypes> = IBaseNode & {
   nodeType: T;
 };
 
-// Re-export commonly used types for convenience
-export { IBaseNode, TemplateNodeTypes } from "./template/BaseNode/BaseTypes";
+// Re-export commonly used declarations for convenience
+export type { IBaseNode } from "./template/BaseNode/BaseTypes";
+export { TemplateNodeTypes } from "./template/BaseNode/BaseTypes";
 export type { ExtractNodeType, NodeWithType } from "./template/BaseNode/BaseTypes";

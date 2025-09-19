@@ -3,25 +3,37 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "scripts:help": "node -e \"const p=JSON.parse(require('fs').readFileSync('./web/package.json','utf8')); const i=p.scriptsInfo||{}; console.log('Web scripts\\n=========='); for (const [k,v] of Object.entries(i)) console.log(k.padEnd(20),' - ',v);\"",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "type-check": "tsc --noEmit"
   },
+  "scriptsInfo": {
+    "scripts:help": "List Web workspace scripts with descriptions",
+    "dev": "Start Next.js dev server",
+    "build": "Build Next.js app",
+    "start": "Start Next.js production server",
+    "lint": "Run ESLint",
+    "type-check": "Type-check Web workspace"
+  },
   "dependencies": {
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "@prisma/client": "^6.16.2",
+    "@ssat/core": "*",
+    "@ssat/prisma": "*",
     "next": "15.5.2",
-    "@ssat/core": "workspace:*"
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
-    "@eslint/eslintrc": "^3"
+    "prisma": "^6.16.1",
+    "typescript": "^5"
   }
 }

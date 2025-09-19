@@ -2,12 +2,11 @@
   "name": "@ssat/root",
   "private": true,
   "workspaces": [
-    "packages/cli",
-    "packages/core",
-    "packages/agent",
+    "packages/*",
     "web"
   ],
   "scripts": {
+    "scripts:help": "node -e \"const p=JSON.parse(require('fs').readFileSync('./package.json','utf8')); const i=p.scriptsInfo||{}; console.log('Available scripts\\n=================='); for (const [k,v] of Object.entries(i)) console.log(k.padEnd(20),' - ',v);\"",
     "generate:cpg": "yarn workspace @ssat/cli generate:cpg",
     "generate:template": "yarn workspace @ssat/cli generate:template",
     "generate:dfg": "yarn workspace @ssat/cli generate:dfg",
@@ -23,7 +22,41 @@
     "start:all": "concurrently \"yarn start:joern\" \"yarn start:ast\" \"yarn web:dev\" --names \"Joern,AST,Web\" --prefix-colors \"blue,green,yellow\"",
     "web:dev": "yarn workspace @ssat/web dev",
     "web:build": "yarn workspace @ssat/web build",
-    "web:start": "yarn workspace @ssat/web start"
+    "web:start": "yarn workspace @ssat/web start",
+    "db:start": "yarn workspace @ssat/web db:start",
+    "db:generate": "yarn workspace @ssat/prisma generate",
+    "db:push": "yarn workspace @ssat/prisma push",
+    "db:migrate": "yarn workspace @ssat/prisma migrate",
+    "db:studio": "yarn workspace @ssat/prisma studio",
+    "db:init": "yarn workspace @ssat/prisma db:init",
+    "db:example": "yarn workspace @ssat/prisma example",
+    "db:seed": "yarn workspace @ssat/prisma db:seed"
+  },
+  "scriptsInfo": {
+    "scripts:help": "List script descriptions in this workspace",
+    "generate:cpg": "Run CPG generation via CLI workspace",
+    "generate:template": "Run template graph generation via CLI workspace",
+    "generate:dfg": "Run DFG generation via CLI workspace",
+    "generate:ast": "Run AST generation via CLI workspace",
+    "type-check": "Type-check all workspaces (no emit)",
+    "lint": "Run ESLint across workspaces",
+    "lint:fix": "Run ESLint with --fix across workspaces",
+    "format": "Run Prettier write across workspaces",
+    "format:check": "Check formatting across workspaces",
+    "test": "Run tests across workspaces (if present)",
+    "start:ast": "Start AST service from @ssat/core",
+    "start:joern": "Start Joern server via @ssat/core",
+    "start:all": "Run Joern, AST service, and Web dev concurrently",
+    "web:dev": "Start Next.js dev server",
+    "web:build": "Build Next.js app",
+    "web:start": "Start Next.js production server",
+    "db:start": "Start Postgres via web workspace helper",
+    "db:generate": "Generate Prisma client (@ssat/prisma)",
+    "db:push": "Push Prisma schema to DB (@ssat/prisma)",
+    "db:migrate": "Run Prisma migrations (@ssat/prisma)",
+    "db:studio": "Open Prisma Studio (@ssat/prisma)",
+    "db:init": "Bring up DB, install prisma, generate client, push schema (@ssat/prisma)",
+    "db:example": "Run prisma example script (@ssat/prisma)"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

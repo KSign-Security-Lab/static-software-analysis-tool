@@ -10,13 +10,13 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@ssat/core": ["../core/src/index.ts"],
-      "@ssat/core/*": ["../core/src/*"]
+      "@ssat/core": ["../core"],
+      "@ssat/core/*": ["../core/*"],
+      "@ssat/prisma": ["../prisma"],
+      "@ssat/prisma/*": ["../prisma/*"]
     }
   },
   "include": ["src/**/*"],

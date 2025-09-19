@@ -3,11 +3,9 @@
   "version": "2.4.3",
   "description": "Static Software Analysis Tool CLI",
   "type": "module",
-  "main": "src/index.js",
-  "bin": {
-    "ssat": "src/index.js"
-  },
+  "main": "./src/index.ts",
   "scripts": {
+    "scripts:help": "node -e \"const p=JSON.parse(require('fs').readFileSync('./packages/cli/package.json','utf8')); const i=p.scriptsInfo||{}; console.log('CLI scripts\\n=========='); for (const [k,v] of Object.entries(i)) console.log(k.padEnd(20),' - ',v);\"",
     "generate:cpg": "tsx src/index.ts cpg",
     "generate:template": "tsx src/index.ts template",
     "generate:ast": "tsx src/index.ts ast",
@@ -17,13 +15,33 @@
     "lint:fix": "eslint --fix .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "upload": "tsx src/upload.ts",
+    "upload:graph": "tsx src/upload.ts graph",
+    "upload:bulk": "tsx src/upload.ts bulk"
+  },
+  "scriptsInfo": {
+    "scripts:help": "List CLI workspace scripts with descriptions",
+    "generate:cpg": "Generate CPG graph from input",
+    "generate:template": "Generate Template graph from input",
+    "generate:ast": "Generate AST graph from input",
+    "generate:dfg": "Generate DFG graph from input",
+    "type-check": "Type-check CLI workspace",
+    "lint": "Run ESLint",
+    "lint:fix": "Run ESLint with --fix",
+    "format": "Run Prettier write",
+    "format:check": "Run Prettier check",
+    "test": "Run CLI tests (if present)",
+    "upload": "Run upload command entry",
+    "upload:graph": "Upload a single graph JSON",
+    "upload:bulk": "Upload all JSON files in a directory"
   },
   "dependencies": {
-    "@ssat/core": "workspace:*",
     "cli-progress": "^3.12.0",
     "commander": "^12.1.0",
-    "zod": "^3.25.67"
+    "zod": "^3.25.67",
+    "@ssat/core": "*",
+    "@ssat/prisma": "*"
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",

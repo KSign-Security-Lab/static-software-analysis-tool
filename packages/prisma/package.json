@@ -1,0 +1,92 @@
+{
+  "name": "@ssat/prisma",
+  "version": "1.0.0",
+  "description": "Database service for Static Software Analysis Tool",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    },
+    "./upload-utils": {
+      "types": "./src/upload-utils.ts",
+      "default": "./src/upload-utils.ts"
+    },
+    "./database-service": {
+      "types": "./src/services/database-service.ts",
+      "default": "./src/services/database-service.ts"
+    },
+    "./config": {
+      "types": "./src/config.ts",
+      "default": "./src/config.ts"
+    },
+    "./schema": {
+      "types": "./src/schema.ts",
+      "default": "./src/schema.ts"
+    }
+  },
+  "scripts": {
+    "scripts:help": "node -e \"const p=JSON.parse(require('fs').readFileSync('./packages/prisma/package.json','utf8')); const i=p.scriptsInfo||{}; console.log('Prisma scripts\\n=============='); for (const [k,v] of Object.entries(i)) console.log(k.padEnd(20),' - ',v);\"",
+    "generate": "dotenv -e ../../.env -- prisma generate --schema ./schema.prisma",
+    "push": "dotenv -e ../../.env -- prisma db push --schema ./schema.prisma",
+    "migrate": "dotenv -e ../../.env -- prisma migrate dev --schema ./schema.prisma",
+    "studio": "dotenv -e ../../.env -- prisma studio --schema ./schema.prisma",
+    "db:up": "docker compose  --env-file ../../.env up -d",
+    "db:down": "docker compose down -v",
+    "db:logs": "docker compose logs -f",
+    "db:wait": "bash -c 'until docker compose ps | grep -q \"healthy\"; do echo waiting for db...; sleep 2; done'",
+    "db:seed": "dotenv -e ../../.env -- tsx examples/seed.ts",
+    "install:prisma": "yarn add -D prisma && yarn add @prisma/client",
+    "db:init": "yarn run db:up && yarn run install:prisma && dotenv -e ../../.env -- prisma generate --schema ./schema.prisma && dotenv -e ../../.env -- prisma db push --schema ./schema.prisma",
+    "seed": "dotenv -e ../../.env -- tsx examples/seed.ts",
+    "example": "dotenv -e ../../.env -- tsx examples/example-usage.ts",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "scriptsInfo": {
+    "scripts:help": "List Prisma workspace scripts with descriptions",
+    "generate": "Generate Prisma client from schema.prisma",
+    "push": "Push schema to DB (development sync)",
+    "migrate": "Create/apply DB migrations (recommended for prod)",
+    "studio": "Open Prisma Studio UI",
+    "db:up": "Start Postgres via docker-compose",
+    "db:down": "Stop Postgres and remove volumes",
+    "db:logs": "Tail Postgres logs",
+    "db:wait": "Wait until Postgres becomes healthy",
+    "install:prisma": "Ensure prisma CLI and client are installed",
+    "db:init": "Bring up DB, install prisma, generate client, push schema",
+    "seed": "Seed database with sample data",
+    "example": "Run example usage script",
+    "type-check": "Type-check prisma workspace",
+    "lint": "Run ESLint",
+    "lint:fix": "Run ESLint with --fix",
+    "format": "Run Prettier write",
+    "format:check": "Run Prettier check"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.27.0",
+    "@tsconfig/node22": "^22.0.2",
+    "@types/node": "^22.10.2",
+    "dotenv-cli": "^10.0.0",
+    "eslint": "^9.27.0",
+    "eslint-plugin-perfectionist": "^4.15.0",
+    "prettier": "^3.6.2",
+    "prettier-plugin-prisma": "^5.0.0",
+    "prisma": "^6.16.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.33.0"
+  },
+  "peerDependencies": {}
+}
