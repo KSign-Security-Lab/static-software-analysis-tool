@@ -37,7 +37,7 @@ export class SimpleLogger {
   startProgress(total: number, startValue = 0) {
     if (!this.isDebugMode) {
       this.progressBar = new cliProgress.SingleBar({
-        format: "Progress |{bar}| {percentage}% | {value}/{total} files | ETA: {eta}s",
+        format: "Progress |{bar}| {percentage}% | {value}/{total} files | ETA: {eta_formatted}",
         barCompleteChar: "\u2588",
         barIncompleteChar: "\u2591",
         hideCursor: true,

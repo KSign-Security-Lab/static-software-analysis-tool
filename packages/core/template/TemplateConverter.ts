@@ -207,7 +207,7 @@ export class TemplateConverter {
 
     const paramListWrapper: IParameterList = {
       nodeType: TemplateNodeTypes.ParameterList,
-      id: randomIntWithLength(node.id.length) || -999,
+      id: randomIntWithLength(node.id.length + 3) || -999,
       children: this.convertedChildren(node.children),
     };
 
@@ -460,7 +460,7 @@ export class TemplateConverter {
         children: [
           {
             nodeType: TemplateNodeTypes.Identifier,
-            id: randomIntWithLength(node.id.length) || -999,
+            id: randomIntWithLength(node.id.length + 3) || -999,
             name: node.name,
             type: predefinedType ?? type,
             size,
@@ -629,7 +629,7 @@ export class TemplateConverter {
     ) {
       const paramList: IParameterList = {
         nodeType: TemplateNodeTypes.ParameterList,
-        id: randomIntWithLength(node.id.length) || -999,
+        id: randomIntWithLength(node.id.length + 3) || -999,
         children: node.children
           .filter((child) => child.label === "METHOD_PARAMETER_IN")
           .map((child) => this.dispatchConvert(child))
@@ -639,7 +639,7 @@ export class TemplateConverter {
         paramList.children = [
           {
             nodeType: TemplateNodeTypes.ParameterDeclaration,
-            id: randomIntWithLength(node.id.length) || -999,
+            id: randomIntWithLength(node.id.length + 3) || -999,
             name: "<empty>",
             type: "<empty>",
             children: [],

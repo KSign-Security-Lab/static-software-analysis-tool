@@ -119,7 +119,7 @@ async function main(): Promise<void> {
         switch (options.mode) {
           case "ast": {
             const template = generateTemplate(cpg);
-            result = generateAst(template);
+            result = await generateAst(template);
             break;
           }
           case "cpg": {
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
           }
           case "dfg": {
             const template = generateTemplate(cpg);
-            const ast = generateAst(template);
+            const ast = await generateAst(template);
             result = generateDfg(cpg, ast);
             break;
           }
@@ -183,7 +183,7 @@ async function main(): Promise<void> {
       switch (options.mode) {
         case "ast": {
           const template = generateTemplate(cpg);
-          result = generateAst(template);
+          result = await generateAst(template);
           break;
         }
         case "cpg": {
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
         }
         case "dfg": {
           const template = generateTemplate(cpg);
-          const ast = generateAst(template);
+          const ast = await generateAst(template);
           result = generateDfg(cpg, ast);
           break;
         }

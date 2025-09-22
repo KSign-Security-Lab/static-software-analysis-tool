@@ -1,108 +1,121 @@
 import { IASTResult } from "../types/ast";
-import { IDFGGraph } from "../types/dfg";
+import { IDFGEdge, IDFGGraph, IDFGNode } from "../types/dfg";
 import { TemplateNodes, TemplateNodeTypes } from "../types/node";
 
 class DFGSync {
-  public sync(dfgGraphs: IDFGGraph[], astGraphs: IASTResult[], templates: TemplateNodes[]): IDFGGraph[] {
-    astGraphs.forEach((ast) => {
-      this.validateAST(ast);
-    });
-    const syncedDfg: IDFGGraph[] = astGraphs.map(() => ({ nodes: [], edges: [] }));
+  public syncPerFile(dfgGraphs: IDFGGraph[], astGraphs: IASTResult[], templates: TemplateNodes[]): IDFGGraph[] {
+    const astNodeIds = astGraphs.map((ast) => ast.nodes.map((node) => node.orig_id));
+    const syncedDfg: IDFGGraph[] = astNodeIds.map(() => ({ nodes: [], edges: [] }));
     const parentChildrenMap = this.buildDescendantIdMap(templates);
-    const allNodeIdsInAst = astGraphs.flatMap((ast) => ast.nodes.flatMap((n) => n.orig_id));
-    for (const key of Object.keys(parentChildrenMap)) {
-      if (!allNodeIdsInAst.includes(Number(key))) {
-        Reflect.deleteProperty(parentChildrenMap, key);
+    const parentChildrenMapWithAstNodeIds = Object.keys(parentChildrenMap)
+      .filter((parentKey) => astNodeIds.flat().includes(Number(parentKey)))
+      .reduce<Record<string, number[]>>((acc, parentKey) => {
+        acc[parentKey] = parentChildrenMap[parentKey];
+        return acc;
+      }, {});
+
+    for (let i = 0; i < astNodeIds.length; i++) {
+      const functionAstNodeIds = astNodeIds[i];
+      const syncedNodes: IDFGNode[] = [];
+
+      // Check if dfgGraphs[i] exists
+      if (!dfgGraphs[i]) {
+        console.warn(`DFG graph at index ${String(i)} is undefined, skipping...`);
+        continue;
       }
-    }
+      const dfgNodes = dfgGraphs[i].nodes;
 
-    for (let i = 0; i < Math.min(dfgGraphs.length, astGraphs.length); i++) {
-      const dfg = dfgGraphs[i];
-      const ast = astGraphs[i];
-      syncedDfg[i].nodes = dfg.nodes.filter((item) => new Set(ast.nodes.map((n) => n.orig_id)).has(item.id));
-      syncedDfg[i].nodes.forEach((node) => {
-        node.id = ast.nodes.find((astNode) => astNode.orig_id === node.id)?.sid ?? node.id;
-        node.features.nodeType = ast.nodes.find((astNode) => astNode.orig_id === node.id)?.node_type as TemplateNodeTypes;
-      });
-      syncedDfg[i].nodes.sort((a, b) => a.id - b.id);
-      for (const edge of dfg.edges) {
-        for (const [key, value] of Object.entries(parentChildrenMap)) {
-          const newEdge = { ...edge };
-          if (value.includes(edge.source)) {
-            newEdge.source = Number(key);
+      for (const astNode of astGraphs[i].nodes) {
+        const astMatchingDfgNode = dfgNodes.find((n) => n.id === astNode.orig_id);
+        if (astMatchingDfgNode && functionAstNodeIds.includes(astMatchingDfgNode.id)) {
+          const astMatchingNode = astGraphs[i].nodes.find((n) => n.orig_id === astMatchingDfgNode.id);
+          if (astMatchingNode) {
+            astMatchingDfgNode.features.nodeType = astMatchingNode.node_type as TemplateNodeTypes;
+            astMatchingDfgNode.sid = astMatchingNode.sid;
+            syncedNodes.push(astMatchingDfgNode);
           }
-
-          if (value.includes(edge.destination)) {
-            newEdge.destination = Number(key);
-          }
-
-          if (newEdge.source === newEdge.destination) {
-            continue;
-          }
-          if (value.includes(newEdge.source) && value.includes(newEdge.destination)) {
-            syncedDfg[i].edges.push(newEdge);
-          }
+        } else {
+          syncedNodes.push({
+            sid: astNode.sid,
+            id: astNode.orig_id,
+            features: {
+              nodeType: astNode.node_type as TemplateNodeTypes,
+              inDegreeDFG: 0,
+              outDegreeDFG: 0,
+              defCount: 0,
+              useCount: 0,
+              isBufferAccess: false,
+              isSinkAssignment: false,
+              isSinkCallUnbounded: false,
+              isSinkCallBounded: false,
+              callDestinationIndexed: false,
+              callLengthLinkedToDestination: false,
+              callSizeNonConstant: false,
+              callDangerUnbounded: false,
+            },
+            debug: {
+              info: "No matching DFG node found for AST node",
+            },
+          });
         }
       }
+
+      const syncedEdges = this.redirectEdgesToParent(dfgGraphs[i].edges, parentChildrenMapWithAstNodeIds);
+
+      syncedDfg[i].nodes.push(...syncedNodes.sort((a, b) => a.sid - b.sid));
+      syncedDfg[i].edges.push(...syncedEdges.sort((a, b) => a.source - b.source));
     }
 
     return syncedDfg;
   }
 
-  private validateAST(ast: IASTResult): void {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!ast) {
-      throw new Error("AST is undefined");
+  private redirectEdgesToParent(dfgEdges: IDFGEdge[], parentChildrenMapWithAstNodeIds: Record<string, number[]>): IDFGEdge[] {
+    const redirectedEdges: IDFGEdge[] = [];
+    for (const edge of dfgEdges) {
+      const source = edge.source;
+      const destination = edge.destination;
+      const sourceParents = Object.keys(parentChildrenMapWithAstNodeIds).filter((parent) => parentChildrenMapWithAstNodeIds[parent].includes(source));
+      const destinationParents = Object.keys(parentChildrenMapWithAstNodeIds).filter((parent) =>
+        parentChildrenMapWithAstNodeIds[parent].includes(destination)
+      );
+
+      // Skip edges where nodes don't have parents in the mapping
+      if (sourceParents.length === 0 || destinationParents.length === 0) {
+        continue;
+      }
+
+      if (sourceParents.length !== 1) {
+        throw new Error(
+          `Source node ${source.toString()} has multiple parents: ${sourceParents.join(", ")}. Please check the ASTNodeIds. We should have a single parent for each node.`
+        );
+      }
+      if (destinationParents.length !== 1) {
+        throw new Error(`Destination node ${destination.toString()} has multiple parents: ${destinationParents.join(", ")}`);
+      }
+      redirectedEdges.push({ ...edge, source: Number(sourceParents[0]), destination: Number(destinationParents[0]) });
     }
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!ast.nodes) {
-      throw new Error("AST has no nodes");
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!ast.edges_ast_pc) {
-      throw new Error("AST has no edges");
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!ast.edges_ast_sb) {
-      throw new Error("AST has no edges");
-    }
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!ast.edges_ast_guard) {
-      throw new Error("AST has no edges");
-    }
+
+    return redirectedEdges;
   }
 
   private buildDescendantIdMap(roots: TemplateNodes[]): Record<string, number[]> {
-    // Post-order traversal without recursion
-    const post: TemplateNodes[] = [];
-    const stack: { idx: number; node: TemplateNodes }[] = [];
+    // Build a map of direct children only (not all descendants)
+    const byId = new Map<number, number[]>();
 
-    for (const root of roots) {
-      stack.push({ node: root, idx: 0 });
-      while (stack.length) {
-        const top = stack[stack.length - 1];
-        const children = top.node.children ?? [];
-        if (top.idx < children.length) {
-          const child = children[top.idx];
-          top.idx += 1;
-          stack.push({ node: child, idx: 0 });
-        } else {
-          post.push(top.node);
-          stack.pop();
-        }
+    function traverse(node: TemplateNodes) {
+      const children = node.children ?? [];
+      const childIds: number[] = [];
+
+      for (const child of children) {
+        childIds.push(child.id);
+        traverse(child); // Recursively process children
       }
+
+      byId.set(node.id, childIds);
     }
 
-    // Accumulate descendant ids bottom-up
-    const byId = new Map<number, number[]>();
-    for (const node of post) {
-      const children = node.children ?? [];
-      const desc: number[] = [];
-      for (const child of children) {
-        const childDesc = byId.get(child.id);
-        desc.push(child.id, ...(childDesc ?? []));
-      }
-      byId.set(node.id, desc);
+    for (const root of roots) {
+      traverse(root);
     }
 
     // Map → plain object with string keys for safe Object.keys/Object.entries

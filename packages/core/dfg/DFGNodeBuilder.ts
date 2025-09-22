@@ -67,7 +67,7 @@ export class DFGNodeBuilder {
         line: this.lineNumber(v),
       };
 
-      nodes.push({ id, features, debug });
+      nodes.push({ sid: -999, id, features, debug });
     }
 
     return nodes;

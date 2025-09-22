@@ -1,4 +1,4 @@
-import { IASTResult } from "../types/ast";
+import { IASTGraph } from "../types/ast";
 import { CPGRoot } from "../types/cpg";
 import { IDFGGraph } from "../types/dfg";
 import { TemplateNodes } from "../types/node";
@@ -7,7 +7,7 @@ import { DFGNodeBuilder } from "./DFGNodeBuilder";
 import DFGSync from "./DFGSync";
 
 export class DFGBuilder {
-  public build(cpg: CPGRoot, asts: IASTResult[], templates: TemplateNodes[]): IDFGGraph[] {
+  public build(cpg: CPGRoot, ast: IASTGraph, templates: TemplateNodes[]): IDFGGraph[] {
     const edgeBuilder = new DFGEdgeBuilder(cpg);
     const { edges, degree, nodePartials } = edgeBuilder.buildEdges();
 
@@ -18,9 +18,10 @@ export class DFGBuilder {
     nodes.sort((a, b) => a.id - b.id);
     edges.sort((a, b) => a.source - b.source);
 
-    const rawDFG: IDFGGraph[] = [{ nodes, edges }];
+    // Create one DFG graph per AST result
+    const rawDFG: IDFGGraph[] = ast.ast_result.map(() => ({ nodes, edges }));
 
-    const syncedDfg = new DFGSync().sync(rawDFG, asts, templates);
+    const syncedDfg = new DFGSync().syncPerFile(rawDFG, ast.ast_result, templates);
 
     return syncedDfg;
   }

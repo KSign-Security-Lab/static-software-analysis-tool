@@ -50,5 +50,5 @@ export interface IASTResult {
 export interface IASTGraph {
   file: string;
   label: number;
-  ast_result: IASTResult;
+  ast_result: IASTResult[];
 }

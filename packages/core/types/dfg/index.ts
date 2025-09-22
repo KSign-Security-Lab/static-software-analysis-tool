@@ -38,6 +38,7 @@ export interface IDFGNodeFeature {
 }
 
 export interface IDFGNode {
+  sid: number;
   id: number;
   features: IDFGNodeFeature;
   debug?: Record<string, unknown>;

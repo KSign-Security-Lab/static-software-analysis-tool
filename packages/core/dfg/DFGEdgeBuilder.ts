@@ -73,7 +73,7 @@ export class DFGEdgeBuilder {
       }
     }
 
-    // Build DFG edges from REACHING_DEF only
+    // Build DFG edges from REACHING_DEF and AST only
     for (const e of this.edges()) {
       if (e.label !== "REACHING_DEF") continue;
       const src = this.VbyId.get(this.eno(e.outV));

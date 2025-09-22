@@ -203,7 +203,7 @@ done
 
 Each command generates output in the specified directory (or `result/` by default):
 
-```
+```text
 output-directory/
 ├── cpg_result.json      # CPG output (from cpg command)
 ├── template_result.json # Template output (from template command)
@@ -219,7 +219,7 @@ output-directory/
 
 **Example output:**
 
-```
+```text
 [INFO] Static Software Analysis Tool (SSAT) v2.4.3
 [INFO] Mode: cpg
 [INFO] Input: src/
@@ -277,7 +277,7 @@ Error: No valid command specified
 
 ### Project Structure
 
-```
+```text
 src/
 ├── index.ts            # Main CLI entry point
 ├── parser.ts           # Commander.js command definitions

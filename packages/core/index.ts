@@ -1,8 +1,8 @@
 // Public API: endpoint helpers
-export * from "./endpoint/index.ts";
+export * from "./endpoint/index";
 
 // Public types re-exports for consumers
-export * from "./types/ast/index.ts";
-export * from "./types/cpg/index.ts";
-export * from "./types/dfg/index.ts";
-export * from "./types/node.ts";
+export * from "./types/ast/index";
+export * from "./types/cpg/index";
+export * from "./types/dfg/index";
+export * from "./types/node";

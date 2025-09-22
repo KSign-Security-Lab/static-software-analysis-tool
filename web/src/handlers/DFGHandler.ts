@@ -11,10 +11,10 @@ class DFGHandler {
    * Generate a DFG (Data Flow Graph) from CPG data.
    * Uses the clean conversion function from core package.
    */
-  generateDFG(cpgData: CPGRoot, astInput?: IASTResult[]): IDFGGraph {
+  async generateDFG(cpgData: CPGRoot, astInput?: IASTResult[]): Promise<IDFGGraph> {
     if (!astInput) {
       const template = generateTemplate(cpgData);
-      const ast = generateAst(template);
+      const ast = await generateAst(template);
       astInput = ast;
     }
 
@@ -26,7 +26,7 @@ class DFGHandler {
   /**
    * Generate DFG from a JSON string containing CPG data.
    */
-  generateDFGFromString(cpgJsonString: string, astData?: IASTResult[]): IDFGGraph {
+  async generateDFGFromString(cpgJsonString: string, astData?: IASTResult[]): Promise<IDFGGraph> {
     let cpgData: CPGRoot;
     try {
       cpgData = JSON.parse(cpgJsonString) as CPGRoot;
