@@ -46,9 +46,3 @@ export interface IASTResult {
   edges_ast_sb: EdgeASTSB[];
   edges_ast_guard: EdgeASTGuard[];
 }
-
-export interface IASTGraph {
-  file: string;
-  label: number;
-  ast_result: IASTResult[];
-}

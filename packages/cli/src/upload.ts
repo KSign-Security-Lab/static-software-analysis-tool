@@ -1,4 +1,4 @@
-import type { IASTGraph } from "@ssat/core/types/ast";
+import type { IASTResult } from "@ssat/core/types/ast";
 import type { CPGGraphData } from "@ssat/core/types/cpg";
 import type { IDFGGraph } from "@ssat/core/types/dfg";
 import type { TemplateFlattenedGraph } from "@ssat/core/types/node";
@@ -38,7 +38,7 @@ function buildGraphData(type: string, data: unknown): GraphData {
   const graph = (() => {
     switch (graphType) {
       case "AST":
-        return { type: graphType, data: data as IASTGraph };
+        return { type: graphType, data: data as IASTResult[] };
       case "CPG":
         return { type: graphType, data: data as CPGGraphData };
       case "DFG":

@@ -203,13 +203,18 @@ async function main(): Promise<void> {
           throw new Error(`Unknown mode: ${String(options.mode)}`);
       }
 
-      // Write output
-      const outputFile = path.join(outputPath, `${options.mode}_result.json`);
-      fs.mkdirSync(path.dirname(outputFile), { recursive: true });
-      fs.writeFileSync(outputFile, JSON.stringify(result, null, 2));
+      // Write output preserving directory structure like directory mode
+      const relative = path.relative(workspaceRoot, inputPath);
+      const perFileOutput = path.join(
+        outputPath,
+        path.dirname(relative),
+        `${path.basename(inputPath, path.extname(inputPath))}_${options.mode}.json`
+      );
+      fs.mkdirSync(path.dirname(perFileOutput), { recursive: true });
+      fs.writeFileSync(perFileOutput, JSON.stringify(result, null, 2));
 
       logger.info(`✓ Processing completed successfully`);
-      logger.info(`Output written to: ${outputFile}`);
+      logger.info(`Output written to: ${perFileOutput}`);
     }
 
     process.exit(0);

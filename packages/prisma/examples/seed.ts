@@ -51,9 +51,9 @@ async function findJsonFilesRecursively(
 }
 
 /**
- * Transform raw AST tree data to IASTGraph format
+ * Transform raw AST tree data to IASTResult format
  */
-function transformRawASTToIASTGraph(rawData: any, filePath: string): any {
+function transformRawASTToIASTResult(rawData: any, filePath: string): any {
   // Extract filename from path
   const fileName = path.basename(filePath, '.json');
 
@@ -173,8 +173,8 @@ async function uploadGraphsRecursively(
       let transformedData: any;
       switch (graphType) {
         case 'AST':
-          // Transform raw AST tree to IASTGraph format
-          transformedData = transformRawASTToIASTGraph(rawData, filePath);
+          // Transform raw AST tree to IASTResult format
+          transformedData = transformRawASTToIASTResult(rawData, filePath);
           break;
         case 'DFG':
           // DFG data should already be in correct format

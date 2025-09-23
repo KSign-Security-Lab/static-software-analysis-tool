@@ -42,7 +42,7 @@
     // } /* Map '@/' to package root (ast, dfg, types, utils, script). */,
     // "rootDirs": [],                                   /* Allow multiple folders to be treated as one when resolving modules. */
     // "typeRoots": ["node_modules/@types"],            /* Use default resolution across workspace. */
-    "types": ["node"] /* Include Node.js ambient types. */,
+    "types": ["node", "jest"] /* Include Node.js and Jest ambient types. */,
     // "allowUmdGlobalAccess": true,                     /* Allow accessing UMD globals from modules. */
     // "moduleSuffixes": [],                             /* List of file name suffixes to search when resolving a module. */
     "allowImportingTsExtensions": true /* Allow imports to include TypeScript file extensions. Requires '--moduleResolution bundler' and either '--noEmit' or '--emitDeclarationOnly' to be set. */,
@@ -130,6 +130,9 @@
     "ast/**/*",
     "helpers/**/*",
     "endpoint/**/*",
-    "index.ts"
+    "index.ts",
+    "__tests__/**/*.ts",
+    "**/*.test.ts",
+    "**/*.spec.ts"
   ]
 }

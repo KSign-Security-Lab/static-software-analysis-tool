@@ -73,7 +73,7 @@ The package uses shared types from `@ssat/core` to ensure consistency:
 ```typescript
 // All core types are imported directly
 import type {
-  IASTGraph,
+  IASTResult,
   CPGGraphData,
   IDFGGraph,
   TemplateFlattenedGraph,
@@ -128,13 +128,13 @@ yarn tsx examples/seed.ts
 
 ```typescript
 import { DatabaseService } from '@ssat/prisma';
-import type { IASTGraph } from '@ssat/core';
+import type { IASTResult } from '@ssat/core';
 
 const db = new DatabaseService();
 await db.connect();
 
 // Upload AST graph
-const astData: IASTGraph = {
+const astData: IASTResult[] = {
   /* ... */
 };
 const result = await db.uploadASTGraph(astData, 'example.c', 'v1.0.0');

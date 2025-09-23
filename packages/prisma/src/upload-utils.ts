@@ -12,8 +12,8 @@ import type {
 import { DatabaseService, databaseService } from './services/database-service';
 // Import core types directly - no duplication
 import type {
-  IASTGraph,
   CPGGraphData,
+  IASTResult,
   IDFGGraph,
   TemplateFlattenedGraph,
 } from '@ssat/core';
@@ -27,11 +27,15 @@ function computeCountsFromData(graphData: GraphData): CountSummary {
   switch (graphData.type) {
     case 'AST':
       return {
-        nodeCount: graphData.data.ast_result.nodes.length,
-        edgeCount:
-          graphData.data.ast_result.edges_ast_pc.length +
-          graphData.data.ast_result.edges_ast_sb.length +
-          graphData.data.ast_result.edges_ast_guard.length,
+        nodeCount: graphData.data.reduce((sum, r) => sum + r.nodes.length, 0),
+        edgeCount: graphData.data.reduce(
+          (sum, r) =>
+            sum +
+            r.edges_ast_pc.length +
+            r.edges_ast_sb.length +
+            r.edges_ast_guard.length,
+          0
+        ),
       };
     case 'CPG':
       return {
@@ -310,7 +314,7 @@ export async function uploadGraphFromFile(
   let graphData: GraphData;
   switch (graphType) {
     case 'AST':
-      graphData = { type: 'AST', data: parsed as IASTGraph };
+      graphData = { type: 'AST', data: parsed as IASTResult[] };
       break;
     case 'CPG':
       graphData = { type: 'CPG', data: parsed as CPGGraphData };
@@ -385,24 +389,23 @@ export function validateGraphData(graphData: GraphData): {
   const errors: string[] = [];
 
   switch (graphData.type) {
-    case 'AST':
-      if (!graphData.data.ast_result) {
-        errors.push('AST data missing ast_result property');
-      } else {
-        if (!Array.isArray(graphData.data.ast_result.nodes)) {
-          errors.push('AST nodes must be an array');
-        }
-        if (!Array.isArray(graphData.data.ast_result.edges_ast_pc)) {
-          errors.push('AST edges_ast_pc must be an array');
-        }
-        if (!Array.isArray(graphData.data.ast_result.edges_ast_sb)) {
-          errors.push('AST edges_ast_sb must be an array');
-        }
-        if (!Array.isArray(graphData.data.ast_result.edges_ast_guard)) {
-          errors.push('AST edges_ast_guard must be an array');
-        }
+    case 'AST': {
+      const results = graphData.data;
+      if (!Array.isArray(results)) {
+        errors.push('AST results must be an array');
+      } else if (
+        !results.every(
+          (r) =>
+            Array.isArray(r.nodes) &&
+            Array.isArray(r.edges_ast_pc) &&
+            Array.isArray(r.edges_ast_sb) &&
+            Array.isArray(r.edges_ast_guard)
+        )
+      ) {
+        errors.push('Each AST result must contain node and edge arrays');
       }
       break;
+    }
 
     case 'CPG':
       if (!Array.isArray(graphData.data.vertices)) {

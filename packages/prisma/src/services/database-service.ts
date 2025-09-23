@@ -9,10 +9,10 @@ import {
 } from '@prisma/client';
 // Import core types directly - no duplication
 import type {
-  IASTGraph,
   CPGGraphData,
   IDFGGraph,
   TemplateFlattenedGraph,
+  IASTResult,
 } from '@ssat/core';
 
 export interface DatabaseServiceOptions {
@@ -44,7 +44,7 @@ export class DatabaseService {
   }
 
   async uploadASTGraph(
-    astGraph: IASTGraph,
+    astGraph: IASTResult[],
     sourceFile: string,
     versionTag?: string,
     meta: Record<string, unknown> = {},
@@ -59,6 +59,12 @@ export class DatabaseService {
       return existingGraph;
     }
 
+    const astResults = astGraph;
+    const allNodes = astResults.flatMap((r) => r.nodes);
+    const allEdgesPc = astResults.flatMap((r) => r.edges_ast_pc);
+    const allEdgesSb = astResults.flatMap((r) => r.edges_ast_sb);
+    const allEdgesGuard = astResults.flatMap((r) => r.edges_ast_guard);
+
     const graph = await this._prisma.graph.create({
       data: {
         type: GraphType.AST,
@@ -66,21 +72,19 @@ export class DatabaseService {
         versionTag,
         contentHash,
         meta: {
-          file: astGraph.file,
-          label: astGraph.label,
-          sourceLabel: sourceLabel ?? astGraph.label.toString(),
-          nodeCount: astGraph.ast_result.nodes.length,
+          file: sourceFile,
+          label: sourceLabel ?? sourceFile,
+          sourceLabel: sourceLabel ?? sourceFile,
+          nodeCount: allNodes.length,
           edgeCount:
-            astGraph.ast_result.edges_ast_pc.length +
-            astGraph.ast_result.edges_ast_sb.length +
-            astGraph.ast_result.edges_ast_guard.length,
+            allEdgesPc.length + allEdgesSb.length + allEdgesGuard.length,
           ...meta,
         },
       },
     });
 
     await this._prisma.aSTNode.createMany({
-      data: astGraph.ast_result.nodes.map((node) => ({
+      data: allNodes.map((node) => ({
         graphId: graph.id,
         sid: node.sid,
         origId: node.orig_id ? BigInt(node.orig_id) : null,
@@ -94,21 +98,21 @@ export class DatabaseService {
 
     await this._prisma.aSTEdge.createMany({
       data: [
-        ...astGraph.ast_result.edges_ast_pc.map(([src, dst, edgeType]) => ({
+        ...allEdgesPc.map(([src, dst, edgeType]) => ({
           graphId: graph.id,
           edgeGroup: ASTEdgeGroup.AST_PC,
           srcSid: src,
           dstSid: dst,
           kind: edgeType,
         })),
-        ...astGraph.ast_result.edges_ast_sb.map(([src, dst, edgeType]) => ({
+        ...allEdgesSb.map(([src, dst, edgeType]) => ({
           graphId: graph.id,
           edgeGroup: ASTEdgeGroup.AST_SB,
           srcSid: src,
           dstSid: dst,
           kind: edgeType,
         })),
-        ...astGraph.ast_result.edges_ast_guard.map((guard) => ({
+        ...allEdgesGuard.map((guard) => ({
           graphId: graph.id,
           edgeGroup: ASTEdgeGroup.AST_GUARD,
           srcSid: guard.src,

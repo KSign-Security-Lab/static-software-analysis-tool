@@ -2,10 +2,10 @@ import type { Graph } from '@prisma/client';
 import { GraphType } from '@prisma/client';
 // Import core types directly - no duplication
 import type {
-  IASTGraph,
   CPGGraphData,
   IDFGGraph,
   TemplateFlattenedGraph,
+  IASTResult,
 } from '@ssat/core';
 
 /**
@@ -45,7 +45,7 @@ export interface GraphUploadOptions {
  * Type-safe graph data union
  */
 export type GraphData =
-  | { type: 'AST'; data: IASTGraph }
+  | { type: 'AST'; data: IASTResult[] }
   | { type: 'CPG'; data: CPGGraphData }
   | { type: 'DFG'; data: IDFGGraph }
   | { type: 'TEMPLATE'; data: TemplateFlattenedGraph };

@@ -1,6 +1,6 @@
 import type { GraphData, GraphUploadOptions } from "@ssat/prisma";
 import { validateGraphData } from "@ssat/prisma";
-import type { IASTGraph } from "@ssat/core/types/ast";
+import type { IASTResult } from "@ssat/core/types/ast";
 import type { CPGGraphData } from "@ssat/core/types/cpg";
 import type { IDFGGraph } from "@ssat/core/types/dfg";
 import type { TemplateFlattenedGraph } from "@ssat/core/types/node";
@@ -51,7 +51,7 @@ export function buildGraphData(raw: RawGraphPayload): GraphData {
   const graph = (() => {
     switch (type) {
       case "AST":
-        return { type, data: raw.data as IASTGraph };
+        return { type, data: raw.data as IASTResult[] };
       case "CPG":
         return { type, data: raw.data as CPGGraphData };
       case "DFG":

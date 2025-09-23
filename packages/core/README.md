@@ -136,7 +136,7 @@ Generates Data Flow Graph from CPG data.
 
 ```typescript
 interface DFGOptions {
-  astData?: IASTGraph | IASTResult[]; // Pre-computed AST data
+  astData?: IASTResult[]; // Pre-computed AST data
   validateInput?: boolean; // Validate input CPG (default: true)
   filename?: string; // Input filename
 }
@@ -166,7 +166,7 @@ The package exports comprehensive TypeScript types:
 // Core types
 export type { CPGRoot, ICPGRootExport } from "./types/cpg";
 export type { TemplateNodes } from "./types/node";
-export type { IASTGraph, IASTResult } from "./types/ast";
+export type { IASTResult } from "./types/ast";
 export type { IDFGGraph } from "./types/dfg";
 
 // Conversion options and results

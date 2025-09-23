@@ -8,7 +8,7 @@
 import { DatabaseService } from '@ssat/prisma';
 // Import core types directly - they're shared across packages
 import type {
-  IASTGraph,
+  IASTResult,
   IDFGGraph,
   CPGGraphData,
   TemplateFlattenedGraph,
@@ -27,44 +27,40 @@ async function demonstrateSharedTypes() {
 
     // Example 1: AST Graph using shared types
     console.log('\n📊 Example 1: AST Graph with shared types');
-    const astData: IASTGraph = {
-      file: 'example.c',
-      label: 1,
-      ast_result: {
-        nodes: [
-          {
-            sid: 1,
-            node_type: 'FunctionDeclaration',
-            code: 'int main() { return 0; }',
-            orig_id: 1,
-            feat: {
-              node_type_id: 1,
-              train_mask: 1,
-              in_loop: 0,
-              is_loop: 0,
-              ctx_guard_strength: 0,
-              ctx_upper_bound_norm: 0,
-              is_buffer_decl: 0,
-              buffer_size_state: 0,
-              buffer_size_norm: 0,
-              call_sem_cat_id: 0,
-              call_flag_danger_unbounded: 0,
-              call_flag_len_linked_to_dst: 0,
-              call_flag_sizeof_non_dst: 0,
-              call_flag_has_varargs: 0,
-              call_dst_is_field: 0,
-              call_size_kind: 0,
-              call_len_linked_to_dst_extended: 0,
-              call_size_is_sizeof_base_struct: 0,
-              call_size_mismatch_field: 0,
-              alloc_sizeof_state: 0,
-            },
+    const astData: IASTResult = {
+      nodes: [
+        {
+          sid: 1,
+          node_type: 'FunctionDeclaration',
+          code: 'int main() { return 0; }',
+          orig_id: 1,
+          feat: {
+            node_type_id: 1,
+            train_mask: 1,
+            in_loop: 0,
+            is_loop: 0,
+            ctx_guard_strength: 0,
+            ctx_upper_bound_norm: 0,
+            is_buffer_decl: 0,
+            buffer_size_state: 0,
+            buffer_size_norm: 0,
+            call_sem_cat_id: 0,
+            call_flag_danger_unbounded: 0,
+            call_flag_len_linked_to_dst: 0,
+            call_flag_sizeof_non_dst: 0,
+            call_flag_has_varargs: 0,
+            call_dst_is_field: 0,
+            call_size_kind: 0,
+            call_len_linked_to_dst_extended: 0,
+            call_size_is_sizeof_base_struct: 0,
+            call_size_mismatch_field: 0,
+            alloc_sizeof_state: 0,
           },
-        ],
-        edges_ast_pc: [],
-        edges_ast_sb: [],
-        edges_ast_guard: [],
-      },
+        },
+      ],
+      edges_ast_pc: [],
+      edges_ast_sb: [],
+      edges_ast_guard: [],
     };
 
     // Example 2: DFG Graph using shared types
@@ -72,6 +68,7 @@ async function demonstrateSharedTypes() {
     const dfgData: IDFGGraph = {
       nodes: [
         {
+          sid: 1,
           id: 1,
           features: {
             nodeType: 'VARIABLE_DECLARATION' as any,
@@ -131,7 +128,7 @@ async function demonstrateSharedTypes() {
 
     // Show that types are the same
     console.log('\n🔍 Type verification:');
-    console.log(`- IASTGraph type: ${typeof astData}`);
+    console.log(`- IASTResult type: ${typeof astData}`);
     console.log(`- IDFGGraph type: ${typeof dfgData}`);
     console.log(`- CPGGraphData type: ${typeof cpgData}`);
     console.log(`- TemplateFlattenedGraph type: ${typeof templateData}`);

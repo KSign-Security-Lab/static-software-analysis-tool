@@ -1,4 +1,4 @@
-import { generateAst as convertToAST, generateTemplate as convertToTemplate, type IASTResult, type CPGRoot, type TemplateNodes } from "@ssat/core";
+import { generateAst as convertToAST, generateTemplate as convertToTemplate, type CPGRoot, type TemplateNodes, IASTResult } from "@ssat/core";
 
 class ASTHandler {
   constructor() {

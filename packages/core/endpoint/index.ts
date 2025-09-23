@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { PythonShell } from "python-shell";
 
 import { recursivelyGetFunctionsFromTemplate } from "../ast/utils";
-import { validateIASTGraph } from "../ast/zod";
+import { validateIASTResults } from "../ast/zod";
 import { CPGGenerator } from "../cpg/CPGGenerator";
 import { validateCPGRoot } from "../cpg/validate/zod";
 import { DFGBuilder } from "../dfg/DFGBuilder";
@@ -12,12 +12,11 @@ import { PlanationTool } from "../template/PlanationTool";
 import { PostProcessor } from "../template/PostProcessor";
 import { TemplateConverter } from "../template/TemplateConverter";
 import { TemplateExtractor } from "../template/TemplateExtractor";
-import { IASTGraph } from "../types/ast";
+import { IASTResult } from "../types/ast";
 import { CPGRoot, TreeNode } from "../types/cpg";
 import { IDFGGraph } from "../types/dfg";
 import { TemplateFlattenedGraph, TemplateNodes } from "../types/node";
 import { TemplateNodeTypes } from "../types/template/BaseNode/BaseTypes";
-import { getFilenameFromCPG } from "../utils";
 import { TreeToText } from "../utils/treeToText";
 
 function withContext<T>(fnName: string, fn: () => T): T {
@@ -102,7 +101,7 @@ export function generateTemplate(cpg: CPGRoot): TemplateNodes[] {
   return artifacts.templateResult;
 }
 
-export async function generateAst(template: TemplateNodes[]): Promise<IASTGraph> {
+export async function generateAst(template: TemplateNodes[]): Promise<IASTResult[]> {
   if (!Array.isArray(template)) {
     throw new Error("generateAst expects an array of TemplateNodes");
   }
@@ -110,12 +109,13 @@ export async function generateAst(template: TemplateNodes[]): Promise<IASTGraph>
   // Resolve absolute path to ASTExtractor.py
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-  const extractorPath = path.resolve(__dirname, "../ast/ASTExtractor.py");
+  const extractorPath =
+    process.env.NODE_ENV === "test" ? path.resolve(process.cwd(), "ast/ASTExtractor.py") : path.resolve(__dirname, "../ast/ASTExtractor.py");
 
   const functions = recursivelyGetFunctionsFromTemplate(template);
   const pythonExe = process.env.PYTHON_PATH ?? process.env.PYTHON ?? "python3";
 
-  // Create Python code that loads the extractor and processes the data and returns IASTGraph
+  // Create Python code that loads the extractor and processes the data and returns IASTResult
   const pyCode = [
     "import sys, json, importlib.util",
     `mod_path = r"${extractorPath}"`,
@@ -132,9 +132,7 @@ export async function generateAst(template: TemplateNodes[]): Promise<IASTGraph>
     "        ast_result.append(ext.run())",
     "    except Exception as e:",
     "        ast_result.append({'error': str(e)})",
-    // Create IASTGraph shape
-    "graph = {'file': '', 'label': 0, 'ast_result': ast_result}",
-    "print(json.dumps(graph, ensure_ascii=False))",
+    "print(json.dumps(ast_result, ensure_ascii=False))",
   ].join("\n");
 
   const options = {
@@ -154,7 +152,7 @@ export async function generateAst(template: TemplateNodes[]): Promise<IASTGraph>
 
       try {
         const parsed: unknown = JSON.parse(output);
-        const graph = validateIASTGraph(parsed);
+        const graph = validateIASTResults(parsed);
         return graph;
       } catch (e) {
         const errorMessage = e instanceof Error ? e.message : String(e);
@@ -168,17 +166,9 @@ export async function generateAst(template: TemplateNodes[]): Promise<IASTGraph>
     });
 }
 
-export function generateDfg(cpg: CPGRoot, ast: IASTGraph): IDFGGraph[] {
+export function generateDfg(cpg: CPGRoot, ast: IASTResult[]): IDFGGraph[] {
   validateCPGRoot([cpg.export]);
   const templates = buildTemplateArtifacts(cpg);
-
-  // Populate file from CPG if extractor didn't provide it
-  if (!ast.file || ast.file.length === 0) {
-    const inferred = getFilenameFromCPG(cpg);
-    if (inferred) {
-      (ast as { file: string }).file = inferred;
-    }
-  }
 
   const dfgBuilder = new DFGBuilder();
   const dfg = dfgBuilder.build(cpg, ast, templates.templateResult);

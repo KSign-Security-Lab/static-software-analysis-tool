@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { IASTGraph, IASTResult } from "../types/ast";
+import type { IASTResult } from "../types/ast";
 
 // Feature schema
 export const zIASTFeature = z.object({
@@ -60,10 +60,6 @@ export const zIASTGraph = z.object({
   label: z.number(),
   ast_result: z.array(zIASTResult),
 });
-
-export function validateIASTGraph(value: unknown): IASTGraph {
-  return zIASTGraph.parse(value);
-}
 
 export function validateIASTResults(value: unknown): IASTResult[] {
   return z.array(zIASTResult).parse(value);

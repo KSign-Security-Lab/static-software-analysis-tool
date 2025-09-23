@@ -8,7 +8,7 @@ Previously, the Prisma package had its own type definitions that duplicated type
 
 ```typescript
 // ❌ OLD: Duplicated imports
-import { IASTGraph } from '@ssat/core/types/ast';
+import { IASTResult } from '@ssat/core/types/ast';
 import { CPGGraphData } from '@ssat/core/types/cpg';
 import { IDFGGraph } from '@ssat/core/types/dfg';
 import { TemplateFlattenedGraph } from '@ssat/core/types/node';
@@ -21,7 +21,7 @@ Now, the Prisma package imports core types directly from the main core package:
 ```typescript
 // ✅ NEW: Consolidated imports
 import type {
-  IASTGraph,
+  IASTResult,
   CPGGraphData,
   IDFGGraph,
   TemplateFlattenedGraph,
@@ -74,12 +74,17 @@ import type {
 ### In Prisma Package
 
 ```typescript
-import type { IASTGraph, IDFGGraph } from '@ssat/core';
+import type { IASTResult, IDFGGraph } from '@ssat/core';
 
 // Use core types directly
-const astData: IASTGraph = {
-  /* ... */
-};
+const astData: IASTResult[] = [
+  {
+    /* ... */
+  },
+  {
+    /* ... */
+  },
+}];
 const dfgData: IDFGGraph = {
   /* ... */
 };
@@ -88,10 +93,10 @@ const dfgData: IDFGGraph = {
 ### In Other Packages
 
 ```typescript
-import type { IASTGraph, IDFGGraph } from '@ssat/core';
+import type { IASTResult, IDFGGraph } from '@ssat/core';
 
 // Same types, consistent across all packages
-const processGraph = (graph: IASTGraph) => {
+const processGraph = (graph: IASTResult) => {
   // Type-safe processing
 };
 ```
@@ -100,7 +105,7 @@ const processGraph = (graph: IASTGraph) => {
 
 ```text
 @ssat/core (source of truth)
-├── types/ast/index.ts → IASTGraph
+├── types/ast/index.ts → IASTResult
 ├── types/cpg/index.ts → CPGGraphData
 ├── types/dfg/index.ts → IDFGGraph
 └── types/node.ts → TemplateFlattenedGraph
@@ -121,11 +126,11 @@ If you were previously importing types from individual core modules:
 
 ```typescript
 // ❌ OLD: Individual imports
-import { IASTGraph } from '@ssat/core/types/ast';
+import { IASTResult } from '@ssat/core/types/ast';
 import { IDFGGraph } from '@ssat/core/types/dfg';
 
 // ✅ NEW: Consolidated import
-import type { IASTGraph, IDFGGraph } from '@ssat/core';
+import type { IASTResult, IDFGGraph } from '@ssat/core';
 ```
 
 ## Testing

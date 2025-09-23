@@ -1,4 +1,4 @@
-import { generateDfg as convertToDFG, type CPGRoot, type IASTResult, IDFGGraph, generateAst, generateTemplate } from "@ssat/core";
+import { generateDfg as convertToDFG, type CPGRoot, type IDFGGraph, generateAst, generateTemplate, IASTResult } from "@ssat/core";
 
 class DFGHandler {
   constructor() {
@@ -14,8 +14,7 @@ class DFGHandler {
   async generateDFG(cpgData: CPGRoot, astInput?: IASTResult[]): Promise<IDFGGraph> {
     if (!astInput) {
       const template = generateTemplate(cpgData);
-      const ast = await generateAst(template);
-      astInput = ast;
+      astInput = await generateAst(template);
     }
 
     const result = convertToDFG(cpgData, astInput);
