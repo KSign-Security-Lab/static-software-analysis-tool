@@ -1,6 +1,5 @@
 // No longer need fs imports since we're using PythonShell.runString
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { PythonShell } from "python-shell";
 
 import { recursivelyGetFunctionsFromTemplate } from "../ast/utils";
@@ -14,7 +13,7 @@ import { TemplateConverter } from "../template/TemplateConverter";
 import { TemplateExtractor } from "../template/TemplateExtractor";
 import { IASTResult } from "../types/ast";
 import { CPGRoot, TreeNode } from "../types/cpg";
-import { IDFGGraph } from "../types/dfg";
+import { IDFGEdge, IDFGGraph, IDFGNode } from "../types/dfg";
 import { TemplateFlattenedGraph, TemplateNodes } from "../types/node";
 import { TemplateNodeTypes } from "../types/template/BaseNode/BaseTypes";
 import { TreeToText } from "../utils/treeToText";
@@ -107,10 +106,10 @@ export async function generateAst(template: TemplateNodes[]): Promise<IASTResult
   }
 
   // Resolve absolute path to ASTExtractor.py
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
   const extractorPath =
-    process.env.NODE_ENV === "test" ? path.resolve(process.cwd(), "ast/ASTExtractor.py") : path.resolve(__dirname, "../ast/ASTExtractor.py");
+    process.env.NODE_ENV === "test"
+      ? path.resolve(process.cwd(), "ast/ASTExtractor.py")
+      : path.resolve(process.cwd(), "packages/core/ast/ASTExtractor.py");
 
   const functions = recursivelyGetFunctionsFromTemplate(template);
   const pythonExe = process.env.PYTHON_PATH ?? process.env.PYTHON ?? "python3";
@@ -173,4 +172,120 @@ export function generateDfg(cpg: CPGRoot, ast: IASTResult[]): IDFGGraph[] {
   const dfgBuilder = new DFGBuilder();
   const dfg = dfgBuilder.build(cpg, ast, templates.templateResult);
   return dfg;
+}
+
+export const DFG_EXTRACTOR_PATH = path.join(__dirname, "../DFGExtractor.py");
+
+export async function runPythonDFGExtractor(templateData: TemplateNodes[]): Promise<IDFGGraph[]> {
+  const dfgGraphs: IDFGGraph[] = [];
+  const templateFunctions = recursivelyGetFunctionsFromTemplate(templateData);
+  const astData = await generateAst(templateData);
+
+  if (astData.length !== templateFunctions.length) {
+    throw new Error("AST data and template functions length mismatch");
+  }
+
+  for (let i = 0; i < templateFunctions.length; i++) {
+    const templateFunction = templateFunctions[i];
+    const astFunction = astData[i];
+    const pythonCode = [
+      "import sys",
+      "import json",
+      "import importlib.util",
+      "import os",
+      "from datetime import datetime",
+      "",
+      "# Load DFG extractor",
+      `dfg_extractor_path = r"${DFG_EXTRACTOR_PATH}"`,
+      "dfg_spec = importlib.util.spec_from_file_location('dfg_extractor', dfg_extractor_path)",
+      "dfg_mod = importlib.util.module_from_spec(dfg_spec)",
+      "dfg_spec.loader.exec_module(dfg_mod)",
+      "",
+      "# Get DFG extractor class",
+      "DFGExtractor = getattr(dfg_mod, 'DFGExtractorV1_12')",
+      "",
+      "try:",
+      "    # Parse input data",
+      `    template_data = ${JSON.stringify(templateFunction).replace(/false/g, "False").replace(/true/g, "True").replace(/null/g, "None")}`,
+      `    ast_result = ${JSON.stringify(astFunction).replace(/false/g, "False").replace(/true/g, "True").replace(/null/g, "None")}`,
+      "",
+      "    # Redirect stdout to stderr to capture debug messages",
+      "    import sys",
+      "    from contextlib import redirect_stdout",
+      "    import io",
+      "    ",
+      "    # Capture stdout to filter out debug messages",
+      "    captured_output = io.StringIO()",
+      "    ",
+      "    with redirect_stdout(captured_output):",
+      "        # Extract DFG using CPG data and AST result from endpoint",
+      "        dfg_extractor = DFGExtractor(template_data, ast_result)",
+      "        result = dfg_extractor.run()",
+      "    ",
+      "    # Print only JSON to stdout for the test",
+      "    print(json.dumps(result, ensure_ascii=False))",
+      "    ",
+      "except Exception as e:",
+      '    error_msg = f"Python DFG extraction failed: {str(e)}"',
+      '    print(f"ERROR: {error_msg}", file=sys.stderr)',
+      "    sys.exit(1)",
+    ].join("\n");
+
+    const options = {
+      mode: "text" as const,
+      pythonPath: process.env.PYTHON_PATH ?? process.env.PYTHON ?? "python3",
+      pythonOptions: ["-u"],
+      timeout: 60000,
+    };
+
+    const graphs = await new Promise<IDFGGraph[]>((resolve, reject) => {
+      PythonShell.runString(pythonCode, options)
+        .then((messages) => {
+          const output = messages.join("");
+          const errorOutput = messages.filter((msg: string) => msg.trim().startsWith("ERROR:")).join("\n");
+
+          if (errorOutput) {
+            const actualErrors = errorOutput
+              .split("\n")
+              .map((s) => s.trim())
+              .filter((line) => line.startsWith("ERROR:") && !line.includes("node_type not in CONTROL_NODES"))
+              .join("\n");
+
+            if (actualErrors.trim()) {
+              reject(new Error(actualErrors.replace("ERROR: ", "")));
+              return;
+            }
+          }
+
+          if (!output || output.trim() === "") {
+            reject(new Error("Python DFG extraction failed: No output received"));
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(output) as unknown;
+            if (parsed && typeof parsed === "object" && "nodes" in parsed && "edges_dfg" in parsed) {
+              const pythonResult = parsed as { edges_dfg: unknown[]; nodes: unknown[] };
+              const dfgGraph: IDFGGraph = {
+                nodes: pythonResult.nodes as IDFGNode[],
+                edges: pythonResult.edges_dfg as IDFGEdge[],
+              };
+              resolve([dfgGraph]);
+            } else {
+              resolve([parsed as IDFGGraph]);
+            }
+          } catch (e: unknown) {
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            reject(new Error(`Invalid JSON from Python DFG extractor: ${errorMessage}. Output: ${output.substring(0, 200)}...`));
+          }
+        })
+        .catch((error: unknown) => {
+          reject(new Error(`Python DFG extraction failed: ${error instanceof Error ? error.message : String(error)}`));
+        });
+    });
+
+    dfgGraphs.push(...graphs);
+  }
+
+  return dfgGraphs;
 }

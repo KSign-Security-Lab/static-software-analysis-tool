@@ -1,14 +1,15 @@
 module.exports = {
-  preset: "ts-jest/presets/default-esm",
+  preset: "ts-jest",
   testEnvironment: "node",
-  extensionsToTreatAsEsm: [".ts"],
+  setupFilesAfterEnv: ["<rootDir>/__tests__/setup.ts"],
   transform: {
     "^.+\\.ts$": [
       "ts-jest",
       {
-        useESM: true,
         tsconfig: "tsconfig.test.json",
         isolatedModules: false,
+        allowJs: true,
+        skipLibCheck: true,
       },
     ],
   },

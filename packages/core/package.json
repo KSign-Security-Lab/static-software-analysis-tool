@@ -26,7 +26,8 @@
     "format:check": "prettier --check .",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:log": "jest --json --outputFile=test-results.json --verbose"
   },
   "scriptsInfo": {
     "scripts:help": "List Core workspace scripts with descriptions",
@@ -39,7 +40,8 @@
     "format:check": "Run Prettier check",
     "test": "Run Core tests",
     "test:watch": "Run Core tests in watch mode",
-    "test:coverage": "Run Core tests with coverage"
+    "test:coverage": "Run Core tests with coverage",
+    "test:log": "Run Core tests with logging"
   },
   "dependencies": {
     "python-shell": "^5.0.0",
