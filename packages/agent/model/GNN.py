@@ -2,11 +2,8 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
-from torch_geometric.data import Data  # pyright: ignore[reportMissingImports]
-from torch_geometric.nn import (  # pyright: ignore[reportMissingImports]
-    GINEConv,
-    global_mean_pool,
-)
+from torch_geometric.data import Data
+from torch_geometric.nn import GINEConv, global_mean_pool
 
 
 class GINEStack(nn.Module):
@@ -76,5 +73,8 @@ class GINEStack(nn.Module):
             # ReLU after every layer except the last one (keep representation flexible)
             if i < len(self.convs) - 1:
                 x = torch.relu(x)
-        batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+        # Ensure x is a Tensor and build a dummy batch vector
+        if not isinstance(x, torch.Tensor):
+            raise RuntimeError("GINEStack expected tensor features after convs")
+        batch = torch.zeros(int(x.shape[0]), dtype=torch.long, device=x.device)
         return global_mean_pool(x, batch)
