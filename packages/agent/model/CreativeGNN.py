@@ -46,6 +46,7 @@ class _GraphTokenEncoder(nn.Module):
             norms.append(nn.LayerNorm(out_c))
         self.convs = nn.ModuleList(convs)
         self.norms = nn.ModuleList(norms)
+        self.hidden_dim = hidden_dim
         self.proj = nn.Linear(hidden_dim * 2, hidden_dim)
 
     def forward(self, data: Data) -> torch.Tensor:
@@ -54,22 +55,44 @@ class _GraphTokenEncoder(nn.Module):
         edge_attr = getattr(data, "edge_attr", None)
         if not isinstance(edge_attr, torch.Tensor) or edge_attr.numel() == 0:
             edge_attr = None
+        # Type assertions for linter
+        assert x is not None, "x cannot be None"
+        assert edge_index is not None, "edge_index cannot be None"
+
         batch = getattr(data, "batch", None)
         if batch is None:
             batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
 
         for conv, norm in zip(self.convs, self.norms):
             h = x
-            if self.kind == "attn" and edge_attr is not None:
-                x = conv(x, edge_index, edge_attr)
+            if self.kind == "attn":
+                if edge_attr is not None:
+                    x = conv(x, edge_index, edge_attr)
+                else:
+                    # Create dummy edge attributes for TransformerConv when edge_attr is None
+                    num_edges = edge_index.size(1)
+                    if self.edge_dim is not None:
+                        dummy_edge_attr = torch.zeros(
+                            (num_edges, self.edge_dim), dtype=x.dtype, device=x.device
+                        )
+                    else:
+                        dummy_edge_attr = torch.zeros(
+                            (num_edges, 1), dtype=x.dtype, device=x.device
+                        )
+                    x = conv(x, edge_index, dummy_edge_attr)
             else:
                 x = conv(x, edge_index)
             x = norm(F.elu(x))
-            if h.shape == x.shape:
+            if h is not None and x is not None and h.shape == x.shape:
                 x = x + 0.1 * h
-        pooled = torch.cat(
-            [global_mean_pool(x, batch), global_max_pool(x, batch)], dim=-1
-        )
+        if x is not None and batch is not None:
+            pooled = torch.cat(
+                [global_mean_pool(x, batch), global_max_pool(x, batch)], dim=-1
+            )
+        else:
+            # Fallback if x or batch is None
+            device = x.device if x is not None else torch.device("cpu")
+            pooled = torch.zeros((1, self.hidden_dim * 2), device=device)
         return self.proj(pooled)
 
 

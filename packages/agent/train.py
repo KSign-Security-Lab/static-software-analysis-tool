@@ -1,21 +1,20 @@
 import argparse
 import json
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+import os
+import warnings
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from typing import Any, Dict, Iterator, List, Literal, Optional
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from dataset.v2.JsonDataset import JsonDataset
 from datasets import load_dataset
-from explain import (
-    compute_node_saliency,
-    save_parameter_saliency_heatmaps,
-    save_saliency_heatmap,
-)
 from metrics import compute_binary_classification_metrics, save_epoch_metrics_and_plots
 from model.CreativeGNN import DualStreamCrossGraphNet
-from model.LateFusion import LateFusionModel  # assumes present on PYTHONPATH
+from model.LateFusion import LateFusionModel
 from model.SingleBranch import ASTOnlyModel, DFGOnlyModel
 from rich.console import Console
 from rich.progress import (
@@ -27,13 +26,182 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from torch.utils.data import DataLoader as TorchDataLoader
-from torch.utils.data import IterableDataset, get_worker_info
-from torch_geometric.data import Data
+from torch.utils.data import Dataset, IterableDataset
+from torch_geometric.data import Batch, Data
+from utils.evaluate.explain import (
+    compute_node_saliency,
+    save_parameter_saliency_heatmaps,
+    save_saliency_heatmap,
+)
 
+# Suppress torch-scatter warning
+warnings.filterwarnings("ignore", message=".*torch-scatter.*")
 console = Console()
 
 
-DEFAULT_WEIGHT_MAX_SAMPLES = 4096
+def custom_collate_fn(batch):
+    """Custom collate function for PyTorch Geometric Data objects."""
+
+    def _infer_dims(kind: str, default_x: int, default_e: int) -> tuple[int, int]:
+        x_dim = None
+        e_dim = None
+        key = f"{kind}_graph"
+        for it in batch:
+            g = it.get(key)
+            if g is None:
+                continue
+            if getattr(g, "x", None) is not None and g.x.numel() > 0:
+                x_dim = g.x.size(1)
+            ea = getattr(g, "edge_attr", None)
+            if ea is not None:
+                e_dim = ea.size(1) if ea.ndim == 2 else default_e
+            if x_dim is not None and e_dim is not None:
+                break
+        return (x_dim or default_x, e_dim or default_e)
+
+    ast_x_dim, ast_e_dim = _infer_dims("ast", default_x=20, default_e=1)
+    dfg_x_dim, dfg_e_dim = _infer_dims("dfg", default_x=12, default_e=1)
+
+    def _empty_graph(num_features: int, edge_dim: int) -> Data:
+        return Data(
+            x=torch.zeros((1, num_features), dtype=torch.float),
+            edge_index=torch.zeros((2, 0), dtype=torch.long),
+            edge_attr=torch.zeros((0, edge_dim), dtype=torch.float),
+        )
+
+    def _normalize_graph(g: Data, want_x: int, want_e: int) -> Data:
+        x = getattr(g, "x", None)
+        if x is None or x.ndim != 2 or x.size(1) != want_x:
+            g.x = torch.zeros((1, want_x), dtype=torch.float)
+        if getattr(g, "edge_index", None) is None:
+            g.edge_index = torch.zeros((2, 0), dtype=torch.long)
+        ea = getattr(g, "edge_attr", None)
+        edge_index = getattr(g, "edge_index", None)
+        num_edges = edge_index.size(1) if isinstance(edge_index, torch.Tensor) else 0
+        if ea is None or ea.ndim != 2 or ea.size(1) != want_e:
+            g.edge_attr = torch.zeros((num_edges, want_e), dtype=torch.float)
+        return g
+
+    ast_graphs = []
+    dfg_graphs = []
+    labels = []
+    files = []
+    paths = []
+    ast_original_nodes = []
+    ast_original_edges = []
+    dfg_original_nodes = []
+    dfg_original_edges = []
+
+    for item in batch:
+        ast = item.get("ast_graph")
+        dfg = item.get("dfg_graph")
+        lbl = item.get("label")
+
+        if ast is None:
+            ast = _empty_graph(ast_x_dim, ast_e_dim)
+        else:
+            ast = _normalize_graph(ast, ast_x_dim, ast_e_dim)
+        if dfg is None:
+            dfg = _empty_graph(dfg_x_dim, dfg_e_dim)
+        else:
+            dfg = _normalize_graph(dfg, dfg_x_dim, dfg_e_dim)
+
+        if not isinstance(lbl, torch.Tensor):
+            try:
+                lbl = torch.tensor(int(lbl), dtype=torch.long)
+            except Exception:
+                lbl = torch.tensor(0, dtype=torch.long)
+
+        ast_graphs.append(ast)
+        dfg_graphs.append(dfg)
+        labels.append(lbl)
+        files.append(item.get("file"))
+        paths.append(item.get("path"))
+
+        # Preserve original data for human-friendly output
+        ast_original_nodes.append(item.get("ast_result_original_nodes", []))
+        ast_original_edges.append(item.get("ast_result_original_edges", []))
+        dfg_original_nodes.append(item.get("dfg_result_original_nodes", []))
+        dfg_original_edges.append(item.get("dfg_result_original_edges", []))
+
+    # Batch the graphs using PyTorch Geometric's Batch.from_data_list
+    ast_batch = Batch.from_data_list(ast_graphs)
+    dfg_batch = Batch.from_data_list(dfg_graphs)
+
+    # Stack the labels
+    labels_tensor = torch.stack(labels)
+
+    return {
+        "ast_graph": ast_batch,
+        "dfg_graph": dfg_batch,
+        "label": labels_tensor,
+        "file": files,
+        "path": paths,
+        "ast_result_original_nodes": ast_original_nodes,
+        "ast_result_original_edges": ast_original_edges,
+        "dfg_result_original_nodes": dfg_original_nodes,
+        "dfg_result_original_edges": dfg_original_edges,
+    }
+
+
+@dataclass
+class TrainConfig:
+    """Training configuration with all parameters."""
+
+    data_path: List[str] = field(
+        default_factory=lambda: ["data/CWE121_full", "data/CWE122_full"]
+    )
+    split: str = "train"
+    epochs: int = 10
+    lr: float = 1e-3
+    weight_decay: float = 1e-4
+    device: str = "cuda:1"
+    batch_size: int = 32
+    num_workers: int = 0
+    pin_memory: bool = False
+    seed: int = 42
+    hid: int = 64
+    gnn_layers: int = 3
+    fusion_depth: int = 2
+    shuffle: bool = True
+    save_name: Optional[str] = None
+    mode: str = "both"
+    explain: bool = False
+    loss: str = "focal"
+    focal_gamma: float = 2.0
+    model: Literal["default", "late_fusion"] = "default"
+
+
+def save_training_config(
+    cfg: TrainConfig, results_dir: str, model_info: Dict[str, Any]
+) -> None:
+    """Save complete training configuration and model info for evaluation."""
+    config = {
+        "training_config": asdict(cfg),
+        "model_info": model_info,
+        "training_metadata": {
+            "timestamp": datetime.now().isoformat(),
+            "results_dir": results_dir,
+            "model_weights_path": os.path.join(results_dir, "model.pt"),
+        },
+        "evaluation_defaults": {
+            "split": "test",
+            "max_samples": 1000,
+            "mode": cfg.mode,
+            "device": cfg.device,
+        },
+    }
+
+    config_path = os.path.join(results_dir, "training_config.json")
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+
+    console.print(f"Saved training configuration → {config_path}", style="green")
+
+
+def _safe_dir(path: str) -> None:
+    """Create directory if it doesn't exist."""
+    os.makedirs(path, exist_ok=True)
 
 
 class FocalLoss(nn.Module):
@@ -48,652 +216,356 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
         if weight is not None:
             self.register_buffer("weight", weight)
-        else:
-            self.weight = None
 
-    def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        target = target.view(-1).long()
-        log_probs = F.log_softmax(logits, dim=1)
-        probs = log_probs.exp()
-        idx = torch.arange(target.size(0), device=logits.device)
-        pt = probs[idx, target]
-        focal_factor = (1 - pt).pow(self.gamma)
-        loss = -focal_factor * log_probs[idx, target]
-        weight = getattr(self, "weight", None)
-        if weight is not None:
-            loss = loss * weight[target]
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        if self.weight is not None:
+            self.weight = self.weight.to(inputs.device)
+        ce_loss = F.cross_entropy(inputs, targets, weight=self.weight, reduction="none")
+        pt = torch.exp(-ce_loss)
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
         if self.reduction == "mean":
-            return loss.mean()
-        if self.reduction == "sum":
-            return loss.sum()
-        return loss
-
-
-@dataclass
-class TrainConfig:
-    repo_id: str
-    split: str
-    epochs: int
-    lr: float
-    weight_decay: float
-    device: str
-    batch_size: int
-    num_workers: int
-    pin_memory: bool
-    seed: int
-    hid: int
-    gnn_layers: int
-    fusion_depth: int
-    shuffle_buffer: int
-    save_name: Optional[str]
-    mode: str  # "both" | "ast" | "dfg"
-    explain: bool  # run saliency after evaluation each epoch
-    loss: str
-    focal_gamma: float
-    model: str
-
-
-def _build_pyg_from_ast_item(ast_item: Dict[str, Any]) -> Data:
-    """Build a PyG Data from an AST graph dict with keys: nodes, edges_ast_pc."""
-    nodes = ast_item.get("nodes", [])
-    if not nodes:
-        x = torch.zeros((1, 2), dtype=torch.float)
-        edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 1), dtype=torch.float)
-        return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
-
-    sid_to_row: Dict[int, int] = {}
-    feats: List[List[float]] = []
-    for i, n in enumerate(nodes):
-        sid = int(n.get("sid", i))
-        sid_to_row[sid] = i
-        f = n.get("feat", {})
-        feats.append([float(f.get("node_type_id", 0.0)), float(f.get("in_loop", 0.0))])
-    x = torch.tensor(feats, dtype=torch.float)
-
-    pc = ast_item.get("edges_ast_pc", [])
-    ei_list: List[List[int]] = []
-    ea_list: List[List[float]] = []
-    for u, v, t in pc:
-        u, v = int(u), int(v)
-        if u in sid_to_row and v in sid_to_row:
-            ei_list.append([sid_to_row[u], sid_to_row[v]])
-            ea_list.append([float(t)])
-    if ei_list:
-        edge_index = torch.tensor(np.array(ei_list).T, dtype=torch.long)
-        edge_attr = torch.tensor(ea_list, dtype=torch.float)
-    else:
-        edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 1), dtype=torch.float)
-    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
-
-
-def _build_pyg_from_dfg_item(dfg_item: Dict[str, Any]) -> Data:
-    """Build a PyG Data from a DFG graph dict with keys: nodes, edges."""
-    nodes = dfg_item.get("nodes", [])
-    if not nodes:
-        x = torch.zeros((1, 4), dtype=torch.float)
-        edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 1), dtype=torch.float)
-        return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
-
-    id_to_row: Dict[int, int] = {}
-    feats: List[List[float]] = []
-    for i, n in enumerate(nodes):
-        nid = int(n.get("id", i))
-        id_to_row[nid] = i
-        f = n.get("features", {})
-        feats.append(
-            [
-                float(f.get("inDegreeDFG", 0)),
-                float(f.get("outDegreeDFG", 0)),
-                float(f.get("defCount", 0)),
-                float(f.get("useCount", 0)),
-            ]
-        )
-    x = torch.tensor(feats, dtype=torch.float)
-
-    edges = dfg_item.get("edges", [])
-    ei_list: List[List[int]] = []
-    ea_list: List[List[float]] = []
-    for e in edges:
-        su = int(e.get("source", -1))
-        sv = int(e.get("destination", -1))
-        if su in id_to_row and sv in id_to_row:
-            ei_list.append([id_to_row[su], id_to_row[sv]])
-            ea_list.append([1.0])
-    if ei_list:
-        edge_index = torch.tensor(np.array(ei_list).T, dtype=torch.long)
-        edge_attr = torch.tensor(ea_list, dtype=torch.float)
-    else:
-        edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 1), dtype=torch.float)
-    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
-
-
-def _coerce_label(v: Any) -> Optional[int]:
-    if isinstance(v, bool):
-        return int(v)
-    if isinstance(v, (int, float)):
-        vi = int(v)
-        return vi if vi in (0, 1) else None
-    if isinstance(v, str):
-        s = v.strip().lower()
-        if s in ("1", "true", "t", "yes", "y", "bad", "vulnerable"):
-            return 1
-        if s in ("0", "false", "f", "no", "n", "good", "safe"):
-            return 0
-    return None
-
-
-class HFStreamingGraphs(IterableDataset):
-    """
-    Wrap a Hugging Face streaming dataset and shard per DataLoader worker.
-    Each item is a python dict: {"ast_graph": <dict>, "dfg_graph": <dict>, "label": torch.LongTensor([0 or 1])}
-    """
-
-    def __init__(self, repo_id: str, split: str, shuffle_buffer: int, seed: int):
-        super().__init__()
-        self.repo_id = repo_id
-        self.split = split
-        self.shuffle_buffer = shuffle_buffer
-        self.seed = seed
-
-    def _base_stream(self):
-        ds = load_dataset(self.repo_id, split=self.split, streaming=True)
-        # buffer shuffle for better stochasticity
-        if hasattr(ds, "shuffle"):
-            return ds.shuffle(seed=self.seed)
+            return focal_loss.mean()
+        elif self.reduction == "sum":
+            return focal_loss.sum()
         else:
-            raise ValueError(f"Unsupported dataset type: {type(ds)}")
-
-    def __iter__(self) -> Iterator[Dict[str, Any]]:
-        info = get_worker_info()
-        stream = self._base_stream()
-        if (
-            info is not None
-            and hasattr(stream, "shard")
-            and callable(getattr(stream, "shard", None))
-        ):
-            # shard across workers for parallel I/O
-            stream = stream.shard(num_shards=info.num_workers, index=info.id)
-
-        for ex in stream:
-            # expect fields: "ast_result", "dfg_result", "label"
-            if not isinstance(ex, dict):
-                continue
-            lab = _coerce_label(ex.get("label", None))
-            if lab is None:
-                continue
-            ast_g = ex.get("ast_result", None)
-            dfg_g = ex.get("dfg_result", None)
-
-            # Parse JSON strings if they are strings
-            if isinstance(ast_g, str):
-                try:
-                    ast_g = json.loads(ast_g)
-                except json.JSONDecodeError:
-                    continue
-            if isinstance(dfg_g, str):
-                try:
-                    dfg_g = json.loads(dfg_g)
-                except json.JSONDecodeError:
-                    continue
-
-            if not isinstance(ast_g, dict) or not isinstance(dfg_g, dict):
-                continue
-            yield {
-                "ast_graph": ast_g,
-                "dfg_graph": dfg_g,
-                "label": torch.tensor(lab, dtype=torch.long),
-            }
+            return focal_loss
 
 
-def _collate_list(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-    # Simple list-collate; we’ll loop over items inside the training step.
-    return {
-        "ast_graph": [b["ast_graph"] for b in batch],
-        "dfg_graph": [b["dfg_graph"] for b in batch],
-        "label": [b["label"] for b in batch],
-    }
+def _compute_class_weights_stream(dataset: IterableDataset) -> torch.Tensor:
+    """Compute class weights from streaming dataset."""
+    class_counts = [0, 0]
 
+    for sample in dataset:
+        # Type guard to ensure sample is a dictionary
+        if not isinstance(sample, dict):
+            continue
 
-def _build_dummy_pyg_graph() -> Data:
-    x = torch.zeros((1, 1), dtype=torch.float)
-    edge_index = torch.zeros((2, 0), dtype=torch.long)
-    return Data(x=x, edge_index=edge_index)
+        label = sample["label"].item()
+        if 0 <= label < len(class_counts):
+            class_counts[label] += 1
 
+    # Convert to weights
+    total = sum(class_counts)
+    if total == 0:
+        return torch.ones(2)
 
-def _infer_dims_from_sample(
-    sample: Dict[str, Any], mode: str
-) -> Tuple[int, int, int, int]:
-    if mode == "ast":
-        ast_data = _build_pyg_from_ast_item(sample["ast_graph"])
-        dfg_data = _build_dummy_pyg_graph()
-    elif mode == "dfg":
-        ast_data = _build_dummy_pyg_graph()
-        dfg_data = _build_pyg_from_dfg_item(sample["dfg_graph"])
-    else:
-        ast_data = _build_pyg_from_ast_item(sample["ast_graph"])
-        dfg_data = _build_pyg_from_dfg_item(sample["dfg_graph"])
-    ast_in = int(ast_data.x.size(1))
-    ast_edge_attr = getattr(ast_data, "edge_attr", None)
-    ast_edge = 0
-    if (
-        ast_edge_attr is not None
-        and hasattr(ast_edge_attr, "size")
-        and ast_edge_attr.numel() > 0
-    ):
-        try:
-            ast_edge = int(ast_edge_attr.size(1))
-        except (AttributeError, IndexError):
-            ast_edge = 0
-
-    dfg_in = int(dfg_data.x.size(1))
-    dfg_edge_attr = getattr(dfg_data, "edge_attr", None)
-    dfg_edge = 0
-    if (
-        dfg_edge_attr is not None
-        and hasattr(dfg_edge_attr, "size")
-        and dfg_edge_attr.numel() > 0
-    ):
-        try:
-            dfg_edge = int(dfg_edge_attr.size(1))
-        except (AttributeError, IndexError):
-            dfg_edge = 0
-    return max(1, ast_in), max(1, ast_edge), max(1, dfg_in), max(1, dfg_edge)
-
-
-def _compute_class_weights_stream(
-    stream: Iterable[Dict[str, Any]],
-    device: torch.device,
-    max_samples: Optional[int] = None,
-) -> torch.Tensor:
-    """One-pass estimate over a limited subset of the stream if requested."""
-    pos = neg = 0
-    for i, ex in enumerate(stream):
-        y = int(ex["label"].item())
-        if y == 1:
-            pos += 1
-        else:
-            neg += 1
-        if max_samples is not None and (i + 1) >= max_samples:
-            break
-    if pos == 0 or neg == 0:
-        return torch.tensor([1.0, 1.0], dtype=torch.float, device=device)
-    pos_w = neg / max(pos, 1)
-    return torch.tensor([1.0, pos_w], dtype=torch.float, device=device)
-
-
-def _safe_len(obj: Iterable[Any]) -> Optional[int]:
-    try:
-        return int(len(obj))
-    except TypeError:
-        return None
+    weights = [
+        total / (len(class_counts) * count) if count > 0 else 0
+        for count in class_counts
+    ]
+    return torch.tensor(weights, dtype=torch.float)
 
 
 def train(cfg: TrainConfig) -> str:
-    # Seeds
+    """Train the model with full configuration."""
+
+    # Set random seed
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
 
-    # Build dataset + loader
-    ds = HFStreamingGraphs(cfg.repo_id, cfg.split, cfg.shuffle_buffer, cfg.seed)
-    loader = TorchDataLoader(
-        ds,
+    # Set device
+    device = torch.device(cfg.device)
+    console.print(f"Using device: {device}")
+
+    # Create results directory
+    results_dir = (
+        f"./results/{'_'.join(cfg.data_path).replace('/', '_')}_{cfg.epochs}epochs"
+    )
+    if cfg.save_name:
+        results_dir = f"./results/{cfg.save_name}"
+    _safe_dir(results_dir)
+
+    # Create dataset using local JsonDataset (expects cfg.data_path as a path)
+    console.print(f"Loading dataset from path: {cfg.data_path}")
+    dataset = JsonDataset(paths=cfg.data_path)
+
+    # Compute class weights (non-streaming path)
+    console.print("Computing class weights...")
+    if isinstance(dataset, IterableDataset):
+        class_weights = _compute_class_weights_stream(dataset)
+    else:
+        counts = [0, 0]
+        for item in dataset:
+            lbl = item.get("label")
+            if isinstance(lbl, torch.Tensor):
+                v = int(lbl.item())
+            else:
+                try:
+                    v = int(lbl) if lbl is not None else 0
+                except Exception:
+                    v = 0
+            if 0 <= v < 2:
+                counts[v] += 1
+        total = sum(counts) or 1
+        # Use sqrt to reduce the extreme imbalance impact
+        weights = [total / (len(counts) * (c**0.5)) if c > 0 else 0 for c in counts]
+        # Normalize weights to sum to number of classes
+        weight_sum = sum(weights)
+        if weight_sum > 0:
+            weights = [w * len(counts) / weight_sum for w in weights]
+        class_weights = torch.tensor(weights, dtype=torch.float)
+    console.print(f"Class weights: {class_weights}")
+
+    # Create dataloader
+    dataloader = TorchDataLoader(
+        dataset,
         batch_size=cfg.batch_size,
         num_workers=cfg.num_workers,
         pin_memory=cfg.pin_memory,
-        collate_fn=_collate_list,
+        collate_fn=custom_collate_fn,
+        shuffle=cfg.shuffle,
     )
 
-    # Bootstrap a single sample to infer dims and init model
-    first_batch = next(iter(loader))
-    first_sample = {
-        "ast_graph": first_batch["ast_graph"][0],
-        "dfg_graph": first_batch["dfg_graph"][0],
-        "label": first_batch["label"][0],
-    }
-    ast_in, ast_edge, dfg_in, dfg_edge = _infer_dims_from_sample(first_sample, cfg.mode)
-
-    device = torch.device(cfg.device)
-    use_ast = cfg.mode in ("both", "ast")
-    use_dfg = cfg.mode in ("both", "dfg")
-
-    if cfg.model == "gnn":
+    # Create model
+    if cfg.mode == "ast":
+        model = ASTOnlyModel(
+            ast_in=20,
+            ast_edge_dim=1,
+            hid=cfg.hid,
+            out_classes=2,
+            gnn_layers=cfg.gnn_layers,
+        )
+    elif cfg.mode == "dfg":
+        model = DFGOnlyModel(
+            dfg_in=12,
+            dfg_edge_dim=1,
+            hid=cfg.hid,
+            out_classes=2,
+            gnn_layers=cfg.gnn_layers,
+        )
+    elif cfg.model == "late_fusion":
+        model = LateFusionModel(
+            ast_in=20,
+            ast_edge_dim=1,
+            dfg_in=12,
+            dfg_edge_dim=1,
+        )
+    else:  # default
         model = DualStreamCrossGraphNet(
-            ast_in,
-            ast_edge,
-            dfg_in,
-            dfg_edge,
+            ast_in=20,
+            ast_edge=1,
+            dfg_in=12,
+            dfg_edge=1,
             hid=cfg.hid,
             out_classes=2,
             gnn_layers=cfg.gnn_layers,
             fusion_depth=cfg.fusion_depth,
-            use_ast=use_ast,
-            use_dfg=use_dfg,
-        ).to(device)
-    else:
-        if cfg.mode == "ast":
-            model = ASTOnlyModel(
-                ast_in, ast_edge, hid=cfg.hid, out_classes=2, gnn_layers=cfg.gnn_layers
-            ).to(device)
-        elif cfg.mode == "dfg":
-            model = DFGOnlyModel(
-                dfg_in, dfg_edge, hid=cfg.hid, out_classes=2, gnn_layers=cfg.gnn_layers
-            ).to(device)
-        else:
-            model = LateFusionModel(
-                ast_in,
-                ast_edge,
-                dfg_in,
-                dfg_edge,
-                hid=cfg.hid,
-                out_classes=2,
-                gnn_layers=cfg.gnn_layers,
-                fusion_depth=cfg.fusion_depth,
-                use_ast=True,
-                use_dfg=True,
-            ).to(device)
-
-    # Rebuild a **fresh** loader so the first sample isn't lost
-    ds2 = HFStreamingGraphs(cfg.repo_id, cfg.split, cfg.shuffle_buffer, cfg.seed)
-    loader = TorchDataLoader(
-        ds2,
-        batch_size=cfg.batch_size,
-        num_workers=cfg.num_workers,
-        pin_memory=cfg.pin_memory,
-        collate_fn=_collate_list,
-    )
-
-    # Estimate class weights over a limited pass
-    ds_for_weights = HFStreamingGraphs(
-        cfg.repo_id, cfg.split, cfg.shuffle_buffer, cfg.seed
-    )
-    cw_loader = TorchDataLoader(
-        ds_for_weights, batch_size=1, num_workers=0, collate_fn=_collate_list
-    )
-    console.print("[yellow]Computing class weights...[/yellow]")
-    max_weight_samples = _safe_len(cw_loader)
-    if max_weight_samples is None:
-        max_weight_samples = DEFAULT_WEIGHT_MAX_SAMPLES
-    class_weights = _compute_class_weights_stream(
-        ({"label": b["label"][0]} for b in cw_loader),
-        device,
-        max_samples=max_weight_samples,
-    )
-    weights_info = class_weights.detach().cpu().numpy().tolist()
-    if cfg.loss == "focal":
-        criterion = FocalLoss(gamma=cfg.focal_gamma, weight=class_weights)
-    else:
-        criterion = nn.CrossEntropyLoss(weight=class_weights)
-    criterion = criterion.to(device)
-    if cfg.loss == "focal":
-        console.print(
-            f"[yellow]Loss: focal (gamma={cfg.focal_gamma}) with class weights {weights_info}[/yellow]"
+            use_ast=True,
+            use_dfg=True,
         )
-    else:
-        console.print(
-            f"[yellow]Loss: weighted cross entropy with class weights {weights_info}[/yellow]"
-        )
-    optimizer = torch.optim.AdamW(
+
+    model.to(device)
+    console.print(f"Model created: {cfg.mode} mode")
+
+    # Create optimizer and loss
+    optimizer = torch.optim.Adam(
         model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
     )
 
-    console.print(
-        f"[blue]Model: {cfg.model} • mode={cfg.mode} • hid={cfg.hid} • layers={cfg.gnn_layers}[/blue]"
-    )
+    if cfg.loss == "focal":
+        criterion = FocalLoss(gamma=cfg.focal_gamma, weight=class_weights.to(device))
+    else:
+        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
 
-    # Results dir
-    from datetime import datetime
+        # Training loop
+    console.print(f"Starting training for {cfg.epochs} epochs...")
 
-    run_name = cfg.save_name or datetime.now().strftime("%y%m%d-%H%M%S")
-    import os
+    # Initialize variables for final stats
+    avg_loss = 0.0
+    metrics = {"accuracy": 0.0}
+    samples_processed = 0
 
-    results_dir = os.path.join(os.getcwd(), "result", run_name)
-    os.makedirs(results_dir, exist_ok=True)
+    for epoch in range(cfg.epochs):
+        model.train()
+        total_loss = 0
+        all_predictions = []
+        all_probabilities = []
+        all_labels = []
+        samples_processed = 0
 
-    console.rule("[bold green]Training")
-    progress_columns = (
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        TextColumn("• loss={task.fields[loss]:.4f} acc={task.fields[acc]:.3f}"),
-    )
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task(f"Epoch {epoch+1}/{cfg.epochs}", total=None)
 
-    with Progress(*progress_columns, console=console) as progress:
-        epoch_task = progress.add_task("Epochs", total=cfg.epochs, loss=0.0, acc=0.0)
-        for ep in range(1, cfg.epochs + 1):
-            model.train()
-            total_loss = 0.0
-            total_correct = 0
-            total = 0
-            batch_count = 0
-            # buffers for evaluation
-            eval_labels: List[int] = []
-            eval_probs: List[float] = []
-            batch_total = _safe_len(loader)
-            batch_task = progress.add_task(
-                f"Epoch {ep}", total=batch_total, loss=0.0, acc=0.0
-            )
+            for batch_idx, batch in enumerate(dataloader):
+                optimizer.zero_grad()
 
-            last_batch = None
-            last_B = 0
-            for batch in loader:
-                B = len(batch["label"])
-                batch_count += 1
-                last_batch = batch
-                last_B = B
+                # Move data to device
+                ast_data = batch["ast_graph"].to(device)
+                dfg_data = batch["dfg_graph"].to(device)
+                labels = batch["label"].to(device)
 
-                for i in range(B):
-                    y = batch["label"][i].unsqueeze(0).to(device)
+                # Forward pass
+                if cfg.mode == "ast":
+                    logits = model(ast_data)
+                elif cfg.mode == "dfg":
+                    logits = model(dfg_data)
+                else:  # both
+                    logits = model(ast_data, dfg_data)
 
-                    ast_item = batch["ast_graph"][i]
-                    dfg_item = batch["dfg_graph"][i]
+                # Compute loss
+                loss = criterion(logits, labels.squeeze())
 
-                    optimizer.zero_grad(set_to_none=True)
-                    if cfg.mode == "ast":
-                        ast_data = _build_pyg_from_ast_item(ast_item).to(str(device))
-                        out = model(ast_data)
-                    elif cfg.mode == "dfg":
-                        dfg_data = _build_pyg_from_dfg_item(dfg_item).to(str(device))
-                        out = model(dfg_data)
-                    else:
-                        ast_data = _build_pyg_from_ast_item(ast_item).to(str(device))
-                        dfg_data = _build_pyg_from_dfg_item(dfg_item).to(str(device))
-                        out = model(ast_data, dfg_data)
-                    loss = criterion(out, y)
-                    loss.backward()
-                    optimizer.step()
+                # Backward pass
+                loss.backward()
+                optimizer.step()
 
-                    total_loss += loss.item()
-                    pred = out.argmax(dim=1)
-                    total_correct += int((pred == y).sum().item())
-                    total += 1
+                total_loss += loss.item()
 
-                    # collect eval buffers (probability of positive class)
-                    prob_pos = torch.softmax(out.detach(), dim=1)[0, 1].item()
-                    eval_probs.append(float(prob_pos))
-                    eval_labels.append(int(y.item()))
+                # Store predictions for metrics
+                with torch.no_grad():
+                    probs = F.softmax(logits, dim=-1)
+                    predictions = probs.argmax(dim=-1)
+                    # Store probabilities for positive class (class 1)
+                    positive_probs = probs[:, 1].cpu().numpy()
+                    all_predictions.extend(predictions.cpu().numpy())
+                    all_probabilities.extend(positive_probs)
+                    all_labels.extend(labels.squeeze().cpu().numpy())
+                    samples_processed += len(labels)
 
-                # Update batch progress with running metrics
-                if total > 0:
-                    current_loss = total_loss / total
-                    current_acc = total_correct / total
-                    progress.update(
-                        batch_task,
-                        advance=1,
-                        loss=float(current_loss),
-                        acc=float(current_acc),
-                    )
+                progress.update(task, advance=1)
 
-            avg_loss = total_loss / max(total, 1)
-            avg_acc = total_correct / max(total, 1)
-            # compute evaluation metrics for the epoch
-            metrics = compute_binary_classification_metrics(
-                eval_labels, eval_probs, threshold=0.5
-            )
-            # persist metrics and plots
-            try:
-                save_epoch_metrics_and_plots(
-                    results_dir,
-                    ep,
-                    eval_labels,
-                    eval_probs,
-                    metrics,
-                )
-            except Exception:
-                pass
+                # Generate saliency if requested (last batch of epoch)
+                if cfg.explain and batch_idx == 0:
+                    try:
+                        with torch.no_grad():
+                            if cfg.mode == "ast":
+                                node_saliency, param_saliency = compute_node_saliency(
+                                    model, ast_data, None, positive_class=1
+                                )
+                                save_saliency_heatmap(
+                                    results_dir,
+                                    f"epoch_{epoch+1}_ast_saliency",
+                                    node_saliency["ast"],
+                                )
+                            elif cfg.mode == "dfg":
+                                node_saliency, param_saliency = compute_node_saliency(
+                                    model, None, dfg_data, positive_class=1
+                                )
+                                save_saliency_heatmap(
+                                    results_dir,
+                                    f"epoch_{epoch+1}_dfg_saliency",
+                                    node_saliency["dfg"],
+                                )
+                            else:  # both
+                                node_saliency, param_saliency = compute_node_saliency(
+                                    model, ast_data, dfg_data, positive_class=1
+                                )
+                                save_saliency_heatmap(
+                                    results_dir,
+                                    f"epoch_{epoch+1}_ast_saliency",
+                                    node_saliency["ast"],
+                                )
+                                save_saliency_heatmap(
+                                    results_dir,
+                                    f"epoch_{epoch+1}_dfg_saliency",
+                                    node_saliency["dfg"],
+                                )
 
-            # Saliency (optional, single sample from last batch each epoch)
-            try:
-                if cfg.explain:
-                    example_dir = os.path.join(results_dir, f"epoch_{ep:02d}")
-                    if last_batch is not None and last_B > 0:
-                        i = 0
-                        if cfg.mode == "ast":
-                            ast_data = _build_pyg_from_ast_item(
-                                last_batch["ast_graph"][i]
-                            ).to(str(device))
-                            dfg_data = None
-                        elif cfg.mode == "dfg":
-                            ast_data = None
-                            dfg_data = _build_pyg_from_dfg_item(
-                                last_batch["dfg_graph"][i]
-                            ).to(str(device))
-                        else:
-                            ast_data = _build_pyg_from_ast_item(
-                                last_batch["ast_graph"][i]
-                            ).to(str(device))
-                            dfg_data = _build_pyg_from_dfg_item(
-                                last_batch["dfg_graph"][i]
-                            ).to(str(device))
-                        node_sal, param_sal = compute_node_saliency(
-                            model, ast_data, dfg_data
+                            save_parameter_saliency_heatmaps(
+                                results_dir,
+                                param_saliency,
+                                top_k=8,
+                            )
+                    except Exception as e:
+                        console.print(
+                            f"[yellow]Warning: Could not generate saliency: {e}[/yellow]"
                         )
-                        if "ast" in node_sal:
-                            save_saliency_heatmap(
-                                example_dir, "ast_saliency", node_sal["ast"]
-                            )
-                        if "dfg" in node_sal:
-                            save_saliency_heatmap(
-                                example_dir, "dfg_saliency", node_sal["dfg"]
-                            )
-                        save_parameter_saliency_heatmaps(example_dir, param_sal)
-            except Exception:
-                pass
-            if batch_total is not None:
-                progress.update(batch_task, completed=batch_count)
-            progress.remove_task(batch_task)
-            progress.update(
-                epoch_task, advance=1, loss=float(avg_loss), acc=float(avg_acc)
-            )
-            console.print(
-                f"[cyan]Epoch {ep}[/cyan]  "
-                f"loss: [bold]{avg_loss:.4f}[/bold]  "
-                f"acc: [bold]{avg_acc:.3f}[/bold]  "
-                f"f1: [bold]{(metrics['f1'] if metrics['f1'] is not None else float('nan')):.3f}[/bold]  "
-                f"auroc: [bold]{(metrics['auroc'] if metrics['auroc'] is not None else float('nan')):.3f}[/bold]  "
-                f"samples: [bold]{total}[/bold]  batches: [bold]{batch_count}[/bold]"
-            )
-            console.print("")
+
+        # Compute metrics
+        metrics = compute_binary_classification_metrics(all_labels, all_probabilities)
+        avg_loss = total_loss / samples_processed if samples_processed > 0 else 0.0
+
+        # Handle cases where metrics might be None
+        accuracy_str = (
+            f"{metrics['accuracy']:.4f}" if metrics["accuracy"] is not None else "N/A"
+        )
+        console.print(
+            f"Epoch {epoch+1}/{cfg.epochs} - Loss: {avg_loss:.4f}, Accuracy: {accuracy_str}"
+        )
+
+        # Save epoch metrics
+        save_epoch_metrics_and_plots(
+            results_dir,
+            epoch + 1,
+            all_labels,
+            all_probabilities,
+            metrics,
+        )
 
     # Save final weights
-    weights_path = f"{results_dir}/latefusion_v1.pt"
+    weights_path = f"{results_dir}/model.pt"
     torch.save(model.state_dict(), weights_path)
     console.print(f"Saved model weights → {weights_path}", style="green")
+
+    # Save training configuration for evaluation
+    model_info = {
+        "model_type": cfg.mode,
+        "model_class": model.__class__.__name__,
+        "input_dimensions": {
+            "ast_in": 2,
+            "ast_edge_dim": 1,
+            "dfg_in": 2,
+            "dfg_edge_dim": 1,
+        },
+        "architecture": {
+            "hid": cfg.hid,
+            "out_classes": 2,
+            "gnn_layers": cfg.gnn_layers,
+        },
+        "training_stats": {
+            "total_epochs": cfg.epochs,
+            "final_loss": avg_loss,
+            "final_accuracy": metrics.get("accuracy", 0.0),
+            "samples_processed": samples_processed,
+        },
+    }
+
+    save_training_config(cfg, results_dir, model_info)
+
+    console.print(
+        "[cyan]Use 'python evaluate_simple.py --results_dir {}' to evaluate the trained model[/cyan]".format(
+            results_dir
+        )
+    )
 
     return results_dir
 
 
-def parse_args() -> TrainConfig:
-
-    p = argparse.ArgumentParser(
-        description="Train LateFusion on HF streaming dataset (training-only)"
-    )
-    p.add_argument(
-        "--repo_id",
-        type=str,
-        required=True,
-        help='Hugging Face dataset repo, e.g. "org/name"',
-    )
-    p.add_argument("--split", type=str, default="train")
-    p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--weight_decay", type=float, default=0.01)
-    p.add_argument("--device", type=str, default="cuda:1")
-    p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--num_workers", type=int, default=0)
-    p.add_argument("--pin_memory", action="store_true")
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--hid", type=int, default=64)
-    p.add_argument("--gnn_layers", type=int, default=3)
-    p.add_argument("--fusion_depth", type=int, default=2)
-    p.add_argument("--shuffle_buffer", type=int, default=10_000)
-    p.add_argument(
-        "--save", type=str, default="", help="Optional run name under ./result/"
-    )
-    p.add_argument(
-        "--mode",
-        type=str,
-        choices=["both", "ast", "dfg"],
-        default="both",
-        help="Which modalities to use (both | ast | dfg)",
-    )
-    p.add_argument(
-        "--explain",
-        action="store_true",
-        help="If set, generate saliency after evaluation each epoch (last batch)",
-    )
-    p.add_argument(
-        "--model",
-        type=str,
-        choices=["default", "gnn"],
-        default="default",
-        help="Model family: default late-fusion stack or the creative GNN variant.",
-    )
-    p.add_argument(
-        "--loss",
-        type=str,
-        choices=["cross_entropy", "focal"],
-        default="focal",
-        help="Loss to optimise. Focal improves recall on imbalanced data.",
-    )
-    p.add_argument(
-        "--focal_gamma",
-        type=float,
-        default=2.0,
-        help="Gamma parameter for focal loss (ignored unless --loss=focal)",
-    )
-    a = p.parse_args()
-    return TrainConfig(
-        repo_id=a.repo_id,
-        split=a.split,
-        epochs=a.epochs,
-        lr=a.lr,
-        weight_decay=a.weight_decay,
-        device=a.device,
-        batch_size=a.batch_size,
-        num_workers=a.num_workers,
-        pin_memory=a.pin_memory,
-        seed=a.seed,
-        hid=a.hid,
-        gnn_layers=a.gnn_layers,
-        fusion_depth=a.fusion_depth,
-        shuffle_buffer=a.shuffle_buffer,
-        save_name=(a.save or None),
-        mode=a.mode,
-        explain=bool(a.explain),
-        loss=a.loss,
-        focal_gamma=a.focal_gamma,
-        model=a.model,
-    )
-
-
 def main() -> None:
-    cfg = parse_args()
+    """Main function with minimal argument parser that only overrides provided args."""
+    # Default configuration - modify these for advanced usage
+    cfg = TrainConfig()
+
+    # Parse only minimal arguments
+    parser = argparse.ArgumentParser(description="Train GNN model")
+    parser.add_argument("--epochs", type=int, help="Number of epochs")
+    parser.add_argument("--lr", type=float, help="Learning rate")
+    parser.add_argument("--device", type=str, help="Device to use")
+    parser.add_argument("--batch_size", type=int, help="Batch size")
+    parser.add_argument(
+        "--mode", type=str, choices=["both", "ast", "dfg"], help="Model mode"
+    )
+
+    args = parser.parse_args()
+
+    # Only override parameters that were explicitly provided
+    if args.epochs is not None:
+        cfg.epochs = args.epochs
+    if args.lr is not None:
+        cfg.lr = args.lr
+    if args.device is not None:
+        cfg.device = args.device
+    if args.batch_size is not None:
+        cfg.batch_size = args.batch_size
+    if args.mode is not None:
+        cfg.mode = args.mode
+
     train(cfg)
 
 

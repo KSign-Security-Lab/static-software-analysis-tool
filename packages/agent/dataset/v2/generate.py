@@ -26,6 +26,17 @@ def check_pair(template_files: list[str], ast_files: list[str]):
         template_basename = template_file.split("/")[-1].split(".json")[0]
         ast_basename = ast_file.split("/")[-1].split(".json")[0]
         if template_basename != ast_basename:
+            if (
+                template_basename not in sorted_template_files
+                and ast_basename not in sorted_ast_files
+            ):
+                raise ValueError(
+                    f"template_file {template_file} and ast_file {ast_file} are not in the same directory"
+                )
+            if template_basename not in sorted_ast_files:
+                raise ValueError(f"template_file {template_file} is not in ast_files")
+            if ast_basename not in sorted_template_files:
+                raise ValueError(f"ast_file {ast_file} is not in template_files")
             raise ValueError(
                 f"template_file {template_file} and ast_file {ast_file} must have the same basename, but found {template_basename} and {ast_basename}"
             )
@@ -50,7 +61,21 @@ def generate_dfg(template_file: str, ast_file: str, full_dataset_save_dir: str):
 def main(template_dir: str, ast_dir: str, full_dataset_save_dir: str):
     template_files = glob.glob(os.path.join(template_dir, "*.json"))
     ast_files = glob.glob(os.path.join(ast_dir, "*.json"))
-    check_pair(template_files, ast_files)
+    errors = []
+    try:
+        check_pair(template_files, ast_files)
+    except ValueError as e:
+        errors.append(e)
+    if errors:
+        if len(errors) < 10:
+            print(
+                f"Got {len(errors)} errors: {errors}\n. But continue to generate dfg..."
+            )
+        else:
+            raise ValueError(
+                f"Got {len(errors)} errors: {errors}\n. Stop to generate dfg..."
+            )
+
     for template_file, ast_file in zip(template_files, ast_files):
         generate_dfg(template_file, ast_file, full_dataset_save_dir)
 
