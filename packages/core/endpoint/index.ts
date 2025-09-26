@@ -174,7 +174,10 @@ export function generateDfg(cpg: CPGRoot, ast: IASTResult[]): IDFGGraph[] {
   return dfg;
 }
 
-export const DFG_EXTRACTOR_PATH = path.join(__dirname, "../DFGExtractor.py");
+export const DFG_EXTRACTOR_PATH =
+  process.env.NODE_ENV === "test"
+    ? path.resolve(process.cwd(), "packages/core/__tests__/DFGExtractor.py")
+    : path.resolve(process.cwd(), "packages/agent/dataset/v2/DFGExtractor.py");
 
 export async function runPythonDFGExtractor(templateData: TemplateNodes[]): Promise<IDFGGraph[]> {
   const dfgGraphs: IDFGGraph[] = [];
