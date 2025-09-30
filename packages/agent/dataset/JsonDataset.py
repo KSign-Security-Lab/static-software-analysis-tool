@@ -1,450 +1,349 @@
 import json
 import os
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from torch.utils.data import Dataset
-
-from .ASTGraph import AST
-from .DFGGraph import DFG
-
-Kind = Literal["ast", "dfg"]
+from torch_geometric.data import Data
 
 
-@dataclass(frozen=True)
-class Sample:
-    path: str
-    kind: Kind
+def keep_original_value(value: Any) -> Any:
+    return value
 
 
-# Keys exposed by dataset items and batches (metadata for loaders)
-DATASET_META_KEYS: Tuple[str, ...] = ("graph", "label", "path", "kind", "function")
-
-# Feature keys included in the training dataset for AST/DFG graphs
-# These reflect the TypedDicts in ASTGraph.py and DFGGraph.py
-# Per-entity feature keys
-AST_NODE_FEATURE_KEYS: Tuple[str, ...] = (
-    "node_type_id",
-    "train_mask",
-    "in_loop",
-    "is_loop",
-    "ctx_guard_strength",
-    "ctx_upper_bound_norm",
-    "is_buffer_decl",
-    "buffer_size_state",
-    "buffer_size_norm",
-    "call_sem_cat_id",
-    "call_flag_danger_unbounded",
-    "call_flag_len_linked_to_dst",
-    "call_flag_sizeof_non_dst",
-    "call_flag_has_varargs",
-    "call_dst_is_field",
-    "call_size_kind",
-    "call_len_linked_to_dst_extended",
-    "call_size_is_sizeof_base_struct",
-    "call_size_mismatch_field",
-    "alloc_sizeof_state",
-)
-
-# AST edges
-AST_EDGE_PC_KEYS: Tuple[str, ...] = ("src", "dst", "edge_type")
-AST_EDGE_SB_KEYS: Tuple[str, ...] = ("src", "dst", "edge_type")
-AST_EDGE_GUARD_KEYS: Tuple[str, ...] = (
-    "src",
-    "dst",
-    "edge_type",
-    "guard_kind",
-    "guard_branch",
-)
-
-DFG_NODE_FEATURE_KEYS: Tuple[str, ...] = (
-    "nodeType",
-    "inDegreeDFG",
-    "outDegreeDFG",
-    "defCount",
-    "useCount",
-    "isBufferAccess",
-    "isSinkAssignment",
-    "isSinkCallUnbounded",
-    "isSinkCallBounded",
-    "callDestinationIndexed",
-    "callLengthLinkedToDestination",
-    "callSizeNonConstant",
-    "callDangerUnbounded",
-)
-
-DFG_EDGE_FEATURE_KEYS: Tuple[str, ...] = (
-    "flow",
-    "guard",
-    "hasLowerGuard",
-    "hasUpperGuard",
-    "upperGuardNormalization",
-)
-
-# Combined feature-key registry by entity
-FEATURE_KEYS: Dict[str, Tuple[str, ...]] = {
-    "ASTNode": AST_NODE_FEATURE_KEYS,
-    "ASTEdgePC": AST_EDGE_PC_KEYS,
-    "ASTEdgeSB": AST_EDGE_SB_KEYS,
-    "ASTEdgeGuard": AST_EDGE_GUARD_KEYS,
-    "DFGNode": DFG_NODE_FEATURE_KEYS,
-    "DFGEdge": DFG_EDGE_FEATURE_KEYS,
+DEFAULT_FEATURE_CONVERTERS: Dict[str, Dict[str, Any]] = {
+    "ast_result": {
+        "node": {
+            "feat": {
+                "node_type_id": keep_original_value,
+                "train_mask": keep_original_value,
+                "in_loop": keep_original_value,
+                "is_loop": keep_original_value,
+                "ctx_guard_strength": keep_original_value,
+                "ctx_upper_bound_norm": keep_original_value,
+                "is_buffer_decl": keep_original_value,
+                "buffer_size_state": keep_original_value,
+                "buffer_size_norm": keep_original_value,
+                "call_sem_cat_id": keep_original_value,
+                "call_flag_danger_unbounded": keep_original_value,
+                "call_flag_len_linked_to_dst": keep_original_value,
+                "call_flag_sizeof_non_dst": keep_original_value,
+                "call_flag_has_varargs": keep_original_value,
+                "call_dst_is_field": keep_original_value,
+                "call_size_kind": keep_original_value,
+                "call_len_linked_to_dst_extended": keep_original_value,
+                "call_size_is_sizeof_base_struct": keep_original_value,
+                "call_size_mismatch_field": keep_original_value,
+                "alloc_sizeof_state": keep_original_value,
+            },
+        },
+        "edges_ast_pc": [keep_original_value, keep_original_value, keep_original_value],
+        "edges_ast_sb": [keep_original_value, keep_original_value, keep_original_value],
+        "edges_ast_guard": {
+            "src": keep_original_value,
+            "dst": keep_original_value,
+            "edge_type": keep_original_value,
+            "guard_kind": keep_original_value,
+            "guard_branch": keep_original_value,
+        },
+    },
+    "dfg_result": {
+        "node": {
+            "feat": {
+                "in_degree_dfg": keep_original_value,
+                "out_degree_dfg": keep_original_value,
+                "def_count": keep_original_value,
+                "use_count": keep_original_value,
+                "is_buffer_access": keep_original_value,
+                "is_sink_assign": keep_original_value,
+                "is_sink_call_unbounded": keep_original_value,
+                "is_sink_call_bounded": keep_original_value,
+                "call_dst_indexed": keep_original_value,
+                "call_len_linked_to_dst": keep_original_value,
+                "call_size_nonconst": keep_original_value,
+                "call_danger_unbounded": keep_original_value,
+            },
+        },
+        "edges_dfg": [
+            keep_original_value,
+            keep_original_value,
+            {
+                "feat": {
+                    "flow_id": keep_original_value,
+                    "guard_kind": keep_original_value,
+                    "has_lower_guard": keep_original_value,
+                    "has_upper_guard": keep_original_value,
+                    "upper_guard_norm": keep_original_value,
+                }
+            },
+        ],
+    },
 }
 
 
-def _is_ast_wrapped(obj: Any) -> bool:
-    return isinstance(obj, dict) and "ast_result" in obj
+class JsonDataset(Dataset):
+    """Load JSON/JSONL data and expose it as a PyTorch Dataset.
 
-
-def _load_json(path: str) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _iter_files(root: str, suffixes: Tuple[str, ...]) -> Iterable[str]:
-    for dirpath, _dirnames, filenames in os.walk(root):
-        for name in filenames:
-            if name.endswith(suffixes):
-                yield os.path.join(dirpath, name)
-
-
-class GraphDataset(Dataset):
-    """PyTorch Dataset for AST/DFG graphs stored as JSON.
-
-    - kind="ast": returns a dictionary with key "graph" holding AST (List[ASTGraph])
-      normalized to the unwrapped array form (AST = List[ASTGraph]). Handles both
-      wrapped shape { ast_result: {..} } and direct array shape [{..}].
-    - kind="dfg": returns a dictionary with key "graph" holding DFG (List[DFGGraph]).
-
-    Each item also includes: "label" (Optional[int]), "path" (str), "kind" (Literal).
+    - Accepts a file path or a directory. If a directory is given, recursively
+      finds files ending with .json or .jsonl.
+    - Items are standard dicts; when available, `ast_result` and `dfg_result`
+      are converted into PyTorch Geometric `Data` using shared builders to match
+      the training/evaluation pipeline.
+    - Optional `transform` is applied to each item after construction.
     """
 
     def __init__(
         self,
-        data_dir: Union[str, os.PathLike],
-        *,
-        kind: Kind,
-        file_suffix: Optional[Tuple[str, ...]] = None,
-        preload: bool = False,
+        paths: List[str],
+        labels: Optional[Dict[str, bool]] = None,
+        transform: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+        limit: Optional[int] = None,
+        debug: bool = False,
     ) -> None:
         super().__init__()
-        self.data_dir = str(data_dir)
-        self.kind: Kind = kind
-        if file_suffix is None:
-            if kind == "ast":
-                file_suffix = ("_astTree.json", "_templateTree_astTree.json")
+        self.paths = paths
+        self.files: List[str] = []
+        self.transform = transform
+        self.dataset: List[Dict[str, Any]] = []
+        for path in self.paths:
+            self.files.extend(self._collect_files(path))
+        self.debug = debug
+
+        if not self.files:
+            raise FileNotFoundError(f"No JSON/JSONL files found under: {self.paths}")
+        # stats
+        kept = 0
+        skipped = 0
+
+        # Initialize labels after files are known
+        self.labels = labels or self._default_labels()
+
+        for file_path in self.files:
+            json_data = json.load(open(file_path, "r", encoding="utf-8"))
+            json_data["label"] = self.labels.get(file_path, False)
+            json_data["path"] = file_path
+            if self._check_converter_matches_json(json_data):
+                self._convert_to_pyg(json_data)
+                # Coerce label to torch.long
+                try:
+                    json_data["label"] = torch.tensor(
+                        int(bool(json_data["label"])), dtype=torch.long
+                    )
+                except Exception:
+                    json_data["label"] = torch.tensor(0, dtype=torch.long)
+                self.dataset.append(json_data)
+                kept += 1
             else:
-                file_suffix = ("_dfg.json",)
-        self.file_suffix = file_suffix
+                skipped += 1
 
-        self.samples: List[Sample] = []
-        for path in _iter_files(self.data_dir, self.file_suffix):
-            self.samples.append(Sample(path=path, kind=self.kind))
+            if limit is not None and len(self.dataset) >= limit:
+                break
 
-        # Optional preload into memory
-        self._cache: Dict[int, Dict[str, Any]] = {}
-        if preload:
-            for i in range(len(self.samples)):
-                self._cache[i] = self._load_item(i)
+        # simple stats
+        self.load_stats = {"kept": kept, "skipped": skipped}
+        total = kept + skipped
+        if self.debug:
+            print(
+                f"JsonDataset stats → kept: {kept}, skipped: {skipped}, total: {total}"
+            )
+        if total > 0 and (skipped / total) >= 0.10:
+            raise ValueError(
+                f"Too many samples skipped during load: {skipped}/{total} (>=10%)."
+            )
+
+    def _default_labels(self) -> Dict[str, bool]:
+        labels = {}
+        for file in self.files:
+            # If file has "bad" then it is a vulnerable function
+            labels[file] = file.split("/")[-1].lower().find("bad") != -1
+        return labels
+
+    def _collect_files(self, path: str) -> List[str]:
+        if os.path.isfile(path):
+            return [path]
+        files: List[str] = []
+        for root, _, filenames in os.walk(path):
+            for name in filenames:
+                if name.endswith(".json") or name.endswith(".jsonl"):
+                    files.append(os.path.join(root, name))
+        files.sort()
+        return files
+
+    def _check_converter_matches_json(self, json_data: Dict[str, Any]) -> bool:
+        # Accept if at least one converter kind matches its schema (strictly checks all declared keys)
+        has_any = False
+        for kind, schema_any in DEFAULT_FEATURE_CONVERTERS.items():
+            if not (
+                isinstance(schema_any, dict)
+                and isinstance(schema_any.get("node"), dict)
+            ):
+                continue
+            sub = json_data.get(kind)
+            if not isinstance(sub, dict):
+                continue
+
+            node_feat_keys = list(schema_any["node"].get("feat", {}).keys())
+            # Collect all expected non-node keys from schema (edges, edges_*, etc.)
+            expected_edge_keys = [k for k in schema_any.keys() if k != "node"]
+
+            nodes = sub.get("nodes")
+            if not isinstance(nodes, list) or not nodes:
+                continue
+
+            ok_nodes = True
+            for node in nodes:
+                if not isinstance(node, dict):
+                    ok_nodes = False
+                    break
+                feats = node.get("feat")
+                if not isinstance(feats, dict):
+                    ok_nodes = False
+                    break
+                for k in node_feat_keys:
+                    if k not in feats:
+                        ok_nodes = False
+                        break
+                if not ok_nodes:
+                    break
+
+            if not ok_nodes:
+                continue
+
+            # Strict: all expected edge keys must exist and be list/tuple
+            edges_ok = True
+            for edge_key in expected_edge_keys:
+                val = sub.get(edge_key)
+                if not isinstance(val, (list, tuple)):
+                    edges_ok = False
+                    break
+            if not edges_ok:
+                continue
+
+            has_any = True
+
+        return has_any
+
+    def _convert_to_pyg(self, json_data: Dict[str, Any]) -> Dict[str, Any]:
+        for kind, schema in DEFAULT_FEATURE_CONVERTERS.items():
+            sub = json_data.get(kind)
+            if not isinstance(sub, dict):
+                continue
+
+            # Build node features flat matrix using schema's node.feat order
+            node_spec = schema.get("node", {}).get("feat", {})
+            node_keys: List[str] = list(node_spec.keys())
+            nodes = sub.get("nodes")
+            if not isinstance(nodes, list) or not nodes:
+                continue
+
+            feats: List[List[float]] = []
+            for node in nodes:
+                feat_dict = node.get("feat", {}) if isinstance(node, dict) else {}
+                row: List[float] = []
+                for k in node_keys:
+                    fn = node_spec.get(k, keep_original_value)
+                    val = feat_dict.get(k, 0)
+                    try:
+                        val = fn(val)
+                    except Exception:
+                        pass
+                    try:
+                        row.append(float(val))
+                    except Exception:
+                        row.append(0.0)
+                feats.append(row)
+            x = torch.tensor(feats, dtype=torch.float)
+
+            # Build edges by concatenating arrays for all edge keys declared by schema
+            edge_arrays: List[torch.Tensor] = []
+            for edge_key in [k for k in schema.keys() if k != "node"]:
+                v = sub.get(edge_key)
+                if isinstance(v, (list, tuple)) and len(v) > 0:
+                    try:
+                        # Handle complex edge structures (like DFG with nested dicts)
+                        if kind == "dfg_result" and edge_key == "edges_dfg":
+                            # Extract src, dst, and edge features from DFG structure
+                            edge_data = []
+                            for edge in v:
+                                if isinstance(edge, list) and len(edge) >= 3:
+                                    src, dst = edge[0], edge[1]
+                                    edge_feat = (
+                                        edge[2] if isinstance(edge[2], dict) else {}
+                                    )
+                                    feat_dict = edge_feat.get("feat", {})
+                                    # Extract flow_id as primary edge feature
+                                    flow_id = feat_dict.get("flow_id", 0)
+                                    edge_data.append([src, dst, flow_id])
+                            if edge_data:
+                                arr = torch.tensor(edge_data)
+                                if arr.ndim == 1:
+                                    arr = arr.unsqueeze(0)
+                                edge_arrays.append(arr)
+                        elif kind == "ast_result" and edge_key == "edges_ast_guard":
+                            # Handle AST guard edges with complex structure
+                            edge_data = []
+                            for edge in v:
+                                if isinstance(edge, dict):
+                                    src = edge.get("src", 0)
+                                    dst = edge.get("dst", 0)
+                                    edge_type = edge.get("edge_type", 0)
+                                    guard_kind = edge.get("guard_kind", 0)
+                                    # Combine edge_type and guard_kind as edge features
+                                    edge_feature = edge_type * 10 + guard_kind
+                                    edge_data.append([src, dst, edge_feature])
+                            if edge_data:
+                                arr = torch.tensor(edge_data)
+                                if arr.ndim == 1:
+                                    arr = arr.unsqueeze(0)
+                                edge_arrays.append(arr)
+                        else:
+                            # Standard processing for other edge types
+                            arr = torch.tensor(v)
+                            if arr.ndim == 1:
+                                arr = arr.unsqueeze(0)
+                            edge_arrays.append(arr)
+                    except Exception as e:
+                        print(f"Warning: Failed to process {edge_key} edges: {e}")
+                        pass
+
+            if edge_arrays:
+                edges_array = torch.vstack(edge_arrays)
+                edge_index = edges_array[:, :2].to(torch.long).t().contiguous()
+                if edges_array.size(1) >= 3:
+                    edge_attr = (
+                        edges_array[:, 2].to(torch.long).view(-1, 1).to(torch.float)
+                    )
+                else:
+                    edge_attr = torch.zeros((edge_index.size(1), 1), dtype=torch.float)
+            else:
+                edge_index = torch.zeros((2, 0), dtype=torch.long)
+                edge_attr = torch.zeros((0, 1), dtype=torch.float)
+
+            data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
+            data.x_feature_names = node_keys
+            data.edge_feature_names = ["edge_type_id"]
+            # Map to expected keys for training compatibility
+            if kind == "ast_result":
+                json_data["ast_graph"] = data
+            elif kind == "dfg_result":
+                json_data["dfg_graph"] = data
+            json_data[f"{kind}_graph"] = data
+
+            # Preserve original node and edge information for human-friendly output
+            json_data[f"{kind}_original_nodes"] = nodes
+            json_data[f"{kind}_original_edges"] = []
+            for edge_key in [k for k in schema.keys() if k != "node"]:
+                v = sub.get(edge_key)
+                if isinstance(v, (list, tuple)) and len(v) > 0:
+                    json_data[f"{kind}_original_edges"].extend(v)
+
+        return json_data
 
     def __len__(self) -> int:
-        return len(self.samples)
+        return len(self.dataset)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        if idx < 0 or idx >= len(self.samples):
-            raise IndexError("index out of range")
-        if idx in self._cache:
-            return self._cache[idx]
-        return self._load_item(idx)
-
-    def _load_item(self, idx: int) -> Dict[str, Any]:
-        s = self.samples[idx]
-        obj = _load_json(s.path)
-
-        if s.kind == "ast":
-            # Normalize to AST (List[ASTGraph])
-            graph: AST
-            if _is_ast_wrapped(obj):
-                # Convert { ast_result: {...} } into [{...}]
-                graph = [obj["ast_result"]]
-            elif isinstance(obj, list):
-                graph = obj  # already AST = List[ASTGraph]
-            else:
-                raise ValueError(f"Unsupported AST JSON structure in {s.path}")
-
-            # Filter features to defined keys
-            self._filter_ast_features(graph)
-
-            function_name = self._extract_function_name_from_ast(graph, s.path)
-            label = self._label_from_function(function_name)
-
-            item: Dict[str, Any] = {
-                "graph": graph,
-                "label": label,
-                "path": s.path,
-                "kind": s.kind,
-                "function": function_name,
-            }
-            return item
-
-        # DFG
-        if not isinstance(obj, list):
-            raise ValueError(f"Unsupported DFG JSON structure in {s.path}")
-        dfg: DFG = obj
-
-        # Filter features to defined keys
-        self._filter_dfg_features(dfg)
-
-        function_name = self._extract_function_name_from_dfg(dfg, s.path)
-        label = self._label_from_function(function_name)
-
-        item = {
-            "graph": dfg,
-            "label": label,
-            "path": s.path,
-            "kind": s.kind,
-            "function": function_name,
-        }
+        item = dict(self.dataset[idx])
+        if self.transform is not None:
+            item = self.transform(item)
         return item
-
-    # -------------------------------
-    # Static helpers (single module)
-    # -------------------------------
-    @staticmethod
-    def _label_from_function(function_name: str) -> int:
-        """Return 1 if function name contains 'bad' (case-insensitive), else 0."""
-        return 1 if "bad" in function_name.lower() else 0
-
-    @staticmethod
-    def _fallback_function_name_from_path(path: str) -> str:
-        stem = os.path.splitext(os.path.basename(path))[0]
-        return stem
-
-    @staticmethod
-    def _extract_function_name_from_ast(graph: AST, path: str) -> str:
-        """Try to read a function name from AST content; fallback to file name.
-        We look for a FunctionEntry node's 'code' if present; otherwise fallback.
-        """
-        try:
-            if isinstance(graph, list) and graph:
-                g0 = graph[0]
-                # nodes are dicts with keys: sid, node_type, code, orig_id, feat, ...
-                for n in g0.get("nodes", []):
-                    if n.get("node_type") == "FunctionEntry":
-                        code = n.get("code") or ""
-                        # heuristic: function signature like 'void foo(...)'
-                        name = GraphDataset._parse_name_from_code(code)
-                        if name:
-                            return name
-        except Exception:
-            pass
-        return GraphDataset._fallback_function_name_from_path(path)
-
-    @staticmethod
-    def _extract_function_name_from_dfg(graph: DFG, path: str) -> str:
-        """Try to read a function name from DFG content; fallback to file name.
-        We look for a node with debug.label == 'METHOD' and parse debug.code.
-        """
-        try:
-            if isinstance(graph, list) and graph:
-                g0 = graph[0]
-                for n in g0.get("nodes", []):
-                    dbg = n.get("debug", {})
-                    if isinstance(dbg, dict) and dbg.get("label") == "METHOD":
-                        code = dbg.get("code") or ""
-                        name = GraphDataset._parse_name_from_code(code)
-                        if name:
-                            return name
-        except Exception:
-            pass
-        return GraphDataset._fallback_function_name_from_path(path)
-
-    @staticmethod
-    def _parse_name_from_code(code: str) -> str:
-        """Extract function name token from code like 'int foo(bar)' -> 'foo'."""
-        try:
-            if not code:
-                return ""
-            # strip leading/trailing spaces and qualifiers
-            s = code.strip()
-            # find name before first '(' and after last space
-            if "(" in s:
-                before = s.split("(", 1)[0].strip()
-                # function name may follow spaces or *
-                tokens = [t for t in before.replace("*", " ").split() if t]
-                if tokens:
-                    return tokens[-1]
-        except Exception:
-            return ""
-        return ""
-
-    # -------------------------------
-    # Feature filtering (projection)
-    # -------------------------------
-    @staticmethod
-    def _filter_ast_features(graph: AST) -> None:
-        try:
-            for g in graph:
-                # Nodes: keep only declared node feature keys
-                nodes = g.get("nodes", [])
-                for n in nodes:
-                    feat = n.get("feat")
-                    if isinstance(feat, dict):
-                        # prune in-place: remove keys not in allowlist
-                        for k in list(feat.keys()):
-                            if k not in AST_NODE_FEATURE_KEYS:
-                                feat.pop(k, None)
-                # Edges_pc and edges_sb are tuples; nothing to filter
-                # Guard edges are dicts; keep only declared guard keys
-                guards = g.get("edges_ast_guard", [])
-                for e in guards:
-                    if isinstance(e, dict):
-                        for k in list(e.keys()):
-                            if k not in AST_EDGE_GUARD_KEYS:
-                                e.pop(k, None)
-        except Exception:
-            # Fail-soft: do not crash dataset on unexpected shapes
-            pass
-
-    @staticmethod
-    def _filter_dfg_features(graph: DFG) -> None:
-        try:
-            for g in graph:
-                # Nodes: features dict
-                nodes = g.get("nodes", [])
-                for n in nodes:
-                    feats = n.get("features")
-                    if isinstance(feats, dict):
-                        for k in list(feats.keys()):
-                            if k not in DFG_NODE_FEATURE_KEYS:
-                                feats.pop(k, None)
-                # Edges: features dict
-                edges = g.get("edges", [])
-                for e in edges:
-                    feats = e.get("features")
-                    if isinstance(feats, dict):
-                        for k in list(feats.keys()):
-                            if k not in DFG_EDGE_FEATURE_KEYS:
-                                feats.pop(k, None)
-        except Exception:
-            # Fail-soft
-            pass
-
-
-def default_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """A permissive collate function that keeps variable-sized graphs as-is.
-
-    Returns a dict with lists for each field. You can replace this with a graph
-    library-specific collate (e.g., PyG/DGL) later.
-    """
-    out: Dict[str, Any] = {
-        "graph": [b["graph"] for b in batch],
-        "label": torch.tensor([int(b["label"]) for b in batch], dtype=torch.long),
-        "path": [b["path"] for b in batch],
-        "kind": [b["kind"] for b in batch],
-        "function": [b.get("function", "") for b in batch],
-    }
-    return out
-
-
-# -------------------------------
-# Paired AST/DFG dataset (by common filename prefix)
-# -------------------------------
-
-
-def _basename_prefix(path: str) -> str:
-    base = os.path.basename(path)
-    name, _ext = os.path.splitext(base)
-    for suf in ("_templateTree_astTree", "_astTree", "_dfg"):
-        if name.endswith(suf):
-            return name[: -len(suf)]
-    return name
-
-
-class PairedGraphDataset(Dataset):
-    """Pairs AST and DFG files by common filename prefix across two directories.
-
-    - Drops files without a matching counterpart.
-    - Normalizes AST structure (wrapped/unwrapped) to AST = List[ASTGraph].
-    - Filters features to declared keys.
-    """
-
-    def __init__(
-        self,
-        ast_dir: Union[str, os.PathLike],
-        dfg_dir: Union[str, os.PathLike],
-        preload: bool = False,
-    ) -> None:
-        super().__init__()
-        self.ast_dir = str(ast_dir)
-        self.dfg_dir = str(dfg_dir)
-
-        ast_files = list(
-            _iter_files(self.ast_dir, ("_astTree.json", "_templateTree_astTree.json"))
-        )
-        dfg_files = list(_iter_files(self.dfg_dir, ("_dfg.json",)))
-        ast_map: Dict[str, str] = {_basename_prefix(p): p for p in ast_files}
-        dfg_map: Dict[str, str] = {_basename_prefix(p): p for p in dfg_files}
-
-        common = sorted(set(ast_map.keys()) & set(dfg_map.keys()))
-        self.samples: List[Tuple[str, str]] = [(ast_map[k], dfg_map[k]) for k in common]
-
-        self._cache: Dict[int, Dict[str, Any]] = {}
-        if preload:
-            for i in range(len(self.samples)):
-                self._cache[i] = self._load_item(i)
-
-    def __len__(self) -> int:
-        return len(self.samples)
-
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        if idx in self._cache:
-            return self._cache[idx]
-        return self._load_item(idx)
-
-    def _load_item(self, idx: int) -> Dict[str, Any]:
-        ast_path, dfg_path = self.samples[idx]
-        ast_obj = _load_json(ast_path)
-        dfg_obj = _load_json(dfg_path)
-
-        # Normalize AST
-        if _is_ast_wrapped(ast_obj):
-            ast_graph: AST = [ast_obj["ast_result"]]
-        elif isinstance(ast_obj, list):
-            ast_graph = ast_obj
-        else:
-            raise ValueError(f"Unsupported AST JSON structure: {ast_path}")
-
-        if not isinstance(dfg_obj, list):
-            raise ValueError(f"Unsupported DFG JSON structure: {dfg_path}")
-        dfg_graph: DFG = dfg_obj
-
-        # Feature filtering
-        GraphDataset._filter_ast_features(ast_graph)
-        GraphDataset._filter_dfg_features(dfg_graph)
-
-        # Label from function name (AST)
-        func = GraphDataset._extract_function_name_from_ast(ast_graph, ast_path)
-        label = GraphDataset._label_from_function(func)
-
-        return {
-            "ast_graph": ast_graph,
-            "dfg_graph": dfg_graph,
-            "label": label,
-            "function": func,
-            "ast_path": ast_path,
-            "dfg_path": dfg_path,
-        }
-
-
-def paired_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-    return {
-        "ast_graph": [b["ast_graph"] for b in batch],
-        "dfg_graph": [b["dfg_graph"] for b in batch],
-        "label": torch.tensor([int(b["label"]) for b in batch], dtype=torch.long),
-        "function": [b.get("function", "") for b in batch],
-        "ast_path": [b["ast_path"] for b in batch],
-        "dfg_path": [b["dfg_path"] for b in batch],
-    }

@@ -10,9 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from dataset.v2.JsonDataset import JsonDataset
-from datasets import load_dataset
-from metrics import compute_binary_classification_metrics, save_epoch_metrics_and_plots
+from dataset.JsonDataset import JsonDataset
 from model.CreativeGNN import DualStreamCrossGraphNet
 from model.LateFusion import LateFusionModel
 from model.SingleBranch import ASTOnlyModel, DFGOnlyModel
@@ -26,12 +24,16 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from torch.utils.data import DataLoader as TorchDataLoader
-from torch.utils.data import Dataset, IterableDataset
+from torch.utils.data import IterableDataset
 from torch_geometric.data import Batch, Data
 from utils.evaluate.explain import (
     compute_node_saliency,
     save_parameter_saliency_heatmaps,
     save_saliency_heatmap,
+)
+from utils.evaluate.metrics import (
+    compute_binary_classification_metrics,
+    save_epoch_metrics_and_plots,
 )
 
 # Suppress torch-scatter warning

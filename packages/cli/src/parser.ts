@@ -1,7 +1,7 @@
 import { Command } from "commander";
 
 export interface CliOptions {
-  mode: "cpg" | "template" | "ast" | "dfg" | "template-functions";
+  mode: "cpg" | "template" | "ast" | "dfg" | "template-functions" | "full";
   data: string;
   output?: string;
   ext?: string[];
@@ -31,6 +31,7 @@ export class CliParser {
       .addCommand(this.createAstCommand())
       .addCommand(this.createTemplateFunctionsCommand())
       .addCommand(this.createDfgCommand())
+      .addCommand(this.createFullCommand())
       .helpCommand("help", "Display help for command")
       .configureHelp({
         sortSubcommands: true,
@@ -137,6 +138,26 @@ export class CliParser {
           process.exit(1);
         }
         this.handleCommand("dfg", data, options);
+      });
+  }
+
+  private createFullCommand(): Command {
+    return new Command("full")
+      .description("Generate Data Flow Graph from Template data")
+      .requiredOption("-d, --data <path>", "Input Template file or directory")
+      .option("-o, --output <path>", "Output directory (default: result/full_<timestamp>)")
+      .option("--ext <extensions>", "File extensions to process (comma-separated)", "json")
+      .option("--keep-intermediate", "Keep intermediate files")
+      .option("--workers <number>", "Number of parallel workers (default: 1)", "1")
+      .option("-v, --verbose", "Verbose output")
+      .option("--debug", "Enable debug mode")
+      .action((options: Record<string, unknown>) => {
+        const data = options.data as string;
+        if (!data) {
+          console.error("Error: --data is required");
+          process.exit(1);
+        }
+        this.handleCommand("full", data, options);
       });
   }
 

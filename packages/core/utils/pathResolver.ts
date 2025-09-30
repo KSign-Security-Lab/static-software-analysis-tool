@@ -90,7 +90,7 @@ export function resolveFromCli(relativePath: string): string {
 export const PATHS = {
   // Core package paths
   AST_EXTRACTOR: resolveFromCore("ast/ASTExtractor.py"),
-  DFG_EXTRACTOR: resolveFromAgent("dataset/v2/DFGExtractor.py"),
+  DFG_EXTRACTOR: resolveFromCore("dfg/python/DFGExtractor.py"),
 
   // Data directories
   DATA_DIR: resolveFromRepoRoot("data"),

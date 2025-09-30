@@ -2,8 +2,9 @@ import type { IASTResult } from "@ssat/core/types/ast";
 import type { TemplateNodes } from "@ssat/core/types/node";
 
 import { recursivelyGetFunctionsFromTemplate } from "@ssat/core/ast/utils";
-import { generateAst, generateCpg, generateDfg, generateTemplate } from "@ssat/core/endpoint";
+import { generateAst, generateCpg, generateTemplate, runPythonDFGExtractor } from "@ssat/core/endpoint";
 import { CPGRoot } from "@ssat/core/types/cpg";
+import { IDFGGraph } from "@ssat/core/types/dfg";
 
 import { SimpleLogger } from "./logger";
 import { CliOptions, CliParser } from "./parser";
@@ -18,9 +19,15 @@ function sanitizeToken(s: string): string {
   return s.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 100);
 }
 
+function extractNameFromCode(code: string | undefined, fallback: string): string {
+  let m = code?.split("<entry:").at(-1);
+  m = m?.split("_").at(-1);
+  return sanitizeToken(m ?? fallback);
+}
+
 // Common utility: save per-function outputs for AST and TemplateFunctions modes
 function savePerFunction(
-  mode: "ast" | "template-functions" | "dfg",
+  mode: "ast" | "template-functions" | "dfg" | "full",
   result: unknown,
   filePath: string,
   outDir: string,
@@ -29,16 +36,30 @@ function savePerFunction(
 ): void {
   const base = path.basename(filePath, path.extname(filePath));
 
+  if (mode === "full") {
+    const fullResult = result as { ast: IASTResult[]; dfg: IDFGGraph[] };
+    if (fullResult.ast.length !== fullResult.dfg.length) {
+      throw new Error("AST and DFG results must have the same length");
+    }
+    for (let idx = 0; idx < fullResult.ast.length; idx++) {
+      const funcName = extractNameFromCode(fullResult.ast[idx].nodes[0].code, `func_${String(idx)}`);
+      const perFuncFile = `${base}_${funcName}_${mode}.json`;
+      const perFuncPath = path.join(outDir, perFuncFile);
+      const saveObj = {
+        file: funcName,
+        label: funcName.includes("bad") ? 1 : 0,
+        ast_result: fullResult.ast[idx],
+        dfg_result: fullResult.dfg[idx],
+      };
+      fs.writeFileSync(perFuncPath, JSON.stringify(saveObj, null, 2));
+    }
+    return;
+  }
+
   if (mode === "ast") {
     const astArray = result as IASTResult[];
-    const extractNameFromAst = (ast: IASTResult, fallback: string): string => {
-      const first = ast.nodes.length > 0 ? (ast.nodes[0] as { code?: string }) : undefined;
-      const code = first && typeof first.code === "string" ? first.code : "";
-      const m = /^<entry:([^>]+)>/.exec(code);
-      return sanitizeToken(m ? m[1] : fallback);
-    };
     for (let idx = 0; idx < astArray.length; idx++) {
-      const funcName = extractNameFromAst(astArray[idx], `func_${String(idx)}`);
+      const funcName = extractNameFromCode(astArray[idx].nodes[0].code, `func_${String(idx)}`);
       const perFuncFile = `${base}_${funcName}_${mode}.json`;
       const perFuncPath = path.join(outDir, perFuncFile);
       fs.writeFileSync(perFuncPath, JSON.stringify(astArray[idx], null, 2));
@@ -47,10 +68,18 @@ function savePerFunction(
   }
 
   // template-functions or dfg
-  const funcs = result as TemplateNodes[];
+  const funcs = result as TemplateNodes[] | IDFGGraph[];
   for (let i = 0; i < funcs.length; i++) {
-    const fn = funcs[i] as unknown as { name?: string };
-    const fnName = sanitizeToken(typeof fn.name === "string" && fn.name ? fn.name : `func_${String(i)}`);
+    const fn = funcs[i];
+    let fnName = `func_${String(i)}`;
+    if (mode === "dfg") {
+      const nodes = (fn as IDFGGraph).nodes;
+      const debugCode = nodes.length > 0 && typeof nodes[0].debug?.code === "string" ? nodes[0].debug.code : undefined;
+      fnName = extractNameFromCode(debugCode, fnName);
+    } else {
+      const name = (fn as TemplateNodes).name;
+      fnName = extractNameFromCode(name, fnName);
+    }
     const perFuncFile = `${base}_${fnName}_${mode}.json`;
     const perFuncPath = path.join(outDir, perFuncFile);
     fs.writeFileSync(perFuncPath, JSON.stringify(funcs[i], null, 2));
@@ -226,8 +255,15 @@ async function processSingleFile(
     }
     case "dfg": {
       const template = generateTemplate(cpg);
+      // const ast = await generateAst(template);
+      result = await runPythonDFGExtractor(template);
+      break;
+    }
+    case "full": {
+      const template = generateTemplate(cpg);
       const ast = await generateAst(template);
-      result = generateDfg(cpg, ast);
+      const dfg = await runPythonDFGExtractor(template);
+      result = { ast, dfg };
       break;
     }
     case "template":
@@ -246,7 +282,7 @@ async function processSingleFile(
   }
 
   // Common per-file writer
-  if (Array.isArray(result) && (options.mode === "ast" || options.mode === "template-functions" || options.mode === "dfg")) {
+  if (options.mode === "ast" || options.mode === "template-functions" || options.mode === "dfg" || options.mode === "full") {
     savePerFunction(options.mode, result, filePath, outDir, path, fs);
     return;
   }

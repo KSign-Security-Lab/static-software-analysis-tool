@@ -14,7 +14,7 @@ import os
 from typing import Any, Dict, Optional, Union
 
 import torch
-from dataset.v2.JsonDataset import JsonDataset
+from dataset.JsonDataset import JsonDataset
 from torch.utils.data import DataLoader as TorchDataLoader
 from train import custom_collate_fn
 from utils.evaluate import (
