@@ -1,3 +1,7 @@
+import type { IASTResult } from "@ssat/core/types/ast";
+import type { TemplateNodes } from "@ssat/core/types/node";
+
+import { recursivelyGetFunctionsFromTemplate } from "@ssat/core/ast/utils";
 import { generateAst, generateCpg, generateDfg, generateTemplate } from "@ssat/core/endpoint";
 import { CPGRoot } from "@ssat/core/types/cpg";
 
@@ -7,6 +11,50 @@ import { CliOptions, CliParser } from "./parser";
 // Shared helpers
 interface RootPackageJson {
   workspaces?: unknown;
+}
+
+// Common utility: sanitize filename token
+function sanitizeToken(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 100);
+}
+
+// Common utility: save per-function outputs for AST and TemplateFunctions modes
+function savePerFunction(
+  mode: "ast" | "template-functions" | "dfg",
+  result: unknown,
+  filePath: string,
+  outDir: string,
+  path: typeof import("path"),
+  fs: typeof import("fs")
+): void {
+  const base = path.basename(filePath, path.extname(filePath));
+
+  if (mode === "ast") {
+    const astArray = result as IASTResult[];
+    const extractNameFromAst = (ast: IASTResult, fallback: string): string => {
+      const first = ast.nodes.length > 0 ? (ast.nodes[0] as { code?: string }) : undefined;
+      const code = first && typeof first.code === "string" ? first.code : "";
+      const m = /^<entry:([^>]+)>/.exec(code);
+      return sanitizeToken(m ? m[1] : fallback);
+    };
+    for (let idx = 0; idx < astArray.length; idx++) {
+      const funcName = extractNameFromAst(astArray[idx], `func_${String(idx)}`);
+      const perFuncFile = `${base}_${funcName}_${mode}.json`;
+      const perFuncPath = path.join(outDir, perFuncFile);
+      fs.writeFileSync(perFuncPath, JSON.stringify(astArray[idx], null, 2));
+    }
+    return;
+  }
+
+  // template-functions or dfg
+  const funcs = result as TemplateNodes[];
+  for (let i = 0; i < funcs.length; i++) {
+    const fn = funcs[i] as unknown as { name?: string };
+    const fnName = sanitizeToken(typeof fn.name === "string" && fn.name ? fn.name : `func_${String(i)}`);
+    const perFuncFile = `${base}_${fnName}_${mode}.json`;
+    const perFuncPath = path.join(outDir, perFuncFile);
+    fs.writeFileSync(perFuncPath, JSON.stringify(funcs[i], null, 2));
+  }
 }
 
 const findMonorepoRoot = async (startDir: string): Promise<string> => {
@@ -59,6 +107,75 @@ const collectFilesRecursively = (
   return files;
 };
 
+// New: common single-file processor
+async function processSingleFile(
+  filePath: string,
+  inputRoot: string,
+  outputRoot: string,
+  options: CliOptions,
+  logger: SimpleLogger,
+  path: typeof import("path"),
+  fs: typeof import("fs")
+): Promise<void> {
+  const isCFile = filePath.toLowerCase().endsWith(".c");
+  let cpg: CPGRoot;
+  if (isCFile) {
+    cpg = await generateCpg(filePath);
+  } else {
+    const inputContent = fs.readFileSync(filePath, "utf8");
+    cpg = JSON.parse(inputContent) as CPGRoot;
+  }
+
+  // Pre-compute output directory for this file
+  const relative = path.relative(inputRoot, filePath);
+  const outDir = path.join(outputRoot, path.dirname(relative));
+  fs.mkdirSync(outDir, { recursive: true });
+
+  let result: unknown;
+  switch (options.mode) {
+    case "ast": {
+      const template = generateTemplate(cpg);
+      result = await generateAst(template);
+      break;
+    }
+    case "cpg": {
+      result = cpg;
+      break;
+    }
+    case "dfg": {
+      const template = generateTemplate(cpg);
+      const ast = await generateAst(template);
+      result = generateDfg(cpg, ast);
+      break;
+    }
+    case "template":
+      result = generateTemplate(cpg);
+      break;
+    case "template-functions": {
+      // Generate template and collect function nodes using shared utils
+      const template = generateTemplate(cpg);
+      const roots: TemplateNodes[] = Array.isArray(template) ? template : [];
+      const functions = recursivelyGetFunctionsFromTemplate(roots);
+      result = functions;
+      break;
+    }
+    default:
+      throw new Error(`Unknown mode: ${String(options.mode)}`);
+  }
+
+  // Common per-file writer
+  if (Array.isArray(result) && (options.mode === "ast" || options.mode === "template-functions" || options.mode === "dfg")) {
+    savePerFunction(options.mode, result, filePath, outDir, path, fs);
+    return;
+  }
+
+  // Default single-output writer
+  const perFileOutput = path.join(outDir, `${path.basename(filePath, path.extname(filePath))}_${options.mode}.json`);
+  fs.writeFileSync(perFileOutput, JSON.stringify(result, null, 2));
+  // logger.info("✓ Processing completed successfully");
+  // logger.info(`Output written to: ${perFileOutput}`);
+}
+
 async function main(): Promise<void> {
   const parser = new CliParser();
   const options: CliOptions = parser.parse();
@@ -102,56 +219,9 @@ async function main(): Promise<void> {
       // Avoid aggregating all results in-memory to prevent OOM / Invalid string length errors
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const isCFile = file.toLowerCase().endsWith(".c");
-        let cpg: CPGRoot;
-        if (isCFile) {
-          cpg = await generateCpg(file);
-        } else {
-          const inputContentRaw = fs.readFileSync(file, "utf8");
-          cpg = JSON.parse(inputContentRaw) as CPGRoot;
-        }
-
-        const filename = path.basename(file);
-
-        logger.debug(`Processing file: ${filename}`);
-
-        let result: unknown;
-        switch (options.mode) {
-          case "ast": {
-            const template = generateTemplate(cpg);
-            result = await generateAst(template);
-            break;
-          }
-          case "cpg": {
-            // If input is CPG JSON, just echo normalized; if C source, already generated above
-            result = cpg;
-            break;
-          }
-          case "dfg": {
-            const template = generateTemplate(cpg);
-            const ast = await generateAst(template);
-            result = generateDfg(cpg, ast);
-            break;
-          }
-          case "template":
-            result = generateTemplate(cpg);
-            break;
-          default:
-            throw new Error(`Unknown mode: ${String(options.mode)}`);
-        }
-
-        // Write per-file output preserving directory structure under outputPath
-        try {
-          const relative = path.relative(inputPath, file);
-          const outPerFile = path.join(outputPath, path.dirname(relative), `${path.basename(file, path.extname(file))}_${options.mode}.json`);
-          fs.mkdirSync(path.dirname(outPerFile), { recursive: true });
-          fs.writeFileSync(outPerFile, JSON.stringify(result, null, 2));
-        } catch {
-          // ignore write errors for individual files; aggregate will still be produced
-        }
-
+        await processSingleFile(file, inputPath, outputPath, options, logger, path, fs);
         // Update progress
-        logger.updateProgress(i + 1, { filename });
+        logger.updateProgress(i + 1, { filename: path.basename(file) });
       }
 
       // Stop progress bar
@@ -162,59 +232,12 @@ async function main(): Promise<void> {
       fs.mkdirSync(path.dirname(outputFile), { recursive: true });
       fs.writeFileSync(outputFile, `Processed ${String(files.length)} files. See per-file outputs under ${outputPath}.`);
 
-      logger.info(`✓ Processing completed successfully`);
+      logger.info("✓ Processing completed successfully");
       logger.info(`Output written to: ${outputFile}`);
       logger.info(`Per-file outputs saved under: ${outputPath}`);
     } else {
-      // Process single file
-      const isCFile = inputPath.toLowerCase().endsWith(".c");
-      let cpg: CPGRoot;
-      if (isCFile) {
-        cpg = await generateCpg(inputPath);
-      } else {
-        const inputContent = fs.readFileSync(inputPath, "utf8");
-        cpg = JSON.parse(inputContent) as CPGRoot;
-      }
-      const filename = path.basename(inputPath);
-
-      logger.debug(`Processing single file: ${filename}`);
-
-      let result: unknown;
-      switch (options.mode) {
-        case "ast": {
-          const template = generateTemplate(cpg);
-          result = await generateAst(template);
-          break;
-        }
-        case "cpg": {
-          result = cpg;
-          break;
-        }
-        case "dfg": {
-          const template = generateTemplate(cpg);
-          const ast = await generateAst(template);
-          result = generateDfg(cpg, ast);
-          break;
-        }
-        case "template":
-          result = generateTemplate(cpg);
-          break;
-        default:
-          throw new Error(`Unknown mode: ${String(options.mode)}`);
-      }
-
-      // Write output preserving directory structure like directory mode
-      const relative = path.relative(workspaceRoot, inputPath);
-      const perFileOutput = path.join(
-        outputPath,
-        path.dirname(relative),
-        `${path.basename(inputPath, path.extname(inputPath))}_${options.mode}.json`
-      );
-      fs.mkdirSync(path.dirname(perFileOutput), { recursive: true });
-      fs.writeFileSync(perFileOutput, JSON.stringify(result, null, 2));
-
-      logger.info(`✓ Processing completed successfully`);
-      logger.info(`Output written to: ${perFileOutput}`);
+      // Process single file via common function
+      await processSingleFile(inputPath, workspaceRoot, outputPath, options, logger, path, fs);
     }
 
     process.exit(0);

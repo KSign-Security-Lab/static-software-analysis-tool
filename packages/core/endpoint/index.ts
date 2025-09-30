@@ -1,5 +1,3 @@
-// No longer need fs imports since we're using PythonShell.runString
-import path from "node:path";
 import { PythonShell } from "python-shell";
 
 import { recursivelyGetFunctionsFromTemplate } from "../ast/utils";
@@ -16,6 +14,7 @@ import { CPGRoot, TreeNode } from "../types/cpg";
 import { IDFGEdge, IDFGGraph, IDFGNode } from "../types/dfg";
 import { TemplateFlattenedGraph, TemplateNodes } from "../types/node";
 import { TemplateNodeTypes } from "../types/template/BaseNode/BaseTypes";
+import { getPath, getValidatedPath } from "../utils/pathResolver";
 import { TreeToText } from "../utils/treeToText";
 
 function withContext<T>(fnName: string, fn: () => T): T {
@@ -105,11 +104,8 @@ export async function generateAst(template: TemplateNodes[]): Promise<IASTResult
     throw new Error("generateAst expects an array of TemplateNodes");
   }
 
-  // Resolve absolute path to ASTExtractor.py
-  const extractorPath =
-    process.env.NODE_ENV === "test"
-      ? path.resolve(process.cwd(), "ast/ASTExtractor.py")
-      : path.resolve(process.cwd(), "packages/core/ast/ASTExtractor.py");
+  // Resolve absolute path to ASTExtractor.py using robust path resolver
+  const extractorPath = await getValidatedPath("AST_EXTRACTOR");
 
   const functions = recursivelyGetFunctionsFromTemplate(template);
   const pythonExe = process.env.PYTHON_PATH ?? process.env.PYTHON ?? "python3";
@@ -174,10 +170,8 @@ export function generateDfg(cpg: CPGRoot, ast: IASTResult[]): IDFGGraph[] {
   return dfg;
 }
 
-export const DFG_EXTRACTOR_PATH =
-  process.env.NODE_ENV === "test"
-    ? path.resolve(process.cwd(), "packages/core/__tests__/DFGExtractor.py")
-    : path.resolve(process.cwd(), "packages/agent/dataset/v2/DFGExtractor.py");
+// Use the robust path resolver for consistent path resolution
+export const DFG_EXTRACTOR_PATH = getPath("DFG_EXTRACTOR");
 
 export async function runPythonDFGExtractor(templateData: TemplateNodes[]): Promise<IDFGGraph[]> {
   const dfgGraphs: IDFGGraph[] = [];

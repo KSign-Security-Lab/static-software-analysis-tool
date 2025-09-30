@@ -1,7 +1,7 @@
 import { Command } from "commander";
 
 export interface CliOptions {
-  mode: "cpg" | "template" | "ast" | "dfg";
+  mode: "cpg" | "template" | "ast" | "dfg" | "template-functions";
   data: string;
   output?: string;
   ext?: string[];
@@ -28,6 +28,7 @@ export class CliParser {
       .addCommand(this.createCpgCommand())
       .addCommand(this.createTemplateCommand())
       .addCommand(this.createAstCommand())
+      .addCommand(this.createTemplateFunctionsCommand())
       .addCommand(this.createDfgCommand())
       .helpCommand("help", "Display help for command")
       .configureHelp({
@@ -92,6 +93,25 @@ export class CliParser {
           process.exit(1);
         }
         this.handleCommand("ast", data, options);
+      });
+  }
+
+  private createTemplateFunctionsCommand(): Command {
+    return new Command("template-functions")
+      .description("Extract all function nodes from Template recursively and save per-function")
+      .requiredOption("-d, --data <path>", "Input Template file or directory")
+      .option("-o, --output <path>", "Output directory (default: result/template_functions_<timestamp>)")
+      .option("--ext <extensions>", "File extensions to process (comma-separated)", "json")
+      .option("--keep-intermediate", "Keep intermediate files")
+      .option("-v, --verbose", "Verbose output")
+      .option("--debug", "Enable debug mode")
+      .action((options: Record<string, unknown>) => {
+        const data = options.data as string;
+        if (!data) {
+          console.error("Error: --data is required");
+          process.exit(1);
+        }
+        this.handleCommand("template-functions", data, options);
       });
   }
 

@@ -2,7 +2,7 @@ import glob
 import json
 import os
 
-from DFGExtractor import DFGExtractor
+from legacy import DFGExtractorV1_12 as DFGExtractor
 
 
 def load_json(file_path: str):
@@ -49,11 +49,14 @@ def generate_dfg(template_file: str, ast_file: str, full_dataset_save_dir: str):
     template = load_json(template_file)
     full = {}
     ast = load_json(ast_file)
-    dfg = DFGExtractor(template, ast["ast_result"]).run()
+    ast_result = ast.get("ast_result", ast)
+    ast_file = ast.get("file", ast_file)
+
+    dfg = DFGExtractor(template, ast_result).run()
     full_file = full_dataset_save_dir + "/" + template_file.split("/")[-1]
-    full["file"] = ast["file"]
+    full["file"] = ast_file
     full["label"] = 1 if "bad" in template_file.lower() else 0
-    full["ast_result"] = ast["ast_result"]
+    full["ast_result"] = ast_result
     full["dfg_result"] = dfg
     save_json(full, full_file)
 
@@ -82,9 +85,9 @@ def main(template_dir: str, ast_dir: str, full_dataset_save_dir: str):
 
 if __name__ == "__main__":
     CWE121 = {
-        "template_dir": "../../data/test/121_Conv",
-        "ast_dir": "../../data/test/121_result",
-        "full_dataset_save_dir": "../../data/test/121_full",
+        "template_dir": "../../data/temp/template-functions",
+        "ast_dir": "../../data/temp/ast",
+        "full_dataset_save_dir": "../../data/temp/full",
     }
     main(
         CWE121["template_dir"],
@@ -92,9 +95,9 @@ if __name__ == "__main__":
         CWE121["full_dataset_save_dir"],
     )
     CWE122 = {
-        "template_dir": "../../data/test/122_Conv",
-        "ast_dir": "../../data/test/122_result",
-        "full_dataset_save_dir": "../../data/test/122_full",
+        "template_dir": "../../data/temp/template-functions",
+        "ast_dir": "../../data/temp/ast",
+        "full_dataset_save_dir": "../../data/temp/full",
     }
     main(
         CWE122["template_dir"],
