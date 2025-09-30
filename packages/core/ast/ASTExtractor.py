@@ -28,10 +28,11 @@ SCHEMA_VERSION = "v1.11-fd1"
 # node type → id (학습용 정수 id; 필요 시 확장
 NODE_TYPE_ID = {
     "FunctionEntry": 1,                  # ← 최하위 기본 타입
-    "VariableDeclaration": 2,
-    "ArrayDeclaration": 3,
-    "PointerDeclaration": 4,
-    "AssignmentExpression": 5,
+    "ParameterDeclaration": 2,     
+    "VariableDeclaration": 3,
+    "ArrayDeclaration": 4,
+    "PointerDeclaration": 5,
+    "AssignmentExpression": 6,
     # 제어문 블록은 기존 대역 유지
     "IfStatement": 10, "ForStatement": 11, "WhileStatement": 12, "DoWhileStatement": 13,
     "SwitchStatement": 14,
@@ -77,20 +78,61 @@ CALL_PRIORITY = [
 
 # ---3) 카테고리 정의(사람이 읽기 쉬운 dict-of-sets) ---
 CALL_SEM = {
-    # 기존 4종 유지
-    "mem_alloc":     {"malloc","calloc","realloc","alloca","ALLOCA","_alloca","new","new[]"},
-    "mem_copy":      {"memcpy","memmove","strcpy","strcat"},                  # ← snprintf/sprintf는 아래로 이동
-    "ext_input":     {"fgets","gets","scanf","fscanf","getline","read","recv","recvfrom","fread"},
-    "format_print":  {"printf","fprintf","vprintf","vfprintf","puts","printIntLine",
-                      "sprintf","vsprintf","snprintf","vsnprintf"},           # ← printf 계열은 여기
-    "mem_set":       {"memset","bzero"},
-    "net_connect":   {"connect"},
-    "net_close":     {"closesocket","close","close_socket","CLOSE_SOCKET"},
+    # 메모리 할당(힙/스택 혼합 표기)
+    "mem_alloc": {
+        # heap-like
+        "malloc","calloc","realloc","xmalloc","xcalloc","xrealloc",
+        "valloc","memalign","HeapAlloc","HeapReAlloc","HeapCreate",
+        "new","new[]",
+        # stack-like
+        "alloca","ALLOCA","_alloca"
+    },
+
+    # 메모리/문자열 복사·결합 (sink)
+    "mem_copy": {
+        # raw memory
+        "memcpy","memmove","memcpy_s","memmove_s","bcopy","CopyMemory","RtlCopyMemory",
+        "wmemcpy","wmemmove","wmemcpy_s","wmemmove_s",
+        # string copy
+        "strcpy","strcpy_s","strncpy","strncpy_s",
+        "wcscpy","wcscpy_s","wcsncpy","wcsncpy_s",
+        "lstrcpy","lstrcpyn","StrCpy","StrCpyN","StrCpyNW",
+        # string concat
+        "strcat","strcat_s","strncat","strncat_s",
+        "wcscat","wcscat_s","wcsncat","wcsncat_s",
+        "lstrcat","StrCat","StrCatN","StrCatNW"
+    },
+
+    # 외부 입력(source)
+    "ext_input": {
+        "gets","gets_s","fgets","getline",
+        "scanf","sscanf","fscanf","scanf_s","sscanf_s","fscanf_s",
+        "wscanf","swscanf","fwscanf","wscanf_s","swscanf_s","fwscanf_s",
+        "read","pread","pread64","fread",
+        "recv","recvfrom"
+    },
+
+    # 포맷 출력(문자열 생성 sink)
+    "format_print": {
+        "printf","fprintf","vprintf","vfprintf","puts","printIntLine",
+        "sprintf","vsprintf","snprintf","vsnprintf","sprintf_s","vsprintf_s",
+        # Windows/MSVC 계열 포함
+        "_snprintf","_vsnprintf","_snwprintf","_vsntprintf",
+        "swprintf","vswprintf","vswprintf_s",
+        "wsprintf","wvsprintf","wnsprintf","wvnsprintf"
+    },
+
+    # 기타
+    "mem_set": {"memset","bzero","wmemset","RtlZeroMemory"},
+    "net_connect": {"connect"},
+    "net_close": {"closesocket","close","close_socket","CLOSE_SOCKET"},
     "socket_create": {"socket","WSASocket","wsasocket"},
 
     "parse_int_unchecked": {"atoi","atol","atoll","_atoi64"},
-    "parse_int_checked": {"strtol","strtoul","strtoll","strtoull","strtoimax","strtoumax",
-                          "wcstol","wcstoul","wcstoll","wcstoull","wcstoimax","wcstoumax"},
+    "parse_int_checked": {
+        "strtol","strtoul","strtoll","strtoull","strtoimax","strtoumax",
+        "wcstol","wcstoul","wcstoll","wcstoull","wcstoimax","wcstoumax"
+    }
 }
 
 
@@ -107,30 +149,201 @@ def call_sem_cat_id_from_name(name: str) -> int:
 
 # 언바운디드 위험(길이 인자 없음/형식문자 폭 지정 필요)
 UNBOUNDED_CALLS = {
-    "gets","strcpy","strcat","sprintf","vsprintf"
+    # 기존
+    "gets", "strcpy", "strcat", "sprintf", "vsprintf",
+
+    # 입력(무제한) - wide/MSVC
+    "_getws",          # gets의 wide 버전
+    "getwd",           # 경로를 크기 인자 없이 버퍼에 씀 (권장 X)
+
+    # 문자열 복사/결합(크기 인자 없음)
+    "wcscpy", "wcscat",          # wide
+    "lstrcpy", "lstrcat",        # Win32
+    "stpcpy", "wcpcpy",          # GNU 확장(끝 포인터 반환)
+    "_mbscpy", "_mbscat",        # 멀티바이트(MBCS)
+
+    # 포맷 출력(크기 인자 없음)
+    "wsprintf", "wvsprintf"      # Win32 (sprintf의 wide/va 버전)
 }
 
 # dst/size 슬롯(간이) — AST 플래그 계산용
 API_SLOTS = {
-    # mem_set/copy
-    "memset":   {"dst":0, "size":2},
-    "memcpy":   {"dst":0, "size":2},
-    "memmove":  {"dst":0, "size":2},
-    "strcpy":   {"dst":0, "size":None},  # 없음
-    "strcat":   {"dst":0, "size":None},  # 없음
+    # --- mem_set / copy ---
+    # void *memset(void *dst, int c, size_t size)
+    "memset":        {"dst": 0, "size": 2},
+    # void bzero(void *dst, size_t size)
+    "bzero":         {"dst": 0, "size": 1},
+    # wchar_t *wmemset(wchar_t *dst, wchar_t c, size_t n)
+    "wmemset":       {"dst": 0, "size": 2},
+    # void RtlZeroMemory(void *dst, size_t size)
+    "rtlzeromemory": {"dst": 0, "size": 1},
 
-    # 입력
-    "recv":     {"dst":1, "size":2},
-    "recvfrom": {"dst":1, "size":2},
-    "read":     {"dst":1, "size":2},
-    "fread":    {"dst":1, "size":2},
-    "fgets":    {"dst":0, "size":1},
-    "getline":  {"dst":None, "size":None},  # 동적, AST에선 size 연결 없음
-    "scanf":    {"dst":None, "size":None},  # 포맷 파싱 필요
-    "fscanf":   {"dst":None, "size":None},
+    # void *memcpy(void *dst, const void *src, size_t size)
+    "memcpy":        {"dst": 0, "size": 2},
+    # errno_t memcpy_s(void *dst, rsize_t dstsz, const void *src, rsize_t count)
+    "memcpy_s":      {"dst": 0, "size": 3},  # count
+    # void *memmove(void *dst, const void *src, size_t size)
+    "memmove":       {"dst": 0, "size": 2},
+    # errno_t memmove_s(void *dst, rsize_t dstsz, const void *src, rsize_t count)
+    "memmove_s":     {"dst": 0, "size": 3},  # count
 
-    # 네트워크
-    "connect":  {"dst":1, "size":2},  # addr/addrlen (메모리 dst 연계는 의미 약함)
+    # void bcopy(const void *src, void *dst, size_t size)
+    "bcopy":         {"dst": 1, "size": 2},
+    # VOID CopyMemory(PVOID dst, const VOID *src, SIZE_T size)
+    "copymemory":    {"dst": 0, "size": 2},
+    # VOID RtlCopyMemory(VOID *dst, const VOID *src, SIZE_T size)
+    "rtlcopymemory": {"dst": 0, "size": 2},
+
+    # wide raw memory copy
+    "wmemcpy":       {"dst": 0, "size": 2},
+    "wmemcpy_s":     {"dst": 0, "size": 3},  # count
+    "wmemmove":      {"dst": 0, "size": 2},
+    "wmemmove_s":    {"dst": 0, "size": 3},  # count
+
+    # string copy/concat (unbounded/has size)
+    # char *strcpy(char *dst, const char *src)
+    "strcpy":        {"dst": 0, "size": None},
+    # errno_t strcpy_s(char *dst, rsize_t dstsz, const char *src)
+    "strcpy_s":      {"dst": 0, "size": 1},  # dstsz
+    # char *strncpy(char *dst, const char *src, size_t n)
+    "strncpy":       {"dst": 0, "size": 2},
+    # errno_t strncpy_s(char *dst, rsize_t dstsz, const char *src, rsize_t n)
+    "strncpy_s":     {"dst": 0, "size": 3},  # n
+
+    # wide string copy
+    "wcscpy":        {"dst": 0, "size": None},
+    "wcscpy_s":      {"dst": 0, "size": 1},  # dstsz
+    "wcsncpy":       {"dst": 0, "size": 2},
+    "wcsncpy_s":     {"dst": 0, "size": 3},  # n
+
+    # win32 string copy variants
+    # LPTSTR lstrcpy(LPTSTR dst, LPCTSTR src)
+    "lstrcpy":       {"dst": 0, "size": None},
+    # int lstrcpyn(LPTSTR dst, LPCTSTR src, int cchMax)
+    "lstrcpyn":      {"dst": 0, "size": 2},
+    # StrCpyX family
+    "strcpy":        {"dst": 0, "size": None},   # 이미 위에 있으나, 호출명이 "StrCpy"로 올 경우 lower() 매칭 → "strcpy"
+    "strcpyn":       {"dst": 0, "size": 2},      # StrCpyN
+    "strcpynw":      {"dst": 0, "size": 2},      # StrCpyNW
+
+    # char *strcat(char *dst, const char *src)
+    "strcat":        {"dst": 0, "size": None},
+    # errno_t strcat_s(char *dst, rsize_t dstsz, const char *src)
+    "strcat_s":      {"dst": 0, "size": 1},  # dstsz
+    # char *strncat(char *dst, const char *src, size_t n)
+    "strncat":       {"dst": 0, "size": 2},
+    # errno_t strncat_s(char *dst, rsize_t dstsz, const char *src, rsize_t n)
+    "strncat_s":     {"dst": 0, "size": 3},  # n
+
+    # wide string concat
+    "wcscat":        {"dst": 0, "size": None},
+    "wcscat_s":      {"dst": 0, "size": 1},  # dstsz
+    "wcsncat":       {"dst": 0, "size": 2},
+    "wcsncat_s":     {"dst": 0, "size": 3},  # n
+
+    # win32 string concat variants
+    "lstrcat":       {"dst": 0, "size": None},
+    "strcat":        {"dst": 0, "size": None},   # "StrCat" → "strcat"
+    "strcatn":       {"dst": 0, "size": 2},      # StrCatN(dst, src, count)
+    "strcatnw":      {"dst": 0, "size": 2},      # StrCatNW(dst, src, count)
+
+    # --- ext_input ---
+    # gets 계열
+    "gets":          {"dst": 0, "size": None},   # 위험: 무제한
+    "gets_s":        {"dst": 0, "size": 1},      # numberOfElements
+
+    # fgets / getline
+    "fgets":         {"dst": 0, "size": 1},      # size
+    "getline":       {"dst": None, "size": None},# 동적 반환 → dst/size 연계 안함
+
+    # scanf 계열 (포맷 파싱 필요 → size 위치 정의 안함)
+    "scanf":         {"dst": None, "size": None},
+    "sscanf":        {"dst": None, "size": None},
+    "fscanf":        {"dst": None, "size": None},
+    "scanf_s":       {"dst": None, "size": None},
+    "sscanf_s":      {"dst": None, "size": None},
+    "fscanf_s":      {"dst": None, "size": None},
+    "wscanf":        {"dst": None, "size": None},
+    "swscanf":       {"dst": None, "size": None},
+    "fwscanf":       {"dst": None, "size": None},
+    "wscanf_s":      {"dst": None, "size": None},
+    "swscanf_s":     {"dst": None, "size": None},
+    "fwscanf_s":     {"dst": None, "size": None},
+
+    # read 계열
+    # ssize_t read(int fd, void *buf, size_t count)
+    "read":          {"dst": 1, "size": 2},
+    # ssize_t pread(int fd, void *buf, size_t count, off_t offset)
+    "pread":         {"dst": 1, "size": 2},
+    # ssize_t pread64(int fd, void *buf, size_t count, off64_t offset)
+    "pread64":       {"dst": 1, "size": 2},
+    # size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
+    # (총 바이트는 size*nmemb이지만, 단일 슬롯 모델이므로 관례상 size=1로도 많이 씁니다.
+    # 기존 코드 호환을 위해 size=2를 유지하거나 필요 시 로직을 보강하세요.)
+    "fread":         {"dst": 0, "size": 2},
+
+    # recv 계열
+    # int recv(SOCKET s, char *buf, int len, int flags)
+    "recv":          {"dst": 1, "size": 2},
+    # int recvfrom(SOCKET s, char *buf, int len, int flags, ... )
+    "recvfrom":      {"dst": 1, "size": 2},
+
+    # --- format_print ---
+    # int sprintf(char *dst, const char *fmt, ...)
+    "sprintf":       {"dst": 0, "size": None},  # 무제한
+    "vsprintf":      {"dst": 0, "size": None},  # 무제한
+
+    # int snprintf(char *dst, size_t size, const char *fmt, ...)
+    "snprintf":      {"dst": 0, "size": 1},
+    "vsnprintf":     {"dst": 0, "size": 1},
+    # msvc
+    "_snprintf":     {"dst": 0, "size": 1},
+    "_vsnprintf":    {"dst": 0, "size": 1},
+    "_snwprintf":    {"dst": 0, "size": 1},
+    "_vsntprintf":   {"dst": 0, "size": 1},
+
+    # wide
+    # swprintf는 구현/오버로드에 따라 (dst,size,fmt,...) 또는 (dst,fmt,...) 가 존재.
+    # 단일 테이블에서 분기 불가 → 가장 안전한 공통형만 넣습니다.
+    "swprintf":      {"dst": 0, "size": 1},     # size 인자 있는 변종을 지원
+    "vswprintf":     {"dst": 0, "size": 1},     # size 인자 있는 변종을 지원
+    "vswprintf_s":   {"dst": 0, "size": 1},     # MSVC secure
+    # wsprintf/ wvsprintf 는 크기 인자 없음(무제한)
+    "wsprintf":      {"dst": 0, "size": None},
+    "wvsprintf":     {"dst": 0, "size": None},
+    # wnsprintf / wvnsprintf 는 길이 인자 있음
+    "wnsprintf":     {"dst": 0, "size": 1},
+    "wvnsprintf":    {"dst": 0, "size": 1},
+
+    # --- net / 기타 ---
+    # int connect(SOCKET s, const struct sockaddr *name, int namelen)
+    "connect":       {"dst": 1, "size": 2},     # addr / addrlen (메모리 dst 의미는 약함)
+
+    # 소켓/클로즈/생성류는 len 개념 없음 → None
+    "closesocket":   {"dst": None, "size": None},
+    "close":         {"dst": None, "size": None},
+    "close_socket":  {"dst": None, "size": None},
+    "close_socket":  {"dst": None, "size": None},
+    "socket":        {"dst": None, "size": None},
+    "wsasocket":     {"dst": None, "size": None},
+
+    # parse_int 계열도 size 개념 없음
+    "atoi":          {"dst": None, "size": None},
+    "atol":          {"dst": None, "size": None},
+    "atoll":         {"dst": None, "size": None},
+    "_atoi64":       {"dst": None, "size": None},
+    "strtol":        {"dst": None, "size": None},
+    "strtoul":       {"dst": None, "size": None},
+    "strtoll":       {"dst": None, "size": None},
+    "strtoull":      {"dst": None, "size": None},
+    "strtoimax":     {"dst": None, "size": None},
+    "strtoumax":     {"dst": None, "size": None},
+    "wcstol":        {"dst": None, "size": None},
+    "wcstoul":       {"dst": None, "size": None},
+    "wcstoll":       {"dst": None, "size": None},
+    "wcstoull":      {"dst": None, "size": None},
+    "wcstoimax":     {"dst": None, "size": None},
+    "wcstoumax":     {"dst": None, "size": None},
 }
 #compute_call_flags에 반영 포인트
 #call_flag_danger_unbounded = 1 if name in UNBOUNDED_CALLS
