@@ -107,6 +107,88 @@ const collectFilesRecursively = (
   return files;
 };
 
+// Thread-safe progress tracker for parallel processing
+class ProgressTracker {
+  private completed = 0;
+  private total: number;
+  private logger: SimpleLogger;
+  private lastUpdate = 0;
+  private updateInterval = 100; // Update every 100ms max
+
+  constructor(total: number, logger: SimpleLogger) {
+    this.total = total;
+    this.logger = logger;
+  }
+
+  increment(filename: string) {
+    this.completed++;
+    const now = Date.now();
+
+    // Always update on the last item
+    if (this.completed === this.total) {
+      this.logger.updateProgress(this.completed, { filename });
+      this.lastUpdate = now;
+    }
+    // Throttle updates to avoid overwhelming the progress bar
+    else if (now - this.lastUpdate > this.updateInterval) {
+      this.logger.updateProgress(this.completed, { filename });
+      this.lastUpdate = now;
+    }
+  }
+
+  getCompleted(): number {
+    return this.completed;
+  }
+}
+
+// Parallel processing function that uses existing processSingleFile
+async function processFilesInParallel(
+  files: string[],
+  inputRoot: string,
+  outputRoot: string,
+  options: CliOptions,
+  logger: SimpleLogger,
+  path: typeof import("path"),
+  fs: typeof import("fs"),
+  maxWorkers: number
+): Promise<void> {
+  const workers = Math.min(maxWorkers, files.length);
+
+  // Create thread-safe progress tracker
+  const progressTracker = new ProgressTracker(files.length, logger);
+
+  // Simple concurrency limiter using Promise.all with chunks
+  const chunkSize = Math.ceil(files.length / workers);
+  const chunks: string[][] = [];
+
+  for (let i = 0; i < files.length; i += chunkSize) {
+    chunks.push(files.slice(i, i + chunkSize));
+  }
+
+  // Process chunks in parallel, but files within each chunk sequentially
+  // This gives us true parallelism across chunks while avoiding overwhelming the system
+  const processChunk = async (chunk: string[]) => {
+    for (const file of chunk) {
+      try {
+        await processSingleFile(file, inputRoot, outputRoot, options, logger, path, fs);
+        progressTracker.increment(path.basename(file));
+      } catch (error) {
+        // Log error but continue processing other files
+        logger.error(`Failed to process ${file}: ${error instanceof Error ? error.message : String(error)}`);
+        progressTracker.increment(path.basename(file));
+      }
+    }
+  };
+
+  // Process all chunks in parallel
+  await Promise.all(chunks.map(processChunk));
+
+  // Ensure final progress update
+  if (progressTracker.getCompleted() < files.length) {
+    logger.updateProgress(files.length, { filename: "completed" });
+  }
+}
+
 // New: common single-file processor
 async function processSingleFile(
   filePath: string,
@@ -180,7 +262,7 @@ async function main(): Promise<void> {
   const parser = new CliParser();
   const options: CliOptions = parser.parse();
 
-  const logger = new SimpleLogger();
+  const logger = new SimpleLogger(options.debug);
 
   // Set up logging level based on environment
   // (Simple logger handles this internally)
@@ -213,15 +295,33 @@ async function main(): Promise<void> {
 
       logger.info(`Processing ${String(files.length)} files in directory`);
 
-      // Start progress bar
-      logger.startProgress(files.length);
+      // Parse workers option and choose processing method
+      const workers = parseInt(options.workers ?? "1", 10);
 
-      // Avoid aggregating all results in-memory to prevent OOM / Invalid string length errors
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        await processSingleFile(file, inputPath, outputPath, options, logger, path, fs);
-        // Update progress
-        logger.updateProgress(i + 1, { filename: path.basename(file) });
+      if (workers > 1) {
+        // Start progress bar for parallel processing first
+        logger.info(`Using ${String(workers)} parallel workers`);
+
+        logger.startProgress(files.length);
+
+        // Small delay to ensure progress bar has time to render
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        // Log worker info without stopping progress bar
+
+        // Use parallel processing
+        await processFilesInParallel(files, inputPath, outputPath, options, logger, path, fs, workers);
+      } else {
+        // Start progress bar for sequential processing
+        logger.startProgress(files.length);
+
+        // Use sequential processing (original behavior)
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          await processSingleFile(file, inputPath, outputPath, options, logger, path, fs);
+          // Update progress
+          logger.updateProgress(i + 1, { filename: path.basename(file) });
+        }
       }
 
       // Stop progress bar

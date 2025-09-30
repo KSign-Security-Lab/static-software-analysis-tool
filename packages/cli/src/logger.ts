@@ -4,8 +4,8 @@ export class SimpleLogger {
   private progressBar: cliProgress.SingleBar | null = null;
   private isDebugMode = false;
 
-  constructor() {
-    this.isDebugMode = !!process.env.DEBUG;
+  constructor(debugMode = false) {
+    this.isDebugMode = debugMode || !!process.env.DEBUG;
   }
 
   info(message: string) {
@@ -13,6 +13,10 @@ export class SimpleLogger {
       this.progressBar.stop();
       this.progressBar = null;
     }
+    console.log(`[INFO] ${message}`);
+  }
+
+  infoKeepProgress(message: string) {
     console.log(`[INFO] ${message}`);
   }
 
@@ -35,15 +39,13 @@ export class SimpleLogger {
   }
 
   startProgress(total: number, startValue = 0) {
-    if (!this.isDebugMode) {
-      this.progressBar = new cliProgress.SingleBar({
-        format: "Progress |{bar}| {percentage}% | {value}/{total} files | ETA: {eta_formatted}",
-        barCompleteChar: "\u2588",
-        barIncompleteChar: "\u2591",
-        hideCursor: true,
-      });
-      this.progressBar.start(total, startValue);
-    }
+    this.progressBar = new cliProgress.SingleBar({
+      format: "Progress |{bar}| {percentage}% | {value}/{total} files | ETA: {eta_formatted}",
+      barCompleteChar: "\u2588",
+      barIncompleteChar: "\u2591",
+      hideCursor: true,
+    });
+    this.progressBar.start(total, startValue);
   }
 
   updateProgress(value: number, payload?: Record<string, unknown>) {

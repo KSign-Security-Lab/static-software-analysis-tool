@@ -7,6 +7,7 @@ export interface CliOptions {
   ext?: string[];
   replaceMacro: boolean;
   keepIntermediate: boolean;
+  workers?: string;
   debug?: boolean;
   verbose?: boolean;
 }
@@ -46,6 +47,7 @@ export class CliParser {
       .option("--replace-macro", "Replace macros in source files", true)
       .option("--no-replace-macro", "Skip macro replacement")
       .option("--keep-intermediate", "Keep intermediate files")
+      .option("--workers <number>", "Number of parallel workers (default: 1)", "1")
       .option("-v, --verbose", "Verbose output")
       .option("--debug", "Enable debug mode")
       .action((options: Record<string, unknown>) => {
@@ -65,6 +67,7 @@ export class CliParser {
       .option("-o, --output <path>", "Output directory (default: result/template_<timestamp>)")
       .option("--ext <extensions>", "File extensions to process (comma-separated)", "json")
       .option("--keep-intermediate", "Keep intermediate files")
+      .option("--workers <number>", "Number of parallel workers (default: 1)", "1")
       .option("-v, --verbose", "Verbose output")
       .option("--debug", "Enable debug mode")
       .action((options: Record<string, unknown>) => {
@@ -84,6 +87,7 @@ export class CliParser {
       .option("-o, --output <path>", "Output directory (default: result/ast_<timestamp>)")
       .option("--ext <extensions>", "File extensions to process (comma-separated)", "json")
       .option("--keep-intermediate", "Keep intermediate files")
+      .option("--workers <number>", "Number of parallel workers (default: 1)", "1")
       .option("-v, --verbose", "Verbose output")
       .option("--debug", "Enable debug mode")
       .action((options: Record<string, unknown>) => {
@@ -103,6 +107,7 @@ export class CliParser {
       .option("-o, --output <path>", "Output directory (default: result/template_functions_<timestamp>)")
       .option("--ext <extensions>", "File extensions to process (comma-separated)", "json")
       .option("--keep-intermediate", "Keep intermediate files")
+      .option("--workers <number>", "Number of parallel workers (default: 1)", "1")
       .option("-v, --verbose", "Verbose output")
       .option("--debug", "Enable debug mode")
       .action((options: Record<string, unknown>) => {
@@ -122,6 +127,7 @@ export class CliParser {
       .option("-o, --output <path>", "Output directory (default: result/dfg_<timestamp>)")
       .option("--ext <extensions>", "File extensions to process (comma-separated)", "json")
       .option("--keep-intermediate", "Keep intermediate files")
+      .option("--workers <number>", "Number of parallel workers (default: 1)", "1")
       .option("-v, --verbose", "Verbose output")
       .option("--debug", "Enable debug mode")
       .action((options: Record<string, unknown>) => {
@@ -142,6 +148,7 @@ export class CliParser {
       ext: options.ext && typeof options.ext === "string" ? options.ext.split(",").map((e: string) => e.trim()) : undefined,
       replaceMacro: options.replaceMacro !== false,
       keepIntermediate: Boolean(options.keepIntermediate),
+      workers: options.workers as string | undefined,
       debug: Boolean(options.debug),
       verbose: Boolean(options.verbose),
     };
