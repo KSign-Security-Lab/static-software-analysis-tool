@@ -33,7 +33,9 @@
     "db:studio": "yarn workspace @ssat/prisma studio",
     "db:init": "yarn workspace @ssat/prisma db:init",
     "db:example": "yarn workspace @ssat/prisma example",
-    "db:seed": "yarn workspace @ssat/prisma db:seed"
+    "db:seed": "yarn workspace @ssat/prisma db:seed",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down -v"
   },
   "scriptsInfo": {
     "scripts:help": "List script descriptions in this workspace",
@@ -51,7 +53,7 @@
     "test": "Run tests across workspaces (if present) in @ssat/core",
     "test:log": "Run tests across workspaces (if present) in @ssat/core with logging",
     "start:ast": "Start AST service from @ssat/core",
-    "start:joern": "Start Joern server via @ssat/core",
+    "start:joern": "Start Joern server via Docker container",
     "start:all": "Run Joern, AST service, and Web dev concurrently",
     "web:dev": "Start Next.js dev server",
     "web:build": "Build Next.js app",
@@ -62,7 +64,10 @@
     "db:migrate": "Run Prisma migrations (@ssat/prisma)",
     "db:studio": "Open Prisma Studio (@ssat/prisma)",
     "db:init": "Bring up DB, install prisma, generate client, push schema (@ssat/prisma)",
-    "db:example": "Run prisma example script (@ssat/prisma)"
+    "db:example": "Run prisma example script (@ssat/prisma)",
+    "docker:up": "Start all Docker services",
+    "docker:joern": "Start only Joern Docker service",
+    "docker:down": "Stop all Docker services"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

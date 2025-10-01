@@ -231,7 +231,7 @@ async function processSingleFile(
   const isCFile = filePath.toLowerCase().endsWith(".c");
   let cpg: CPGRoot;
   if (isCFile) {
-    cpg = await generateCpg(filePath);
+    cpg = await generateCpg(filePath, "file");
   } else {
     const inputContent = fs.readFileSync(filePath, "utf8");
     cpg = JSON.parse(inputContent) as CPGRoot;

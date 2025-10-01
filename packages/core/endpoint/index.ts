@@ -88,7 +88,10 @@ function buildTemplateArtifacts(root: CPGRoot): {
 
 export async function generateCpg(filePath: string, type?: "file" | "string"): Promise<CPGRoot> {
   const cpgGenerator = new CPGGenerator();
-  const cpgStandalone = await cpgGenerator.convertToCPGStandalone(filePath, type && type === "file" ? { filename: filePath } : undefined);
+  const cpgStandalone = await cpgGenerator.convertToCPGDocker(
+    filePath,
+    type && type === "file" ? { filename: filePath, isFilePath: true } : undefined
+  );
   validateCPGRoot([cpgStandalone.cpgData.export]);
   return cpgStandalone.cpgData;
 }
