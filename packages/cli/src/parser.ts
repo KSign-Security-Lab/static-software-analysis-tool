@@ -48,7 +48,6 @@ export class CliParser {
       .option("--replace-macro", "Replace macros in source files", true)
       .option("--no-replace-macro", "Skip macro replacement")
       .option("--keep-intermediate", "Keep intermediate files")
-      .option("--workers <number>", "Number of parallel workers (default: 1)", "1")
       .option("-v, --verbose", "Verbose output")
       .option("--debug", "Enable debug mode")
       .action((options: Record<string, unknown>) => {

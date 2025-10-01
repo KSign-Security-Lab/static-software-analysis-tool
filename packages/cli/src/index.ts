@@ -334,9 +334,12 @@ async function main(): Promise<void> {
       // Parse workers option and choose processing method
       const workers = parseInt(options.workers ?? "1", 10);
 
-      if (workers > 1) {
+      // For CPG mode, always use 1 worker (sequential) to avoid Docker conflicts
+      const effectiveWorkers = options.mode === "cpg" ? 1 : workers;
+
+      if (effectiveWorkers > 1) {
         // Start progress bar for parallel processing first
-        logger.info(`Using ${String(workers)} parallel workers`);
+        logger.info(`Using ${String(effectiveWorkers)} parallel workers`);
 
         logger.startProgress(files.length);
 
@@ -346,7 +349,7 @@ async function main(): Promise<void> {
         // Log worker info without stopping progress bar
 
         // Use parallel processing
-        await processFilesInParallel(files, inputPath, outputPath, options, logger, path, fs, workers);
+        await processFilesInParallel(files, inputPath, outputPath, options, logger, path, fs, effectiveWorkers);
       } else {
         // Start progress bar for sequential processing
         logger.startProgress(files.length);
