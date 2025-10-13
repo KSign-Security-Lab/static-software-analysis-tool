@@ -1,40 +1,9 @@
-version: '3.9'
+name: ssat-joern-${USER}
 
 services:
   joern:
     build: .
-    container_name: ssat-joern
+    container_name: ssat-joern-${USER}
     restart: unless-stopped
-    ports:
-      - "8080:8080"
     volumes:
-      - ./workspace:/workspace
-    environment:
-      - JOERN_PORT=8080
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health", "||", "exit", "1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  db:
-    image: postgres:16
-    container_name: ssat-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ssat}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ssat123}
-      POSTGRES_DB: ${POSTGRES_DB:-ssat}
-    ports:
-      - '${DB_PORT:-5432}:5432'
-    volumes:
-      - ssat_pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-volumes:
-  ssat_pg_data:
+      - ./workspace-${USER}:/workspace
