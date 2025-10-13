@@ -6,4 +6,4 @@ services:
     container_name: ssat-joern-${USER}
     restart: unless-stopped
     volumes:
-      - ./workspace-${USER}:/workspace
+      - ./workspace:/workspace
