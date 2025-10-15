@@ -213,7 +213,9 @@ export class CPGGenerator {
   }
 
   private async generateCPGFromFileDocker(sourceFile: string): Promise<ICPGRootExport> {
-    // Copy source file to workspace directory for Docker access
+    const USERNAME = os.userInfo().username;
+    const CONTAINER_NAME = `ssat-joern-${USERNAME}`;
+
     const projectRoot = this.findProjectRoot(process.cwd());
 
     const workspaceDir = path.join(projectRoot, "workspace");
@@ -239,7 +241,7 @@ export class CPGGenerator {
     // Also clean up inside Docker container
     try {
       await new Promise<void>((resolve) => {
-        const cleanup = spawn("docker", ["exec", "ssat-joern", "rm", "-rf", "/workspace/cpg.bin", "/workspace/out"], {
+        const cleanup = spawn("docker", ["exec", CONTAINER_NAME, "rm", "-rf", "/workspace/cpg.bin", "/workspace/out"], {
           cwd: workspaceDir,
         });
         cleanup.on("close", () => {
@@ -253,7 +255,7 @@ export class CPGGenerator {
     // Step 1: joern-parse via Docker
     const relativePath = path.relative(workspaceDir, workspaceSourceFile);
     const parseResult = await new Promise<{ error?: string; success: boolean }>((resolve) => {
-      const parse = spawn("docker", ["exec", "ssat-joern", "/opt/joern/joern-cli/bin/joern-parse", `/workspace/${relativePath}`], {
+      const parse = spawn("docker", ["exec", CONTAINER_NAME, "/opt/joern/joern-cli/bin/joern-parse", `/workspace/${relativePath}`], {
         cwd: workspaceDir,
       });
       let stderr = "";
@@ -285,7 +287,7 @@ export class CPGGenerator {
 
     // Step 2: joern-export via Docker
     const exportResult = await new Promise<{ data?: unknown; error?: string; success: boolean }>((resolve) => {
-      const exportCmd = spawn("docker", ["exec", "ssat-joern", "/opt/joern/joern-cli/bin/joern-export", "--repr=all", "--format=graphson"], {
+      const exportCmd = spawn("docker", ["exec", CONTAINER_NAME, "/opt/joern/joern-cli/bin/joern-export", "--repr=all", "--format=graphson"], {
         cwd: workspaceDir,
       });
       let stdout = "";
