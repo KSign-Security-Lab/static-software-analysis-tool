@@ -91,7 +91,6 @@ Contents include:
 
 - `training_config` (serialized `TrainConfig`)
 - `model_info` and `training_metadata`
-- `evaluation_defaults` (device, split, max_samples, mode)
 
 Evaluation consumes this file to minimize CLI arguments.
 

@@ -21,12 +21,13 @@ interface IASTFeature {
   alloc_sizeof_state: number;
 }
 
-interface IASTNode {
+export interface IASTNode {
   sid: number;
   node_type: string;
   code: string;
   orig_id: number;
   feat: IASTFeature;
+  debug: Record<string, unknown>;
 }
 
 type EdgeASTPC = [number, number, number];

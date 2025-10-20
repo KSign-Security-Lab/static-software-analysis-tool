@@ -2,7 +2,7 @@ import type { IASTResult } from "@ssat/core/types/ast";
 import type { TemplateNodes } from "@ssat/core/types/node";
 
 import { recursivelyGetFunctionsFromTemplate } from "@ssat/core/ast/utils";
-import { generateAst, generateCpg, generateTemplate, runPythonDFGExtractor } from "@ssat/core/endpoint";
+import { generateAst, generateCpg, generateDfg, generateTemplate } from "@ssat/core/endpoint";
 import { CPGRoot } from "@ssat/core/types/cpg";
 import { IDFGGraph } from "@ssat/core/types/dfg";
 
@@ -22,6 +22,31 @@ function sanitizeToken(s: string): string {
 function extractNameFromCode(code: string | undefined, fallback: string): string {
   let m = code?.split("<entry:").at(-1);
   m = m?.split("_").at(-1);
+  m = m?.split("(").at(-1);
+  m = m?.split(")").at(-1);
+  m = m?.split("[").at(-1);
+  m = m?.split("]").at(-1);
+  m = m?.split("{").at(-1);
+  m = m?.split("}").at(-1);
+  m = m?.split(":").at(-1);
+  m = m?.split(";").at(-1);
+  m = m?.split(",").at(-1);
+  m = m?.split(".").at(-1);
+  m = m?.split("?").at(-1);
+  m = m?.split("!").at(-1);
+  m = m?.split("|").at(-1);
+  m = m?.split("&").at(-1);
+  m = m?.split("^").at(-1);
+  m = m?.split("~").at(-1);
+  m = m?.split("`").at(-1);
+  m = m?.split("'").at(-1);
+  m = m?.split('"').at(-1);
+  m = m?.split(" ").at(-1);
+  m = m?.split("\n").at(-1);
+  m = m?.split("\t").at(-1);
+  m = m?.split("\r").at(-1);
+  m = m?.split("\b").at(-1);
+  m = m?.split("\f").at(-1);
   return sanitizeToken(m ?? fallback);
 }
 
@@ -35,54 +60,59 @@ function savePerFunction(
   fs: typeof import("fs")
 ): void {
   const base = path.basename(filePath, path.extname(filePath));
-
-  if (mode === "full") {
-    const fullResult = result as { ast: IASTResult[]; dfg: IDFGGraph[] };
-    if (fullResult.ast.length !== fullResult.dfg.length) {
-      throw new Error("AST and DFG results must have the same length");
+  switch (mode) {
+    case "ast": {
+      const astArray = result as IASTResult[];
+      for (let idx = 0; idx < astArray.length; idx++) {
+        const funcName = extractNameFromCode(astArray[idx].nodes[0].code, `func_${String(idx)}`);
+        const perFuncFile = `${base}_${funcName}_${mode}.json`;
+        const perFuncPath = path.join(outDir, perFuncFile);
+        fs.writeFileSync(perFuncPath, JSON.stringify(astArray[idx], null, 2));
+      }
+      return;
     }
-    for (let idx = 0; idx < fullResult.ast.length; idx++) {
-      const funcName = extractNameFromCode(fullResult.ast[idx].nodes[0].code, `func_${String(idx)}`);
-      const perFuncFile = `${base}_${funcName}_${mode}.json`;
-      const perFuncPath = path.join(outDir, perFuncFile);
-      const saveObj = {
-        file: funcName,
-        label: funcName.includes("bad") ? 1 : 0,
-        ast_result: fullResult.ast[idx],
-        dfg_result: fullResult.dfg[idx],
-      };
-      fs.writeFileSync(perFuncPath, JSON.stringify(saveObj, null, 2));
+    case "dfg":
+    case "template-functions": {
+      const funcs = result as TemplateNodes[] | IDFGGraph[];
+      for (let i = 0; i < funcs.length; i++) {
+        const fn = funcs[i];
+        let fnName = `func_${String(i)}`;
+        if (mode === "dfg") {
+          const nodes = (fn as IDFGGraph).nodes;
+          const debugCode = nodes.length > 0 && typeof nodes[0].debug?.callName === "string" ? nodes[0].debug.callName : undefined;
+          fnName = extractNameFromCode(debugCode, fnName);
+        } else {
+          const name = (fn as TemplateNodes).name;
+          fnName = extractNameFromCode(name, fnName);
+        }
+        const perFuncFile = `${base}_${fnName}_${mode}.json`;
+        const perFuncPath = path.join(outDir, perFuncFile);
+        fs.writeFileSync(perFuncPath, JSON.stringify(funcs[i], null, 2));
+      }
+      return;
     }
-    return;
-  }
-
-  if (mode === "ast") {
-    const astArray = result as IASTResult[];
-    for (let idx = 0; idx < astArray.length; idx++) {
-      const funcName = extractNameFromCode(astArray[idx].nodes[0].code, `func_${String(idx)}`);
-      const perFuncFile = `${base}_${funcName}_${mode}.json`;
-      const perFuncPath = path.join(outDir, perFuncFile);
-      fs.writeFileSync(perFuncPath, JSON.stringify(astArray[idx], null, 2));
+    case "full": {
+      const fullResult = result as { ast: IASTResult[]; dfg: IDFGGraph[] };
+      if (fullResult.ast.length !== fullResult.dfg.length) {
+        throw new Error("AST and DFG results must have the same length");
+      }
+      for (let idx = 0; idx < fullResult.ast.length; idx++) {
+        const functionNode = fullResult.ast[idx].nodes[0];
+        const funcName = extractNameFromCode(functionNode.code, `func_${String(idx)}`);
+        const perFuncFile = `${base}_${funcName}_${mode}.json`;
+        const perFuncPath = path.join(outDir, perFuncFile);
+        const saveObj = {
+          file: funcName,
+          label: funcName.includes("bad") ? 1 : 0,
+          ast_result: fullResult.ast[idx],
+          dfg_result: fullResult.dfg[idx],
+        };
+        fs.writeFileSync(perFuncPath, JSON.stringify(saveObj, null, 2));
+      }
+      return;
     }
-    return;
-  }
-
-  // template-functions or dfg
-  const funcs = result as TemplateNodes[] | IDFGGraph[];
-  for (let i = 0; i < funcs.length; i++) {
-    const fn = funcs[i];
-    let fnName = `func_${String(i)}`;
-    if (mode === "dfg") {
-      const nodes = (fn as IDFGGraph).nodes;
-      const debugCode = nodes.length > 0 && typeof nodes[0].debug?.code === "string" ? nodes[0].debug.code : undefined;
-      fnName = extractNameFromCode(debugCode, fnName);
-    } else {
-      const name = (fn as TemplateNodes).name;
-      fnName = extractNameFromCode(name, fnName);
-    }
-    const perFuncFile = `${base}_${fnName}_${mode}.json`;
-    const perFuncPath = path.join(outDir, perFuncFile);
-    fs.writeFileSync(perFuncPath, JSON.stringify(funcs[i], null, 2));
+    default:
+      throw new Error(`Unknown mode: ${String(mode)}`);
   }
 }
 
@@ -255,14 +285,15 @@ async function processSingleFile(
     }
     case "dfg": {
       const template = generateTemplate(cpg);
-      // const ast = await generateAst(template);
-      result = await runPythonDFGExtractor(template);
+      const ast = await generateAst(template);
+      const dfg = generateDfg(cpg, ast);
+      result = dfg;
       break;
     }
     case "full": {
       const template = generateTemplate(cpg);
       const ast = await generateAst(template);
-      const dfg = await runPythonDFGExtractor(template);
+      const dfg = generateDfg(cpg, ast);
       result = { ast, dfg };
       break;
     }

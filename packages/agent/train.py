@@ -186,12 +186,6 @@ def save_training_config(
             "results_dir": results_dir,
             "model_weights_path": os.path.join(results_dir, "model.pt"),
         },
-        "evaluation_defaults": {
-            "split": "test",
-            "max_samples": 1000,
-            "mode": cfg.mode,
-            "device": cfg.device,
-        },
     }
 
     config_path = os.path.join(results_dir, "training_config.json")
@@ -498,6 +492,9 @@ def train(cfg: TrainConfig) -> str:
             all_labels,
             all_probabilities,
             metrics,
+        )
+        torch.save(
+            model.state_dict(), os.path.join(results_dir, f"model_epoch_{epoch+1}.pt")
         )
 
     # Save final weights

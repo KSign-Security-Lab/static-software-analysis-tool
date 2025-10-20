@@ -164,13 +164,16 @@ export async function generateAst(template: TemplateNodes[]): Promise<IASTResult
     });
 }
 
-export function generateDfg(cpg: CPGRoot, ast: IASTResult[]): IDFGGraph[] {
+export function generateDfg(cpg: CPGRoot, asts: IASTResult[]): IDFGGraph[] {
   validateCPGRoot([cpg.export]);
   const templates = buildTemplateArtifacts(cpg);
-
-  const dfgBuilder = new DFGBuilder();
-  const dfg = dfgBuilder.build(cpg, ast, templates.templateResult);
-  return dfg;
+  const dfgs: IDFGGraph[] = [];
+  for (const ast of asts) {
+    const dfgBuilder = new DFGBuilder(cpg, ast, templates.templateResult[0]);
+    const _dfg = dfgBuilder.buildDFGFromCPG();
+    dfgs.push(_dfg);
+  }
+  return dfgs;
 }
 
 // Use the robust path resolver for consistent path resolution

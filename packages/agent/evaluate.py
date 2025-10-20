@@ -25,6 +25,7 @@ from utils.evaluate import (
 
 
 def run_evaluation(
+    data: str,
     results_dir: str,
     split: Optional[str] = None,
     max_samples: Optional[int] = None,
@@ -47,13 +48,9 @@ def run_evaluation(
     # Load training configuration
     config = load_training_config(results_dir)
 
-    # Use provided args or fall back to config defaults
-    eval_defaults = config["evaluation_defaults"]
+    # Use provided args or fall back to training config defaults
     training_config = config["training_config"]
 
-    split = split or eval_defaults["split"]
-    max_samples = max_samples or eval_defaults["max_samples"]
-    device = device or eval_defaults["device"]
     output_file = output_file or "evaluation_summary.json"
 
     # Ensure all values are not None
@@ -70,17 +67,17 @@ def run_evaluation(
     model = create_model_from_config(config, device_obj)
 
     # Get data path from training config
-    data_path = training_config["data_path"]
-    print(f"Using data path: {data_path}")
+
+    print(f"Using data path: {data}")
 
     # Create evaluation dataset using JsonDataset
-    print(f"Creating evaluation dataset from: {data_path}")
+    print(f"Creating evaluation dataset from: {data}")
 
     # Load the dataset with JsonDataset
-    if isinstance(data_path, list):
-        dataset = JsonDataset(paths=data_path)
+    if isinstance(data, list):
+        dataset = JsonDataset(paths=data)
     else:
-        dataset = JsonDataset(paths=[data_path])
+        dataset = JsonDataset(paths=[data])
 
     # Create dataloader (same as train script)
     dataloader = TorchDataLoader(
@@ -103,7 +100,7 @@ def run_evaluation(
         dataloader=dataloader,
         device=device_obj,
         max_samples=max_samples,
-        mode=eval_defaults["mode"],
+        mode=training_config.get("mode", "both"),
         output_dir=per_sample_out,
     )
 
@@ -164,6 +161,12 @@ def main():
         help="Results directory containing training configuration",
     )
     parser.add_argument(
+        "--data",
+        type=str,
+        required=True,
+        help="Data path containing the dataset",
+    )
+    parser.add_argument(
         "--split",
         type=str,
         choices=["train", "test"],
@@ -185,6 +188,7 @@ def main():
 
     # Run evaluation with automatic configuration
     run_evaluation(
+        data=args.data,
         results_dir=args.results_dir,
         split=args.split,
         max_samples=args.max_samples,

@@ -62,5 +62,11 @@ export const zIASTGraph = z.object({
 });
 
 export function validateIASTResults(value: unknown): IASTResult[] {
-  return z.array(zIASTResult).parse(value);
+  const arr = z.array(zIASTResult).parse(value) as IASTResult[];
+  for (const result of arr) {
+    for (const node of result.nodes as unknown as { debug: object }[]) {
+      node.debug = {};
+    }
+  }
+  return arr;
 }
