@@ -1,0 +1,13 @@
+[project]
+name = "static-software-analysis-tool"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = ["graph"]
+
+[tool.uv.sources]
+graph = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/graph", "packages/utils"]

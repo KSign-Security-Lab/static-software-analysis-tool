@@ -1,0 +1,37 @@
+version = 1
+revision = 3
+requires-python = ">=3.14"
+
+[manifest]
+members = [
+    "graph",
+    "static-software-analysis-tool",
+    "utils",
+]
+
+[[package]]
+name = "graph"
+version = "0.1.0"
+source = { editable = "packages/graph" }
+dependencies = [
+    { name = "utils" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "utils", editable = "packages/utils" }]
+
+[[package]]
+name = "static-software-analysis-tool"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "graph" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "graph", editable = "packages/graph" }]
+
+[[package]]
+name = "utils"
+version = "0.1.0"
+source = { editable = "packages/utils" }
