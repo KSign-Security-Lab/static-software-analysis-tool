@@ -54,16 +54,112 @@ def train() -> None:
 
     train_datasets_list: List[GenericJsonDataset] = []
     test_datasets_list: List[GenericJsonDataset] = []
-    for data_path in cfg.data_path:
+
+    # Collect per-dataset statistics prior to concatenation
+    per_dataset_stats: List[dict] = []
+    overall_counts: dict[int, int] = {}
+    overall_total: int = 0
+
+    def _safe_label(val: object) -> int:
+        try:
+            if isinstance(val, torch.Tensor):
+                return int(val.item())
+            return int(val)  # type: ignore[arg-type]
+        except Exception:
+            return 0
+
+    for data_entry in cfg.data_path:
+        # cfg.data_path is a list of DataPath items
+        entry_path = data_entry.path
+        # Single label key per datapath (required)
+        entry_label_key = data_entry.label_key
+
+        # Wrap converter to inject per-entry label_key
+        def _conv(m, _lk=entry_label_key):
+            lks = None
+            if _lk:
+                try:
+                    # juliet_json_to_sample expects a list of mappings; wrap single key
+                    if hasattr(_lk, "keyword"):
+                        lks = [{"keyword": _lk.keyword, "label": _lk.label}]
+                    elif isinstance(_lk, dict) and "keyword" in _lk:
+                        lks = [{"keyword": str(_lk["keyword"]), "label": int(_lk.get("label", 0))}]
+                except Exception:
+                    lks = None
+            return juliet_json_to_sample(m, label_keys=lks)
+
+        # Inject the filesystem path into JSON before validation, so the converter can use filename
+        def _pre_inject_path(raw: dict, fp: str):
+            try:
+                raw["__file_path"] = fp
+            except Exception:
+                pass
+            return raw
+
         dataset_part = GenericJsonDataset(
-            paths=data_path,
+            paths=entry_path,
             model_cls=AnyGraphModel,
-            converter=juliet_json_to_sample,
+            converter=_conv,
+            pre=_pre_inject_path,
             strict=False,
             debug=False,
         )
         train_datasets_list.append(dataset_part)
         test_datasets_list.append(dataset_part)
+
+        # Compute label statistics for this dataset
+        counts: dict[int, int] = {}
+        for i in range(len(dataset_part)):
+            try:
+                y_val = getattr(dataset_part[i], "y", 0)
+            except Exception:
+                y_val = 0
+            y = _safe_label(y_val)
+            counts[y] = counts.get(y, 0) + 1
+        total_n = len(dataset_part)
+        overall_total += total_n
+        for k, v in counts.items():
+            overall_counts[k] = overall_counts.get(k, 0) + v
+
+        # Build distribution as floats
+        dist = {str(k): (v / total_n if total_n > 0 else 0.0) for k, v in counts.items()}
+        # Record the label_key used for this dataset for transparency
+        used_lk = None
+        if entry_label_key is not None:
+            if hasattr(entry_label_key, "keyword"):
+                used_lk = {"keyword": entry_label_key.keyword, "label": int(entry_label_key.label)}
+
+        per_dataset_stats.append(
+            {
+                "path": entry_path,
+                "num_samples": total_n,
+                "label_counts": {str(k): int(v) for k, v in counts.items()},
+                "label_distribution": dist,
+                "label_key": used_lk,
+            }
+        )
+
+    # Save statistics JSON (per dataset and overall)
+    try:
+        overall_dist = {
+            str(k): (v / overall_total if overall_total > 0 else 0.0) for k, v in overall_counts.items()
+        }
+        stats_out = {
+            "datasets": per_dataset_stats,
+            "overall": {
+                "num_samples": int(overall_total),
+                "label_counts": {str(k): int(v) for k, v in overall_counts.items()},
+                "label_distribution": overall_dist,
+            },
+        }
+        with open(os.path.join(results_dir, "dataset_statistics.json"), "w") as f:
+            json.dump(stats_out, f, indent=2)
+        console.print(
+            f"Saved dataset statistics → {os.path.join(results_dir, 'dataset_statistics.json')}",
+            style="green",
+        )
+    except Exception as e:
+        console.print(f"[yellow]Failed to save dataset statistics: {e}")
 
     # Declare item type for sources, then build a typed ConcatDataset[Sample]
     train_sources: List[TorchDataset[Sample]] = [

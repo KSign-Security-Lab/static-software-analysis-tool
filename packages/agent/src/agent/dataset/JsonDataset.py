@@ -34,9 +34,19 @@ def _empty_graph() -> Data:
 
 
 def _infer_label_from_path(path: str) -> int:
-    """Heuristic label: 1 if filepath contains 'bad', else 0."""
+    """Heuristic label from file path.
+
+    Vulnerable (1) if path contains any of: 'bad', 'vuln', 'unpatched', 'unsafe'.
+    Safe (0) if path contains any of: 'good', 'patched', 'safe', 'fixed'.
+    Default 0 when unsure.
+    """
     try:
-        return 1 if "bad" in path.lower() else 0
+        s = path.lower()
+        if any(k in s for k in ["patched", "good", "safe", "fixed"]):
+            return 0
+        if any(k in s for k in ["bad", "vuln", "unpatched", "unsafe"]):
+            return 1
+        return 0
     except Exception:
         return 0
 
@@ -161,8 +171,9 @@ class AnyGraphModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-def _build_graph_from_section(section: Dict[str, Any], *,
-                              edge_family_prefixes: Optional[List[str]] = None) -> Data:
+def _build_graph_from_section(
+    section: Dict[str, Any], *, edge_family_prefixes: Optional[List[str]] = None
+) -> Data:
     """Build a PyG Data from a JSON section with 'nodes' and edge lists.
 
     - Nodes: expect list of dicts with a 'feat' dict → flatten numeric features
@@ -196,7 +207,9 @@ def _build_graph_from_section(section: Dict[str, Any], *,
     # Determine families: any key starting with 'edges_'
     if edge_family_prefixes is None:
         edge_family_prefixes = [
-            k for k in (section.keys() if isinstance(section, dict) else []) if str(k).startswith("edges_")
+            k
+            for k in (section.keys() if isinstance(section, dict) else [])
+            if str(k).startswith("edges_")
         ]
     fams = sorted(edge_family_prefixes)
 
@@ -220,7 +233,8 @@ def _build_graph_from_section(section: Dict[str, Any], *,
 
             if isinstance(e, (list, tuple)):
                 if len(e) >= 2:
-                    src = _to_int(e[0]); dst = _to_int(e[1])
+                    src = _to_int(e[0])
+                    dst = _to_int(e[1])
                 if len(e) >= 3:
                     # third field could be dict or scalar. If scalar treat as edge_type for AST triples.
                     if isinstance(e[2], dict):
@@ -230,7 +244,8 @@ def _build_graph_from_section(section: Dict[str, Any], *,
                     else:
                         feat["edge_type"] = _to_float(e[2])
             elif isinstance(e, dict):
-                src = _to_int(e.get("src", 0)); dst = _to_int(e.get("dst", 0))
+                src = _to_int(e.get("src", 0))
+                dst = _to_int(e.get("dst", 0))
                 # flatten known fields; prefer explicit edge_type/guard_kind/guard_branch
                 if "edge_type" in e:
                     feat["edge_type"] = _to_float(e.get("edge_type", 0))
@@ -257,7 +272,7 @@ def _build_graph_from_section(section: Dict[str, Any], *,
     attr_cols = sorted(attr_keys_seen - set(fam_col_names))
     edge_feat_names = fam_col_names + attr_cols
 
-    for (srcdst, feat) in temp_rows:
+    for srcdst, feat in temp_rows:
         edges.append(srcdst)
         row: List[float] = []
         # fam cols
@@ -266,7 +281,9 @@ def _build_graph_from_section(section: Dict[str, Any], *,
         # attr cols
         for name in attr_cols:
             row.append(float(feat.get(name, 0.0)))
-        per_edge_feat_dicts.append({name: val for name, val in zip(edge_feat_names, row)})
+        per_edge_feat_dicts.append(
+            {name: val for name, val in zip(edge_feat_names, row)}
+        )
 
     # Build tensors
     edge_attr_rows: List[List[float]] = [
@@ -292,7 +309,100 @@ def _build_graph_from_section(section: Dict[str, Any], *,
     return g
 
 
-def juliet_json_to_sample(model_obj: BaseModel) -> Data:
+def _infer_label_from_json(
+    raw: Dict[str, Any],
+    fallback_path: Optional[str] = None,
+    label_keys: Optional[List[Dict[str, Any]]] = None,
+) -> int:
+    """Infer label from JSON payload using common fields and name hints.
+
+    Priority:
+      1) Explicit fields: 'label', 'is_vulnerable', 'vulnerable', 'target'
+      2) Keyword hints in function/file/template names
+      3) Fallback to path-based heuristic
+    Returns 0 for safe, 1 for vulnerable.
+    """
+    # 1) Explicit fields
+    label = raw.get("label")
+    if label is not None:
+        try:
+            if isinstance(label, bool):
+                return 1 if label else 0
+            # strings like "1", "0", "bad", "good"
+            if isinstance(label, str):
+                v = label.strip().lower()
+                if v in {"bad", "vuln", "vulnerable", "unpatched", "unsafe"}:
+                    return 1
+                if v in {"good", "patched", "safe", "fixed"}:
+                    return 0
+                return 1 if int(v) != 0 else 0
+            return 1 if int(label) != 0 else 0
+        except Exception:
+            pass
+    for k in ("is_vulnerable", "vulnerable", "target"):
+        if k in raw:
+            try:
+                v = raw[k]
+                if isinstance(v, bool):
+                    return 1 if v else 0
+                if isinstance(v, (int, float)):
+                    return 1 if int(v) != 0 else 0
+                if isinstance(v, str):
+                    t = v.strip().lower()
+                    if t in {"true", "1", "yes", "bad", "vuln", "vulnerable", "unpatched", "unsafe"}:
+                        return 1
+                    if t in {"false", "0", "no", "good", "patched", "safe", "fixed"}:
+                        return 0
+            except Exception:
+                pass
+
+    # 2) Configured label keyword rules (use filename, not function)
+    file_name = raw.get("file") or raw.get("filename") or raw.get("source_template")
+    fname_lower = str(file_name or "").lower()
+    if fallback_path:
+        try:
+            import os as _os
+            fname_lower = _os.path.basename(fallback_path).lower()
+        except Exception:
+            pass
+    if label_keys:
+        try:
+            if len(label_keys) == 1:
+                lk = label_keys[0]
+                kw = str(lk.get("keyword", "")).lower()
+                lbl = int(lk.get("label", 0))
+                if kw and kw in fname_lower:
+                    return 1 if lbl != 0 else 0
+                else:
+                    # Invert label when keyword not present
+                    return 0 if lbl != 0 else 1
+            # Multiple rules: first match wins; otherwise fall through
+            for lk in label_keys:
+                kw = str(lk.get("keyword", "")).lower()
+                if kw and kw in fname_lower:
+                    lbl = int(lk.get("label", 0))
+                    return 1 if lbl != 0 else 0
+        except Exception:
+            pass
+    # Built-in hints consider filename and function name
+    func_name = raw.get("function_name") or raw.get("function")
+    key_str = " ".join(str(s) for s in [fname_lower, func_name] if s).lower()
+    if any(k in key_str for k in ["patched", "good", "safe", "fixed"]):
+        return 0
+    if any(k in key_str for k in ["bad", "vuln", "vulnerable", "unpatched", "unsafe"]):
+        return 1
+
+    # 3) Fallback to file path if provided
+    if fallback_path:
+        return _infer_label_from_path(fallback_path)
+    return 0
+
+
+def juliet_json_to_sample(
+    model_obj: BaseModel,
+    *,
+    label_keys: Optional[List[Dict[str, Any]]] = None,
+) -> Data:
     """Converter: take raw Juliet-like JSON and build a sample Data stub
     with attributes:
       - y: label tensor (0: good, 1: bad)
@@ -306,17 +416,23 @@ def juliet_json_to_sample(model_obj: BaseModel) -> Data:
     dfg_section = raw.get("dfg", {}) if isinstance(raw, dict) else {}
 
     ast_graph = _build_graph_from_section(
-        ast_section, edge_family_prefixes=[k for k in ast_section.keys() if str(k).startswith("edges_")]
+        ast_section,
+        edge_family_prefixes=[
+            k for k in ast_section.keys() if str(k).startswith("edges_")
+        ],
     )
     dfg_graph = None
     if isinstance(dfg_section, dict) and dfg_section:
-        dfg_graph = _build_graph_from_section(dfg_section, edge_family_prefixes=["edges_dfg"])  # dfg-specific
+        dfg_graph = _build_graph_from_section(
+            dfg_section, edge_family_prefixes=["edges_dfg"]
+        )  # dfg-specific
 
-    # Derive label: mark samples as vulnerable when name/path contains 'bad'
-    file_name = raw.get("source_template") or raw.get("file") or raw.get("filename")
+    # Derive label robustly from JSON content and names
+    file_name = raw.get("file") or raw.get("filename") or raw.get("source_template")
     func_name = raw.get("function_name") or raw.get("function")
-    key_str = " ".join(str(s) for s in [file_name, func_name] if s)
-    y = 1 if ("bad" in key_str.lower()) else 0
+    # Use injected on-disk path for filename-based rules
+    fallback_path = raw.get("__file_path")
+    y = _infer_label_from_json(raw, fallback_path=fallback_path, label_keys=label_keys)
 
     sample = Data()
     sample.y = torch.tensor(y, dtype=torch.long)
@@ -508,7 +624,9 @@ class GenericJsonDataset(Dataset):
                     skipped += 1
                     continue
                 placeholder = Data()
-                placeholder.y = torch.tensor(_infer_label_from_path(fp), dtype=torch.long)
+                placeholder.y = torch.tensor(
+                    _infer_label_from_path(fp), dtype=torch.long
+                )
                 placeholder.ast_graph = _empty_graph()
                 # Some datasets may not have DFG; keep attribute for consistency
                 placeholder.dfg_graph = _empty_graph()

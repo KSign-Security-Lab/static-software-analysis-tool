@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import List, Literal, Tuple
+from typing import List, Literal, Tuple, Optional
 from pydantic import BaseModel
 
 
@@ -57,11 +57,42 @@ class _BaseConfig(BaseModel):
     infer_dims: bool = True
 
 
+class LabelKey(BaseModel):
+    keyword: str
+    label: int
+
+
+class DataPath(BaseModel):
+    path: str
+    # Single label rule per datapath (required)
+    label_key: LabelKey
+
+
 class TrainConfig(_BaseConfig):
-    data_path: List[str] = [
-        "data/train/CWE121_Stack_Based_Buffer_Overflow",
-        "data/train/CWE122_Heap_Based_Buffer_Overflow",
-        "data/test",
-    ]
     save_name: str = f"results/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     mode: Literal["both", "late_fusion", "ast", "dfg"] = "ast"
+
+    # data_path is explicitly a list of DataPath entries
+    data_path: List[DataPath] = [
+        DataPath(
+            path="data/train/CWE121_Stack_Based_Buffer_Overflow",
+            label_key=LabelKey(
+                keyword="bad",
+                label=1,
+            ),
+        ),
+        DataPath(
+            path="data/train/CWE122_Heap_Based_Buffer_Overflow",
+            label_key=LabelKey(
+                keyword="bad",
+                label=1,
+            ),
+        ),
+        DataPath(
+            path="data/test",
+            label_key=LabelKey(
+                keyword="patched",
+                label=0,
+            ),
+        ),
+    ]
