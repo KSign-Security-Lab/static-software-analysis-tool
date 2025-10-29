@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch_geometric.data import Data
 
-from .GNN import GINEStack
+from .SingleBranch import GINEStack
 
 
 class LateFusionModel(nn.Module):

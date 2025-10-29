@@ -32,6 +32,11 @@ def arg_parser() -> argparse.Namespace:
         action="store_true",
         help="If set, also emit a Notion-friendly Markdown file per extracted function.",
     )
+    parser.add_argument(
+        "--keep-name",
+        action="store_true",
+        help="If set, keep original filename structure. If false, append function name to filename.",
+    )
     return parser.parse_args()
 
 
@@ -75,7 +80,7 @@ def _to_markdown(code: str, ast_obj: Any, dfg_obj: Any) -> str:
 
 
 def process_dfg_file(
-    template_path: str, data_root: str, save_root: str, emit_md: bool
+    template_path: str, data_root: str, save_root: str, emit_md: bool, keep_name: bool
 ) -> None:
     """
     Process a single template JSON and emit one result JSON per function,
@@ -84,7 +89,10 @@ def process_dfg_file(
     with open(template_path, "r", encoding="utf-8") as f:
         template_json = json.load(f)
 
-    functions: List[Dict[str, Any]] = recursivelyGetFunctionsFromTemplate(template_json)
+    if isinstance(template_json, list):
+        functions = recursivelyGetFunctionsFromTemplate(template_json[0])
+    else:
+        functions = recursivelyGetFunctionsFromTemplate(template_json)
 
     rel_path = os.path.relpath(template_path, data_root)
     rel_dir = os.path.dirname(rel_path)
@@ -108,7 +116,12 @@ def process_dfg_file(
         suffix = f"_{n}" if n > 0 else ""
 
         # Build output file base path (without extension)
-        out_base = os.path.join(out_dir, f"{input_stem}__{safe_fn}{suffix}")
+        if keep_name:
+            # Keep original filename structure
+            out_base = os.path.join(out_dir, f"{input_stem}{suffix}")
+        else:
+            # Append function name to filename (current behavior)
+            out_base = os.path.join(out_dir, f"{input_stem}__{safe_fn}{suffix}")
 
         # Extract AST & DFG for this single function
         ast_ext = ASTExtractorV1_12(function)
@@ -150,9 +163,10 @@ def dfg() -> None:
     print(f"Found {len(template_files)} template file(s)")
     print(f"Output root: {args.save}")
     print(f"Emit Markdown: {args.emit_md}")
+    print(f"Keep original name: {args.keep_name}")
 
     for template in template_files:
-        process_dfg_file(template, args.data, args.save, args.emit_md)
+        process_dfg_file(template, args.data, args.save, args.emit_md, args.keep_name)
 
 
 if __name__ == "__main__":

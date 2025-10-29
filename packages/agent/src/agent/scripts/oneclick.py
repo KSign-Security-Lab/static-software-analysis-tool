@@ -21,7 +21,7 @@ except ModuleNotFoundError:
 # Robust import of TrainConfig and train
 try:
     # Prefer absolute import via namespace
-    from packages.agent.train import TrainConfig, train
+    from packages.agent import TrainConfig, train
 except ModuleNotFoundError:
     # Ensure agent_dir is on sys.path then retry alternatives
     try:
@@ -29,10 +29,10 @@ except ModuleNotFoundError:
         agent_dir = os.path.dirname(current_dir)
         if agent_dir not in sys.path:
             sys.path.insert(0, agent_dir)
-        from train import TrainConfig, train  # type: ignore
+        from agent import TrainConfig, train  # type: ignore
     except Exception:
         # Last resort: relative import when executed as module
-        from ..train import TrainConfig, train  # type: ignore
+        from .. import TrainConfig, train  # type: ignore
 
 train_configs = [
     TrainConfig(

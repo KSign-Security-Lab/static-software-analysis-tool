@@ -10,4 +10,8 @@ dependencies = ["graph"]
 graph = { workspace = true }
 
 [tool.uv.workspace]
-members = ["packages/graph", "packages/utils"]
+members = [
+    "packages/graph",
+    "packages/utils",
+    "packages/agent",
+]

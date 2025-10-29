@@ -1,6 +1,6 @@
 # GNN Model Training and Evaluation
 
-This package provides a modular GNN training/evaluation pipeline with HuggingFace streaming datasets, PyTorch Geometric batching, automatic training-config saving, and a streamlined evaluation entrypoint.
+This package provides a modular GNN training/evaluation pipeline with PyTorch Geometric batching, automatic training-config saving, and a streamlined evaluation entrypoint.
 
 ## Structure
 
@@ -74,7 +74,6 @@ print(summary)
 
 ## Data Loading Notes
 
-- `modules.dataset.HFStreamingGraphs` streams from HuggingFace using `load_dataset(..., streaming=True)`.
 - Graphs are converted into PyG `Data` using `_build_pyg_from_ast_item`/`_build_pyg_from_dfg_item`.
 - Batching uses a `custom_collate_fn` with `torch_geometric.data.Batch.from_data_list`.
 - `edge_index` is built from the first two columns of edges (src, dst).

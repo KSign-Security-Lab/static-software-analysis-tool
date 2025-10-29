@@ -7,3 +7,4 @@ gunicorn>=21.2
 torch_geometric==2.6.1
 torch==2.8.0
 rich>=13.0.0
+matplotlib>=3.8.0

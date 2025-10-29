@@ -11,6 +11,7 @@ C/
 2017-10-01-juliet-test-suite-for-c-cplusplus-v1-3.zip
 tmp/*
 result/*
+results/*
 test/*
 
 # Byte-compiled / optimized / DLL files
