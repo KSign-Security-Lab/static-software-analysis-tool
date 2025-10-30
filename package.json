@@ -20,20 +20,10 @@
     "format:check": "yarn workspaces run --if-present format:check",
     "test": "yarn workspace @ssat/core test",
     "test:log": "yarn workspace @ssat/core test:log",
-    "start:ast": "yarn workspace @ssat/core start:ast",
-    "start:joern": "yarn workspace @ssat/core start:joern",
-    "start:all": "concurrently \"yarn start:joern\" \"yarn start:ast\" \"yarn web:dev\" --names \"Joern,AST,Web\" --prefix-colors \"blue,green,yellow\"",
     "web:dev": "yarn workspace @ssat/web dev",
     "web:build": "yarn workspace @ssat/web build",
     "web:start": "yarn workspace @ssat/web start",
-    "db:start": "yarn workspace @ssat/web db:start",
-    "db:generate": "yarn workspace @ssat/prisma generate",
-    "db:push": "yarn workspace @ssat/prisma push",
-    "db:migrate": "yarn workspace @ssat/prisma migrate",
-    "db:studio": "yarn workspace @ssat/prisma studio",
-    "db:init": "yarn workspace @ssat/prisma db:init",
-    "db:example": "yarn workspace @ssat/prisma example",
-    "db:seed": "yarn workspace @ssat/prisma db:seed",
+    
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down -v"
   },
@@ -52,26 +42,15 @@
     "format:check": "Check formatting across workspaces",
     "test": "Run tests across workspaces (if present) in @ssat/core",
     "test:log": "Run tests across workspaces (if present) in @ssat/core with logging",
-    "start:ast": "Start AST service from @ssat/core",
-    "start:joern": "Start Joern server via Docker container",
-    "start:all": "Run Joern, AST service, and Web dev concurrently",
     "web:dev": "Start Next.js dev server",
     "web:build": "Build Next.js app",
     "web:start": "Start Next.js production server",
-    "db:start": "Start Postgres via web workspace helper",
-    "db:generate": "Generate Prisma client (@ssat/prisma)",
-    "db:push": "Push Prisma schema to DB (@ssat/prisma)",
-    "db:migrate": "Run Prisma migrations (@ssat/prisma)",
-    "db:studio": "Open Prisma Studio (@ssat/prisma)",
-    "db:init": "Bring up DB, install prisma, generate client, push schema (@ssat/prisma)",
-    "db:example": "Run prisma example script (@ssat/prisma)",
+    
     "docker:up": "Start all Docker services",
     "docker:joern": "Start only Joern Docker service",
     "docker:down": "Stop all Docker services"
   },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
-  },
+  "devDependencies": {},
   "engines": {
     "node": ">=18.17 <23"
   },

@@ -23,8 +23,7 @@
       "@/*": ["./*"],
       "@ssat/core": ["../packages/core"],
       "@ssat/core/*": ["../packages/core/*"],
-      "@ssat/prisma": ["../packages/prisma"],
-      "@ssat/prisma/*": ["../packages/prisma/*"]
+      
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

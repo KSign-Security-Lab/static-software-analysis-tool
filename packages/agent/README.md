@@ -2,6 +2,53 @@
 
 This package provides a modular GNN training/evaluation pipeline with PyTorch Geometric batching, automatic training-config saving, and a streamlined evaluation entrypoint.
 
+## Environment Setup (uv only)
+
+- Python >= 3.14 (pyproject + uv build)
+- Torch 2.9+ and Torch Geometric 2.7+
+
+```bash
+cd packages/agent
+uv sync
+```
+
+CUDA builds: install the correct CUDA wheels for `torch`/`torch-geometric` for your driver. See the respective installation guides if default CPU wheels are installed.
+
+## Architecture
+
+- `src/agent/model/*` — Model definitions (single-branch, late fusion, creative variants)
+- `src/agent/dataset/*` — Dataset loading from JSON/AST/DFG, PyG graph building
+- `src/agent/modules/*` — Training config, dataset split, evaluation helpers
+- `train.py` / `evaluate.py` — Entrypoints that save/load `training_config.json`
+
+## Run
+
+Train:
+
+```bash
+cd packages/agent
+uv run train --save_name default --device cuda:0
+```
+
+Evaluate:
+
+```bash
+cd packages/agent
+uv run evaluate --results_dir results/default
+```
+
+## Scripts
+
+```bash
+# Exposed by pyproject.toml
+uv run train [args]
+uv run evaluate [args]
+
+# Examples
+uv run train --save_name results/exp1 --device cuda:0 --epochs 50 --mode both
+uv run evaluate --results_dir results/exp1 --max_samples 200
+```
+
 ## Structure
 
 ```bash

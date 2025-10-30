@@ -17,10 +17,7 @@
     "lint:fix": "eslint --fix .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "upload": "tsx src/upload.ts",
-    "upload:graph": "tsx src/upload.ts graph",
-    "upload:bulk": "tsx src/upload.ts bulk"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "scriptsInfo": {
     "scripts:help": "List CLI workspace scripts with descriptions",
@@ -35,17 +32,13 @@
     "lint:fix": "Run ESLint with --fix",
     "format": "Run Prettier write",
     "format:check": "Run Prettier check",
-    "test": "Run CLI tests (if present)",
-    "upload": "Run upload command entry",
-    "upload:graph": "Upload a single graph JSON",
-    "upload:bulk": "Upload all JSON files in a directory"
+    "test": "Run CLI tests (if present)"
   },
   "dependencies": {
     "cli-progress": "^3.12.0",
     "commander": "^12.1.0",
     "zod": "^3.25.67",
-    "@ssat/core": "*",
-    "@ssat/prisma": "*"
+    "@ssat/core": "*"
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",

@@ -17,7 +17,6 @@
   },
   "scripts": {
     "scripts:help": "node -e \"const p=JSON.parse(require('fs').readFileSync('./packages/core/package.json','utf8')); const i=p.scriptsInfo||{}; console.log('Core scripts\\n==========='); for (const [k,v] of Object.entries(i)) console.log(k.padEnd(20),' - ',v);\"",
-    "start:ast": "cd ../.. && PYTHONPATH=. python -m uvicorn packages.core.ast.server:app --reload --reload-dir packages/core --port 8000",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
@@ -30,7 +29,6 @@
   },
   "scriptsInfo": {
     "scripts:help": "List Core workspace scripts with descriptions",
-    "start:ast": "Start AST FastAPI server",
     "type-check": "Type-check Core workspace",
     "lint": "Run ESLint",
     "lint:fix": "Run ESLint with --fix",

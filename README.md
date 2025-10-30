@@ -1,6 +1,6 @@
 # Static Software Analysis Tool (SSAT)
 
-A comprehensive monorepo tool for static analysis of C code, featuring a modern web interface, CLI tools, and multiple analysis pipelines. The tool extracts Code Property Graphs (CPGs) from C code, converts them to various formats (Template, AST, DFG), and provides both command-line and web-based interfaces for analysis.
+A comprehensive monorepo tool for static analysis of C code, featuring a modern web interface, CLI tools, and multiple analysis pipelines. The tool extracts Code Property Graphs (CPGs) from C code, converts them to various formats (Template, AST, DFG), and provides both command-line and web-based interfaces for analysis. Note: database persistence has been dropped; artifacts are handled via files and in-memory.
 
 ## Features
 
@@ -17,7 +17,6 @@ A comprehensive monorepo tool for static analysis of C code, featuring a modern 
 - **Web Interface**: Next.js-based web application with interactive graph visualization
 - **CLI Tools**: Comprehensive command-line interface with progress tracking
 - **REST API**: FastAPI-based services for programmatic access
-- **Database Integration**: PostgreSQL with Prisma ORM for data persistence
 
 ### Developer Experience
 
@@ -29,11 +28,12 @@ A comprehensive monorepo tool for static analysis of C code, featuring a modern 
 
 ## Prerequisites
 
-- **Node.js**: Version 18.17 or higher (but less than 23)
-- **Joern**: 4.0.361+ (installed and configured)
-- **Python**: 3.x (for CPG generation and FastAPI services)
-- **PostgreSQL**: For web interface database features (optional)
-- **Yarn**: Package manager for workspace management
+- Node.js 18.17+ (< 23)
+- Joern 4.0.361+ (installed and configured)
+- Python 3.x
+- (No database required — persistence is not used)
+- Yarn (workspace management)
+- uv (Python package + environment manager)
 
 ## Quick Start
 
@@ -44,36 +44,78 @@ A comprehensive monorepo tool for static analysis of C code, featuring a modern 
 git clone https://github.com/keonoh00/static-software-analysis-tool.git
 cd static-software-analysis-tool
 
-# Install dependencies
+# JS dependencies
 yarn install
 
-# Install Python dependencies
-pip install -r requirements.txt
+# Python environment (uv)
+uv venv .venv
+. .venv/bin/activate
+uv pip install -r requirements.txt   # AST service + shared deps
+
+# Python workspaces (optional, for package-specific tooling)
+(cd packages/agent && uv sync)
+(cd packages/graph && uv sync)
+(cd packages/utils && uv sync)
 ```
 
 ### 2. Development Setup
 
 ```bash
-# Start all services (Joern, AST service, and web interface)
-yarn start:all
-
-# Or start services individually:
-yarn start:joern    # Start Joern server
-yarn start:ast      # Start AST FastAPI service
+# Start local dev (Joern via Docker + Web)
+yarn docker:up      # Start/refresh Joern container
 yarn web:dev        # Start Next.js web interface
 ```
 
-### 3. Database Setup (Optional)
+### 3. Common Flows
+
+Headless CLI (no web UI):
 
 ```bash
-# Initialize database with Prisma
-yarn db:init
+# Run the full pipeline on a project of .c files or precomputed CPG JSON (C/CPG → Template → AST → DFG)
+yarn generate:full --data path/to/input --output result/full_out
 
-# Or start database and generate client
-yarn db:start
-yarn db:generate
-yarn db:push
+# Or stage-by-stage if you want intermediate artifacts
+# Pass .c files to cpg, then use the produced CPG JSON for later steps
+yarn generate:cpg --data path/to/c/sources --output result/cpg_out
+yarn generate:template --data result/cpg_out --output result/template_out
+yarn generate:ast --data result/template_out --output result/ast_out
+yarn generate:dfg --data result/template_out --output result/dfg_out
 ```
+
+Local development with web UI:
+
+```bash
+# Start Joern (Docker) and the Next.js web app
+yarn docker:up
+yarn web:dev
+
+# Open http://localhost:3000, upload code, run the pipeline, download JSON
+```
+
+Train and evaluate the ML agent:
+
+```bash
+# One-time env (Python) per the top of this README
+(cd packages/agent && uv sync)
+
+# Train using pyproject console script (writes results/*)
+cd packages/agent
+uv run train --save_name results/exp1 --device cuda:0 --epochs 50 --mode both
+
+# Evaluate from saved config + checkpoints
+uv run evaluate --results_dir results/exp1 --max_samples 200
+```
+
+Generate per-function AST/DFG from Template with Python graph tool:
+
+```bash
+cd packages/graph && uv sync
+uv run dfg --data path/to/template_jsons --save results --emit-md
+```
+
+### 3. Persistence
+
+The project currently does not use a database. Results are written to `result/` by default or to your `--output` path.
 
 ## CLI Usage
 
@@ -227,10 +269,8 @@ The project includes a modern Next.js web interface for interactive analysis:
 ### Starting the Web Interface
 
 ```bash
-# Start all services (recommended for development)
-yarn start:all
-
-# Or start web interface only
+# Start Joern (Docker) and the web interface
+yarn docker:up
 yarn web:dev
 ```
 
@@ -239,20 +279,12 @@ yarn web:dev
 - **Interactive Graph Visualization**: View and explore CPGs, ASTs, and DFGs
 - **File Upload**: Upload C source files for analysis
 - **Pipeline Management**: Run analysis pipelines through the web interface
-- **Database Integration**: Store and retrieve analysis results
+- No database dependency
 - **Real-time Processing**: Live updates during analysis
 
 ### Database Features
 
-```bash
-# Database management commands
-yarn db:start      # Start PostgreSQL database
-yarn db:init       # Initialize database with Prisma
-yarn db:generate   # Generate Prisma client
-yarn db:push       # Push schema to database
-yarn db:studio     # Open Prisma Studio
-yarn db:seed       # Seed database with sample data
-```
+Deprecated. Database-related scripts and services are not part of the active stack.
 
 ## Output
 
@@ -328,13 +360,6 @@ The project is organized as a Yarn workspace monorepo with the following structu
 │   │   │   └── pathResolver.ts
 │   │   ├── endpoint/         # API endpoints
 │   │   └── package.json
-│   ├── prisma/               # Database package (@ssat/prisma)
-│   │   ├── src/
-│   │   │   ├── schema.ts
-│   │   │   ├── services/
-│   │   │   └── types.ts
-│   │   ├── schema.prisma
-│   │   └── package.json
 │   └── agent/                # ML/AI agent package
 │       ├── model/            # Machine learning models
 │       ├── dataset/          # Dataset processing
@@ -347,7 +372,7 @@ The project is organized as a Yarn workspace monorepo with the following structu
 │   │   │   ├── cpg/
 │   │   │   ├── dfg/
 │   │   │   ├── template/
-│   │   │   └── upload/
+│   │   │   
 │   │   └── debug/            # Debug interface
 │   ├── src/
 │   │   ├── handlers/         # Request handlers
@@ -371,7 +396,6 @@ The project is organized as a Yarn workspace monorepo with the following structu
 - Main CLI entry point with Commander.js
 - Command parsing and argument validation
 - Progress tracking and logging utilities
-- Upload functionality for web interface
 
 **@ssat/core** - Core Processing Engine
 
@@ -382,12 +406,7 @@ The project is organized as a Yarn workspace monorepo with the following structu
 - Type definitions for all graph structures
 - Utility functions for I/O and text rendering
 
-**@ssat/prisma** - Database Layer
-
-- Prisma ORM schema and client
-- Database services and utilities
-- Type-safe database operations
-- Migration and seeding support
+<!-- Database layer dropped from active stack -->
 
 **@ssat/web** - Web Interface
 
@@ -428,6 +447,42 @@ yarn format        # Format code with Prettier
 yarn test          # Run tests in @ssat/core
 ```
 
+### Scripts Quick Reference
+
+```bash
+# From repo root
+
+# Pipeline (CLI workspace via root proxies)
+yarn generate:cpg
+yarn generate:template
+yarn generate:template:functions
+yarn generate:ast
+yarn generate:dfg
+yarn generate:full
+
+# Services
+yarn start:joern   # Start Joern server
+yarn start:ast     # Start AST FastAPI server
+# Start Joern + Web separately
+yarn docker:up
+yarn web:dev
+
+# Web app
+yarn web:dev
+yarn web:build
+yarn web:start
+
+# Quality
+yarn type-check
+yarn lint
+yarn lint:fix
+yarn format
+yarn format:check
+
+# Script discovery
+yarn scripts:help
+```
+
 ### Individual Workspace Commands
 
 ```bash
@@ -440,8 +495,7 @@ yarn workspace @ssat/core scripts:help
 # Web workspace
 yarn workspace @ssat/web scripts:help
 
-# Prisma workspace
-yarn workspace @ssat/prisma scripts:help
+<!-- Prisma workspace removed from active stack -->
 ```
 
 ### Testing and Quality

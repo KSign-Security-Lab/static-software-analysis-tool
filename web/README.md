@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# @ssat/web — Web Interface
 
-## Getting Started
+A Next.js application that provides an interactive UI for the Static Software Analysis Tool (SSAT). It exposes API routes that orchestrate the analysis pipeline (CPG → Template → AST → DFG) and integrates with the database layer for optional persistence.
 
-First, run the development server:
+## What It Does
+
+- Upload C source and run the pipeline from the browser
+- Visualize and download generated artifacts (CPG/Template/AST/DFG)
+- Provide REST API endpoints that call `@ssat/core` conversion utilities
+- No database dependency; results are returned in responses or downloadable as files
+
+## Environment Setup
+
+- Node.js >= 18.17 < 23
+- Yarn
+- No database required
+- AST/DFG steps use Python subprocesses via `@ssat/core` (no HTTP server)
+- Joern (for full C→CPG pipeline)
+
+No database environment variables are needed.
+
+## Development
+
+Run only the web app:
 
 ```bash
-yarn dev
-# or
-npm run dev
-# or
-pnpm dev
-# or
-bun dev
+yarn web:dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Run the local stack for development (Joern via Docker + Web):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+yarn docker:up   # Start/refresh Joern container
+yarn web:dev     # Start Next.js dev server
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Build and run production locally:
 
-## Learn More
+```bash
+yarn web:build
+yarn web:start
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Architecture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- Next.js App Router (`web/app/*`) for pages and API routes
+- API handlers under `web/app/api/*` call `@ssat/core` pipeline steps
+- API routes operate without persistence (in-memory/file-based workflows)
+- Pipeline configuration in `web/src/pipeline/*`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Key internal API routes:
 
-## Deploy on Vercel
+- `POST /api/cpg` → generate CPG
+- `POST /api/template` → generate Template (optionally from CPG)
+- `POST /api/ast` → generate AST (calls local FastAPI at `:8000`)
+- `POST /api/dfg` → generate DFG (builds on AST/Template)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Usage
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Open http://localhost:3000
+- Upload files or paste code to trigger the pipeline
+- Inspect results in the UI or download JSON artifacts
+
+<!-- Database functionality was removed from the active stack -->
+
+## Scripts
+
+```bash
+yarn workspace @ssat/web scripts:help
+
+yarn web:dev     # Dev server
+yarn web:build   # Build
+yarn web:start   # Start (production)
+```

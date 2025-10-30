@@ -15,8 +15,7 @@
       "@/*": ["./src/*"],
       "@ssat/core": ["../core"],
       "@ssat/core/*": ["../core/*"],
-      "@ssat/prisma": ["../prisma"],
-      "@ssat/prisma/*": ["../prisma/*"]
+      
     }
   },
   "include": ["src/**/*"],

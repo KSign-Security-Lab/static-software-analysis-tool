@@ -1,7 +1,7 @@
 import argparse
 import json
 import os
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,7 +14,7 @@ from torch.utils.data import (
 from .dataset.JsonDataset import GenericJsonDataset
 from .dataset.JsonDataset import AnyGraphModel, juliet_json_to_sample
 from .config import TrainConfig
-from agent.evaluate import evaluate_model
+from agent.evaluate import evaluate_model, latest_epoch_checkpoint, load_model_robust, infer_mode_from_model
 from agent.utils.plotting import draw_loss_plot
 from agent.train import (
     build_dataloader,
@@ -31,9 +31,29 @@ from agent.train import (
 )
 
 
+def _parse_train_args() -> TrainConfig:
+    parser = argparse.ArgumentParser(description="Train GNN model (uv run train)")
+    parser.add_argument("--save_name", type=str, default=None, help="Results directory (default uses timestamp)")
+    parser.add_argument("--device", type=str, default=None, help="Device like cuda:0 or cpu")
+    parser.add_argument("--epochs", type=int, default=None, help="Training epochs")
+    parser.add_argument("--mode", type=str, default=None, choices=["both", "late_fusion", "ast", "dfg"], help="Model mode")
+    args, _ = parser.parse_known_args()
+    cfg = TrainConfig()
+    if args.save_name:
+        cfg.save_name = args.save_name
+    if args.device:
+        cfg.device = args.device
+    if args.epochs is not None:
+        cfg.epochs = int(args.epochs)
+    if args.mode:
+        cfg.mode = args.mode  # type: ignore[assignment]
+    return cfg
+
+
 def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] = None) -> None:
     if cfg is None:
-        cfg = TrainConfig()
+        # When invoked via console script (uv run train), parse CLI flags
+        cfg = _parse_train_args()
 
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -248,68 +268,127 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         json.dump(summary, f, indent=2)
 
 
-# def evaluate():
-#     cfg = TrainConfig()
-#     device_obj = torch.device(device)
-#     results_dir = os.path.join(cfg.save_name, "results")
+def evaluate() -> None:
+    """Console entrypoint: uv run evaluate --results_dir <dir> [--device cuda:0] [--max_samples N]
 
-#     # Prefer full-model epoch checkpoints; fall back to model.pt
-#     model_path = latest_epoch_checkpoint(results_dir) or os.path.join(
-#         results_dir, "model.pt"
-#     )
+    Reconstructs the dataset and model from training_config.json in results_dir
+    and writes evaluation.json alongside.
+    """
+    parser = argparse.ArgumentParser(description="Evaluate trained model (uv run evaluate)")
+    parser.add_argument("--results_dir", type=str, required=True, help="Directory containing training_config.json and checkpoints")
+    parser.add_argument("--device", type=str, default=None, help="Device like cuda:0 or cpu")
+    parser.add_argument("--max_samples", type=int, default=100, help="Max samples to evaluate (default: 100)")
+    args, _ = parser.parse_known_args()
 
-#     # Load model if not provided
-#     model = model or load_model_robust(model_path, device_obj)
+    results_dir = args.results_dir
+    cfg_path = os.path.join(results_dir, "training_config.json")
+    if not os.path.exists(cfg_path):
+        raise FileNotFoundError(f"training_config.json not found at: {cfg_path}")
 
-#     # Determine kinds from model type
-#     mode = infer_mode_from_model(model)
-#     kinds = ["ast"] if mode == "ast" else ["dfg"] if mode == "dfg" else ["ast", "dfg"]
+    with open(cfg_path, "r") as f:
+        saved: Dict[str, Any] = json.load(f)
+    saved_cfg = saved.get("training_config", {})
+    cfg = TrainConfig(**saved_cfg)
+    if args.device:
+        cfg.device = args.device
 
-#     # Build dataloader if needed
-#     if dataloader is None:
-#         if isinstance(data, Dataset):
-#             dataset_obj = data
-#         else:
-#             dataset_obj = GenericJsonDataset(
-#                 paths=data,  # str path
-#                 schema=SCHEMA,
-#                 kinds=kinds,
-#                 strict=False,
-#                 debug=False,
-#             )
+    device = torch.device(cfg.device)
 
-#         dataloader = TorchDataLoader(
-#             dataset_obj,
-#             batch_size=32,  # vectorized; we still produce per-sample outputs
-#             collate_fn=collate_multi,
-#             num_workers=0,
-#             pin_memory=False,
-#             shuffle=False,
-#         )
+    # Rebuild datasets consistent with training config
+    train_datasets_list: List[TorchDataset[Sample]] = []
+    test_datasets_list: List[TorchDataset[Sample]] = []
+    for ds_idx, data_entry in enumerate(cfg.data_path):
+        entry_path = data_entry.path
+        entry_label_key = data_entry.label_key
 
-#     if max_samples <= 0:
-#         summary = evaluate_full_dataset(
-#             model=model,
-#             dataloader=dataloader,
-#             device=device_obj,
-#             mode=mode,
-#             forward_fn=forward_fn,
-#         )
-#     else:
-#         per_sample_out = os.path.join(results_dir, "evaluation")
-#         os.makedirs(per_sample_out, exist_ok=True)
-#         summary = evaluate_model(
-#             model=model,
-#             dataloader=dataloader,
-#             device=device_obj,
-#             mode=mode,
-#             max_samples=max_samples,
-#             output_dir=per_sample_out,
-#             forward_fn=forward_fn,
-#         )
+        def _conv(m, _lk=entry_label_key):
+            return juliet_json_to_sample(
+                m, label_keys=[{"keyword": _lk.keyword, "label": _lk.label}]
+            )
 
-#     summary_file = os.path.join(results_dir, output_file)
-#     with open(summary_file, "w") as f:
-#         json.dump(summary, f, indent=2)
+        def _pre_inject_path(raw: dict, fp: str):
+            raw["__file_path"] = fp
+            return raw
 
-#     return summary
+        dataset_part = GenericJsonDataset(
+            paths=entry_path,
+            model_cls=AnyGraphModel,
+            converter=_conv,
+            pre=_pre_inject_path,
+            strict=False,
+            debug=False,
+        )
+        n_items = len(dataset_part)
+        if n_items > 0:
+            gen = torch.Generator()
+            gen.manual_seed(int(cfg.seed) + int(ds_idx))
+            perm = torch.randperm(n_items, generator=gen).tolist()
+        else:
+            perm = []
+        if n_items <= 1:
+            split = n_items
+        else:
+            split = int(round(n_items * float(cfg.train_ratio)))
+            split = max(1, min(n_items - 1, split))
+        train_idx = perm[:split]
+        test_idx = perm[split:]
+        train_datasets_list.append(Subset(dataset_part, train_idx))
+        test_datasets_list.append(Subset(dataset_part, test_idx))
+
+    test_dataset: ConcatDataset[Sample] = ConcatDataset(test_datasets_list)  # type: ignore[arg-type]
+
+    # Determine dims and model
+    kinds = ["ast"] if cfg.mode == "ast" else ["dfg"] if cfg.mode == "dfg" else ["ast", "dfg"]
+    inferred = infer_dims_from_dataset(test_dataset, kinds)
+    ast_in = inferred.get("ast", (0, 0))[0]
+    ast_edge_dim = inferred.get("ast", (0, 0))[1]
+    dfg_in = inferred.get("dfg", (0, 0))[0]
+    dfg_edge_dim = inferred.get("dfg", (0, 0))[1]
+
+    model = select_model(
+        cfg=cfg,
+        ast_in=ast_in,
+        dfg_in=dfg_in,
+        edge_dim_ast=ast_edge_dim,
+        edge_dim_dfg=dfg_edge_dim,
+    )
+    model_path = latest_epoch_checkpoint(results_dir) or os.path.join(results_dir, "model.pt")
+    model = load_model_robust(model_path, device)
+    mode = infer_mode_from_model(model)
+
+    dataloader = build_dataloader(test_dataset, cfg, collate_fn=collate_multi)
+    per_sample_out = os.path.join(results_dir, "evaluation")
+    os.makedirs(per_sample_out, exist_ok=True)
+    summary = evaluate_model(
+        model=model,
+        dataloader=dataloader,
+        device=device,
+        mode=mode,
+        max_samples=int(args.max_samples),
+        output_dir=per_sample_out,
+        forward_fn=None,
+    )
+
+    summary_file = os.path.join(results_dir, "evaluation.json")
+    with open(summary_file, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    console.print(f"Saved evaluation summary → {summary_file}", style="green")
+
+
+def main() -> None:
+    """Top-level entry that points users to subcommands.
+
+    Example:
+      uv run train --save_name results/exp1
+      uv run evaluate --results_dir results/exp1
+    """
+    parser = argparse.ArgumentParser(prog="agent", description="SSAT Agent entrypoint")
+    parser.add_argument("command", nargs="?", choices=["train", "evaluate"], help="Subcommand to run")
+    args, passthrough = parser.parse_known_args()
+    if args.command == "train":
+        train()
+    elif args.command == "evaluate":
+        evaluate()
+    else:
+        print("Use one of:\n  uv run train [args]\n  uv run evaluate [args]")

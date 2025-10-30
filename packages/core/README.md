@@ -180,8 +180,8 @@ export type { DFGOptions, DFGResult } from "./conversions/types";
 
 ### Required External Tools
 
-- **Joern 4.0.361**: For CPG generation
-- **Python 3.x**: For AST server communication
+- Joern 4.0.361+ — CPG generation
+- Python 3.x — AST and DFG helpers (spawned as subprocess, no HTTP server)
 
 ### Node.js Dependencies
 
@@ -299,3 +299,28 @@ npm run format
 ## License
 
 ISC
+
+## Environment Setup
+
+- Node.js >= 18.17 < 23
+- Yarn (install deps from repo root): `yarn install`
+- Joern 4.0.361+ in PATH (for CPG)
+- Python 3.x with uv installed (for AST/DFG Python extractors)
+
+## Architecture Notes
+
+- Conversion entrypoints live under `src/conversions/*` and are exported via `./endpoint`
+- AST/DFG Python extractors are invoked via subprocess (`python-shell`), not an HTTP service
+- Path resolution is centralized in `src/utils/pathResolver.ts` to avoid CWD issues
+
+## Scripts
+
+```bash
+# In the workspace
+yarn workspace @ssat/core scripts:help
+yarn workspace @ssat/core type-check
+yarn workspace @ssat/core lint
+yarn workspace @ssat/core lint:fix
+yarn workspace @ssat/core format
+yarn workspace @ssat/core format:check
+```
