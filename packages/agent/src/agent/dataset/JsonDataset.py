@@ -314,88 +314,47 @@ def _infer_label_from_json(
     fallback_path: Optional[str] = None,
     label_keys: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
-    """Infer label from JSON payload using common fields and name hints.
+    """Simple label inference.
 
     Priority:
-      1) Explicit fields: 'label', 'is_vulnerable', 'vulnerable', 'target'
-      2) Keyword hints in function/file/template names
-      3) Fallback to path-based heuristic
-    Returns 0 for safe, 1 for vulnerable.
+      1) Explicit 'label' if numeric/bool
+      2) Single label_key against filename (binary partition)
+      3) Basic filename heuristic ('patched'->0, 'vuln/bad/unpatched/unsafe'->1)
+      4) Path heuristic as last resort
     """
-    # 1) Explicit fields
     label = raw.get("label")
-    if label is not None:
-        try:
-            if isinstance(label, bool):
-                return 1 if label else 0
-            # strings like "1", "0", "bad", "good"
-            if isinstance(label, str):
-                v = label.strip().lower()
-                if v in {"bad", "vuln", "vulnerable", "unpatched", "unsafe"}:
-                    return 1
-                if v in {"good", "patched", "safe", "fixed"}:
-                    return 0
-                return 1 if int(v) != 0 else 0
-            return 1 if int(label) != 0 else 0
-        except Exception:
-            pass
-    for k in ("is_vulnerable", "vulnerable", "target"):
-        if k in raw:
-            try:
-                v = raw[k]
-                if isinstance(v, bool):
-                    return 1 if v else 0
-                if isinstance(v, (int, float)):
-                    return 1 if int(v) != 0 else 0
-                if isinstance(v, str):
-                    t = v.strip().lower()
-                    if t in {"true", "1", "yes", "bad", "vuln", "vulnerable", "unpatched", "unsafe"}:
-                        return 1
-                    if t in {"false", "0", "no", "good", "patched", "safe", "fixed"}:
-                        return 0
-            except Exception:
-                pass
+    if isinstance(label, bool):
+        return 1 if label else 0
+    if isinstance(label, (int, float)):
+        return 1 if int(label) != 0 else 0
+    if isinstance(label, str) and label.strip().isdigit():
+        return 1 if int(label.strip()) != 0 else 0
 
-    # 2) Configured label keyword rules (use filename, not function)
-    file_name = raw.get("file") or raw.get("filename") or raw.get("source_template")
-    fname_lower = str(file_name or "").lower()
+    # Filename (prefer real on-disk path)
+    fname = None
     if fallback_path:
-        try:
-            import os as _os
-            fname_lower = _os.path.basename(fallback_path).lower()
-        except Exception:
-            pass
-    if label_keys:
-        try:
-            if len(label_keys) == 1:
-                lk = label_keys[0]
-                kw = str(lk.get("keyword", "")).lower()
-                lbl = int(lk.get("label", 0))
-                if kw and kw in fname_lower:
-                    return 1 if lbl != 0 else 0
-                else:
-                    # Invert label when keyword not present
-                    return 0 if lbl != 0 else 1
-            # Multiple rules: first match wins; otherwise fall through
-            for lk in label_keys:
-                kw = str(lk.get("keyword", "")).lower()
-                if kw and kw in fname_lower:
-                    lbl = int(lk.get("label", 0))
-                    return 1 if lbl != 0 else 0
-        except Exception:
-            pass
-    # Built-in hints consider filename and function name
-    func_name = raw.get("function_name") or raw.get("function")
-    key_str = " ".join(str(s) for s in [fname_lower, func_name] if s).lower()
-    if any(k in key_str for k in ["patched", "good", "safe", "fixed"]):
+        import os as _os
+        fname = _os.path.basename(fallback_path)
+    if not fname:
+        fname = raw.get("file") or raw.get("filename") or raw.get("source_template") or ""
+    f = str(fname).lower()
+
+    # Configured single label rule
+    if label_keys and len(label_keys) >= 1:
+        kw = str(label_keys[0].get("keyword", "")).lower()
+        lbl = int(label_keys[0].get("label", 0))
+        if kw and kw in f:
+            return 1 if lbl != 0 else 0
+        return 0 if lbl != 0 else 1
+
+    # Basic filename heuristics
+    if any(k in f for k in ("patched", "good", "safe", "fixed")):
         return 0
-    if any(k in key_str for k in ["bad", "vuln", "vulnerable", "unpatched", "unsafe"]):
+    if any(k in f for k in ("bad", "vuln", "unpatched", "unsafe")):
         return 1
 
-    # 3) Fallback to file path if provided
-    if fallback_path:
-        return _infer_label_from_path(fallback_path)
-    return 0
+    # Fallback to path
+    return _infer_label_from_path(fallback_path or "")
 
 
 def juliet_json_to_sample(
@@ -427,12 +386,10 @@ def juliet_json_to_sample(
             dfg_section, edge_family_prefixes=["edges_dfg"]
         )  # dfg-specific
 
-    # Derive label robustly from JSON content and names
+    # Derive label (filename-based, with optional explicit 'label' field)
     file_name = raw.get("file") or raw.get("filename") or raw.get("source_template")
     func_name = raw.get("function_name") or raw.get("function")
-    # Use injected on-disk path for filename-based rules
-    fallback_path = raw.get("__file_path")
-    y = _infer_label_from_json(raw, fallback_path=fallback_path, label_keys=label_keys)
+    y = _infer_label_from_json(raw, fallback_path=raw.get("__file_path"), label_keys=label_keys)
 
     sample = Data()
     sample.y = torch.tensor(y, dtype=torch.long)

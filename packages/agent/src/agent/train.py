@@ -36,6 +36,7 @@ from .model.CreativeGNN import DualStreamCrossGraphNet
 from .model.LateFusion import LateFusionModel
 from .model.SingleBranch import ASTOnlyModel, DFGOnlyModel
 from .config import Schema, TrainConfig
+from .dataset.JsonDataset import GenericJsonDataset, AnyGraphModel, juliet_json_to_sample
 
 
 # Suppress torch-scatter warning noise
@@ -395,6 +396,9 @@ def build_dataloader(
         shuffle=cfg.shuffle,
         collate_fn=collate_fn or collate_multi,
     )
+
+
+# build_datasets_and_stats was removed as overengineering; kept logic local to entrypoint
 
 
 def train_model_from_dataset(
