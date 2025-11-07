@@ -90,9 +90,9 @@ def process_dfg_file(
         template_json = json.load(f)
 
     if isinstance(template_json, list):
-        functions = recursivelyGetFunctionsFromTemplate(template_json[0])
-    else:
         functions = recursivelyGetFunctionsFromTemplate(template_json)
+    else:
+        functions = recursivelyGetFunctionsFromTemplate([template_json])
 
     rel_path = os.path.relpath(template_path, data_root)
     rel_dir = os.path.dirname(rel_path)

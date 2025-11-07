@@ -24,7 +24,7 @@ def recursvely_get_json_files(directory: str) -> List[str]:
 
 
 def recursivelyGetFunctionsFromTemplate(
-    template: Dict[str, Any],
+    template: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     functions: List[Dict[str, Any]] = []
     for node in template:
