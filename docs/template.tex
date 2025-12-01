@@ -3,15 +3,15 @@
 \section{Template 변환}
 
 \subsection{개요 및 설계}
-Template 모듈은 정적 분석 파이프라인 내부에서 CPG(Code Property Graph)를 템플릿 분석에 적합한 형태로 변환하는 핵심 계층이다. 소스 코드는 일차적으로 CPG로 변환되는데, 이 CPG는 타입 정보, 제어 흐름, 데이터 흐름, 호출 관계 등 매우 풍부한 의미 정보를 포함한다. 그러나 CPG 원본 데이터는 표현이 장황하고(verbose), 그래프 구조가 복잡하며, 동일한 의미의 코드라도 표현 방식이 다를 수 있다는 한계가 있어 보안 패턴 매칭이나 템플릿 기반 분석에 직접 사용하기에는 부적합하다.
+Template 모듈은 정적 분석 파이프라인 내부에서 \abbrCPG 를 템플릿 분석에 적합한 형태로 변환하는 핵심 계층이다. 소스 코드는 일차적으로 CPG로 변환되는데, 이 CPG는 타입 정보, 제어 흐름, 데이터 흐름, 호출 관계 등 매우 풍부한 의미 정보를 포함한다. 그러나 CPG 원본 데이터는 표현이 verbose 하고, 그래프 구조가 복잡하며, 동일한 의미의 코드라도 표현 방식이 다를 수 있다는 한계가 있어 보안 패턴 매칭이나 템플릿 기반 분석에 직접 사용하기에는 부적합하다.
 
-따라서 Template 모듈은 복잡한 CPG를 다음과 같이 가공하여 후속 단계(패턴 매칭, 취약점 탐지, 코드 생성 등)에서 단일하고 일관된 중간 표현(Intermediate Representation, IR)을 다룰 수 있도록 한다.
+따라서 Template 모듈은 복잡한 CPG를 다음과 같이 가공하여 후속 단계(패턴 매칭, 취약점 탐지, 코드 생성 등)에서 단일하고 일관된 \abbrIR 을 다룰 수 있도록 한다.
 
 \begin{itemize}
     \item \textbf{정규화}: \texttt{<operator>.addition}과 같은 내부 이름을 \texttt{+}와 같은 표준 연산자로 변환하고, 배열 선언 등 불일치한 표현을 일관된 템플릿 노드 타입으로 통합한다.
     \item \textbf{AST 재구성}: 그래프 엣지로 표현된 관계 중 AST 엣지만을 추출하여 직관적인 계층적 트리 구조를 재구성한다.
     \item \textbf{타입 추론 및 보강}: 암시적인 타입 정보를 추론하고, 원본 코드 메타데이터를 부착한다.
-    \item \textbf{평탄화(Flattening)}: 필요 시 트리를 그래프 알고리즘에 적합한 노드/엣지 리스트 형태로 재가공한다.
+    \item \textbf{Flattening}: 필요 시 트리를 그래프 알고리즘에 적합한 노드/엣지 리스트 형태로 재가공한다.
 \end{itemize}
 
 \paragraph{\textbf{설계 근거 및 전략}:}
@@ -40,24 +40,10 @@ Template 모듈은 4단계의 파이프라인을 통해 CPG를 변환하며, 각
         \item \texttt{BinaryUnaryTypeWrapper}를 이용한 Bottom-up 타입 추론 (실패 시 \texttt{<unknown>}).
         \item 표준 라이브러리 호출과 사용자 정의 호출 구분.
     \end{itemize}
-    
-    \item \textbf{PostProcessor (후처리)}: 변환된 트리를 정제하고 보강한다.
-    \begin{itemize}
-        \item \texttt{nodeType}이 없는 유효하지 않은 노드 제거 및 자식 승계.
-        \item CPG의 \texttt{CODE} 속성을 추출하여 각 노드에 부착.
-        \item 배열 선언 및 할당 노드 병합, Translation Unit 분리.
-    \end{itemize}
-    
-    \item \textbf{PlanationTool (평탄화)}: 트리를 평탄화된 그래프로 변환한다.
-    \begin{itemize}
-        \item 계층적 트리를 노드 리스트와 엣지 리스트(\texttt{from}, \texttt{to})로 변환.
-        \item 결정적 결과(Determinism) 보장을 위한 ID 기반 정렬.
-        \item 엣지 유효성 검증 (Dangling edge 탐지).
-    \end{itemize}
 \end{enumerate}
 
 \subsection{실행 흐름}
-Template 변환은 \texttt{buildTemplateArtifacts()} 함수를 진입점으로 하여 순차적으로 실행된다. Endpoint는 용도에 따라 트리 기반의 \texttt{templateResult} 또는 그래프 기반의 \texttt{flatten}을 선택하여 사용할 수 있다.
+Template 변환은 \texttt{buildTemplateArtifacts()} 함수를 진입점으로 하여 순차적으로 실행된다. Endpoint는 용도에 따라 트리 기반의 \texttt{templateResult}를 활용하여 후속 분석을 수행한다.
 
 % (*@ [H] 옵션을 사용하여 그림을 현재 위치에 고정 @*)
 \begin{figure}[H]
@@ -66,23 +52,18 @@ Template 변환은 \texttt{buildTemplateArtifacts()} 함수를 진입점으로 �
 function buildTemplateArtifacts(root: CPGRoot) {
   const extractor = new TemplateExtractor();
   const converter = new TemplateConverter();
-  const postProcessor = new PostProcessor();
-  const planationTool = new PlanationTool([...]);
 
   const template = extractor.getTemplateTree(root.export);
-  const converted = converter.convertTree(template);
-  let templateResult = postProcessor.removeInvalidNodes(converted);
-  templateResult = postProcessor.addCodeProperties(templateResult, root);
-  const flatten = planationTool.flatten(templateResult);
-  
-  return { template, templateResult, textLines, flatten };
+  const templateResult = converter.convertTree(template);
+
+  return { template, templateResult };
 }
     \end{lstlisting}
     \caption{Template 변환 파이프라인 오케스트레이션}
     \label{fig:build_artifacts}
 \end{figure}
 
-\subsubsection{Step 1: 트리 추출 (TemplateExtractor)}
+\subsubsection{Step 1: 트리 TemplateExtractor}
 CPG 데이터에서 \texttt{@value} 래퍼를 해제하고 AST 엣지만을 필터링하여 재귀적으로 구문 트리를 구성한다. 데이터 흐름이나 제어 흐름 엣지를 배제하여 순환 구조를 방지한다.
 
 \begin{figure}[H]
@@ -100,8 +81,8 @@ public getTemplateTree(cpg: unknown): TreeNode[] {
     \label{fig:template_extractor}
 \end{figure}
 
-\subsubsection{Step 2: 노드 변환 (TemplateConverter)}
-추출된 \texttt{TreeNode}를 표준화된 \texttt{TemplateNodes}로 변환한다. 각 노드의 라벨에 따라 적절한 핸들러로 분기(Dispatch)하며, 오류 발생 시 노드 식별 정보를 포함한 예외를 발생시킨다.
+\subsubsection{Step 2: 노드 TemplateConverter}
+추출된 \texttt{TreeNode}를 표준화된 \texttt{TemplateNodes}로 변환한다. 각 노드의 라벨에 따라 적절한 핸들러로 Dispatch하며, 오류 발생 시 노드 식별 정보를 포함한 예외를 발생시킨다.
 
 \begin{figure}[H]
     \centering
@@ -120,7 +101,7 @@ private dispatchConvert(node: TreeNode): TemplateNodes | undefined {
     \label{fig:dispatch_convert}
 \end{figure}
 
-\paragraph{연산자 정규화 (CALL)} \texttt{<operator>.*} 형태의 이름을 \texttt{BinaryExpressionOperatorMap} 등을 통해 표준 기호(\texttt{+}, \texttt{==})로 매핑하고 \texttt{BinaryExpression} 또는 \texttt{UnaryExpression}으로 변환한다.
+\paragraph{연산자 CALL} \texttt{<operator>.*} 형태의 이름을 \texttt{BinaryExpressionOperatorMap} 등을 통해 표준 기호(\texttt{+}, \texttt{==})로 매핑하고 \texttt{BinaryExpression} 또는 \texttt{UnaryExpression}으로 변환한다.
 
 \begin{figure}[H]
     \centering
@@ -141,14 +122,14 @@ private handleCallOperators(node: TreeNode) {
     \label{fig:handle_call_operators}
 \end{figure}
 
-\paragraph{제어 구조 (Control Structure)} \texttt{CONTROL\_STRUCTURE\_TYPE} 속성을 확인하여 IF, WHILE 등으로 변환한다. IF 문의 경우 조건, True 블록, False 블록을 템플릿 포맷에 맞게 재배치하며, 자식 노드 수가 부족할 경우 예외를 발생시킨다.
+\paragraph{제어 Control Structure} \texttt{CONTROL\_STRUCTURE\_TYPE} 속성을 확인하여 IF, WHILE 등으로 변환한다. IF 문의 경우 조건, True 블록, False 블록을 템플릿 포맷에 맞게 재배치하며, 자식 노드 수가 부족할 경우 예외를 발생시킨다.
 
 \begin{figure}[H]
     \centering
     \begin{lstlisting}[language=TypeScript]
 private handleControlStructure(node: TreeNode) {
   const type = node.properties.CONTROL_STRUCTURE_TYPE;
-  switch (type) {
+  type {
     case "IF":
       if (node.children.length < 2) throw new Error("Invalid IF structure");
       return { nodeType: TemplateNodeTypes.IfStatement, 
@@ -161,7 +142,7 @@ private handleControlStructure(node: TreeNode) {
     \label{fig:handle_control_structure}
 \end{figure}
 
-\paragraph{변수 및 함수 처리} 변수 선언(\texttt{LOCAL})의 경우 \texttt{TYPE\_FULL\_NAME}을 분석하여 배열(\texttt{[]}), 포인터(\texttt{*})를 구분한다. 함수(\texttt{METHOD})는 파일 스코프 내의 항목만 처리하며, 본문 유무에 따라 선언(Declaration)과 정의(Definition)로 나눈다.
+\paragraph{변수 및 함수 처리} 변수 선언(\texttt{LOCAL})의 경우 \texttt{TYPE\_FULL\_NAME}을 분석하여 배열(\texttt{[]}), 포인터(\texttt{*})를 구분한다. 함수(\texttt{METHOD})는 파일 스코프 내의 항목만 처리하며, 본문 유무에 따라 Declaration과 Definition으로 나눈다.
 
 \begin{figure}[H]
     \centering
@@ -173,44 +154,6 @@ return { nodeType: TemplateNodeTypes.VariableDeclaration };
     \end{lstlisting}
     \caption{변수 선언 타입 분석 로직}
     \label{fig:variable_logic}
-\end{figure}
-
-\subsubsection{Step 3: 후처리 (PostProcessor)}
-\texttt{removeInvalidNodes}를 통해 \texttt{nodeType}이 없는 노드를 제거(자식은 승계)하고,\\
-\texttt{addCodeProperties}를 통해 CPG의 \texttt{CODE} 속성을 템플릿 노드에 부착하여 디버깅 및 리포팅을 지원한다.
-
-\begin{figure}[H]
-    \centering
-    \begin{lstlisting}[language=TypeScript]
-public addCodeProperties(nodes: TemplateNodes[], cpg: CPGRoot): TemplateNodes[] {
-  return nodes.map(node => {
-    const vertex = cpg.export["@value"].vertices.find(v => v.id["@value"] === node.id);
-    return { ...node, code: vertex?.properties.CODE || "" };
-  });
-}
-    \end{lstlisting}
-    \caption{코드 속성 부착 로직}
-    \label{fig:add_code_properties}
-\end{figure}
-
-\subsubsection{Step 4: 평탄화 (PlanationTool)}
-트리를 순회하여 노드를 복제하고 부모-자식 관계를 \texttt{from}-\texttt{to} 엣지로 변환한다. 노드와 엣지를 ID 기준으로 정렬하여 결과의 결정성(determinism)을 보장하며, 존재하지 않는 노드를 가리키는 엣지가 없는지 검증한다.
-
-\begin{figure}[H]
-    \centering
-    \begin{lstlisting}[language=TypeScript]
-public flatten(astRoots: TemplateNodes[]): TemplateFlattenedGraph[] {
-  return astRoots.map(root => {
-    this.traverse(root);
-    this.nodes.sort((a, b) => a.id - b.id);
-    this.edges.sort((e1, e2) => e1.from + e1.to - (e2.from + e2.to));
-    this.validateEdges();
-    return { edges: this.edges.slice(), nodes: this.nodes.slice() };
-  });
-}
-    \end{lstlisting}
-    \caption{평탄화 및 그래프 생성 로직}
-    \label{fig:flatten_logic}
 \end{figure}
 
 \subsection{설정}

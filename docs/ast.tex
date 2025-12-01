@@ -1,27 +1,27 @@
 \clearpage
 
-\section{AST Extractor V1.12}
+\section{AST 추출 모듈}
 
 \subsection{개요}
-\texttt{ASTExtractorV1\_12} 클래스는 계층적인 템플릿 JSON(함수 수준 AST)을 GNN(Graph Neural Network) 학습에 적합한 평탄화된(Flattened) 문장 수준 그래프 표현으로 변환하는 핵심 모듈이다. 이 모듈은 제어 흐름 관계, 가드(Guard) 조건, 의미적 주석(Semantic Annotations)을 보존하면서 AST 정보를 추출한다.
+\textbf{AST 추출 모듈}은 계층적인 템플릿 JSON(함수 수준 AST)을 \abbrGNN 학습에 적합한 평탄화된 Flattened 문장 수준 그래프 표현으로 변환하는 핵심 구성 요소이다. 이 모듈은 제어 흐름 관계, Guard 조건, 의미적 주석 Semantic Annotations를 보존하면서 AST 정보를 추출한다.
 
 \subsubsection{해결하고자 하는 문제}
 템플릿 JSON은 코드 함수의 계층적 AST 표현을 제공하지만, GNN 모델 학습을 위해서는 다음과 같은 요건이 충족되어야 한다.
 
 \begin{itemize}
     \item \textbf{구조 평탄화}: 깊게 중첩된 트리 구조보다 평탄한 노드 리스트가 GNN 처리에 효율적이다.
-    \item \textbf{문장 수준 입도}: 표현식(Expression) 수준이 아닌 할당, 선언, 제어문 등 문장(Statement) 수준의 분석이 필요하다.
+\item \textbf{문장 수준 입도}: Expression 수준이 아닌 할당, 선언, 제어문 등 Statement 수준의 분석이 필요하다.
     \item \textbf{제어 흐름 보존}: 제어문(if, for, while, switch)과 그로 인해 실행되는 블록 간의 관계가 명시적으로 표현되어야 한다.
     \item \textbf{특징 추출}: 각 노드는 의미 정보(노드 타입, 루프 컨텍스트, 가드 제약, 호출 의미 등)를 포함한 수치형 특징을 가져야 한다.
 \end{itemize}
 
-AST Extractor는 계층적 AST를 평탄화하고, 구조 및 제어 흐름을 보존하기 위해 세 가지 유형의 엣지(Parent-Child, Sibling, Guard)를 생성하며, 각 노드에 대해 GNN 입력에 적합한 특징 벡터를 계산함으로써 이러한 문제를 해결한다.
+AST 추출 모듈은 계층적 AST를 평탄화하고, 구조 및 제어 흐름을 보존하기 위해 세 가지 유형의 엣지(Parent-Child, Sibling, Guard)를 생성하며, 각 노드에 대해 GNN 입력에 적합한 특징 벡터를 계산함으로써 이러한 문제를 해결한다.
 
 
 \subsection{실행 흐름}
 
-\subsubsection{초기화 (Initialization)}
-\texttt{ASTExtractorV1\_12} 인스턴스 생성 시, 입력된 템플릿 JSON을 순회하여 모든 노드를 ID로 인덱싱하고 결과 컨테이너를 초기화한다.
+\subsubsection{Initialization}
+AST 추출 모듈 인스턴스 생성 시, 입력된 템플릿 JSON을 순회하여 모든 노드를 ID로 인덱싱하고 결과 컨테이너를 초기화한다.
 
 \begin{figure}[H]
     \centering
@@ -44,7 +44,7 @@ def __init__(self, ast_json: Dict[str, Any]):
     self.nodes, self.edges_pc, self.edges_sb, self.edges_ast_guard = [], [], [], []
     self.nodes.append({"sid": 0, "node_type": "FunctionEntry", "feat": {...}})
     \end{lstlisting}
-    \caption{AST Extractor 초기화 로직}
+    \caption{AST 추출 모듈 초기화 로직}
     \label{fig:ast_init}
 \end{figure}
 
@@ -110,7 +110,7 @@ def _process_block(self, block_node, parent_sid, active_guards, in_loop):
 \end{enumerate}
 
 \subsubsection{Control Flow Handling}
-제어문(If, For, While, Switch)은 가드 엣지(Guard Edge)를 통해 제어 노드와 피제어 블록을 연결한다.
+If, For, While, Switch 제어문은 Guard Edge를 통해 제어 노드와 피제어 블록을 연결한다.
 
 \begin{figure}[H]
     \centering
@@ -143,12 +143,46 @@ if t == "IfStatement":
 \subsubsection{입출력 구조}
 입력은 계층적인 템플릿 JSON이며, 출력은 노드 리스트와 엣지 리스트로 구성된 평탄화된 그래프이다.
 
-\begin{itemize}
-    \item \textbf{Input}: \texttt{\{ "nodeType": "FunctionDefinition", "children": [...] \}}
-    \item \textbf{Output}: \texttt{\{ "nodes": [...], "edges\_ast\_pc": [...], "edges\_ast\_sb": [...], "edges\_ast\_guard": [...] \}}
-\end{itemize}
+\begin{figure}[H]
+    \centering
+    \begin{minipage}[t]{0.47\textwidth}
+        \vspace{0pt}
+        \textbf{Input JSON}
+        \begin{lstlisting}[language=json]
+{
+  "nodeType": "FunctionDefinition",
+  "children": [
+    ...
+  ]
+}
+        \end{lstlisting}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[t]{0.47\textwidth}
+        \vspace{0pt}
+        \textbf{Output JSON}
+        \begin{lstlisting}[language=json]
+{
+  "nodes": [
+    ...
+  ],
+  "edges_ast_pc": [
+    ...
+  ],
+  "edges_ast_sb": [
+    ...
+  ],
+  "edges_ast_guard": [
+    ...
+  ]
+}
+        \end{lstlisting}
+    \end{minipage}
+    \caption{AST 추출 모듈의 입력 및 출력 JSON 예시}
+    \label{fig:ast_io_json}
+\end{figure}
 
-\subsubsection{노드 특징 (Node Features)}
+\subsubsection{Node Features}
 각 노드의 \texttt{feat} 딕셔너리는 다음 정보를 포함한다.
 
 \begin{itemize}
@@ -174,8 +208,8 @@ if t == "IfStatement":
 세 가지 엣지 패밀리를 통해 코드의 구조적 정보를 보존한다.
 
 \begin{enumerate}
-    \item \textbf{Parent-Child (PC)}: 원본 AST의 계층 구조 표현 (엣지 타입 0).
-    \item \textbf{Sibling (SB)}: 문장 간의 실행 순서 표현 (엣지 타입 1).
+    \item \textbf{Parent-PC}: 원본 AST의 계층 구조 표현 (엣지 타입 0).
+    \item \textbf{SB}: 문장 간의 실행 순서 표현 (엣지 타입 1).
     \item \textbf{Guard}: 제어 흐름에 따른 조건부 실행 관계 표현 (엣지 타입 2).
 \end{enumerate}
 

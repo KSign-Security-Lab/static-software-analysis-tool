@@ -3,27 +3,27 @@
 \section{GNN을 이용한 AST 기반의 취약점 탐지}
 
 \subsection{개요}
-Agent 모듈은 정적 분석 파이프라인의 후반부에서 동작하는 그래프 신경망(Graph Neural Network, GNN) 기반의 취약점 탐지 시스템이다. 이 모듈은 앞선 단계에서 생성된 코드의 그래프 표현(AST)을 입력으로 받아, 해당 함수가 취약한지(Vulnerable) 혹은 안전한지(Safe)를 분류하도록 학습된 PyTorch Geometric 모델을 운용한다.
+Agent 모듈은 정적 분석 파이프라인의 후반부에서 동작하는 그래프 신경망(\abbrGNN) 기반의 취약점 탐지 시스템이다. 이 모듈은 앞선 단계에서 생성된 코드의 AST 표현을 입력으로 받아, 해당 함수가 Vulnerable 인지 혹은 Safe 인지를 분류하도록 학습된 \abbrPyG 모델을 운용한다.
 
 \subsubsection{해결하고자 하는 문제}
-기존의 정적 분석 도구는 잠재적 취약점을 식별할 수 있으나, 코드의 의미(Semantics)와 문맥(Context)을 완전히 이해하지 못해 다음과 같은 한계가 존재한다.
+기존의 정적 분석 도구는 잠재적 취약점을 식별할 수 있으나, 코드의 Semantics와 Context를 완전히 이해하지 못해 다음과 같은 한계가 존재한다.
 
 \begin{itemize}
-    \item \textbf{문맥 민감성(Context Sensitivity) 부재}: 동일한 코드 패턴이라도 문맥에 따라 안전할 수도, 취약할 수도 있다.
-    \item \textbf{높은 오탐률(False Positives)}: 런타임 제약 조건이나 검증 로직으로 인해 실제로는 안전한 코드임에도 취약점으로 탐지되는 경우가 빈번하다.
+    \item \textbf{Context Sensitivity 부족}: 동일한 코드 패턴이라도 문맥에 따라 안전할 수도, 취약할 수도 있다.
+    \item \textbf{False Positives 증가}: 런타임 제약 조건이나 검증 로직으로 인해 실제로는 안전한 코드임에도 취약점으로 탐지되는 경우가 빈번하다.
     \item \textbf{복잡한 패턴}: 취약점은 단일 구문이 아닌, 여러 코드 요소 간의 복잡한 상호작용으로 인해 발생하는 경우가 많다.
 \end{itemize}
 
-Agent 모듈은 레이블링된 데이터셋을 통해 GNN 모델을 학습시킴으로써 이러한 문제를 해결한다. GNN 아키텍처는 코드를 그래프 구조(구문을 위한 AST)로 표현하고, 노드 및 엣지 속성으로부터 특징(Feature)을 자동으로 학습하여 구문적 패턴을 포착하는 데 최적화되어 있다.
+Agent 모듈은 레이블링된 데이터셋을 통해 GNN 모델을 학습시킴으로써 이러한 문제를 해결한다. GNN 아키텍처는 코드를 그래프 구조(구문을 위한 AST)로 표현하고, 노드 및 엣지 속성으로부터 Feature를 자동으로 학습하여 구문적 패턴을 포착하는 데 최적화되어 있다.
 
 \subsubsection{기능 요약}
 Agent 모듈은 다음과 같은 기계 학습 파이프라인 전 과정을 제공한다.
 
 \begin{enumerate}
     \item \textbf{데이터 로딩}: 함수별 AST 그래프가 포함된 JSON 파일을 로드한다.
-    \item \textbf{그래프 구축}: JSON 데이터를 PyTorch Geometric의 \texttt{Data} 객체(노드 특징, 엣지 인덱스, 엣지 속성 포함)로 변환한다.
+    \item \textbf{그래프 구축}: JSON 데이터를 PyG의 \texttt{Data} 객체(노드 특징, 엣지 인덱스, 엣지 속성 포함)로 변환한다.
     \item \textbf{모델 학습}: 학습 데이터를 사용하여 함수를 취약(1) 또는 안전(0)으로 분류하는 GNN 모델을 학습한다.
-    \item \textbf{모델 평가}: 테스트 데이터를 통해 모델의 정확도, 혼동 행렬(Confusion Matrix), 클래스별 통계 등을 평가한다.
+    \item \textbf{모델 평가}: 테스트 데이터를 통해 모델의 정확도, Confusion Matrix, 클래스별 통계 등을 평가한다.
     \item \textbf{설정 관리}: 재현성을 보장하기 위해 전체 학습 구성을 저장하고 관리한다.
 \end{enumerate}
 
@@ -65,7 +65,7 @@ def train(cfg: Optional[TrainConfig] = None) -> None:
 주요 단계별 상세 내용은 다음과 같다.
 
 \begin{itemize}
-    \item \textbf{구성 파싱}: CLI 인자를 통해 \texttt{TrainConfig} 객체를 생성하여 유연한 실험 설정을 지원한다.
+\item \textbf{구성 파싱}: \abbrCLI 인자를 통해 \texttt{TrainConfig} 객체를 생성하여 유연한 실험 설정을 지원한다.
     \item \textbf{데이터셋 로딩}: \texttt{GenericJsonDataset}을 통해 JSON 파일을 PyG 객체로 변환하고, 파일명 키워드 등을 기반으로 레이블을 추론한다.
     \item \textbf{데이터로더 생성}: \texttt{collate} 함수를 사용하여 AST 그래프 배치를 구성한다.
     \item \textbf{차원 추론}: 데이터셋을 검사하여 가변적인 노드/엣지 속성의 차원을 자동으로 계산한다.
@@ -94,7 +94,7 @@ def evaluate() -> None:
 \subsection{컴포넌트 책임}
 
 \subsubsection{GenericJsonDataset}
-JSON 파일을 로드하고 PyTorch Geometric 그래프 객체로 변환하는 역할을 담당한다. Pydantic 모델을 사용하여 JSON 스키마를 검증하며, \texttt{juliet\_json\_to\_sample} 변환기를 통해 AST 섹션을 추출하고 그래프를 구축한다.
+JSON 파일을 로드하고 PyG 그래프 객체로 변환하는 역할을 담당한다. Pydantic 모델을 사용하여 JSON 스키마를 검증하며, \texttt{juliet\_json\_to\_sample} 변환기를 통해 AST 섹션을 추출하고 그래프를 구축한다.
 
 \subsubsection{Graph Building Functions}
 JSON 구조의 노드와 엣지를 PyG 텐서로 변환한다.
@@ -105,13 +105,13 @@ JSON 구조의 노드와 엣지를 PyG 텐서로 변환한다.
 \end{itemize}
 
 \subsubsection{Collate Function}
-AST 그래프와 가변 메타데이터를 포함하는 샘플들을 하나의 배치로 결합한다. PyTorch Geometric의 \texttt{Batch.from\_data\_list}를 사용하여 효율적인 병렬 처리가 가능한 연결된 그래프(Disjoint Union) 형태를 생성한다.
+AST 그래프와 가변 메타데이터를 포함하는 샘플들을 하나의 배치로 결합한다. PyG의 \texttt{Batch.from\_data\_list}를 사용하여 효율적인 병렬 처리가 가능한 연결된 그래프(Disjoint Union) 형태를 생성한다.
 
 \subsubsection{Model Selection \& Training}
 설정된 모드에 따라 적절한 모델 아키텍처를 선택하고 학습 루프를 제어한다. AST 그래프를 입력으로 받아 취약점 여부를 분류한다.
 
 \subsubsection{Evaluation Functions}
-\texttt{evaluate\_model} 및 \texttt{analyze\_sample\_with\_model} 함수를 통해 추론을 수행하고, 정확도, 확신도(Confidence), 오분류 샘플 등의 상세 분석 결과를 생성한다.
+\texttt{evaluate\_model} 및 \texttt{analyze\_sample\_with\_model} 함수를 통해 추론을 수행하고, 정확도, Confidence, 오분류 샘플 등의 상세 분석 결과를 생성한다.
 
 \subsection{데이터 변환}
 
@@ -130,7 +130,7 @@ AST 그래프와 가변 메타데이터를 포함하는 샘플들을 하나의 �
 \subsection{모델 아키텍처}
 
 \subsubsection{GNN Model Architecture}
-본 시스템은 AST 그래프를 처리하는 GNN 모델을 사용한다. GINEStack(Graph Isomorphism Network with Edge features)을 사용하여 그래프를 인코딩하고, 글로벌 풀링 후 선형 분류기를 통해 예측을 수행한다.
+본 시스템은 AST 그래프를 처리하는 GNN 모델을 사용한다. \abbrGINE 을 사용하여 그래프를 인코딩하고, 글로벌 풀링 후 선형 분류기를 통해 예측을 수행한다.
 
 \begin{figure}[H]
     \centering

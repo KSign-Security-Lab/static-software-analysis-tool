@@ -7,23 +7,22 @@
 \subsection{실험 환경}
 
 \subsubsection{데이터셋}
-실험에는 NIST Juliet Test Suite v1.3의 C/C++ 데이터셋을 활용하였다. Juliet Test Suite는 다양한 소프트웨어 취약점 유형을 체계적으로 포함하는 표준 벤치마크 데이터셋으로, 본 실험에서는 다음 취약점 유형을 포함한다.
+실험에는 NIST Juliet Test Suite v1.3의 C/C++ 데이터셋을 활용하였다. Juliet Test Suite는 다양한 소프트웨어 취약점 유형을 체계적으로 포함하는 표준 벤치마크 데이터셋으로, 본 연구에서는 다음 세 가지 데이터 소스를 사용하였다.
 
 \begin{itemize}
-    \item \textbf{CWE-121}: Stack-based Buffer Overflow
-    \item \textbf{CWE-122}: Heap-based Buffer Overflow
-    \item \textbf{CWE-124}: Buffer Underwrite
-    \item \textbf{CWE-126}: Buffer Over-read
+    \item \textbf{CWE-121} (\texttt{data/CWE121\_Stack\_Based\_Buffer\_Overflow}): 총 18,636개 샘플, Label 1 (취약) 16,156개, Label 0 (안전) 2,480개
+    \item \textbf{CWE-122} (\texttt{data/CWE122\_Heap\_Based\_Buffer\_Overflow}): 총 23,488개 샘플, Label 1 (취약) 19,332개, Label 0 (안전) 4,156개
+    \item \textbf{Real-world Code} (\texttt{data/real\_code}): 총 51개 샘플, Label 1 (취약) 16개, Label 0 (안전) 35개
 \end{itemize}
 
-각 취약점 유형은 \texttt{bad} (취약) 및 \texttt{good} (안전/패치됨) 두 가지 변형을 포함하며, 다양한 코드 패턴과 문맥을 제공한다.
+각 Juliet 폴더에서는 파일명에 \texttt{bad} 키워드를 포함하는 샘플을 Label 1 (취약)로, 그렇지 않은 샘플을 Label 0 (안전)으로 라벨링하였다. \texttt{data/real\_code} 폴더에서는 파일명이 \texttt{patched} 인 샘플을 Label 0 (안전)으로, 그렇지 않은 샘플을 Label 1 (취약)으로 정의하였다. 전체 기준으로는 총 42,175개 샘플 중 취약(Label 1)이 35,504개(84.18\%), 안전(Label 0)이 6,671개(15.82\%)로, 취약 클래스가 우세한 불균형 데이터셋이다. 모델 평가는 이 전체 데이터셋으로부터 무작위로 추출한 테스트 세트 4,218개 샘플에 대해 수행되었다.
 
 \subsubsection{실험 설정}
 모델 학습 및 평가는 다음과 같은 설정으로 수행되었다.
 
 \begin{itemize}
     \item \textbf{데이터 분할}: 전체 데이터셋을 학습 세트와 테스트 세트로 분할 (비율은 데이터셋 특성에 따라 결정)
-    \item \textbf{모델 아키텍처}: GINEStack 기반 인코더, 히든 차원 128, 레이어 수 3
+\item \textbf{모델 아키텍처}: \abbrGINE\ 기반 인코더, 히든 차원 128, 레이어 수 3
     \item \textbf{학습 파라미터}: 학습률 0.001, 배치 크기 32, 에포크 수 50
     \item \textbf{하드웨어}: NVIDIA GPU를 활용한 병렬 학습
 \end{itemize}
@@ -33,28 +32,28 @@
 \subsubsection{전체 성능}
 테스트 세트 4,218개 샘플에 대한 평가 결과는 다음과 같다.
 
-\begin{table}[h]
+\begin{table}[H]
     \centering
-    \begin{tabular}{lcc}
+    \begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}} lrr}
         \toprule
         \textbf{지표} & \textbf{값} & \textbf{비율} \\
         \midrule
         총 샘플 수 & 4,218 & 100.00\% \\
-        정확도 (Accuracy) & 3,996 & 94.74\% \\
+        Accuracy & 3,996 & 94.74\% \\
         \bottomrule
-    \end{tabular}
+    \end{tabular*}
     \caption{전체 성능 지표}
     \label{tab:overall_performance}
 \end{table}
 
-\subsubsection{혼동 행렬}
-이진 분류 결과를 혼동 행렬(Confusion Matrix)로 정리하면 Table~\ref{tab:confusion_matrix}와 같다.
+\subsubsection{Confusion Matrix}
+이진 분류 결과를 Confusion Matrix로 정리하면 Table~\ref{tab:confusion_matrix}와 같다.
 
-\begin{table}[h]
+\begin{table}[H]
     \centering
-    \begin{tabular}{l|cc|c}
+    \begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}} lccc}
         \toprule
-        \multirow{2}{*}{\textbf{실제}} & \multicolumn{2}{c|}{\textbf{예측}} & \multirow{2}{*}{\textbf{합계}} \\
+        \multirow{2}{*}{\textbf{실제}} & \multicolumn{2}{c}{\textbf{예측}} & \multirow{2}{*}{\textbf{합계}} \\
         \cmidrule{2-3}
         & 취약 (1) & 안전 (0) & \\
         \midrule
@@ -63,28 +62,28 @@
         \midrule
         \textbf{합계} & 3,534 & 684 & 4,218 \\
         \bottomrule
-    \end{tabular}
-    \caption{혼동 행렬 (Confusion Matrix)}
+    \end{tabular*}
+    \caption{Confusion Matrix}
     \label{tab:confusion_matrix}
 \end{table}
 
 \subsubsection{상세 성능 지표}
 혼동 행렬을 바탕으로 계산된 주요 성능 지표는 Table~\ref{tab:detailed_metrics}와 같다.
 
-\begin{table}[h]
+\begin{table}[H]
     \centering
-    \begin{tabular}{lc}
+    \begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}} lr}
         \toprule
         \textbf{지표} & \textbf{값} \\
         \midrule
-        정확도 (Accuracy) & 94.74\% \\
-        재현율 (Recall / TPR) & 96.39\% \\
-        정밀도 (Precision) & 97.37\% \\
+        Accuracy & 94.74\% \\
+        Recall / TPR & 96.39\% \\
+        Precision & 97.37\% \\
         F1-Score & 96.88\% \\
-        오탐율 (FPR) & 14.35\% \\
-        특이도 (Specificity) & 85.65\% \\
+        FPR & 14.35\% \\
+        Specificity & 85.65\% \\
         \bottomrule
-    \end{tabular}
+    \end{tabular*}
     \caption{상세 성능 지표}
     \label{tab:detailed_metrics}
 \end{table}
@@ -92,10 +91,10 @@
 \subsection{성능 분석}
 
 \subsubsection{높은 재현율의 의미}
-재현율(Recall) 96.39\%는 실제 취약점 중 96.39\%를 정확히 탐지함을 의미한다. 이는 보안 도구로서 가장 중요한 지표 중 하나로, False Negative(미탐)를 최소화하여 실제 취약점을 놓치지 않는 것이 핵심이기 때문이다. 본 모델은 3,570개의 실제 취약점 중 3,441개를 정확히 탐지하여, 단 129개(3.61\%)만을 놓쳤다.
+Recall 96.39\%는 실제 취약점 중 96.39\%를 정확히 탐지함을 의미한다. 이는 보안 도구로서 가장 중요한 지표 중 하나로, False Negative를 최소화하여 실제 취약점을 놓치지 않는 것이 핵심이기 때문이다. 본 모델은 3,570개의 실제 취약점 중 3,441개를 정확히 탐지하여, 단 129개(3.61\%)만을 놓쳤다.
 
 \subsubsection{오탐율 분석}
-오탐율(False Positive Rate) 14.35\%는 정상 코드 648개 중 93개를 잘못 취약점으로 분류한 것이다. 이는 기존 정적 분석 도구의 전형적인 오탐율(20-40\%) 대비 경쟁력 있는 수치이나, 여전히 개선의 여지가 있다. False Positive를 감소시키기 위해서는 다음과 같은 방향의 개선이 필요하다.
+False Positive Rate 14.35\%는 정상 코드 648개 중 93개를 잘못 취약점으로 분류한 것이다. 이는 기존 정적 분석 도구의 전형적인 False Positive Rate(20-40\%) 대비 경쟁력 있는 수치이나, 여전히 개선의 여지가 있다. False Positive를 감소시키기 위해서는 다음과 같은 방향의 개선이 필요하다.
 
 \begin{itemize}
     \item \textbf{데이터 보강}: 정상 코드 패턴의 다양성을 높인 학습 데이터 추가
@@ -104,18 +103,18 @@
 \end{itemize}
 
 \subsubsection{클래스 불균형 대응}
-데이터셋은 심각한 클래스 불균형을 보인다 (취약: 3,570개, 안전: 648개, 비율 약 5.5:1). 이러한 불균형 상황에서도 94.74\%의 높은 정확도를 달성한 것은 다음과 같은 요인에 기인한다.
+전체 42,175개 샘플을 기준으로 할 때, 데이터셋은 취약(Label 1) 35,504개(84.18\%), 안전(Label 0) 6,671개(15.82\%)로 약 5.3:1의 심각한 클래스 불균형을 보인다. 이와 같은 불균형 상황에서도 무작위로 추출된 테스트 세트 4,218개 샘플에 대해 94.74\%의 높은 정확도를 달성한 것은 다음과 같은 요인에 기인한다.
 
 \begin{itemize}
-    \item \textbf{가중치 조정}: 학습 시 클래스 가중치(Class Weight)를 적용하여 소수 클래스(안전)에 더 높은 학습 가중치 부여
+    \item \textbf{가중치 조정}: 학습 시 Class Weight를 적용하여 소수 클래스(안전)에 더 높은 학습 가중치 부여
     \item \textbf{특징 품질}: AST 구조 정보가 취약점과 정상 코드를 효과적으로 구분할 수 있는 특징을 제공
-    \item \textbf{모델 용량}: GINEStack의 충분한 표현력이 복잡한 패턴 학습을 가능하게 함
+\item \textbf{모델 용량}: \abbrGINE 의 충분한 표현력이 복잡한 패턴 학습을 가능하게 함
 \end{itemize}
 
 \subsection{오분류 분석}
 
 \subsubsection{높은 확신도의 오분류}
-모델 평가 결과, 일부 샘플에 대해서는 높은 확신도(Confidence)를 가지고 오분류하는 사례가 발견되었다. 예를 들어, \texttt{CWE122\_...\_rand\_12\_bad.json} 파일의 경우 모델이 0.99의 높은 확신도로 취약점으로 분류했으나 실제로는 정상 코드였다.
+모델 평가 결과, 일부 샘플에 대해서는 높은 Confidence를 가지고 오분류하는 사례가 발견되었다. 예를 들어, \texttt{CWE122\_...\_rand\_12\_bad.json} 파일의 경우 모델이 0.99의 높은 확신도로 취약점으로 분류했으나 실제로는 정상 코드였다.
 
 이러한 현상은 다음과 같은 원인으로 분석된다.
 

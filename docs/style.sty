@@ -29,6 +29,19 @@
 \setlength{\parindent}{2em}  % indent size (adjust freely)
 \setlength{\parskip}{0pt}    % no extra space between paragraphs
 
+% ---------- Abbreviation helpers ----------
+% In the main text we only print the short form (AST, CPG, ...).
+% Full definitions are listed once in ai.tex (Abbreviations section).
+\newcommand{\abbrAST}{AST\xspace}
+\newcommand{\abbrCPG}{CPG\xspace}
+\newcommand{\abbrGNN}{GNN\xspace}
+\newcommand{\abbrIR}{IR\xspace}
+\newcommand{\abbrPyG}{PyG\xspace}
+\newcommand{\abbrCLI}{CLI\xspace}
+\newcommand{\abbrGINE}{GINEStack\xspace}
+\newcommand{\abbrCFG}{CFG\xspace}
+\newcommand{\abbrPDG}{PDG\xspace}
+
 % ---------- TOC / lists / captions ----------
 \RequirePackage{tocloft}
 \RequirePackage{caption}
@@ -36,6 +49,7 @@
 % ---------- Code Snippets ----------
 \RequirePackage{listings}
 \RequirePackage{xcolor}
+\RequirePackage{xspace}
 
 \definecolor{codebg}{RGB}{245,245,245}
 \definecolor{codekeyword}{RGB}{0,0,180}
@@ -58,24 +72,57 @@
   morestring=[b]"
 }
 
+% Simple Python language definition (syntax-colored similar to TypeScript)
+\lstdefinelanguage{Python}{
+  morekeywords={def,class,return,if,elif,else,for,while,break,continue,import,from,as,pass,
+                True,False,None,try,except,finally,with,lambda,yield,global,nonlocal,
+                assert,raise,in,is,not,and,or},
+  sensitive=true,
+  morecomment=[l]{\#},
+  morestring=[b]',
+  morestring=[b]",
+  keywordstyle=\color{codekeyword}\bfseries,
+  commentstyle=\color{codecomment}\itshape,
+  stringstyle=\color{codestring}\ttfamily,
+}
+
+% Simple JSON language definition for listings
+\lstdefinelanguage{json}{
+  sensitive=true,
+  morekeywords={true,false,null},
+  keywordstyle=\color{codekeyword}\bfseries,
+  morestring=[b]",
+  stringstyle=\color{codestring}\ttfamily,
+  morecomment=[l]{//},
+  morecomment=[s]{/*}{*/},
+}
+
 \lstset{
     basicstyle=\ttfamily\small,
     backgroundcolor=\color{codebg},
     frame=single,
     framerule=0pt,
-    framesep=12pt,
+    % inner padding inside the frame
+    framesep=0pt,
+    framextopmargin=10pt,
+    framexbottommargin=0pt,
+    framexleftmargin=12pt,
+    framexrightmargin=12pt,
+    % outer vertical spacing
+    aboveskip=6pt,
+    belowskip=-4pt,
     xleftmargin=24pt,
     xrightmargin=24pt,
     columns=fullflexible,
     keepspaces=true,
     breaklines=true,
-    breakatwhitespace=false,  % <-- changed
+    breakatwhitespace=false,
     tabsize=4,
     showstringspaces=false,
     keywordstyle=\color{codekeyword}\bfseries,
     stringstyle=\color{codestring},
     commentstyle=\color{codecomment}\itshape,
-    escapeinside={(*@}{@*)} % (*@ 와 @*) 사이의 내용은 LaTeX로 처리 (한글 출력 가능)
+    escapeinside={(*@}{@*)}
 }
 
 % ---------- Header/Footer packages ----------

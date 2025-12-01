@@ -10,14 +10,14 @@
 소스코드는 대체로 자연어 기반의 개발 친화적으로 비정형 데이터로 분류된다.
 이러한 비정형 자연어는 정형화된 데이터를 처리하는 AI에게 가장 큰 병목으로, 이를 규격화하기 위한 시도들이 계속되고 있다.
 이러한 접근들 중 하나로 오픈소스인 Joern이 존재한다.
-Joern은 Java 와 각 언어의 컴파일러 기반의 명령어 프로그램으로 소스코드를 다양한 형태의 \textbf{CPG(Code Property Graph)}로 제공한다.
+Joern은 Java 와 각 언어의 컴파일러 기반의 명령어 프로그램으로 소스코드를 다양한 형태의 \textbf{\abbrCPG}로 제공한다.
 Joern을 사용함으로써 가장 큰 장벽으로 Joern이 제공하는 그래프의 속성과 형태 그리고 다양한 Node와 Edge로 인해 분석에 어려움이 있다.
 Joern에서 제공하는 다양한 Node, Edge, Properties 중에 본 기술에서 사용된 일부는 \ref{subsubsec:cpgspec}에 기술 되어있다.
 이러한 복잡한 구조를 해결하기 위해 조금 더 사용자 친화적이고 AI가 처리할 수 있는 방향으로 전처리를 하게된다.
 이렇게 전처리 후에 생성된 그래프를 본 문서에서는 \textbf{Template(템플릿)}이라고 규정한다.
 
 \subsubsection{CPG Specification}\label{subsubsec:cpgspec}
-코드 속성 그래프(Code Property Graph, CPG) 명세 1.1은 정적 분석을 위해 설계된 언어 중립적인 중간 그래프 표현(intermediate graph representation)을 정의한다. CPG는 방향성(directed), 엣지 라벨(edge-labeled), 속성(attributed) 멀티그래프 구조를 가지며, 코드의 각기 다른 측면을 모델링하는 여러 개의 레이어(Layer)로 구성된다.
+CPG 명세 1.1은 정적 분석을 위해 설계된 언어 중립적인 intermediate graph representation을 정의한다. CPG는 방향성 directed, 엣지 라벨 edge-labeled, 속성 attributed 멀티그래프 구조를 가지며, 코드의 각기 다른 측면을 모델링하는 여러 개의 레이어 Layer로 구성된다.
 
 \paragraph{MetaData 레이어} 이 레이어는 그래프의 생성 정보와 출처(provenance)를 기술한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
@@ -51,27 +51,27 @@ Joern에서 제공하는 다양한 Node, Edge, Properties 중에 본 기술에�
     \item \textbf{속성:} \texttt{TYPE\_FULL\_NAME}, \texttt{INHERITS\_FROM\_TYPE\_FULL\_NAME}.
 \end{itemize}
 
-\paragraph{Abstract Syntax Tree (AST) 레이어} 코드의 구문 구조(syntactic structure)를 표현한다.
+\paragraph{\abbrAST\ 레이어} 코드의 syntactic structure를 표현한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{BLOCK}, \texttt{CALL}, \texttt{CONTROL\_STRUCTURE}, \texttt{IDENTIFIER}, \texttt{LITERAL}, \texttt{RETURN}, \texttt{UNKNOWN}, \texttt{MODIFIER}.
     \item \textbf{엣지:} \texttt{AST} (부모 노드와 자식 노드를 연결).
     \item \textbf{속성:} \texttt{ORDER}, \texttt{CODE}.
 \end{itemize}
 
-\paragraph{CallGraph 레이어} 메서드 호출 및 디스패치(dispatching) 과정을 모델링한다.
+\paragraph{CallGraph 레이어} 메서드 호출 및 dispatching 과정을 모델링한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{CALL} (호출 지점).
     \item \textbf{엣지:} \texttt{CALL} (발신 호출), \texttt{RECEIVER}, \texttt{ARGUMENT}.
     \item \textbf{속성:} \texttt{METHOD\_FULL\_NAME}, \texttt{DISPATCH\_TYPE}, \texttt{ARGUMENT\_INDEX}.
 \end{itemize}
 
-\paragraph{Control Flow Graph (CFG) 레이어} 메서드 내에서의 실행 흐름(execution flow)을 모델링한다.
+\paragraph{\abbrCFG 레이어} 메서드 내에서의 실행 흐름(execution flow)을 모델링한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{CFG\_NODE} (모든 제어 흐름 노드의 기본 클래스).
     \item \textbf{엣지:} \texttt{CFG} (실행 순서를 지시).
 \end{itemize}
 
-\paragraph{Program Dependence Graph (PDG) 레이어} 오염 분석(taint analysis) 및 슬라이싱을 위해 데이터 및 제어 의존성을 모델링한다.
+\paragraph{\abbrPDG 레이어} 오염 분석 taint analysis 및 슬라이싱을 위해 데이터 및 제어 의존성을 모델링한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{엣지:} 
     \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
@@ -81,20 +81,20 @@ Joern에서 제공하는 다양한 Node, Edge, Properties 중에 본 기술에�
     \item \textbf{속성:} \texttt{VARIABLE} (전파되는 변수).
 \end{itemize}
 
-\paragraph{Binding 레이어} 메서드 이름 및 시그니처를 타입 선언과 결합(resolve)한다.
+\paragraph{Binding 레이어} 메서드 이름 및 시그니처를 타입 선언과 resolve한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{BINDING} (이름/시그니처를 메서드와 연결).
     \item \textbf{엣지:} \texttt{BINDS} (TypeDecl에서 Binding으로), \texttt{REF} (Binding에서 Method로).
 \end{itemize}
 
-\paragraph{보조 레이어 (Auxiliary Layers)} 특정 분석 요구사항을 충족하기 위한 추가 레이어들이 존재한다.
+\paragraph{보조 Auxiliary Layers} 특정 분석 요구사항을 충족하기 위한 추가 레이어들이 존재한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{Dominators:} \texttt{DOMINATE} 및 \texttt{POST\_DOMINATE} 엣지를 포함한다.
     \item \textbf{Finding:} 분석 결과 저장을 위한 노드 (\texttt{FINDING}, \texttt{KEY\_VALUE\_PAIR}).
     \item \textbf{TagsAndLocation:} 임의의 노드 태깅을 위한 \texttt{TAG} 및 \texttt{LOCATION} 노드.
 \end{itemize}
 
-각 레이어별 상세 스키마, 노드 속성, 그리고 엣지 제약 조건에 대한 보다 구체적인 정보는 Code Property Graph 공식 웹사이트(\url{https://cpg.joern.io/})에서 확인할 수 있다.
+각 레이어별 상세 스키마, 노드 속성, 그리고 엣지 제약 조건에 대한 보다 구체적인 정보는 CPG 공식 웹사이트(\url{https://cpg.joern.io/})에서 확인할 수 있다.
 
 \subsection{가상 컨테이너}
 
@@ -153,14 +153,14 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 이를 통해 약 21,000개의 데이터셋을 변환하는데에 8시간정도 소요되도록 단축하였다.
 
 
-\begin{table}[]
+\begin{table}[H]
 \centering
-\begin{tabular}{@{}lrrrr@{}}
+\begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}} lrrrr}
 \toprule
  & \makecell[r]{변환파일 수 \\ (개)} & \makecell[r]{소요 시간 \\ (분)} & \makecell[r]{파일당 소요시간 \\ (초)} & \makecell[r]{단축율 \\ (\%)} \\ \midrule
 일반 & 10000 & 720 & 4.32 & \multirow{2}{*}{\textbf{-68.3\%}} \\
 병렬 & 21000 & 480 & 1.37 &  \\ \bottomrule
-\end{tabular}
+\end{tabular*}
 \caption{CPG 병렬 처리 속도 비교}
 \label{tab:cpg-convertion-time-table}
 \end{table}
