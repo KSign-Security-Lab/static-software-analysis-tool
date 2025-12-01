@@ -1,36 +1,38 @@
-%=====================================================
-% HEADER AND FOOTER CONFIGURATION
-%=====================================================
-
 % ---------- Header via fancyhdr ----------
-\newcommand{\KSHeader}{%
-  \scriptsize
-  \renewcommand{\arraystretch}{1.2}%
-  \noindent
-  \begin{minipage}{\textwidth}
+  \newcommand{\KSHeader}{%
+    \scriptsize
+    \renewcommand{\arraystretch}{1.8}%
+    \noindent
+    \begin{minipage}{\textwidth}
 
-    % ---- TOP GRADIENT (no border, flush) ----
-    \includegraphics[
-      width=\textwidth,
-      height=3mm,
-      keepaspectratio
-    ]{top-gradient.pdf}% 
+      % ---- TOP GRADIENT (no border, flush) ----
+      \includegraphics[
+        width=\textwidth,
+        height=3mm,
+        keepaspectratio
+      ]{top-gradient.pdf}% 
 
-    % ---- METADATA TABLE (has borders) ----
-    \begin{tabularx}{\textwidth}{|p{2.8cm}|X|p{1.6cm}|p{2.5cm}|p{1.6cm}|p{1.6cm}|}
-      \hline
-      \multirow{3}{*}{%
-        \centering
-        \begin{minipage}[c]{2.8cm}
+      % ---- METADATA TABLE (has borders) ----
+      \begin{tabularx}{\textwidth}{|p{2.5cm}|X|p{1.5cm}|p{2.2cm}|p{1.5cm}|p{1.5cm}|}
+        \hline
+        \multirow{3}{*}{%
+          \centering
+          \begin{minipage}[c]{2.5cm}
+              \centering
+              \includegraphics[width=2.0cm]{ksign-logo.pdf}
+          \end{minipage}
+        } & \multirow{3}{*}{%
+          \centering
+          \parbox{\linewidth}{%
             \centering
-            \includegraphics[width=2.2cm]{ksign-logo.pdf}
-        \end{minipage}
-      } & \multirow{3}{*}{\centering\small 소스 취약성 식별\\AI 모델 프로토타입} &
-      \textbf{부서} & 정보보안연구소 & \textbf{작성자} & 김건오 \\ \cline{3-6}
-      & & \textbf{최신수정일} & 2025.12.10 & \textbf{버전} & 1.0 \\ \cline{3-6}
-      & & \textbf{관리번호} &
-      \multicolumn{3}{c|}{RS-2024-00398993-2501} \\ \hline
-    \end{tabularx}
+            \footnotesize 소스 취약성 식별\\AI 모델 프로토타입\\\tiny AI Model Prototype for Source Code\\Vulnerability Identification
+          }%
+        } &
+        \textbf{부서} & 정보보안연구소 & \textbf{작성자} & 김건오 \\ \cline{3-6}
+        & & \textbf{최신수정일} & 2025.12.10 & \textbf{버전} & 1.0 \\ \cline{3-6}
+        & & \textbf{관리번호} &
+        \multicolumn{3}{c|}{RS-2024-00398993-2501} \\ \hline
+      \end{tabularx}
 
     % ---- BOTTOM GRADIENT (no border, flush) ----
     \hfill\includegraphics[
@@ -43,27 +45,13 @@
 }
 
 \fancyhead[L]{\KSHeader}
-\fancyfoot{} 
+\fancyfoot[C]{%
+  \scriptsize
+  이 문서의 저작권은 ㈜케이사인에 있습니다.\hfill(\thepage/\pageref{LastPage} Page)%
+}
 
 % Make LaTeX's "plain" pagestyle identical to fancy *for the header*
 \makeatletter
 \let\ps@plain\ps@fancy
 \makeatother
-
-% ---------- Footer via overlay (eso-pic) ----------
-\newcommand{\KSFooterOverlay}{%
-  \scriptsize
-  \begin{minipage}[b][0pt][b]{\textwidth}
-    이 문서의 저작권은 ㈜케이사인에 있습니다.\hfill(\thepage/\pageref{LastPage} Page)
-  \end{minipage}%
-}
-
-\AddToShipoutPictureFG{%
-  \AtTextLowerLeft{%
-    % negative raise → move DOWN out of the text block into the bottom margin
-    \raisebox{-10mm}[0pt][0pt]{%
-      \makebox[\textwidth][l]{\KSFooterOverlay}%
-    }%
-  }%
-}
 

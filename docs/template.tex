@@ -107,11 +107,11 @@ public getTemplateTree(cpg: unknown): TreeNode[] {
     \centering
     \begin{lstlisting}[language=TypeScript]
 private dispatchConvert(node: TreeNode): TemplateNodes | undefined {
-  switch (node.label) {
-    case "CALL": return this.handleCall(node);
-    case "CONTROL_STRUCTURE": return this.handleControlStructure(node);
-    case "LOCAL": return this.handleLocal(node);
-    case "METHOD": return this.handleMethod(node);
+    switch (node.label) {
+      case "CALL": return this.handleCall(node);
+      case "CONTROL_STRUCTURE": return this.handleControlStructure(node);
+      case "LOCAL": return this.handleLocal(node);
+      case "METHOD": return this.handleMethod(node);
     default: return this.handleSkippedNodes(node);
   }
 }

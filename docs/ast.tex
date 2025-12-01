@@ -34,7 +34,7 @@ def __init__(self, ast_json: Dict[str, Any]):
     # Recursively index all nodes
     def _idx(n, parent_id: Optional[int] = None):
         if isinstance(n, dict) and (nid := n.get('id')):
-            self.idmap[nid] = n
+                self.idmap[nid] = n
             if parent_id: self.parent[nid] = parent_id
             for c in (n.get("children") or []):
                 _idx(c, nid)
@@ -86,10 +86,10 @@ def _process_block(self, block_node, parent_sid, active_guards, in_loop):
             if sb_prev: self.edges_sb.append((sb_prev, child_first, 1))
             sb_prev = child_last
         else:
-            sid = self._make_node(...)
-            self.edges_pc.append((parent_sid, sid, 0))
+        sid = self._make_node(...)
+        self.edges_pc.append((parent_sid, sid, 0))
             if sb_prev: self.edges_sb.append((sb_prev, sid, 1))
-            sb_prev = sid
+        sb_prev = sid
     return first_sid, sb_prev
     \end{lstlisting}
     \caption{블록 처리 및 노드 연결 로직}

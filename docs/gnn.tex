@@ -44,15 +44,15 @@ def train(cfg: Optional[TrainConfig] = None) -> None:
     train_dataset, test_dataset = load_and_split_datasets(cfg.data_path)
     train_dataloader = build_dataloader(train_dataset, cfg, collate_fn=collate)
     test_dataloader = build_dataloader(test_dataset, cfg, collate_fn=collate)
-    
+
     # Initialize model
     dims = infer_dims_from_dataset(train_dataset, kinds=["ast"])
     model = select_model(cfg, dims["ast"][0], dims["ast"][1]).to(device)
-    
+
     # Setup training
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     criterion = nn.CrossEntropyLoss(weight=compute_class_weights(...))
-    
+
     # Train and save
     train_model_from_dataset(cfg, train_dataloader, model, optimizer, criterion, device)
     torch.save(model.state_dict(), weights_path)
