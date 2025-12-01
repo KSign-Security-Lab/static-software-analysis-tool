@@ -90,19 +90,20 @@
 % ---------- Section titles ----------
 \RequirePackage{titlesec}
 
-
+% Section: one step larger than subsection
 \titleformat{\section}
-  {\bfseries\Large}
-  {\thesection.}{0.5em}{}
+  {\bfseries\LARGE}%
+  {\thesection.}{0.6em}{}
 
+% Subsection: one step larger than body (\normalsize)
 \titleformat{\subsection}
-  {\bfseries\large}
+  {\bfseries\Large}%
   {\thesubsection.}{0.5em}{}
 
+% Subsubsection: slightly larger than body text, bold + italic
 \titleformat{\subsubsection}
-  {\bfseries\large}
+  {\bfseries\large\itshape}%
   {\thesubsubsection.}{0.5em}{}
-
 % Names
 \renewcommand{\contentsname}{\textless 목\ \ 차\textgreater}
 \renewcommand{\listfigurename}{\textless 그\ 림\ \ 목\ \ 차\textgreater}
