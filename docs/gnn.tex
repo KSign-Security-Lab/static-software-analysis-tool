@@ -27,7 +27,7 @@ AI 모델은 레이블링된 데이터셋을 통해 GNN 모델을 학습시킴�
     \item \textbf{설정 관리}: 재현성을 보장하기 위해 전체 학습 구성을 저장하고 관리한다.
 \end{enumerate}
 
-\subsection{실행 흐름}
+\subsection{동작 흐름}
 
 \subsubsection{학습 파이프라인}
 학습 프로세스는 \texttt{train()} 함수 호출 시 시작되며, 데이터 로딩부터 모델 저장까지의 과정을 수행한다.
@@ -91,7 +91,7 @@ def evaluate() -> None:
     \label{fig:eval_pipeline}
 \end{figure}
 
-\subsection{컴포넌트 책임}
+\subsection{핵심 구성 요소 역할}
 
 \subsubsection{GenericJsonDataset}
 JSON 파일을 로드하고 PyG 그래프 객체로 변환하는 역할을 담당한다. Pydantic 모델을 사용하여 JSON 스키마를 검증하며, \texttt{juliet\_json\_to\_sample} 변환기를 통해 AST 섹션을 추출하고 그래프를 구축한다.
@@ -160,7 +160,7 @@ class ASTGNNModel(nn.Module):
 \texttt{TrainConfig} 클래스는 학습에 필요한 모든 하이퍼파라미터와 데이터 경로를 정의한다.
 
 \begin{itemize}
-    \item \textbf{기본 설정}: 에포크 수, 학습률, 배치 크기, 디바이스, GNN 레이어 수, 히든 차원 등.
+    \item \textbf{기본 설정}: 에포크 수, 학습률, 배치 크기, 디바이스, GNN 계층 수, 히든 차원 등.
     \item \textbf{데이터 경로}: JSON 파일 경로 및 레이블 추론 규칙(\texttt{label\_key})을 정의한다.
     \item \textbf{레이블 추론}: 명시적 레이블 필드, 파일명 키워드 매칭("bad", "patched"), 휴리스틱 순으로 레이블을 결정한다.
 \end{itemize}

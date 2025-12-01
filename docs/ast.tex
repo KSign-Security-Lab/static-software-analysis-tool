@@ -18,7 +18,7 @@
 AST 추출 모듈은 계층적 AST를 평탄화하고, 구조 및 제어 흐름을 보존하기 위해 세 가지 유형의 엣지(Parent-Child, Sibling, Guard)를 생성하며, 각 노드에 대해 GNN 입력에 적합한 특징 벡터를 계산함으로써 이러한 문제를 해결한다.
 
 
-\subsection{실행 흐름}
+\subsection{동작 흐름}
 
 \subsubsection{Initialization}
 AST 추출 모듈 인스턴스 생성 시, 입력된 템플릿 JSON을 순회하여 모든 노드를 ID로 인덱싱하고 결과 컨테이너를 초기화한다.
@@ -50,7 +50,7 @@ def __init__(self, ast_json: Dict[str, Any]):
 
 초기화 단계에서는 원본 AST 노드 ID 매핑(\texttt{idmap}), 부모 노드 추적(\texttt{parent}), 그리고 평탄화된 그래프를 저장할 컨테이너(\texttt{nodes}, \texttt{edges\_*})를 준비한다. 또한, 그래프의 루트 역할을 하는 \texttt{FunctionEntry} 노드(\texttt{sid=0})를 생성한다.
 
-\subsubsection{메인 추출 프로세스}
+\subsubsection{주요 추출 과정}
 \texttt{run()} 메서드는 파라미터 선언 처리, 함수 본문 평탄화, 제어 노드 후처리를 순차적으로 수행한다.
 
 \begin{figure}[H]
@@ -70,7 +70,7 @@ def run(self) -> Dict[str,Any]:
     \label{fig:ast_run}
 \end{figure}
 
-\subsection{컴포넌트 책임}
+\subsection{핵심 구성 요소 역할}
 
 \subsubsection{Block Processing}
 \texttt{\_process\_block} 함수는 \texttt{CompoundStatement}를 재귀적으로 순회하며 문장 수준 노드를 생성하고 엣지를 연결하는 핵심 역할을 수행한다.

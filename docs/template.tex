@@ -42,7 +42,7 @@ Template 모듈은 4단계의 파이프라인을 통해 CPG를 변환하며, 각
     \end{itemize}
 \end{enumerate}
 
-\subsection{실행 흐름}
+\subsection{동작 흐름}
 Template 변환은 \texttt{buildTemplateArtifacts()} 함수를 진입점으로 하여 순차적으로 실행된다. Endpoint는 용도에 따라 트리 기반의 \texttt{templateResult}를 활용하여 후속 분석을 수행한다.
 
 % (*@ [H] 옵션을 사용하여 그림을 현재 위치에 고정 @*)
@@ -122,7 +122,7 @@ private handleCallOperators(node: TreeNode) {
     \label{fig:handle_call_operators}
 \end{figure}
 
-\paragraph{제어 Control Structure} \texttt{CONTROL\_STRUCTURE\_TYPE} 속성을 확인하여 IF, WHILE 등으로 변환한다. IF 문의 경우 조건, True 블록, False 블록을 템플릿 포맷에 맞게 재배치하며, 자식 노드 수가 부족할 경우 예외를 발생시킨다.
+\paragraph{제어 구조(Control Structure)} \texttt{CONTROL\_STRUCTURE\_TYPE} 속성을 확인하여 IF, WHILE 등으로 변환한다. IF 문의 경우 조건, True 블록, False 블록을 템플릿 포맷에 맞게 재배치하며, 자식 노드 수가 부족할 경우 예외를 발생시킨다.
 
 \begin{figure}[H]
     \centering

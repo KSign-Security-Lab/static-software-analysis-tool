@@ -22,7 +22,7 @@
 소스 코드를 GNN 학습에 적합한 그래프 표현으로 변환하기 위해 다음과 같은 단계를 거친다.
 
 \begin{itemize}
-\item \textbf{CPG 생성}: Joern을 활용하여 C/C++ 소스 코드를 \abbrCPG 로 변환한다. CPG는 코드의 구문, 제어 흐름, 타입 정보 등을 통합적으로 표현하는 멀티 레이어 그래프 구조이다.
+\item \textbf{CPG 생성}: Joern을 활용하여 C/C++ 소스 코드를 \abbrCPG 로 변환한다. CPG는 코드의 구문, 제어 흐름, 타입 정보 등을 통합적으로 표현하는 멀티 계층 그래프 구조이다.
     
     \item \textbf{Template 변환}: CPG의 복잡한 구조를 정규화하여 템플릿 그래프로 변환한다. 이 과정에서 연산자 이름 정규화(\texttt{<operator>.addition} $\rightarrow$ \texttt{+}), 제어 구조 표준화, 타입 추론 등이 수행된다. 이렇게 정규화된 템플릿 그래프는 이후 단계를 통해 기계 학습에 직접 활용 가능한 \abbrAST 기반 그래프 표현으로 변환된다.
     

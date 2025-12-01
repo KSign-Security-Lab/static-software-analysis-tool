@@ -17,61 +17,61 @@ Joern에서 제공하는 다양한 Node, Edge, Properties 중에 본 기술에�
 이렇게 전처리 후에 생성된 그래프를 본 문서에서는 \textbf{Template(템플릿)}이라고 규정한다.
 
 \subsubsection{CPG Specification}\label{subsubsec:cpgspec}
-CPG 명세 1.1은 정적 분석을 위해 설계된 언어 중립적인 intermediate graph representation을 정의한다. CPG는 방향성 directed, 엣지 라벨 edge-labeled, 속성 attributed 멀티그래프 구조를 가지며, 코드의 각기 다른 측면을 모델링하는 여러 개의 레이어 Layer로 구성된다.
+CPG 명세 1.1은 정적 분석을 위해 설계된 언어 중립적인 intermediate graph representation을 정의한다. CPG는 방향성 directed, 엣지 라벨 edge-labeled, 속성 attributed 멀티그래프 구조를 가지며, 코드의 각기 다른 측면을 모델링하는 여러 개의 계층(Layer)으로 구성된다.
 
-\paragraph{MetaData 레이어} 이 레이어는 그래프의 생성 정보와 출처(provenance)를 기술한다.
+\paragraph{MetaData 계층} 이 계층은 그래프의 생성 정보와 출처(provenance)를 기술한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{META\_DATA} (언어, 명세 버전, 오버레이 정보 포함).
     \item \textbf{속성:} \texttt{LANGUAGE}, \texttt{VERSION}, \texttt{OVERLAYS}, \texttt{ROOT}, \texttt{HASH}.
 \end{itemize}
 
-\paragraph{FileSystem 레이어} 그래프 노드를 실제 물리적 파일 시스템의 위치와 매핑한다.
+\paragraph{FileSystem 계층} 그래프 노드를 실제 물리적 파일 시스템의 위치와 매핑한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{FILE} (소스 파일을 표현).
     \item \textbf{엣지:} \texttt{SOURCE\_FILE} (노드를 원본 파일과 연결).
     \item \textbf{속성:} \texttt{FILENAME}, \texttt{CODE}, \texttt{COLUMN\_NUMBER}, \texttt{LINE\_NUMBER}.
 \end{itemize}
 
-\paragraph{Namespace 레이어} 패키징 및 논리적 네임스페이스 구조를 다룬다.
+\paragraph{Namespace 계층} 패키징 및 논리적 네임스페이스 구조를 다룬다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{NAMESPACE} (논리적 네임스페이스), \texttt{NAMESPACE\_BLOCK} (네임스페이스 내의 구체적인 코드 블록).
     \item \textbf{속성:} \texttt{NAME}, \texttt{FULL\_NAME}.
 \end{itemize}
 
-\paragraph{Method 레이어} 파라미터와 반환 타입을 포함하여 메서드 선언을 모델링한다.
+\paragraph{Method 계층} 파라미터와 반환 타입을 포함하여 메서드 선언을 모델링한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{METHOD} (함수 자체), \texttt{METHOD\_PARAMETER\_IN}, \texttt{METHOD\_PARAMETER\_OUT}, \texttt{METHOD\_RETURN}.
     \item \textbf{속성:} \texttt{SIGNATURE}, \texttt{IS\_EXTERNAL}, \texttt{FULL\_NAME}, \texttt{IS\_VARIADIC}.
 \end{itemize}
 
-\paragraph{Type 레이어} 타입의 계층 구조, 선언 및 사용을 표현한다.
+\paragraph{Type 계층} 타입의 계층 구조, 선언 및 사용을 표현한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{TYPE} (구체적 인스턴스), \texttt{TYPE\_DECL} (클래스/인터페이스 선언), \texttt{MEMBER} (필드), \texttt{TYPE\_ARGUMENT}.
     \item \textbf{엣지:} \texttt{BINDS\_TO}, \texttt{INHERITS\_FROM}.
     \item \textbf{속성:} \texttt{TYPE\_FULL\_NAME}, \texttt{INHERITS\_FROM\_TYPE\_FULL\_NAME}.
 \end{itemize}
 
-\paragraph{\abbrAST 레이어} 코드의 syntactic structure를 표현한다.
+\paragraph{\abbrAST 계층} 코드의 syntactic structure를 표현한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{BLOCK}, \texttt{CALL}, \texttt{CONTROL\_STRUCTURE}, \texttt{IDENTIFIER}, \texttt{LITERAL}, \texttt{RETURN}, \texttt{UNKNOWN}, \texttt{MODIFIER}.
     \item \textbf{엣지:} \texttt{AST} (부모 노드와 자식 노드를 연결).
     \item \textbf{속성:} \texttt{ORDER}, \texttt{CODE}.
 \end{itemize}
 
-\paragraph{CallGraph 레이어} 메서드 호출 및 dispatching 과정을 모델링한다.
+\paragraph{CallGraph 계층} 메서드 호출 및 dispatching 과정을 모델링한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{CALL} (호출 지점).
     \item \textbf{엣지:} \texttt{CALL} (발신 호출), \texttt{RECEIVER}, \texttt{ARGUMENT}.
     \item \textbf{속성:} \texttt{METHOD\_FULL\_NAME}, \texttt{DISPATCH\_TYPE}, \texttt{ARGUMENT\_INDEX}.
 \end{itemize}
 
-\paragraph{\abbrCFG 레이어} 메서드 내에서의 실행 흐름(execution flow)을 모델링한다.
+\paragraph{\abbrCFG 계층} 메서드 내에서의 동작 흐름(execution flow)을 모델링한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{CFG\_NODE} (모든 제어 흐름 노드의 기본 클래스).
     \item \textbf{엣지:} \texttt{CFG} (실행 순서를 지시).
 \end{itemize}
 
-\paragraph{\abbrPDG 레이어} 오염 분석 taint analysis 및 슬라이싱을 위해 데이터 및 제어 의존성을 모델링한다.
+\paragraph{\abbrPDG 계층} 오염 분석 taint analysis 및 슬라이싱을 위해 데이터 및 제어 의존성을 모델링한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{엣지:} 
     \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
@@ -81,27 +81,27 @@ CPG 명세 1.1은 정적 분석을 위해 설계된 언어 중립적인 intermed
     \item \textbf{속성:} \texttt{VARIABLE} (전파되는 변수).
 \end{itemize}
 
-\paragraph{Binding 레이어} 메서드 이름 및 시그니처를 타입 선언과 resolve한다.
+\paragraph{Binding 계층} 메서드 이름 및 시그니처를 타입 선언과 resolve한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{BINDING} (이름/시그니처를 메서드와 연결).
     \item \textbf{엣지:} \texttt{BINDS} (TypeDecl에서 Binding으로), \texttt{REF} (Binding에서 Method로).
 \end{itemize}
 
-\paragraph{보조 Auxiliary Layers} 특정 분석 요구사항을 충족하기 위한 추가 레이어들이 존재한다.
+\paragraph{보조 계층(Auxiliary Layers)} 특정 분석 요구사항을 충족하기 위한 추가 계층들이 존재한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{Dominators:} \texttt{DOMINATE} 및 \texttt{POST\_DOMINATE} 엣지를 포함한다.
     \item \textbf{Finding:} 분석 결과 저장을 위한 노드 (\texttt{FINDING}, \texttt{KEY\_VALUE\_PAIR}).
     \item \textbf{TagsAndLocation:} 임의의 노드 태깅을 위한 \texttt{TAG} 및 \texttt{LOCATION} 노드.
 \end{itemize}
 
-각 레이어별 상세 스키마, 노드 속성, 그리고 엣지 제약 조건에 대한 보다 구체적인 정보는 CPG 공식 웹사이트(\url{https://cpg.joern.io/})에서 확인할 수 있다.
+각 계층별 상세 스키마, 노드 속성, 그리고 엣지 제약 조건에 대한 보다 구체적인 정보는 CPG 공식 웹사이트(\url{https://cpg.joern.io/})에서 확인할 수 있다.
 
-\subsection{가상 컨테이너}
+\subsection{컨테이너 기반 실행 환경}
 
 Joern은 활발히 개발·배포되는 도구로, 버전 변화에 따라 생성되는 \abbrCPG 스키마와 속성이 달라질 수 있다.
-분석 파이프라인의 안정성과 재현성을 확보하기 위해, 본 연구에서는 Docker 기반 가상 컨테이너를 구축하여 Joern 실행 환경(버전, 의존 패키지, 설정 값 등)을 고정하였다.
+분석 파이프라인의 안정성과 재현성을 확보하기 위해, 본 연구에서는 Docker 기반 컨테이너 실행 환경을 구축하여 Joern 실행 환경(버전, 의존 패키지, 설정 값 등)을 고정하였다.
 이를 통해 Template 변환 및 후속 AST/그래프 변환 모듈이 항상 동일한 형태의 CPG를 입력으로 받도록 보장하며, 장기간에 걸친 반복 실험과 대규모 배치 전처리에서도 일관된 결과를 얻을 수 있다.
-도커 컨테이너 설정은 다음 Figure~\ref{fig:docker}와 같다.
+컨테이너 설정은 다음 Figure~\ref{fig:docker}와 같다.
 
 \begin{figure}
     \centering
@@ -142,7 +142,7 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
     \label{fig:docker}
 \end{figure}
 
-해당 스크립트를 이용하여 도커 컨테이너를 생성한 후, 호스트 디렉토리를 컨테이너 내 \textit{/workspace}와 같은 경로에 볼륨으로 마운트하여 동작시킨다.
+해당 스크립트를 이용하여 컨테이너를 생성한 후, 호스트 디렉토리를 컨테이너 내 \textit{/workspace}와 같은 경로에 볼륨으로 마운트하여 동작시킨다.
 이와 같은 구성은 CPG 생성 절차에서 호스트와 컨테이너 간의 파일을 안정적으로 공유하게 하고, 도커에 설치된 Joern을 통해 대규모 소스 코드를 일관된 환경에서 자동 변환할 수 있도록 지원한다.
 
 \subsection{병렬 처리 및 자동화}
