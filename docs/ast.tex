@@ -3,7 +3,7 @@
 \section{AST 추출 모듈}
 
 \subsection{개요}
-\textbf{AST 추출 모듈}은 계층적인 템플릿 JSON(함수 수준 AST)을 \abbrGNN 학습에 적합한 평탄화된 Flattened 문장 수준 그래프 표현으로 변환하는 핵심 구성 요소이다. 이 모듈은 제어 흐름 관계, Guard 조건, 의미적 주석 Semantic Annotations를 보존하면서 AST 정보를 추출한다.
+\textbf{AST 추출 모듈}은 계층적인 템플릿 JSON(함수 수준 \abbrAST)를 \abbrGNN 학습에 적합한 평탄화된 문장 수준 그래프 표현으로 변환하는 핵심 구성 요소이다. 이 모듈은 제어 흐름 관계, Guard 조건, 의미적 주석(Semantic Annotations)을 보존하면서 AST 정보를 추출한다.
 
 \subsubsection{해결하고자 하는 문제}
 템플릿 JSON은 코드 함수의 계층적 AST 표현을 제공하지만, GNN 모델 학습을 위해서는 다음과 같은 요건이 충족되어야 한다.

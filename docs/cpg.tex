@@ -1,6 +1,6 @@
 \clearpage
 
-\section{CPG 자동 생성 기술}\label{sec:cpg}
+\section{Code Property Graph(CPG) 자동 생성 기술}\label{sec:cpg}
 
 본 문서 \ref{sec:cpg}절에서는 오픈소스 Joern 기반의 소스코드 그래프화에 대하여 기술한다.
 
@@ -51,7 +51,7 @@ CPG 명세 1.1은 정적 분석을 위해 설계된 언어 중립적인 intermed
     \item \textbf{속성:} \texttt{TYPE\_FULL\_NAME}, \texttt{INHERITS\_FROM\_TYPE\_FULL\_NAME}.
 \end{itemize}
 
-\paragraph{\abbrAST\ 레이어} 코드의 syntactic structure를 표현한다.
+\paragraph{\abbrAST 레이어} 코드의 syntactic structure를 표현한다.
 \begin{itemize} \setlength{\itemsep}{0pt} \setlength{\parskip}{0pt} \setlength{\topsep}{0pt} \setlength{\partopsep}{0pt}
     \item \textbf{노드:} \texttt{BLOCK}, \texttt{CALL}, \texttt{CONTROL\_STRUCTURE}, \texttt{IDENTIFIER}, \texttt{LITERAL}, \texttt{RETURN}, \texttt{UNKNOWN}, \texttt{MODIFIER}.
     \item \textbf{엣지:} \texttt{AST} (부모 노드와 자식 노드를 연결).
@@ -98,9 +98,10 @@ CPG 명세 1.1은 정적 분석을 위해 설계된 언어 중립적인 intermed
 
 \subsection{가상 컨테이너}
 
-Joern은 아직 개발이 진행중인 도구로 업데이트 시에 CPG의 변화가 생기고 이는 이후 Template 변환 시에 런타임에러로 이어졌다.
-이를 해결하기 위해 추가적으로 Docker 컨테이너를 활용해서 특정 버전을 상시 동일하게 사용할 수 있도록 하였다.
-도커 컨테이너 설정은 다음 Figure. \ref{fig:docker}와 같다.
+Joern은 활발히 개발·배포되는 도구로, 버전 변화에 따라 생성되는 \abbrCPG 스키마와 속성이 달라질 수 있다.
+분석 파이프라인의 안정성과 재현성을 확보하기 위해, 본 연구에서는 Docker 기반 가상 컨테이너를 구축하여 Joern 실행 환경(버전, 의존 패키지, 설정 값 등)을 고정하였다.
+이를 통해 Template 변환 및 후속 AST/그래프 변환 모듈이 항상 동일한 형태의 CPG를 입력으로 받도록 보장하며, 장기간에 걸친 반복 실험과 대규모 배치 전처리에서도 일관된 결과를 얻을 수 있다.
+도커 컨테이너 설정은 다음 Figure~\ref{fig:docker}와 같다.
 
 \begin{figure}
     \centering
@@ -141,16 +142,15 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
     \label{fig:docker}
 \end{figure}
 
-해당 스크립트를 이용하여 도커 컨테이너를 생성한 후 공유되는 마운트를 지정하여 동작한다.
-하나의 예시로 현재 프로젝트에서 \textit{workspace}라는 디렉토리를 도커 컨테이너에서의 \textit{/workspace}와 같은 볼륨으로 마운트하여 사용하게된디.
-따라서 이후 CPG 생성 절차에서 마운트된 볼륨을 통하여 호스트와 컨테이너 간의 파일을 공유하며 도커에 설치된 Joern을 이용한다.
+해당 스크립트를 이용하여 도커 컨테이너를 생성한 후, 호스트 디렉토리를 컨테이너 내 \textit{/workspace}와 같은 경로에 볼륨으로 마운트하여 동작시킨다.
+이와 같은 구성은 CPG 생성 절차에서 호스트와 컨테이너 간의 파일을 안정적으로 공유하게 하고, 도커에 설치된 Joern을 통해 대규모 소스 코드를 일관된 환경에서 자동 변환할 수 있도록 지원한다.
 
 \subsection{병렬 처리 및 자동화}
 
-하나의 소스코드를 JSON 형태의 CPG로 생성하기 위해서는 Joern이 제공하는 두가지의 명령어를 실행해야 한다. \verb|joern-parse| 와 \verb|joern-export|를 사용하게 되는데, 이는 각각 소스코드를 컴파일과 동시에 바이너리 형태의 CPG를  Joern으로 부터 생성하는 데에는 약 3\textasciitilde5초 정도 소요된다.
-이는 대량의 소스코드 데이터를 전처리 할 경우 약 1만개의 소스코드를 단순 CPG로 변환하는데에만 8\textasciitilde13시간 정도 소요된다.
-이러한 병목을 해결하기위해 파이썬의 병렬처리 로직을 활용하였다.
-이를 통해 약 21,000개의 데이터셋을 변환하는데에 8시간정도 소요되도록 단축하였다.
+하나의 소스 코드를 JSON 형태의 CPG로 생성하기 위해서는 Joern이 제공하는 두 가지 명령어를 순차적으로 실행해야 한다. \verb|joern-parse|와 \verb|joern-export|를 사용하여, 소스 코드를 컴파일과 동시에 바이너리 형태의 CPG로 변환하고 이를 JSON으로 익스포트하는 데에 각각 약 3\textasciitilde5초가 소요된다.
+대량의 소스 코드를 전처리하는 경우, 직렬 방식으로는 약 1만 개의 소스 코드를 단순 CPG로 변환하는 데에만 8\textasciitilde13시간이 필요하다.
+본 연구에서는 이러한 병목을 해소하기 위해 Python 기반 병렬 처리 로직을 도입하여, Joern 호출을 워커 단위로 분산 실행하였다.
+그 결과, 약 21{,}000개의 데이터셋을 변환하는 데 필요한 전체 소요 시간을 8시간 수준으로 줄여, 파일당 평균 변환 시간을 \textbf{4.32초에서 1.37초로 단축}하고, 전체 처리 시간 기준으로 \textbf{68.3\%} 수준의 성능 향상을 달성하였다.
 
 
 \begin{table}[H]

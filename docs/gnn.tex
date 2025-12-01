@@ -3,10 +3,10 @@
 \section{GNN을 이용한 AST 기반의 취약점 탐지}
 
 \subsection{개요}
-Agent 모듈은 정적 분석 파이프라인의 후반부에서 동작하는 그래프 신경망(\abbrGNN) 기반의 취약점 탐지 시스템이다. 이 모듈은 앞선 단계에서 생성된 코드의 AST 표현을 입력으로 받아, 해당 함수가 Vulnerable 인지 혹은 Safe 인지를 분류하도록 학습된 \abbrPyG 모델을 운용한다.
+취약점 탐지 모듈은 정적 분석 파이프라인의 후반부에서 동작하는 그래프 신경망(\abbrGNN) 기반의 취약점 탐지 시스템이다. 이 모듈은 앞선 단계에서 생성된 코드의 \abbrAST 표현을 입력으로 받아, 해당 함수가 Vulnerable 인지 혹은 Safe 인지를 분류하도록 학습된 \abbrPyG 기반 AI 모델을 운용한다.
 
 \subsubsection{해결하고자 하는 문제}
-기존의 정적 분석 도구는 잠재적 취약점을 식별할 수 있으나, 코드의 Semantics와 Context를 완전히 이해하지 못해 다음과 같은 한계가 존재한다.
+기존의 정적 분석 도구는 잠재적 취약점을 일정 수준까지 식별할 수 있으나, 코드의 Semantics와 Context를 충분히 이해하지 못해 다음과 같은 한계가 존재한다.
 
 \begin{itemize}
     \item \textbf{Context Sensitivity 부족}: 동일한 코드 패턴이라도 문맥에 따라 안전할 수도, 취약할 수도 있다.
@@ -14,10 +14,10 @@ Agent 모듈은 정적 분석 파이프라인의 후반부에서 동작하는 �
     \item \textbf{복잡한 패턴}: 취약점은 단일 구문이 아닌, 여러 코드 요소 간의 복잡한 상호작용으로 인해 발생하는 경우가 많다.
 \end{itemize}
 
-Agent 모듈은 레이블링된 데이터셋을 통해 GNN 모델을 학습시킴으로써 이러한 문제를 해결한다. GNN 아키텍처는 코드를 그래프 구조(구문을 위한 AST)로 표현하고, 노드 및 엣지 속성으로부터 Feature를 자동으로 학습하여 구문적 패턴을 포착하는 데 최적화되어 있다.
+AI 모델은 레이블링된 데이터셋을 통해 GNN 모델을 학습시킴으로써 이러한 문제를 해결한다. GNN 아키텍처는 코드를 그래프 구조(구문을 위한 AST)로 표현하고, 노드 및 엣지 속성으로부터 Feature를 자동으로 학습하여 구문적 패턴을 포착하는 데 최적화되어 있다.
 
 \subsubsection{기능 요약}
-Agent 모듈은 다음과 같은 기계 학습 파이프라인 전 과정을 제공한다.
+취약점 탐지 모듈은 다음과 같은 기계 학습 파이프라인 전 과정을 제공한다.
 
 \begin{enumerate}
     \item \textbf{데이터 로딩}: 함수별 AST 그래프가 포함된 JSON 파일을 로드한다.
@@ -169,13 +169,13 @@ class ASTGNNModel(nn.Module):
 
 \subsection{분석 파이프라인 통합}
 
-Agent 모듈은 전체 정적 분석 파이프라인의 최종 단계로 통합된다.
+취약점 탐지 모듈은 전체 정적 분석 파이프라인의 최종 단계로 통합된다.
 
 \begin{enumerate}
     \item \textbf{CPG 생성}: Joern을 이용해 소스 코드를 CPG로 변환.
     \item \textbf{Template 생성}: CPG를 정규화된 템플릿 노드로 변환.
     \item \textbf{Graph 추출}: 템플릿에서 AST 그래프 추출 및 JSON 익스포트.
-    \item \textbf{GNN 분석}: Agent 모듈이 JSON을 입력받아 취약점 여부 판별.
+    \item \textbf{GNN 분석}: AI 모델이 JSON을 입력받아 취약점 여부를 판별.
 \end{enumerate}
 
 CLI 명령어 \texttt{uv run train} 및 \texttt{uv run evaluate}를 통해 독립적으로 실행 가능하며, 학습된 모델은 배치 예측이나 정적 분석 결과의 필터링 용도로 배포되어 활용된다.
