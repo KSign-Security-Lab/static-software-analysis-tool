@@ -1,0 +1,232 @@
+\clearpage
+
+\section{AST 추출 모듈}
+
+\subsection{개요}
+\textbf{AST 추출 모듈}은 계층적인 템플릿 JSON(함수 수준 \abbrAST)를 \abbrGNN 학습에 적합한 평탄화된 문장 수준 그래프 표현으로 변환하는 핵심 구성 요소이다. 이 모듈은 제어 흐름 관계, Guard 조건, 의미적 주석(Semantic Annotations)을 보존하면서 AST 정보를 추출한다.
+
+\subsubsection{해결하고자 하는 문제}
+템플릿 JSON은 코드 함수의 계층적 AST 표현을 제공하지만, GNN 모델 학습을 위해서는 다음과 같은 요건이 충족되어야 한다.
+
+\begin{itemize}
+    \item \textbf{구조 평탄화}: 깊게 중첩된 트리 구조보다 평탄한 노드 리스트가 GNN 처리에 효율적이다.
+\item \textbf{문장 수준 입도}: Expression 수준이 아닌 할당, 선언, 제어문 등 Statement 수준의 분석이 필요하다.
+    \item \textbf{제어 흐름 보존}: 제어문(if, for, while, switch)과 그로 인해 실행되는 블록 간의 관계가 명시적으로 표현되어야 한다.
+    \item \textbf{특징 추출}: 각 노드는 의미 정보(노드 타입, 루프 컨텍스트, 가드 제약, 호출 의미 등)를 포함한 수치형 특징을 가져야 한다.
+\end{itemize}
+
+AST 추출 모듈은 계층적 AST를 평탄화하고, 구조 및 제어 흐름을 보존하기 위해 세 가지 유형의 엣지(Parent-Child, Sibling, Guard)를 생성하며, 각 노드에 대해 GNN 입력에 적합한 특징 벡터를 계산함으로써 이러한 문제를 해결한다.
+
+
+\subsection{동작 흐름}
+
+\subsubsection{Initialization}
+AST 추출 모듈 인스턴스 생성 시, 입력된 템플릿 JSON을 순회하여 모든 노드를 ID로 인덱싱하고 결과 컨테이너를 초기화한다.
+
+\begin{figure}[H]
+    \centering
+    \begin{lstlisting}[language=Python]
+def __init__(self, ast_json: Dict[str, Any]):
+    self.ast = ast_json
+    self.idmap: Dict[int, Dict[str, Any]] = {}
+    self.parent: Dict[int, int] = {}
+    
+    # Recursively index all nodes
+    def _idx(n, parent_id: Optional[int] = None):
+        if isinstance(n, dict) and (nid := n.get('id')):
+                self.idmap[nid] = n
+            if parent_id: self.parent[nid] = parent_id
+            for c in (n.get("children") or []):
+                _idx(c, nid)
+    _idx(self.ast)
+    
+    # Initialize result containers
+    self.nodes, self.edges_pc, self.edges_sb, self.edges_ast_guard = [], [], [], []
+    self.nodes.append({"sid": 0, "node_type": "FunctionEntry", "feat": {...}})
+    \end{lstlisting}
+    \caption{AST 추출 모듈 초기화 로직}
+    \label{fig:ast_init}
+\end{figure}
+
+초기화 단계에서는 원본 AST 노드 ID 매핑(\texttt{idmap}), 부모 노드 추적(\texttt{parent}), 그리고 평탄화된 그래프를 저장할 컨테이너(\texttt{nodes}, \texttt{edges\_*})를 준비한다. 또한, 그래프의 루트 역할을 하는 \texttt{FunctionEntry} 노드(\texttt{sid=0})를 생성한다.
+
+\subsubsection{주요 추출 과정}
+\texttt{run()} 메서드는 파라미터 선언 처리, 함수 본문 평탄화, 제어 노드 후처리를 순차적으로 수행한다.
+
+\begin{figure}[H]
+    \centering
+    \begin{lstlisting}[language=Python]
+def run(self) -> Dict[str,Any]:
+    self._emit_param_statements_prologue()
+    func_body = next((c for c in self.ast.get("children", []) 
+                      if c.get("nodeType") == "CompoundStatement"), None)
+    if func_body:
+        self._process_block(func_body, 0, {}, 0)
+    self._postprocess_control_calls()
+    return {"nodes": self.nodes, "edges_ast_pc": self.edges_pc,
+            "edges_ast_sb": self.edges_sb, "edges_ast_guard": self.edges_ast_guard}
+    \end{lstlisting}
+    \caption{메인 실행 로직}
+    \label{fig:ast_run}
+\end{figure}
+
+\subsection{핵심 구성 요소 역할}
+
+\subsubsection{Block Processing}
+\texttt{\_process\_block} 함수는 \texttt{CompoundStatement}를 재귀적으로 순회하며 문장 수준 노드를 생성하고 엣지를 연결하는 핵심 역할을 수행한다.
+
+\begin{figure}[H]
+    \centering
+    \begin{lstlisting}[language=Python]
+def _process_block(self, block_node, parent_sid, active_guards, in_loop):
+    sb_prev, first_sid = None, None
+    for ch in block_node.get("children", []):
+        if ch.get("nodeType") == "CompoundStatement":
+            child_first, child_last = self._process_block(ch, parent_sid, dict(active_guards), in_loop)
+            if sb_prev: self.edges_sb.append((sb_prev, child_first, 1))
+            sb_prev = child_last
+        else:
+        sid = self._make_node(...)
+        self.edges_pc.append((parent_sid, sid, 0))
+            if sb_prev: self.edges_sb.append((sb_prev, sid, 1))
+        sb_prev = sid
+    return first_sid, sb_prev
+    \end{lstlisting}
+    \caption{블록 처리 및 노드 연결 로직}
+    \label{fig:process_block}
+\end{figure}
+
+이 함수는 중첩된 제어 구조를 재귀적으로 처리하면서 계층 구조(PC 엣지)와 실행 순서(SB 엣지)를 보존한다.
+
+\subsubsection{Node Creation}
+\texttt{\_make\_node} 함수는 평탄화된 노드를 생성하고 GNN 학습에 필요한 모든 수치형 특징을 계산한다.
+
+\begin{enumerate}
+    \item \textbf{ID 할당}: 순차적인 \texttt{sid}를 할당한다.
+    \item \textbf{호출 의미 분석}: 함수 호출 노드에 대해 의미 카테고리 및 위험 플래그를 계산한다.
+    \item \textbf{버퍼 선언 분석}: 배열 선언에 대해 크기 및 상태 정보를 추출한다.
+    \item \textbf{컨텍스트 분석}: 루프 내부 여부, 가드 강도 등을 계산한다.
+    \item \textbf{특징 벡터 생성}: \texttt{feat} 딕셔너리를 구성하고 노드 객체를 생성한다.
+\end{enumerate}
+
+\subsubsection{Control Flow Handling}
+If, For, While, Switch 제어문은 Guard Edge를 통해 제어 노드와 피제어 블록을 연결한다.
+
+\begin{figure}[H]
+    \centering
+    \begin{lstlisting}[language=Python]
+if t == "IfStatement":
+    sid_if = self._make_node("IfStatement", cond_code, in_loop, 0, ...)
+    if then_block:
+        then_first, _ = self._process_block(then_block, sid_if, ..., in_loop)
+        if then_first: _emit_guard(sid_if, then_first, 1, 0)  # THEN branch
+    if else_block:
+        else_first, _ = self._process_block(else_block, sid_if, ..., in_loop)
+        if else_first: _emit_guard(sid_if, else_first, 1, 1)  # ELSE branch
+    \end{lstlisting}
+    \caption{If 문 처리 및 가드 엣지 생성}
+    \label{fig:if_handling}
+\end{figure}
+
+
+
+\subsubsection{Guard Edge Emission}
+\texttt{\_emit\_guard} 함수는 제어 흐름의 종류와 분기를 나타내는 속성을 포함하여 가드 엣지를 생성한다.
+
+\begin{itemize}
+    \item \textbf{guard\_kind}: 1(If), 2(Loop), 4(Switch).
+    \item \textbf{guard\_branch}: If(0=Then, 1=Else), Loop(2), Switch(Case 값).
+\end{itemize}
+
+\subsection{데이터 변환}
+
+\subsubsection{입출력 구조}
+입력은 계층적인 템플릿 JSON이며, 출력은 노드 리스트와 엣지 리스트로 구성된 평탄화된 그래프이다.
+
+\begin{figure}[H]
+    \centering
+    \begin{minipage}[t]{0.47\textwidth}
+        \vspace{0pt}
+        \textbf{Input JSON}
+        \begin{lstlisting}[language=json]
+{
+  "nodeType": "FunctionDefinition",
+  "children": [
+    ...
+  ]
+}
+        \end{lstlisting}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[t]{0.47\textwidth}
+        \vspace{0pt}
+        \textbf{Output JSON}
+        \begin{lstlisting}[language=json]
+{
+  "nodes": [
+    ...
+  ],
+  "edges_ast_pc": [
+    ...
+  ],
+  "edges_ast_sb": [
+    ...
+  ],
+  "edges_ast_guard": [
+    ...
+  ]
+}
+        \end{lstlisting}
+    \end{minipage}
+    \caption{AST 추출 모듈의 입력 및 출력 JSON 예시}
+    \label{fig:ast_io_json}
+\end{figure}
+
+\subsubsection{Node Features}
+각 노드의 \texttt{feat} 딕셔너리는 다음 정보를 포함한다.
+
+\begin{itemize}
+    \item \textbf{기본 정보}: \texttt{node\_type\_id}, \texttt{train\_mask}.
+    \item \textbf{컨텍스트}: \texttt{in\_loop}, \texttt{is\_loop}, \texttt{ctx\_guard\_strength}.
+    \item \textbf{버퍼 정보}: \texttt{is\_buffer\_decl}, \texttt{buffer\_size\_norm}.
+    \item \textbf{호출 의미}: \texttt{call\_sem\_cat\_id}, \texttt{call\_flag\_danger\_unbounded} 등.
+\end{itemize}
+
+\subsection{노드 및 엣지 타입}
+
+\subsubsection{지원 노드 타입}
+\texttt{NODE\_TYPE\_ID} 매핑을 통해 정수형 ID로 변환된다.
+
+\begin{itemize}
+    \item \textbf{선언}: VariableDeclaration(3), ArrayDeclaration(4), PointerDeclaration(5).
+    \item \textbf{제어}: IfStatement(10), ForStatement(11), WhileStatement(12), SwitchStatement(14).
+    \item \textbf{호출}: StandardLibCall(30), UserDefinedCall(31).
+    \item \textbf{기타}: FunctionEntry(1), AssignmentExpression(6).
+\end{itemize}
+
+\subsubsection{엣지 타입}
+세 가지 엣지 패밀리를 통해 코드의 구조적 정보를 보존한다.
+
+\begin{enumerate}
+    \item \textbf{Parent-PC}: 원본 AST의 계층 구조 표현 (엣지 타입 0).
+    \item \textbf{SB}: 문장 간의 실행 순서 표현 (엣지 타입 1).
+    \item \textbf{Guard}: 제어 흐름에 따른 조건부 실행 관계 표현 (엣지 타입 2).
+\end{enumerate}
+
+\subsection{호출 의미론 및 플래그}
+
+\subsubsection{호출 카테고리}
+함수 호출은 취약점 분석을 위해 다음 카테고리로 분류된다.
+\begin{itemize}
+    \item \textbf{메모리 조작}: \texttt{mem\_alloc}(1), \texttt{mem\_copy}(2), \texttt{mem\_set}(5).
+    \item \textbf{입출력}: \texttt{ext\_input}(3), \texttt{format\_print}(4).
+    \item \textbf{기타}: \texttt{net\_connect}(6), \texttt{parse\_int}(9/10).
+\end{itemize}
+
+\subsubsection{호출 플래그 계산}
+\texttt{compute\_call\_flags} 함수는 호출의 위험성을 판단하기 위한 상세 플래그를 계산한다.
+\begin{itemize}
+    \item \textbf{Unbounded Call}: \texttt{strcpy}, \texttt{gets} 등 경계 검사가 없는 호출 식별.
+    \item \textbf{Size Relationship}: 인자가 \texttt{sizeof(dst)}와 연관되어 있는지 분석.
+    \item \textbf{Field Sensitivity}: 목적지가 구조체 필드인지 여부 확인.
+\end{itemize}

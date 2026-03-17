@@ -1,0 +1,142 @@
+\clearpage
+
+\section{실험 및 성능 평가}
+
+본 절에서는 제안된 AST 기반 GNN 모델의 취약점 탐지 성능을 실제 데이터셋을 통해 평가한 결과를 제시한다.
+
+\subsection{실험 환경}
+
+\subsubsection{데이터셋}
+실험에는 NIST Juliet Test Suite v1.3의 C/C++ 데이터셋을 활용하였다. Juliet Test Suite는 다양한 소프트웨어 취약점 유형을 체계적으로 포함하는 표준 벤치마크 데이터셋으로, 본 연구에서는 다음 세 가지 데이터 소스를 사용하였다.
+
+\begin{itemize}
+    \item \textbf{CWE-121} (\texttt{data/CWE121\_Stack\_Based\_Buffer\_Overflow}): 총 18,636개 샘플, Label 1 (취약) 16,156개, Label 0 (안전) 2,480개
+    \item \textbf{CWE-122} (\texttt{data/CWE122\_Heap\_Based\_Buffer\_Overflow}): 총 23,488개 샘플, Label 1 (취약) 19,332개, Label 0 (안전) 4,156개
+    \item \textbf{Real-world Code} (\texttt{data/real\_code}): 총 51개 샘플, Label 1 (취약) 16개, Label 0 (안전) 35개
+\end{itemize}
+
+각 Juliet 폴더에서는 파일명에 \texttt{bad} 키워드를 포함하는 샘플을 Label 1 (취약)로, 그렇지 않은 샘플을 Label 0 (안전)으로 라벨링하였다. \texttt{data/real\_code} 폴더에서는 파일명이 \texttt{patched} 인 샘플을 Label 0 (안전)으로, 그렇지 않은 샘플을 Label 1 (취약)으로 정의하였다. 전체 기준으로는 총 42,175개 샘플 중 취약(Label 1)이 35,504개(84.18\%), 안전(Label 0)이 6,671개(15.82\%)로, 취약 클래스가 우세한 불균형 데이터셋이다. 모델 평가는 이 전체 데이터셋으로부터 무작위로 추출한 테스트 세트 4,218개 샘플에 대해 수행되었다.
+
+\subsubsection{실험 설정}
+모델 학습 및 평가는 다음과 같은 설정으로 수행되었다.
+
+\begin{itemize}
+    \item \textbf{데이터 분할}: 전체 데이터셋을 학습 세트와 테스트 세트로 분할 (비율은 데이터셋 특성에 따라 결정)
+\item \textbf{모델 아키텍처}: \abbrGINE\ 기반 인코더, 히든 차원 128, 계층 수 3
+    \item \textbf{학습 파라미터}: 학습률 0.001, 배치 크기 32, 에포크 수 50
+    \item \textbf{하드웨어}: NVIDIA GPU를 활용한 병렬 학습
+\end{itemize}
+
+\subsection{성능 지표}
+
+\subsubsection{전체 성능}
+테스트 세트 4,218개 샘플에 대한 평가 결과는 다음과 같다.
+
+\begin{table}[H]
+    \centering
+    \begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}} lrr}
+        \toprule
+        \textbf{지표} & \textbf{값} & \textbf{비율} \\
+        \midrule
+        총 샘플 수 & 4,218 & 100.00\% \\
+        Accuracy & 3,996 & 94.74\% \\
+        \bottomrule
+    \end{tabular*}
+    \caption{전체 성능 지표}
+    \label{tab:overall_performance}
+\end{table}
+
+\subsubsection{Confusion Matrix}
+이진 분류 결과를 Confusion Matrix로 정리하면 Table~\ref{tab:confusion_matrix}와 같다.
+
+\begin{table}[H]
+    \centering
+    \begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}} lccc}
+        \toprule
+        \multirow{2}{*}{\textbf{실제}} & \multicolumn{2}{c}{\textbf{예측}} & \multirow{2}{*}{\textbf{합계}} \\
+        \cmidrule{2-3}
+        & 취약 (1) & 안전 (0) & \\
+        \midrule
+        취약 (1) & 3,441 (TP) & 129 (FN) & 3,570 \\
+        안전 (0) & 93 (FP) & 555 (TN) & 648 \\
+        \midrule
+        \textbf{합계} & 3,534 & 684 & 4,218 \\
+        \bottomrule
+    \end{tabular*}
+    \caption{Confusion Matrix}
+    \label{tab:confusion_matrix}
+\end{table}
+
+\subsubsection{상세 성능 지표}
+혼동 행렬을 바탕으로 계산된 주요 성능 지표는 Table~\ref{tab:detailed_metrics}와 같다.
+
+\begin{table}[H]
+    \centering
+    \begin{tabular*}{0.8\textwidth}{@{\extracolsep{\fill}} lr}
+        \toprule
+        \textbf{지표} & \textbf{값} \\
+        \midrule
+        Accuracy & 94.74\% \\
+        Recall / TPR & 96.39\% \\
+        Precision & 97.37\% \\
+        F1-Score & 96.88\% \\
+        FPR & 14.35\% \\
+        Specificity & 85.65\% \\
+        \bottomrule
+    \end{tabular*}
+    \caption{상세 성능 지표}
+    \label{tab:detailed_metrics}
+\end{table}
+
+\subsection{성능 분석}
+
+\subsubsection{높은 재현율의 의미}
+Recall 96.39\%는 실제 취약점 중 96.39\%를 정확히 탐지함을 의미한다. 이는 보안 도구로서 가장 중요한 지표 중 하나로, False Negative를 최소화하여 실제 취약점을 놓치지 않는 것이 핵심이기 때문이다. 본 모델은 3,570개의 실제 취약점 중 3,441개를 정확히 탐지하여, 단 129개(3.61\%)만을 놓쳤다.
+
+\subsubsection{오탐율 분석}
+False Positive Rate 14.35\%는 정상 코드 648개 중 93개를 잘못 취약점으로 분류한 것이다. 이는 기존 정적 분석 도구의 전형적인 False Positive Rate(20-40\%) 대비 경쟁력 있는 수치이나, 여전히 개선의 여지가 있다. False Positive를 감소시키기 위해서는 다음과 같은 방향의 개선이 필요하다.
+
+\begin{itemize}
+    \item \textbf{데이터 보강}: 정상 코드 패턴의 다양성을 높인 학습 데이터 추가
+    \item \textbf{특징 개선}: 문맥 정보를 더 정교하게 반영하는 노드 특징 벡터 설계
+    \item \textbf{앙상블 기법}: 여러 모델의 예측을 결합하여 오탐 감소
+\end{itemize}
+
+\subsubsection{클래스 불균형 대응}
+전체 42,175개 샘플을 기준으로 할 때, 데이터셋은 취약(Label 1) 35,504개(84.18\%), 안전(Label 0) 6,671개(15.82\%)로 약 5.3:1의 심각한 클래스 불균형을 보인다. 이와 같은 불균형 상황에서도 무작위로 추출된 테스트 세트 4,218개 샘플에 대해 94.74\%의 높은 정확도를 달성한 것은 다음과 같은 요인에 기인한다.
+
+\begin{itemize}
+    \item \textbf{가중치 조정}: 학습 시 Class Weight를 적용하여 소수 클래스(안전)에 더 높은 학습 가중치 부여
+    \item \textbf{특징 품질}: AST 구조 정보가 취약점과 정상 코드를 효과적으로 구분할 수 있는 특징을 제공
+\item \textbf{모델 용량}: \abbrGINE 의 충분한 표현력이 복잡한 패턴 학습을 가능하게 함
+\end{itemize}
+
+\subsection{오분류 분석}
+
+\subsubsection{높은 확신도의 오분류}
+모델 평가 결과, 일부 샘플에 대해서는 높은 Confidence를 가지고 오분류하는 사례가 발견되었다. 예를 들어, \texttt{CWE122\_...\_rand\_12\_bad.json} 파일의 경우 모델이 0.99의 높은 확신도로 취약점으로 분류했으나 실제로는 정상 코드였다.
+
+이러한 현상은 다음과 같은 원인으로 분석된다.
+
+\begin{itemize}
+    \item \textbf{패턴 유사성}: 일부 정상 코드가 취약점 코드와 매우 유사한 구조적 패턴을 가짐
+    \item \textbf{문맥 정보 부족}: AST 구조만으로는 판단하기 어려운 런타임 검증 로직의 부재
+    \item \textbf{데이터 편향}: 학습 데이터에 특정 패턴이 과도하게 포함되어 모델이 이를 과도하게 일반화
+\end{itemize}
+
+\subsubsection{개선 방향}
+높은 확신도의 오분류를 줄이기 위한 향후 연구 방향은 다음과 같다.
+
+\begin{itemize}
+    \item \textbf{Adversarial Training}: 오분류된 샘플을 학습에 포함시켜 모델의 견고성 향상
+    \item \textbf{데이터 보강}: 오분류 패턴을 포함하는 추가 학습 데이터 수집 및 생성
+    \item \textbf{확신도 기반 필터링}: 낮은 확신도 예측에 대해서는 추가 검증 절차 적용
+    \item \textbf{설명 가능성 분석}: 오분류 원인을 분석하여 모델의 의사결정 과정 개선
+\end{itemize}
+
+\subsection{결론}
+
+본 실험을 통해 제안된 AST 기반 GNN 모델이 실제 취약점 탐지 작업에서 높은 실용적 성능을 달성함을 확인하였다. 특히 Recall 96.39\%와 Precision 97.37\%, F1-Score 96.88\%는, 학습된 AI 모델이 실제 취약점의 대부분을 놓치지 않으면서도 오탐을 효과적으로 억제하고 있음을 보여준다. 이는 코드의 \abbrAST 구조와 Guard, 제어 흐름 등 그래프 기반 문맥 정보를 통합적으로 학습한 결과이며, 전통적인 정적 분석 도구가 가지는 높은 False Positive와 제한적인 문맥 인식 한계를 상당 부분 완화한다는 기술적 의의를 가진다. 다만 14.35\% 수준의 False Positive Rate는 여전히 개선 여지가 있으며, 향후 데이터 보강, 특징 벡터 정교화, 앙상블 및 설명 가능한 AI 기법을 결합함으로써 대규모 실무 환경에서도 안정적으로 활용 가능한 정적 취약점 탐지 플랫폼으로 확장해 나갈 수 있을 것으로 기대된다.
+
+
+

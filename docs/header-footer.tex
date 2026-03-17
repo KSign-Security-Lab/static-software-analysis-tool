@@ -1,0 +1,57 @@
+% ---------- Header via fancyhdr ----------
+  \newcommand{\KSHeader}{%
+    \scriptsize
+    \renewcommand{\arraystretch}{1.8}%
+    \noindent
+    \begin{minipage}{\textwidth}
+
+      % ---- TOP GRADIENT (no border, flush) ----
+      \includegraphics[
+        width=\textwidth,
+        height=3mm,
+        keepaspectratio
+      ]{top-gradient.pdf}% 
+
+      % ---- METADATA has borders ----
+      \begin{tabularx}{\textwidth}{|p{2.5cm}|X|p{1.5cm}|p{2.2cm}|p{1.5cm}|p{1.5cm}|}
+        \hline
+        \multirow{3}{*}{%
+          \centering
+          \begin{minipage}[c]{2.5cm}
+              \centering
+              \includegraphics[width=2.0cm]{ksign-logo.pdf}
+          \end{minipage}
+        } & \multirow{3}{*}{%
+          \centering
+          \parbox{\linewidth}{%
+            \centering
+            \footnotesize 소스 취약성 식별\\AI 모델 프로토타입\\\tiny AI Model Prototype for Source Code\\Vulnerability Identification
+          }%
+        } &
+        \textbf{부서} & 정보보안연구소 & \textbf{작성자} & 김건오 \\ \cline{3-6}
+        & & \textbf{최신수정일} & 2025.12.10 & \textbf{버전} & 1.0 \\ \cline{3-6}
+        & & \textbf{관리번호} &
+        \multicolumn{3}{c|}{RS-2024-00398993-2501} \\ \hline
+      \end{tabularx}
+
+    % ---- BOTTOM GRADIENT (no border, flush) ----
+    \hfill\includegraphics[
+      width=0.5\textwidth,
+      height=3mm,
+      keepaspectratio
+    ]{bottom-gradient.pdf}
+
+  \end{minipage}%
+}
+
+\fancyhead[L]{\KSHeader}
+\fancyfoot[C]{%
+  \scriptsize
+  이 문서의 저작권은 ㈜케이사인에 있습니다.\hfill(\thepage/\pageref{LastPage} Page)%
+}
+
+% Make LaTeX's "plain" pagestyle identical to fancy *for the header*
+\makeatletter
+\let\ps@plain\ps@fancy
+\makeatother
+
