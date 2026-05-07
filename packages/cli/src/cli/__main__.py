@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -12,8 +13,14 @@ from .parser import CliOptions, CliParser
 # Import core functions
 try:
     from core.endpoint import generate_ast, generate_cpg, generate_dfg, generate_template
+    from core.cpg.generator import batch_generate_cpg, SUPPORTED_EXTENSIONS
 except ImportError:
     # Fallback if core is not installed
+    SUPPORTED_EXTENSIONS = frozenset({".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".java"})
+
+    def batch_generate_cpg(*args, **kwargs):
+        raise NotImplementedError("Core package not available")
+
     def generate_cpg(*args, **kwargs):
         raise NotImplementedError("Core package not available")
 
@@ -28,10 +35,10 @@ except ImportError:
 
 
 def find_monorepo_root(start_dir: Path) -> Path:
-    """Find monorepo root by looking for package.json."""
+    """Find monorepo root by looking for pyproject.toml."""
     current = start_dir
     while current != current.parent:
-        if (current / "package.json").exists():
+        if (current / "pyproject.toml").exists():
             return current
         current = current.parent
     return Path.cwd()
@@ -92,11 +99,11 @@ async def process_single_file(
     logger: SimpleLogger,
 ) -> None:
     """Process a single file."""
-    is_c_file = file_path.suffix.lower() == ".c"
+    is_source_file = file_path.suffix.lower() in SUPPORTED_EXTENSIONS
     cpg = None
 
     try:
-        if is_c_file:
+        if is_source_file:
             cpg = await generate_cpg(
                 str(file_path),
                 "file",
@@ -230,8 +237,41 @@ async def main() -> None:
         # Process files
         output_path.mkdir(parents=True, exist_ok=True)
 
-        workers = int(options.workers) if options.workers else 1
-        if workers == 1:
+        workers = int(options.workers) if options.workers else 4
+
+        if options.mode == "cpg":
+            # Use multiprocess batch generation for CPG mode
+            username = os.getenv("USER") or os.getenv("USERNAME") or "user"
+            container_name = f"ssat-joern-{username}"
+
+            completed = 0
+            logger.start_progress(len(files))
+
+            def on_progress(result):
+                nonlocal completed
+                completed += 1
+                if not result["success"]:
+                    logger.error(f"Error processing {result['file']}: {result.get('error', 'Unknown')}")
+                logger.update_progress(completed)
+
+            results = batch_generate_cpg(
+                files=files,
+                input_root=input_path,
+                output_root=output_path,
+                container_name=container_name,
+                workers=workers,
+                representation=options.representation,
+                export_format=options.export_format,
+                copy_source=options.copy_source,
+                progress_callback=on_progress,
+            )
+
+            logger.stop_progress()
+
+            success_count = sum(1 for r in results if r["success"])
+            fail_count = len(results) - success_count
+            logger.info(f"Batch complete: {success_count} succeeded, {fail_count} failed")
+        elif workers == 1:
             # Sequential processing
             logger.start_progress(len(files))
             for i, file_path in enumerate(files):
@@ -259,5 +299,179 @@ async def main() -> None:
         sys.exit(1)
 
 
-if __name__ == "__main__":
+def ssat_main() -> None:
+    """Synchronous entry point for SSAT CLI."""
     asyncio.run(main())
+
+
+def cpg_main() -> None:
+    """Shortcut entry point for CPG generation."""
+    sys.argv.insert(1, "cpg")
+    # Handle positional argument if present
+    if len(sys.argv) > 2 and not sys.argv[2].startswith("-"):
+        val = sys.argv.pop(2)
+        sys.argv.insert(2, "--data")
+        sys.argv.insert(3, val)
+    ssat_main()
+
+
+def generate_cpg_entry() -> None:
+    """Entry point for generate:cpg."""
+    sys.argv.insert(1, "cpg")
+    ssat_main()
+
+
+def generate_template_entry() -> None:
+    """Entry point for generate:template."""
+    sys.argv.insert(1, "template")
+    ssat_main()
+
+
+def generate_template_functions_entry() -> None:
+    """Entry point for generate:template:functions."""
+    sys.argv.insert(1, "template-functions")
+    ssat_main()
+
+
+def generate_dfg_entry() -> None:
+    """Entry point for generate:dfg."""
+    sys.argv.insert(1, "dfg")
+    ssat_main()
+
+
+def generate_ast_entry() -> None:
+    """Entry point for generate:ast."""
+    sys.argv.insert(1, "ast")
+    ssat_main()
+
+
+def generate_full_entry() -> None:
+    """Entry point for generate:full."""
+    sys.argv.insert(1, "full")
+    ssat_main()
+
+
+def scripts_help() -> None:
+    """Python equivalent of scripts:help from package.json."""
+    try:
+        import tomllib
+    except ImportError:
+        # Fallback for Python < 3.11 if needed, though we use 3.14
+        import pip._vendor.tomli as tomllib  # type: ignore
+
+    repo_root = find_monorepo_root(Path.cwd())
+    pyproject_path = repo_root / "pyproject.toml"
+
+    if not pyproject_path.exists():
+        print("pyproject.toml not found.")
+        return
+
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+
+    scripts = data.get("tool", {}).get("uv", {}).get("scripts", {})
+    if not scripts:
+        scripts = data.get("project", {}).get("scripts", {})
+
+    print("Available scripts\n==================")
+    for k, v in sorted(scripts.items()):
+        print(f"{k:30} - {v}")
+
+
+def docker_up() -> None:
+    """Start Docker services."""
+    import subprocess
+    import os
+    try:
+        os.makedirs("workspace", exist_ok=True)
+        os.chmod("workspace", 0o777)
+        subprocess.run(["docker", "compose", "up", "-d"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error starting Docker services: {e}")
+        sys.exit(1)
+
+
+def docker_down() -> None:
+    """Stop Docker services and remove volumes."""
+    import subprocess
+    try:
+        subprocess.run(["docker", "compose", "down", "-v"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error stopping Docker services: {e}")
+        sys.exit(1)
+
+
+def docker_remove() -> None:
+    """Alias for docker_down."""
+    docker_down()
+
+
+def docker_fresh() -> None:
+    """Fresh restart of Docker services (rebuild without cache)."""
+    import subprocess
+    import os
+    try:
+        print("Cleaning up existing containers, volumes, and local images...")
+        subprocess.run(["docker", "compose", "down", "-v", "--rmi", "local"], check=True)
+        print("Rebuilding and starting services from scratch...")
+        os.makedirs("workspace", exist_ok=True)
+        os.chmod("workspace", 0o777)
+        subprocess.run(["docker", "compose", "up", "-d", "--build", "--no-cache"], check=True)
+        print("Fresh start complete.")
+    except subprocess.CalledProcessError as e:
+        print(f"Error during fresh restart: {e}")
+        sys.exit(1)
+
+
+def type_check_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["mypy", "packages"]).returncode)
+
+
+def lint_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["ruff", "check", "packages"]).returncode)
+
+
+def lint_fix_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["ruff", "check", "--fix", "packages"]).returncode)
+
+
+def format_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["ruff", "format", "packages"]).returncode)
+
+
+def format_check_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["ruff", "format", "--check", "packages"]).returncode)
+
+
+def test_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["pytest", "packages/core"]).returncode)
+
+
+def test_log_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["pytest", "-s", "packages/core"]).returncode)
+
+
+def web_dev_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["bash", "-c", "cd web && npm run dev"]).returncode)
+
+
+def web_build_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["bash", "-c", "cd web && npm run build"]).returncode)
+
+
+def web_start_entry() -> None:
+    import subprocess
+    sys.exit(subprocess.run(["bash", "-c", "cd web && npm run start"]).returncode)
+
+
+if __name__ == "__main__":
+    ssat_main()

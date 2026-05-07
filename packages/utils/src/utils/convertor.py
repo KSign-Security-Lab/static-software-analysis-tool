@@ -4,22 +4,22 @@
 """
 convertor.py
 
-JSON 형태의 AST에서 nodeType == "FunctionDefinition"인 함수 서브트리만 분리해
-개별 JSON 파일로 저장하는 스크립트.
+A script to extract function subtrees with nodeType == "FunctionDefinition" from a JSON-formatted AST 
+and save them as individual JSON files.
 
-추가 기능:
-- 함수 서브트리 내 "내부 노드"(children이 비어있지 않은 노드) 개수가 threshold 이하(기본 5)이면 저장 PASS.
-  * 내부 노드 수는 함수 루트(FunctionDefinition)는 제외.
-  * leaves(자식이 없는 노드)는 제외.
+Additional Features:
+- Skips saving if the number of "internal nodes" (nodes with non-empty children) in the function subtree is below a threshold (default 5).
+  * The root node (FunctionDefinition) is excluded from the internal node count.
+  * Leaves (nodes without children) are also excluded.
 
-파일명 규칙(기존 convertor.py와 동일):
-- 함수명(name)이 존재하고 길이 ≤ 15면: <원본파일base>_<함수명>.json
-  * 원본파일명이 *_templateTree.json 이면 base에서 '_templateTree' 제거
-- 그 외(이름이 없거나 길이 > 15): <함수명 or anonymous_function>.json
-- 이름 충돌 시 _1, _2... 를 덧붙여 저장
+Filename Rules (same as the original convertor.py):
+- If the function name (name) exists and length <= 15: <original_file_base>_<function_name>.json
+  * If the original filename is *_templateTree.json, '_templateTree' is removed from the base.
+- Otherwise (no name or length > 15): <function_name or anonymous_function>.json
+- Appends _1, _2... if name conflicts occur.
 
-로그 저장:
-- 터미널에 출력되는 모든 로그를 동시에 --output 폴더의 result.txt 파일에도 기록합니다.
+Logging:
+- All logs printed to the terminal are simultaneously recorded in the result.txt file in the --output folder.
 """
 
 import argparse
@@ -33,21 +33,21 @@ from typing import Any, Dict, List, Tuple, Iterable
 # ----- Logger -----
 def setup_logger(out_dir: Path) -> logging.Logger:
     """
-    콘솔 + 파일(result.txt)에 동시에 INFO 레벨 로그를 남기는 로거 설정.
+    Setup logger to record INFO level logs simultaneously to console and file (result.txt).
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / "result.txt"
 
     logger = logging.getLogger("convertor")
     logger.setLevel(logging.INFO)
-    logger.handlers.clear()  # 중복 방지
+    logger.handlers.clear()  # prevent duplicates
 
-    # 콘솔 출력
+    # console output
     sh = logging.StreamHandler(sys.stdout)
     sh.setLevel(logging.INFO)
     sh.setFormatter(logging.Formatter("%(message)s"))
 
-    # 파일 출력 (덮어쓰기)
+    # file output (overwrite)
     fh = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     fh.setLevel(logging.INFO)
     fh.setFormatter(logging.Formatter("%(message)s"))
@@ -59,7 +59,7 @@ def setup_logger(out_dir: Path) -> logging.Logger:
 
 # ----- Core -----
 def iter_function_defs(root: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
-    """DFS로 순회하며 nodeType == 'FunctionDefinition' 인 노드들을 yield."""
+    """DFS traversal to yield nodes with nodeType == 'FunctionDefinition'."""
     stack = [root]
     while stack:
         node = stack.pop()
@@ -74,7 +74,7 @@ def iter_function_defs(root: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
 
 
 def is_leaf(node: Dict[str, Any]) -> bool:
-    """자식이 없는 노드면 leaf로 간주."""
+    """Consider node as leaf if it has no children."""
     children = node.get("children")
     return not children or (isinstance(children, list) and len(children) == 0)
 
@@ -83,8 +83,8 @@ def count_internal_nodes(
     subtree_root: Dict[str, Any], exclude_root: bool = True
 ) -> int:
     """
-    서브트리 내부에서 children이 있는 노드(= 내부 노드) 개수.
-    기본적으로 루트(FunctionDefinition)는 제외(exclude_root=True).
+    Count of nodes with children (= internal nodes) within the subtree.
+    By default, the root (FunctionDefinition) is excluded (exclude_root=True).
     """
     count = 0
     stack = [subtree_root]
@@ -106,10 +106,10 @@ def count_internal_nodes(
 
 def derive_output_name_original_rule(src_path: Path, func_name: str) -> str:
     """
-    기존 convertor.py 파일명 규칙 구현:
-      - func_name이 있고 len(func_name) <= 15 이면: <src_base>_<func_name>.json
-        (src_base는 src_path.stem에서 '_templateTree' 접미사를 제거한 값)
-      - 그 외: <func_name>.json (func_name이 없으면 'anonymous_function')
+    Implementation of original convertor.py filename rules:
+      - If func_name exists and len(func_name) <= 15: <src_base>_<func_name>.json
+        (src_base is src_path.stem with '_templateTree' suffix removed)
+      - Otherwise: <func_name>.json (defaults to 'anonymous_function' if no func_name)
     """
     name = (func_name or "").strip() or "anonymous_function"
     stem = src_path.stem
@@ -122,7 +122,7 @@ def derive_output_name_original_rule(src_path: Path, func_name: str) -> str:
 
 
 def ensure_unique_path(out_dir: Path, filename: str) -> Path:
-    """동일 파일명이 존재하면 _1, _2... 접미사를 붙여 충돌 회피."""
+    """Avoid collisions by appending _1, _2... if the filename already exists."""
     candidate = out_dir / filename
     if not candidate.exists():
         return candidate
@@ -146,8 +146,8 @@ def process_one_file(
     src_path: Path, out_dir: Path, threshold: int, logger: logging.Logger
 ) -> Tuple[int, int, int]:
     """
-    하나의 JSON 파일 처리.
-    반환: (found, saved, skipped)
+    Process a single JSON file.
+    Returns: (found, saved, skipped)
     """
     try:
         with src_path.open("r", encoding="utf-8") as f:
@@ -182,7 +182,7 @@ def process_one_file(
 
 
 def collect_json_files(input_path: Path) -> List[Path]:
-    """입력이 파일이면 그대로, 디렉터리면 하위의 .json 파일들을 재귀 수집."""
+    """Collect .json files recursively if input is a directory, otherwise return the file path itself."""
     if input_path.is_file():
         return [input_path]
     files: List[Path] = []
@@ -219,7 +219,7 @@ def main():
     out_dir = Path(args.output)
     threshold = int(args.threshold)
 
-    # 로거 준비 (여기서 out_dir 생성 + result.txt 경로 확정)
+    # Setup logger (creates out_dir + confirms result.txt path)
     logger = setup_logger(out_dir)
 
     files = collect_json_files(input_path)

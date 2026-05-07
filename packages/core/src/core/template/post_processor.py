@@ -31,7 +31,7 @@ class PostProcessor:
 
             children = node.get("children", []) if isinstance(node, dict) else getattr(node, "children", [])
             processed_node = {
-                **node if isinstance(node, dict) else node.__dict__,
+                **(node if isinstance(node, dict) else node.__dict__),
                 "code": code,
                 "children": self.add_code_properties(children, cpg) if children else [],
             }
@@ -69,7 +69,7 @@ class PostProcessor:
                     array_size = next_node
 
                     merged_children.append({
-                        **array_decl if isinstance(array_decl, dict) else array_decl.__dict__,
+                        **(array_decl if isinstance(array_decl, dict) else array_decl.__dict__),
                         "length": array_decl.get("length") if array_decl.get("length") == array_size.get("length") else array_size.get("length"),
                         "children": (array_decl.get("children", []) or []) + (array_size.get("children", []) or []),
                     })  # type: ignore
@@ -78,13 +78,13 @@ class PostProcessor:
                 else:
                     current_children = current.get("children", []) if isinstance(current, dict) else getattr(current, "children", [])
                     merged_children.append({
-                        **current if isinstance(current, dict) else current.__dict__,
+                        **(current if isinstance(current, dict) else current.__dict__),
                         "children": self.merge_array_size_allocation(current_children) if current_children else current_children,
                     })  # type: ignore
                     i += 1
 
             result.append({
-                **node if isinstance(node, dict) else node.__dict__,
+                **(node if isinstance(node, dict) else node.__dict__),
                 "children": merged_children,
             })  # type: ignore
 
@@ -140,5 +140,3 @@ class PostProcessor:
                     return inner["@value"]
                 return inner
         return None
-
-

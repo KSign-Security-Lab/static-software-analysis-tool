@@ -22,6 +22,7 @@ class CliOptions:
         verbose: bool = False,
         representation: str = "all",
         export_format: str = "graphson",
+        copy_source: bool = False,
     ):
         self.mode = mode
         self.data = data
@@ -34,6 +35,7 @@ class CliOptions:
         self.verbose = verbose
         self.representation = representation
         self.export_format = export_format
+        self.copy_source = copy_source
 
 
 class CliParser:
@@ -43,7 +45,7 @@ class CliParser:
         """Initialize parser."""
         self.parser = argparse.ArgumentParser(
             prog="ssat",
-            description="Static Software Analysis Tool - Convert C source code to various representations",
+            description="Static Software Analysis Tool - Convert source code (C/C++/Java) to various representations",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
         self.parser.add_argument("--version", action="version", version="2.4.3")
@@ -62,13 +64,15 @@ class CliParser:
             help="Generate Code Property Graph from C source code",
             formatter_class=fmt,
         )
-        cpg_parser.add_argument("-d", "--data", required=True, help="Input C source file or directory")
+        cpg_parser.add_argument("-d", "--data", required=True, help="Input source file or directory")
         cpg_parser.add_argument("-o", "--output", help="Output directory (default: result/cpg_<timestamp>)")
-        cpg_parser.add_argument("--ext", default="c", help="File extensions to process (comma-separated)")
+        cpg_parser.add_argument("--ext", default="c,h,cpp,cc,cxx,hpp,hxx,java", help="File extensions to process (comma-separated)")
+        cpg_parser.add_argument("--workers", default="4", help="Number of parallel workers for batch processing")
         cpg_parser.add_argument("--repr", default="all", help="Representation (ast, cfg, cpg14, all, etc.)")
         cpg_parser.add_argument("-f", "--format", default="graphson", help="Export format (dot, graphson, graphml, etc.)")
         cpg_parser.add_argument("--replace-macro", action="store_true", default=True, help="Replace macros in source files")
         cpg_parser.add_argument("--no-replace-macro", dest="replace_macro", action="store_false", help="Skip macro replacement")
+        cpg_parser.add_argument("--copy-source", action="store_true", default=False, help="Copy original source files alongside CPG output")
         cpg_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
         cpg_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
         cpg_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
@@ -164,4 +168,5 @@ class CliParser:
             verbose=getattr(args, "verbose", False),
             representation=getattr(args, "repr", "all"),
             export_format=getattr(args, "format", "graphson"),
+            copy_source=getattr(args, "copy_source", False),
         )

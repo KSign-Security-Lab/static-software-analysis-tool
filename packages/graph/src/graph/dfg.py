@@ -13,14 +13,14 @@ FLOW_ID = {"value":1, "index":2, "size":3, "base":4}
 # ------------------------------
 # DFG Extractor V1.9
 # ------------------------------
-class DFGExtractorV1_12:
+class DFGExtractor:
     def __init__(self, ast_json: Dict[str,Any], ast_result: Dict[str,Any], sink_mode: str = "k1"):
         self.ast_json = ast_json
         self.ast_result = ast_result or {}
 
         self.ast_nodes = ast_result.get("nodes", [])
         self.ast_guard = ast_result.get("edges_ast_guard", [])
-        self.pointer_vars: Set[str] = self._collect_pointer_names(self.ast_json)  # PointerDeclaration 수집
+        self.pointer_vars: Set[str] = self._collect_pointer_names(self.ast_json)  # Collect PointerDeclaration
 
 
 
@@ -34,18 +34,18 @@ class DFGExtractorV1_12:
             self.sid2flat[_sid] = _row
         self.sink_mode = sink_mode
 
-        # 원본 AST 인덱스 (id→node)
+        # Original AST index (id -> node)
         self.id2orig: Dict[int,Dict[str,Any]] = self._index_ast_by_id(self.ast_json)
 
-        # 파라미터 목록
+        # Parameter list
         self.param_names: List[str] = self._collect_param_names(self.ast_json)
 
        
-        # 결과 컨테이너
-        self.nodes: List[Dict[str,Any]] = []   # DFG 노드(feature)
-        self.edges_defuse: List[Tuple[int,int,Dict[str,Any]]] = []  # ← flat Def→Use (수집용)
+        # Result container
+        self.nodes: List[Dict[str,Any]] = []   # DFG nodes (features)
+        self.edges_defuse: List[Tuple[int,int,Dict[str,Any]]] = []  # <- flat Def->Use (for collection)
 
-        # DFG 노드 초기화 (sid 공유). 디버그 필드는 run()에서 최종 동기화
+        # Initialize DFG nodes (share sid). Debug fields are synchronized in run()
         for n in self.ast_nodes:
             sid = int(n.get("sid"))
             code = (n.get("code") or "")
@@ -55,13 +55,13 @@ class DFGExtractorV1_12:
                 "sid": sid,
                 "code": code,
                 "node_type_id": node_type,
-                # 아래 필드들은 run()에서 실제 DEF/USE/degree를 반영해 덮어씀
+                # These fields will be overwritten in run() with actual DEF/USE/degree
             })
 
-        # 최종 출력 엣지(‘feat’/‘debug’ 분리)는 run()에서 self.edges로 조립
+        # Final output edges (split into 'feat'/'debug') are assembled in run() into self.edges
         self.edges: List[Tuple[int,int,Dict[str,Any]]] = []
 
-        # dst SID 기준 가드 주입을 위해 (sid→feat) 캐시
+        # Cache (sid -> feat) for guard injection based on dst SID
         self._sid2feat: Dict[int, Dict[str, Any]] = {
             int(r.get("sid")): (r.get("feat") or {}) for r in self.ast_nodes if "sid" in r
         }
@@ -73,17 +73,17 @@ class DFGExtractorV1_12:
         import re
         from collections import defaultdict
 
-        # 가드 정보(변수별 하한/상한 증거) 사전 구축
+        # Build guard information (lower/upper bounds evidence per variable)
         guard_map = self._build_guard_map()
-        # 에지 생성 시 참조하도록 인스턴스에도 저장
+        # Store in instance for reference during edge creation
         self.guard_map = guard_map
 
 
-        # 마지막 DEF 위치, 중복 에지 방지 키
+        # Last DEF position, duplicate edge prevention keys
         last_def: Dict[str,int] = {}
         seen_edges: Set[Tuple[int,int,str,int]] = set()  # (src,dst,var,flow_id)
 
-        # 디버그/특징 동기화 버킷
+        # Debug/feature synchronization buckets
         use_vars_by_sid: Dict[int, Set[str]] = defaultdict(set)
         def_vars_by_sid: Dict[int, Set[str]] = defaultdict(set)
         iba_by_sid: Dict[int, int] = defaultdict(int)           # is_buffer_access
@@ -93,19 +93,19 @@ class DFGExtractorV1_12:
         node_feat: Dict[int, Dict[str,Any]] = {}
         node_debug: Dict[int, Dict[str,Any]] = {}
 
-        # 호출 기반 sink 구분 세트
+        # Call-based sink classification sets
         UNBOUNDED = {"gets","strcpy","strcat","sprintf","vsprintf"}
         BOUNDED   = {"memcpy","memmove","strncpy","snprintf","vsnprintf",
                     "fgets","read","recv","getline"}
 
-        # 파라미터 → 진입 DEF 처리
+        # Parameter -> entry DEF processing
         for p in self.param_names:
             if p and p != "<empty>":
                 last_def[p] = 0
                 def_vars_by_sid[0].add(p)
 
-        # self.edges_defuse: 원래 코드에서 사용하던 RAW 저장소 유지
-        # (최종 반환 시 feat/debug로 변환)
+        # self.edges_defuse: Maintain RAW storage used in original code
+        # (Convert to feat/debug upon final return)
         self.edges_defuse = []
 
         def ensure_feat(sid: int, node_type_id: str):
@@ -165,26 +165,26 @@ class DFGExtractorV1_12:
 
         def _add_use_edge(var: str, role: str, dst_sid: int):
             """
-            USE 기록 및 Def→Use 에지 생성.
-            - base 역할은 use_vars 카운트에서 제외(그래프 에지로만 표현)
-            - 가드 주입은 변수별 → '*' → '__agg__' 를 병합한다:
-                lower/upper는 OR, upper_const는 max,
-                kind는 var > * > __agg__ 우선순위로 첫 비-0 선택
-            - 에지는 flat dict로 저장하고, 마지막에 feat/debug로 래핑
+            Record USE and create Def->Use edges.
+            - 'base' role is excluded from use_vars counts (expressed as graph edges only)
+            - Guard injection merges variable-specific -> '*' -> '__agg__':
+                lower/upper use OR, upper_const uses max,
+                kind selects the first non-zero in priority: var > * > __agg__
+            - Edges are stored as flat dicts and wrapped in feat/debug at the end
             """
             if not var or var in KEYWORDS:
                 return
 
-            # 디버그/카운트용 USE: base는 제외
+            # USE for debug/count: exclude base
             if role != "base":
                 use_vars_by_sid[dst_sid].add(var)
 
-            # Def→Use 에지는 마지막 DEF가 있을 때만 생성
+            # Def->Use edges are created only when a last DEF exists
             if var not in last_def:
                 return
             src = last_def[var]
 
-            # flow_id 결정 (value=1, index=2, size=3, base=4)
+            # Determine flow_id (value=1, index=2, size=3, base=4)
             fid = FLOW_ID.get(role or "value", FLOW_ID["value"])
 
             key = (src, dst_sid, var, fid)
@@ -192,13 +192,13 @@ class DFGExtractorV1_12:
                 return
             seen_edges.add(key)
 
-            # ---- 가드 병합 (var / * / __agg__) ----
+            # ---- Guard merging (var / * / __agg__) ----
             gdst = getattr(self, "guard_map", {}).get(dst_sid, {}) or {}
             g_var = gdst.get(var) or {}
             g_all = gdst.get("*") or {}
             g_agg = gdst.get("__agg__") or {}
 
-            # kind: var > * > __agg__ 우선순위
+            # kind: var > * > __agg__ priority
             def _pick_kind(*gds):
                 for gd in gds:
                     try:
@@ -231,7 +231,7 @@ class DFGExtractorV1_12:
                 print(f"[DBG][edge] {src}->{dst_sid} var={var} role={role} fid={fid} "
                         f"guard=({kind},{has_lower},{has_upper},{upper_norm})")
                 
-            # ---- 에지 페이로드 저장 (flat; 최종 변환부에서 래핑) ----
+            # ---- Save edge payload (flat; wrapped in final conversion) ----
             self.edges_defuse.append((
                 src, dst_sid,
                 {
@@ -245,7 +245,7 @@ class DFGExtractorV1_12:
         ))
             
 
-        # 메인 루프: AST 노드 순회
+        # Main loop: AST node traversal
         for row in self.nodes:
             sid = row["sid"]
             code = row["code"]
@@ -276,13 +276,13 @@ class DFGExtractorV1_12:
             if node_type in {"UserDefinedCall","StandardLibCall"} and isinstance(orig, dict) and orig.get("nodeType") in {"ParameterList","ArgumentList"}:
                 # 함수명 추출 (memmove(...), fgets(...), ...)
 
-                print(f"(특수) 문장-수준 호출 노드가 ArgList만 가리키는 경우: 여기서 호출 자체 처리 : node = {code}")
+                print(f"(Special) Statement-level call node pointing only to ArgList: handle call here: node = {code}")
                 fname = self._callee_name_from_arglist(orig)
                 base = (fname or "").lower()
 
                 arg_nodes = (orig.get("children") or [])
 
-                # 1) 인자 USE (역할별: index/size/base/value)
+                # 1) Argument USE (by role: index/size/base/value)
 
                 for (v, role) in self._call_arg_uses_ast(base, arg_nodes):
                     if role == "base":
@@ -291,14 +291,14 @@ class DFGExtractorV1_12:
                     used_by_call_stmt.add(v)
                     _add_use_edge(v, role, sid)
 
-                # 2) 쓰기효과 DEF (dst 등)
+                # 2) Write-effect DEF (dst, etc.)
                 for v in self._call_write_effects_ast(base, arg_nodes):
                     if v and v not in KEYWORDS:
                         last_def[v] = sid
                         def_vars_by_sid[sid].add(v)
-                        exclude_vars_stmt.add(v)  # dst는 토큰 USE에서 제외
+                        exclude_vars_stmt.add(v)  # exclude dst from token USE
 
-                # 3) 호출 기반 sink/증거 비트
+                # 3) Call-based sink/evidence bits
                 dst_arg, size_arg = _pick_dst_size_args(base, arg_nodes)
 
                 # dst 인덱싱 여부
@@ -321,7 +321,7 @@ class DFGExtractorV1_12:
                     )
                     linked = 1 if sizeof_hits else 0
 
-                # 선언 길이와 동일해도 len-linked로 인정하지 않음 (v1.11)
+                # Not recognized as len-linked even if equal to declaration length (v1.11)
                 if not linked and dst_names:
                     dst_name = next(iter(dst_names))
                     def _decl_len(var):
@@ -363,10 +363,10 @@ class DFGExtractorV1_12:
                 size_txt_wo_sizeof = re.sub(r'\bsizeof\s*\([^)]*\)', '', size_txt)
                 nonconst = 1 if (size_txt and re.search(r'[A-Za-z_]\w*', size_txt_wo_sizeof)) else 0
                 if size_txt and ("sizeof(" in size_txt):
-                    # dst 관련 sizeof가 하나도 없으면 non-dst
+                    # If no sizeof related to dst, then non-dst
                     if not any(("sizeof(" + dn + ")") in size_txt for dn in dst_names):
                         nonconst = 1
-                    # dst가 base.field인데 size가 sizeof(base)면 명시적으로 non-dst
+                    # If dst is base.field but size is sizeof(base), explicitly non-dst
                     if dst_full and "." in dst_full:
                         base_only = dst_full.split(".")[0]
                         if ("sizeof(" + base_only + ")") in size_txt:
@@ -382,52 +382,52 @@ class DFGExtractorV1_12:
                     node_feat[sid]["call_len_linked_to_dst"] = max(node_feat[sid]["call_len_linked_to_dst"], linked)
                     node_feat[sid]["call_size_nonconst"] = max(node_feat[sid]["call_size_nonconst"], nonconst)
 
-                # 호출 노드는 여기서 완결 → 제너릭 스캔 스킵
+                # Call node completed here -> skip generic scan
                 # We fully handled this statement-level call (roles, DEFs, flags).
                 # Skip generic value-scan to avoid double-counting.
                 continue
 
  
-            # 문장 범위에서 호출/베이스-토큰 중복 방지용 세트는 먼저 준비
+            # Prepare sets for preventing call/base-token duplicates in statement scope
             exclude_vars_stmt: Set[str] = set()
             used_by_call_stmt: Set[str] = set()
 
-            # (0) 일반 문장내 호출 처리
+            # (0) Handle calls within generic statements
             if isinstance(orig, dict) and (node_type not in CONTROL_NODES):
                  
                 # [PATCH] 대입식이고 RHS에 호출이 있으면, 호출 인자/쓰기효과/플래그를 "대입 노드"에 붙이지 않음
                 if assign_rhs_has_call:
-                    pass  # 호출→대입 에지는 아래 3)에서 추가
+                    pass  # Call->assignment edge added in 3) below
                 else:
                     print(f"node_type not in CONTROL_NODES : node = {code}")
 
                     for fname, arg_nodes in self._iter_calls_ast(orig):
                         base = (fname or "").lower()
 
-                        # 인자 USE (역할 매핑)
+                        # Argument USE (role mapping)
                         for (v, role) in self._call_arg_uses_ast(fname, arg_nodes):
                             if role == "base":
-                                _add_use_edge(v, "base", sid)   # ← flow_id = 4 에지 생성
+                                _add_use_edge(v, "base", sid)   # <- flow_id = 4 edge creation
                                 continue
                             used_by_call_stmt.add(v)
                             _add_use_edge(v, role, sid)
 
 
 
-                        # 쓰기효과 DEF (dst 등)
+                        # Write-effect DEF (dst, etc.)
                         for v in self._call_write_effects_ast(fname, arg_nodes):
                             if v and v not in KEYWORDS:
                                 last_def[v] = sid
                                 def_vars_by_sid[sid].add(v)
-                                exclude_vars_stmt.add(v)  # dst 인자는 토큰 USE에서 제외
+                                exclude_vars_stmt.add(v)  # exclude dst from token USE
 
-                        # ---- 호출 기반 sink/증거 비트 ----
+                        # ---- Call-based sink/evidence bits ----
                         dst_arg, size_arg = _pick_dst_size_args(base, arg_nodes)
 
-                        # dst 인덱싱 여부
+                        # Whether dst is indexed
                         dst_indexed = 1 if self._has_indexing(dst_arg, skip_sizeof=True) else 0
 
-                        # len-linked / size nonconst (필드 감도 확장)
+                        # len-linked / size nonconst (field sensitivity extension)
                         size_txt = (size_arg.get("code") or "") if isinstance(size_arg, dict) else ""
                         dst_names = set(self._idents_from_ast_node(dst_arg)) if isinstance(dst_arg, dict) else set()
                         dst_full  = self._fullname_from_expr(dst_arg) if isinstance(dst_arg, dict) else None
@@ -444,7 +444,7 @@ class DFGExtractorV1_12:
                             )
                             linked = 1 if sizeof_hits else 0
 
-                        # 선언 길이와 동일해도 len-linked로 간주하지 않음 (v1.11)
+                        # Not considered len-linked if equal to declaration length (v1.11)
                         if not linked and dst_names:
                             dst_name = next(iter(dst_names))
                             def _decl_len(var):
@@ -503,17 +503,17 @@ class DFGExtractorV1_12:
                             node_feat[sid]["call_len_linked_to_dst"] = max(node_feat[sid]["call_len_linked_to_dst"], linked)
                             node_feat[sid]["call_size_nonconst"] = max(node_feat[sid]["call_size_nonconst"], nonconst)
                         
-                    # ✅ 호출 문장은 여기서 종료 → (5) 기타 문장 value 스캔 방지
+                    # Call statement ends here -> (5) prevent generic value scan
                     if node_type in {"UserDefinedCall", "StandardLibCall", "CallExpression"}:
                         continue
 
 
-            # (1) Control nodes: 조건 서브트리만 처리하고 종료
+            # (1) Control nodes: process condition subtree and exit
             if node_type in CONTROL_NODES and isinstance(orig, dict):
                 cond_node = self._get_condition_node(node_type, orig)
                 if cond_node is not None:
                      
-                    # ForStatement 헤더 DEF 시딩 (i=0, i++, i+=k 등 → i를 DEF로 인정)
+                    # ForStatement header DEF seeding (i=0, i++, i+=k, etc. -> recognize i as DEF)
                     def_names: Set[str] = set()
                     if node_type == "ForStatement":
                         kids = (orig.get("children") or [])
@@ -522,7 +522,7 @@ class DFGExtractorV1_12:
 
                         def_names: Set[str] = set()
 
-                        # 1) 초기화: i = <expr> 꼴이면 LHS 식별자를 DEF로
+                        # 1) Init: i = <expr> -> recognize LHS identifier as DEF
                         if isinstance(init, dict) and init.get("nodeType") == "AssignmentExpression":
                             lhs, rhs = (init.get("children") or [None, None])[:2]
                             if isinstance(lhs, dict) and lhs.get("nodeType") == "Identifier":
@@ -530,18 +530,18 @@ class DFGExtractorV1_12:
                                 if isinstance(nm, str) and nm and nm not in KEYWORDS:
                                     def_names.add(nm)
 
-                        # 2) 증감: ++i, i++, --i, i--, i += k 등은 inc 표현식에서 식별자를 추출해 DEF로
+                        # 2) Increment/Decrement: ++i, i++, --i, i--, i += k, etc. -> extract from inc expression as DEF
                         if isinstance(inc, dict):
                             for t in self._idents_from_ast_node(inc, skip_sizeof=True, skip_callee=True):
                                 if t and t not in KEYWORDS:
                                     def_names.add(t)
 
-                        # 3) DEF 반영 (조건 USE/호출 처리 전에 last_def 갱신)
+                        # 3) Apply DEF (update last_def before condition USE/call processing)
                         for v in sorted(def_names):
                             last_def[v] = sid
                             def_vars_by_sid[sid].add(v)
         
-                    # 컨트롤 노드에서는 호출 기반 write/sink/len-linked 등을 반영하지 않는다
+                    # Control nodes do not reflect call-based write/sink/len-linked bits
                     nf = node_feat[sid]
                     nf["is_buffer_access"] = 0
                     nf["is_sink_assign"] = 0
@@ -567,7 +567,7 @@ class DFGExtractorV1_12:
 
             # (3) Assignment
             if node_type == "AssignmentExpression" and isinstance(orig, dict):
-                # LHS가 buffer[INDEX] 형태면 INDEX를 role="index"로 선처리 (가드/var_key 보존)
+                # LHS buffer[INDEX] -> pre-process INDEX as role="index" (preserve guard/var_key)
                 chs = (orig.get("children") or [])
                 lhs = chs[0] if len(chs) >= 1 else None
                 if isinstance(lhs, dict) and lhs.get("nodeType") == "ArraySubscriptExpression":
@@ -579,13 +579,13 @@ class DFGExtractorV1_12:
                                 _add_use_edge(v, "index", sid)
 
                
-                # 3-0) LHS 형태 점검: ArraySubscript / PointerDereference / Identifier / MemberAccess
+                # 3-0) Check LHS form: ArraySubscript / PointerDereference / Identifier / MemberAccess
                 chs = (orig.get("children") or [])
                 lhs = chs[0] if len(chs) >= 1 else None
                 lhs_base_name = None
                 lhs_nt = None
-                lhs_is_pointer_base = False   # data[i], *p 같은 '베이스 읽기' 쓰기
-                lhs_is_object_base  = False   # buffer[i], s.field, data(식별자) 같은 '객체에 쓰기'(DEF)
+                lhs_is_pointer_base = False   # 'Base read' write (e.g., data[i], *p)
+                lhs_is_object_base  = False   # 'Object write' (DEF) (e.g., buffer[i], s.field, data)
 
                 if isinstance(lhs, dict):
                     lhs_nt = lhs.get("nodeType")
@@ -599,13 +599,13 @@ class DFGExtractorV1_12:
    
                         print(f"ArraySubscriptExpression - code: {code}, lhs_base_name : {lhs_base_name}")
 
-                        # 포인터 베이스 여부
+                        # Whether it's a pointer base
                         if isinstance(base, dict) and base.get("nodeType") == "PointerDereference":
                             lhs_is_pointer_base = True
 
                         print(f"ArraySubscriptExpression - code: {code}, lhs_is_pointer_base : {lhs_is_pointer_base}")
 
-                        # 객체 베이스 여부: 배열 변수/필드 등 (pointer_vars에 없고 식별자/MemberAccess면 객체 취급)
+                        # Whether it's an object base: arrays/fields, etc. (treated as object if not in pointer_vars and is Identifier/MemberAccess)
                         if not lhs_is_pointer_base:
                             if isinstance(base, dict) and base.get("nodeType") in {"Identifier","MemberAccess"}:
                                 lhs_is_object_base = True
@@ -617,13 +617,13 @@ class DFGExtractorV1_12:
                             if not lhs_base_name and inner.get("nodeType") == "Identifier":
                                 lhs_base_name = inner.get("name")
                         
-                        # 진짜 역참조인지 확인: 코드가 '*'로 시작할 때만 역참조로 본다.
+                        # Check if true dereference: only if code starts with '*'
                         lhs_code = (lhs.get("code") or "").strip()
                         is_true_deref = lhs_code.startswith("*")
                         if is_true_deref:
                             lhs_is_pointer_base = True   # *p = ...
                         else:
-                            # 'data = ...'인데 AST가 PointerDereference로 감싼 경우 → 변수 대입으로 간주
+                            # 'data = ...' wrapped in PointerDereference -> treated as variable assignment
                             lhs_is_object_base = True
 
                     elif lhs_nt in {"Identifier","MemberAccess"}:
@@ -631,21 +631,21 @@ class DFGExtractorV1_12:
                         # 단독 LHS가 식별자/필드면 객체(변수 자체에 쓰기)
                         lhs_is_object_base = True
 
-                # 3-1) 대입식 기본 추출
+                # 3-1) Basic assignment extraction
                 def_vars, uses, iba, sink = self._assignment_by_ast(orig, sid)
 
-                # 3-2) LHS 베이스 처리 정책
-                #   - 포인터 베이스(data[i], *p): DEF 금지, USE(base)만 유지
-                #   - 객체 베이스(buffer[i], s.field): DEF 유지, 베이스 USE 제거
+                # 3-2) LHS base processing policy
+                #   - Pointer base (data[i], *p): No DEF, only USE(base)
+                #   - Object base (buffer[i], s.field): Keep DEF, remove base USE
                 if lhs_base_name and lhs_base_name not in KEYWORDS:
                     if lhs_is_object_base:
-                        # (A) 객체(base)에 쓰기: DEF 유지
+                        # (A) Write to object (base): keep DEF
                         if lhs_base_name not in def_vars:
                             def_vars.append(lhs_base_name)
 
-                        # 컨테이너 쓰기(배열첨자/필드): BASE(4) 에지 + 가드 집계 주입
+                        # Container write (index/field): BASE(4) edge + guard aggregate injection
                         if lhs_nt in {"ArraySubscriptExpression", "MemberAccess"}:
-                            # 인덱스 변수 수집
+                            # Collect index variables
                             idx_vars = []
                             if lhs_nt == "ArraySubscriptExpression":
                                 kids = lhs.get("children") or []
@@ -653,7 +653,7 @@ class DFGExtractorV1_12:
                                 if isinstance(idx, dict):
                                     idx_vars = self._idents_from_ast_node(idx, skip_sizeof=True, skip_callee=True)
 
-                            # 현재 sid의 guard들을 변수별/집계에서 폴백으로 합성
+                            # Synthesize guards for current sid from variable/aggregate as fallback
                             gm_here = self.guard_map.get(sid, {})
                             agg = {"kind": 0, "lower": 0, "upper": 0, "upper_const": 0.0}
                             for iv in idx_vars or []:
@@ -670,31 +670,31 @@ class DFGExtractorV1_12:
                                 agg["upper"] |= int(gf.get("upper", 0))
                                 agg["upper_const"] = max(agg["upper_const"], float(gf.get("upper_const", 0.0)))
 
-                            # 합성 결과를 dst 문장 sid의 폴백 슬롯에 주입
+                            # Inject synthesis result into fallback slot of dst statement sid
                             gm_dst = self.guard_map.setdefault(sid, {})
                             gm_dst["*"] = {"kind": agg["kind"], "lower": agg["lower"], "upper": agg["upper"], "upper_const": agg["upper_const"]}
                             gm_dst["__agg__"] = gm_dst["*"]
 
-                            # BASE(4) 에지 생성 (last_def 갱신 전 호출해야 var_key가 올바름)    
+                            # BASE(4) edge + guard aggregate injection (must call before last_def update for correct var_key)
                             _add_use_edge(lhs_base_name, "base", sid)    
                       
                         
-                        # 베이스 토큰이 USE로 중복 집계됐다면 제거(카운트/중복 방지)
-                        # 객체에 쓰는 문장에서는 베이스 USE를 제거 (선행 추출에서 들어왔을 수 있음)
+                        # Remove if base token was double-counted as USE
+                        # Remove base USE in object write statements (may have been added by earlier extraction)
                         uses = [(v,r) for (v,r) in uses if not (v == lhs_base_name and r == "base")]
                     
                     
                     
                     elif lhs_is_pointer_base:
-                        # 포인터 베이스라면 DEF로 취급하지 않음 (def_vars에서 제거)
-                        # (B) 포인터 베이스: DEF 금지, base USE만 유지
+                        # If pointer base, do not treat as DEF (remove from def_vars)
+                        # (B) Pointer base: No DEF, keep base USE
                         def_vars = [dv for dv in def_vars if dv != lhs_base_name]
-                        # 혹시 베이스 USE가 빠져있다면 추가
+                        # Add base USE if missing
                         if (lhs_base_name, "base") not in uses:
                             uses.append((lhs_base_name, "base"))
 
 
-                # 3-3) 호출 기반 토큰과 중복 방지만 수행 (base는 그대로 둔다 → flow_id=4 보존)
+                # 3-3) Perform only duplicate prevention with call-based tokens (keep base -> preserve flow_id=4)
                 # If RHS contains a call, assignment should not own RHS 'value' uses (split call node owns them)
                 try:
                     chs_rhs = (orig.get("children") or [])
@@ -756,7 +756,7 @@ class DFGExtractorV1_12:
                         def_vars_by_sid[sid].add(dv)
                 continue
 
-            # (5) 기타 문장: value USE (callee/sizeof 제외)
+            # (5) Other statements: value USE (excluding callee/sizeof)
             if isinstance(orig, dict):
                 scan_node = orig
                 if node_type == "AssignmentExpression":
@@ -770,14 +770,14 @@ class DFGExtractorV1_12:
                         continue
                     _add_use_edge(t, "value", sid)
 
-        # 차수 집계
+        # Degree aggregation
         deg_in = {n["sid"]:0 for n in self.nodes}
         deg_out = {n["sid"]:0 for n in self.nodes}
         for (s,d,_) in self.edges_defuse:
             if s in deg_out: deg_out[s] += 1
             if d in deg_in:  deg_in[d] += 1
 
-        # 최종 노드(feat/debug) 동기화
+        # Synchronize final nodes (feat/debug)
         out_nodes: List[Dict[str,Any]] = []
         for meta in self.nodes:
             sid = meta["sid"]
@@ -810,7 +810,7 @@ class DFGExtractorV1_12:
             feat["is_buffer_access"] = 1 if iba_by_sid.get(sid,0) else 0
             feat["is_sink_assign"] = 1 if sink_assign_by_sid.get(sid,0) else 0
 
-            #AssignmentExpression은 콜-중립 보장
+            # Ensure AssignmentExpression is call-neutral
             if node_type == "AssignmentExpression":
                 feat["is_sink_call_unbounded"] = 0
                 feat["is_sink_call_bounded"] = 0
@@ -851,7 +851,7 @@ class DFGExtractorV1_12:
 
 
     # -----------------------------------------------------------------
-    # run 함수 끝
+    # End of run function
     # ----------------------------------------------------------------   
 
     # ------------------------------
@@ -870,7 +870,7 @@ class DFGExtractorV1_12:
             return None
         orig_id = flat_row.get("orig_id") if isinstance(flat_row.get("orig_id"), int) else None
         if orig_id is None:
-            # 일부 파이프라인은 평탄화 row에도 id를 보존할 수 있음
+            # Some pipelines may preserve id even in flattened rows
             alt = flat_row.get("id")
             orig_id = alt if isinstance(alt, int) else None
         return self.id2orig.get(orig_id)
@@ -905,7 +905,7 @@ class DFGExtractorV1_12:
         # 순서보존 dedupe
         seen:set = set(); out:List[str] = []
         for nm in names:
-            # 빈 문자열/플레이스홀더 제외 + 중복 제거
+            # Exclude empty strings/placeholders + remove duplicates
             if nm and nm != "<empty>" and nm not in seen:
                 seen.add(nm); out.append(nm)
         return out
@@ -913,11 +913,11 @@ class DFGExtractorV1_12:
 
     def _get_condition_node(self, node_type: str, ast_node: dict):
         """
-        제어문 AST 노드에서 '조건식' 서브트리를 돌려준다.
+        Returns the 'condition expression' subtree from control statement AST nodes.
         - If: children[0]
-        - For: children[1]   ← (init, cond, inc)
+        - For: children[1]   <- (init, cond, inc)
         - While: children[0]
-        - Do/DoWhile: 마지막 비-CompoundStatement
+        - Do/DoWhile: Last non-CompoundStatement
         """
         if not isinstance(ast_node, dict):
             return None
@@ -1258,13 +1258,13 @@ class DFGExtractorV1_12:
         code = (assign_node.get("code") or "")
         if not name or not code:
             return False
-        # 패턴: name[ ... ] = { ... }  또는  name[ ... ] = "..."
+        # Pattern: name[ ... ] = { ... }  or  name[ ... ] = "..."
         pat_brace = r'^\s*' + re.escape(name) + r'\s*\[[^\]]+\]\s*=\s*\{'
         pat_str   = r'^\s*' + re.escape(name) + r'\s*\[[^\]]+\]\s*=\s*\"'
         if re.search(pat_brace, code) or re.search(pat_str, code):
             return True
 
-        # 인접 평탄화 노드 검사 (ArrayDecl/ArraySizeAlloc + 같은 name)
+        # Inspect adjacent flattened nodes (ArrayDecl/ArraySizeAlloc + same name)
         idx = None
         for i, n in enumerate(self.nodes):
             if n["sid"] == sid:
@@ -1296,7 +1296,7 @@ class DFGExtractorV1_12:
     
 
     def _assignment_by_ast(self, assign_node: Dict[str,Any], cur_sid: int) -> Tuple[List[str], List[Tuple[str,str]], int, int]:
-        """AssignmentExpression 전용: (def_vars, uses[(var,role)], is_buffer_access, is_sink)"""
+        """For AssignmentExpression only: (def_vars, uses[(var,role)], is_buffer_access, is_sink)"""
         def_vars: List[str] = []
         uses: List[Tuple[str,str]] = []
         iba, is_sink = 0, 0
@@ -1310,10 +1310,10 @@ class DFGExtractorV1_12:
         # buffer[ ... ] = 패턴이 있으면 is_buffer_access=1로 잡고, 인덱스가 비상수 식별자를 포함하면 is_sink=1
         def _lhs_textual_indexing(node: Dict[str,Any], name: str) -> Tuple[bool, bool]:
             """
-            code 문자열의 '=' 왼쪽에서  name[ ... ]  패턴을 감지.
+            Detect name[ ... ] pattern on the left of '=' in the code string.
             return: (has_indexing, index_has_identifier_for_sink)
-            - has_indexing: LHS에 서브스크립트가 있으면 True
-            - index_has_identifier_for_sink: sizeof(...) 제거 후에도 식별자가 남으면 True
+            - has_indexing: True if LHS has a subscript
+            - index_has_identifier_for_sink: True if identifiers remain after removing sizeof(...)
             """
             code = (node.get("code") or "") if isinstance(node, dict) else ""
             if not code or not name:
@@ -1324,7 +1324,7 @@ class DFGExtractorV1_12:
             if not m:
                 return (False, False)
             idx_expr = m.group(1)
-            # sizeof(...) 토막 제거 후 식별자 존재 여부 확인 → sink 판별에만 사용
+            # Check for identifiers after removing sizeof(...) fragments -> used only for sink determination
             idx_no_sizeof = re.sub(r'\bsizeof\s*\([^)]*\)', '', idx_expr)
             has_ident = bool(re.search(r'[A-Za-z_]\w*', idx_no_sizeof))
             return (True, has_ident)

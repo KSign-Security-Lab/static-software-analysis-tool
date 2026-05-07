@@ -8,39 +8,39 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 # ----------------------------
-# 수정 내용
-# DoWhileStatement, SwitchStatement 추가
-# BreakStatement, ContinueStatement 추가 -  순서/디버그용(학습 제외)
-# 평탄화 결과에 학습용과 디버그용 구분
+# Modifications
+# Added DoWhileStatement, SwitchStatement
+# Added BreakStatement, ContinueStatement - for order/debug (excluded from training)
+# Distinguish between training and debug in flattening results
 # ----------------------------
 
-# 유지할 노드 유형 (statement level)
+# Node types to keep (statement level)
 KEEP_TYPES = {
     "VariableDeclaration","ArrayDeclaration","PointerDeclaration",
     "AssignmentExpression",
     "IfStatement","ForStatement","WhileStatement","DoWhileStatement",
-    "SwitchStatement",    # code = 조건식만 저장
-    "BreakStatement",     # 순서/디버그용(학습 제외)
-    "ContinueStatement",  # 순서/디버그용(학습 제외)
+    "SwitchStatement",    # code = condition only
+    "BreakStatement",     # for order/debug (excluded from training)
+    "ContinueStatement",  # for order/debug (excluded from training)
     "StandardLibCall","UserDefinedCall"}
 
 SCHEMA_VERSION = "v1.11-fd1"
-# node type → id (학습용 정수 id; 필요 시 확장
+# node type -> id (integer id for training; expand as needed)
 NODE_TYPE_ID = {
-    "FunctionEntry": 1,                  # ← 최하위 기본 타입
+    "FunctionEntry": 1,                  # <- lowest level base type
     "ParameterDeclaration": 2,     
     "VariableDeclaration": 3,
     "ArrayDeclaration": 4,
     "PointerDeclaration": 5,
     "AssignmentExpression": 6,
-    # 제어문 블록은 기존 대역 유지
+    # control flow blocks maintain original range
     "IfStatement": 10, "ForStatement": 11, "WhileStatement": 12, "DoWhileStatement": 13,
     "SwitchStatement": 14,
-    # 순서/디버그 전용
+    # order/debug only
     "BreakStatement": 20, "ContinueStatement": 21,
-    # 호출류
+    # call types
     "StandardLibCall": 30, "UserDefinedCall": 31, "CallExpression": 32,
-    # (선택) 사용한다면 FunctionExit도 예약
+    # FunctionExit reserved if used
     # "FunctionExit": 6,
 }
 
@@ -54,12 +54,12 @@ CASE_LABEL_TYPES = {"CaseLabel","DefaultLabel"}
 CONTROL_NODES = {"IfStatement","ForStatement","WhileStatement","SwitchStatement"}
 CALL_NODE_TYPES = {"CallExpression","StandardLibCall","UserDefinedCall"}
 
-# 리프팅 대상 호출 의미 카테고리
+# Target categories for lifting calls
 # 1:mem_alloc, 2:mem_copy, 3:ext_input, 5:mem_set, 6:net_connect, 7:net_close, 8:socket_create
 LIFTABLE_SEM_CATS = {1, 2, 3, 5, 6, 7, 8}
 
 
-# 1) 고정 ID
+# 1) Fixed IDs
 CALL_SEM_ID = {
     "none":0,
     "mem_alloc":1, "mem_copy":2, "ext_input":3, "format_print":4,
@@ -67,7 +67,7 @@ CALL_SEM_ID = {
     "parse_int_unchecked":9, "parse_int_checked":10
 }
 
-# 우선순위: mem_copy > ext_input > mem_alloc > format_print > none
+# Priority: mem_copy > ext_input > mem_alloc > format_print > none
 CALL_PRIORITY = [
     "none",
     "mem_alloc","mem_copy","ext_input","format_print",
@@ -76,9 +76,9 @@ CALL_PRIORITY = [
 ]
 
 
-# ---3) 카테고리 정의(사람이 읽기 쉬운 dict-of-sets) ---
+# --- 3) Category definitions (human-readable dict-of-sets) ---
 CALL_SEM = {
-    # 메모리 할당(힙/스택 혼합 표기)
+    # Memory allocation (heap/stack combined)
     "mem_alloc": {
         # heap-like
         "malloc","calloc","realloc","xmalloc","xcalloc","xrealloc",
@@ -88,7 +88,7 @@ CALL_SEM = {
         "alloca","ALLOCA","_alloca"
     },
 
-    # 메모리/문자열 복사·결합 (sink)
+    # Memory/string copy/concat (sink)
     "mem_copy": {
         # raw memory
         "memcpy","memmove","memcpy_s","memmove_s","bcopy","CopyMemory","RtlCopyMemory",
@@ -103,7 +103,7 @@ CALL_SEM = {
         "lstrcat","StrCat","StrCatN","StrCatNW"
     },
 
-    # 외부 입력(source)
+    # External input (source)
     "ext_input": {
         "gets","gets_s","fgets","getline",
         "scanf","sscanf","fscanf","scanf_s","sscanf_s","fscanf_s",
@@ -112,17 +112,17 @@ CALL_SEM = {
         "recv","recvfrom"
     },
 
-    # 포맷 출력(문자열 생성 sink)
+    # Format output (string generation sink)
     "format_print": {
         "printf","fprintf","vprintf","vfprintf","puts","printIntLine",
         "sprintf","vsprintf","snprintf","vsnprintf","sprintf_s","vsprintf_s",
-        # Windows/MSVC 계열 포함
+        # Windows/MSVC family included
         "_snprintf","_vsnprintf","_snwprintf","_vsntprintf",
         "swprintf","vswprintf","vswprintf_s",
         "wsprintf","wvsprintf","wnsprintf","wvnsprintf"
     },
 
-    # 기타
+    # Others
     "mem_set": {"memset","bzero","wmemset","RtlZeroMemory"},
     "net_connect": {"connect"},
     "net_close": {"closesocket","close","close_socket","CLOSE_SOCKET"},
@@ -136,37 +136,37 @@ CALL_SEM = {
 }
 
 
-# 4) 평탄 맵 빌드: 우선순위 반영 + ID는 고정 테이블에서
+# 4) Build flat map: reflect priority + IDs from fixed table
 CALL_SEM_MAP = {}
 for cat in CALL_PRIORITY:
     cid = CALL_SEM_ID[cat]
     for nm in CALL_SEM.get(cat, ()):
-        CALL_SEM_MAP.setdefault(nm.lower(), cid)  # 먼저 온(우선순위 높은) 매핑을 보존
+        CALL_SEM_MAP.setdefault(nm.lower(), cid)  # preserve first encountered (higher priority) mapping
 
 def call_sem_cat_id_from_name(name: str) -> int:
     return CALL_SEM_MAP.get((name or "").lower(), 0)
 
 
-# 언바운디드 위험(길이 인자 없음/형식문자 폭 지정 필요)
+# Unbounded risks (no length arg / format specifier width needed)
 UNBOUNDED_CALLS = {
-    # 기존
+    # Existing
     "gets", "strcpy", "strcat", "sprintf", "vsprintf",
 
-    # 입력(무제한) - wide/MSVC
-    "_getws",          # gets의 wide 버전
-    "getwd",           # 경로를 크기 인자 없이 버퍼에 씀 (권장 X)
+    # Input (unbounded) - wide/MSVC
+    "_getws",          # wide version of gets
+    "getwd",           # writes path to buffer without size arg (Not recommended)
 
-    # 문자열 복사/결합(크기 인자 없음)
+    # String copy/concat (no size arg)
     "wcscpy", "wcscat",          # wide
     "lstrcpy", "lstrcat",        # Win32
-    "stpcpy", "wcpcpy",          # GNU 확장(끝 포인터 반환)
-    "_mbscpy", "_mbscat",        # 멀티바이트(MBCS)
+    "stpcpy", "wcpcpy",          # GNU extension (returns end pointer)
+    "_mbscpy", "_mbscat",        # Multibyte (MBCS)
 
-    # 포맷 출력(크기 인자 없음)
+    # Format output (no size arg)
     "wsprintf", "wvsprintf"      # Win32 (sprintf의 wide/va 버전)
 }
 
-# dst/size 슬롯(간이) — AST 플래그 계산용
+# dst/size slots (simple) - for AST flag calculation
 API_SLOTS = {
     # --- mem_set / copy ---
     # void *memset(void *dst, int c, size_t size)
@@ -222,7 +222,7 @@ API_SLOTS = {
     # int lstrcpyn(LPTSTR dst, LPCTSTR src, int cchMax)
     "lstrcpyn":      {"dst": 0, "size": 2},
     # StrCpyX family
-    "strcpy":        {"dst": 0, "size": None},   # 이미 위에 있으나, 호출명이 "StrCpy"로 올 경우 lower() 매칭 → "strcpy"
+    "strcpy":        {"dst": 0, "size": None},   # already exists above, but for lower() match "StrCpy" -> "strcpy"
     "strcpyn":       {"dst": 0, "size": 2},      # StrCpyN
     "strcpynw":      {"dst": 0, "size": 2},      # StrCpyNW
 
@@ -243,20 +243,20 @@ API_SLOTS = {
 
     # win32 string concat variants
     "lstrcat":       {"dst": 0, "size": None},
-    "strcat":        {"dst": 0, "size": None},   # "StrCat" → "strcat"
+    "strcat":        {"dst": 0, "size": None},   # "StrCat" -> "strcat"
     "strcatn":       {"dst": 0, "size": 2},      # StrCatN(dst, src, count)
     "strcatnw":      {"dst": 0, "size": 2},      # StrCatNW(dst, src, count)
 
     # --- ext_input ---
     # gets 계열
-    "gets":          {"dst": 0, "size": None},   # 위험: 무제한
+    "gets":          {"dst": 0, "size": None},   # Dangerous: unlimited
     "gets_s":        {"dst": 0, "size": 1},      # numberOfElements
 
     # fgets / getline
     "fgets":         {"dst": 0, "size": 1},      # size
-    "getline":       {"dst": None, "size": None},# 동적 반환 → dst/size 연계 안함
+    "getline":       {"dst": None, "size": None},# dynamic return -> no dst/size linkage
 
-    # scanf 계열 (포맷 파싱 필요 → size 위치 정의 안함)
+    # scanf family (format parsing needed -> size position undefined)
     "scanf":         {"dst": None, "size": None},
     "sscanf":        {"dst": None, "size": None},
     "fscanf":        {"dst": None, "size": None},
@@ -278,8 +278,8 @@ API_SLOTS = {
     # ssize_t pread64(int fd, void *buf, size_t count, off64_t offset)
     "pread64":       {"dst": 1, "size": 2},
     # size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream)
-    # (총 바이트는 size*nmemb이지만, 단일 슬롯 모델이므로 관례상 size=1로도 많이 씁니다.
-    # 기존 코드 호환을 위해 size=2를 유지하거나 필요 시 로직을 보강하세요.)
+    # (Total bytes are size*nmemb, but size=1 is often used by convention in single-slot models.
+    # Maintain size=2 for compatibility or enhance logic if needed.)
     "fread":         {"dst": 0, "size": 2},
 
     # recv 계열
@@ -290,8 +290,8 @@ API_SLOTS = {
 
     # --- format_print ---
     # int sprintf(char *dst, const char *fmt, ...)
-    "sprintf":       {"dst": 0, "size": None},  # 무제한
-    "vsprintf":      {"dst": 0, "size": None},  # 무제한
+    "sprintf":       {"dst": 0, "size": None},  # unlimited
+    "vsprintf":      {"dst": 0, "size": None},  # unlimited
 
     # int snprintf(char *dst, size_t size, const char *fmt, ...)
     "snprintf":      {"dst": 0, "size": 1},
@@ -303,23 +303,23 @@ API_SLOTS = {
     "_vsntprintf":   {"dst": 0, "size": 1},
 
     # wide
-    # swprintf는 구현/오버로드에 따라 (dst,size,fmt,...) 또는 (dst,fmt,...) 가 존재.
-    # 단일 테이블에서 분기 불가 → 가장 안전한 공통형만 넣습니다.
-    "swprintf":      {"dst": 0, "size": 1},     # size 인자 있는 변종을 지원
-    "vswprintf":     {"dst": 0, "size": 1},     # size 인자 있는 변종을 지원
+    # swprintf exists as (dst,size,fmt,...) or (dst,fmt,...) depending on implementation/overload.
+    # Cannot branch in a single table -> only most common safe type included.
+    "swprintf":      {"dst": 0, "size": 1},     # supported variant with size arg
+    "vswprintf":     {"dst": 0, "size": 1},     # supported variant with size arg
     "vswprintf_s":   {"dst": 0, "size": 1},     # MSVC secure
-    # wsprintf/ wvsprintf 는 크기 인자 없음(무제한)
+    # wsprintf/ wvsprintf have no size arg (unbounded)
     "wsprintf":      {"dst": 0, "size": None},
     "wvsprintf":     {"dst": 0, "size": None},
-    # wnsprintf / wvnsprintf 는 길이 인자 있음
+    # wnsprintf / wvnsprintf have size arg
     "wnsprintf":     {"dst": 0, "size": 1},
     "wvnsprintf":    {"dst": 0, "size": 1},
 
-    # --- net / 기타 ---
+    # --- net / others ---
     # int connect(SOCKET s, const struct sockaddr *name, int namelen)
-    "connect":       {"dst": 1, "size": 2},     # addr / addrlen (메모리 dst 의미는 약함)
+    "connect":       {"dst": 1, "size": 2},     # addr / addrlen (memory dst meaning is weak)
 
-    # 소켓/클로즈/생성류는 len 개념 없음 → None
+    # socket/close/create types have no len concept -> None
     "closesocket":   {"dst": None, "size": None},
     "close":         {"dst": None, "size": None},
     "close_socket":  {"dst": None, "size": None},
@@ -327,7 +327,7 @@ API_SLOTS = {
     "socket":        {"dst": None, "size": None},
     "wsasocket":     {"dst": None, "size": None},
 
-    # parse_int 계열도 size 개념 없음
+    # parse_int family also has no size concept
     "atoi":          {"dst": None, "size": None},
     "atol":          {"dst": None, "size": None},
     "atoll":         {"dst": None, "size": None},
@@ -345,21 +345,21 @@ API_SLOTS = {
     "wcstoimax":     {"dst": None, "size": None},
     "wcstoumax":     {"dst": None, "size": None},
 }
-#compute_call_flags에 반영 포인트
-#call_flag_danger_unbounded = 1 if name in UNBOUNDED_CALLS
-#call_size_kind, call_len_linked_to_dst_extended, call_flag_sizeof_non_dst는 API_SLOTS[name]["size"] 기준으로 size 인자를 뽑아 계산
-#call_dst_is_field = 1 if dst가 s.field/p->field
-#format_print 계열은 call_flag_has_varargs 적절히 세팅(특히 v* 계열
+# Integration points for compute_call_flags
+# call_flag_danger_unbounded = 1 if name in UNBOUNDED_CALLS
+# call_size_kind, call_len_linked_to_dst_extended, call_flag_sizeof_non_dst are calculated based on API_SLOTS[name]["size"] arg
+# call_dst_is_field = 1 if dst is s.field/p->field
+# format_print family sets call_flag_has_varargs appropriately (especially v* family)
                                               
 
 # ---- mem-alloc helpers ----
 MEM_ALLOC_FUNCS_LOWER = {"malloc","calloc","realloc","alloca","_alloca"}
-MEM_ALLOC_FUNCS_RAW   = {"ALLOCA","new[]"}  # 대소문자 보존 토큰
+MEM_ALLOC_FUNCS_RAW   = {"ALLOCA","new[]"}  # preserve case tokens
 
 
-# 무제한 쓰기 계열
+# Unbounded write family
 UNBOUNDED = {"gets","strcpy","strcat","sprintf","vsprintf"}
-# 표준 라이브러리 호출 판별(간단): CALL_SEM 집합들과 UNBOUNDED 합집합 기반
+# Standard library call detection (simple): based on union of CALL_SEM and UNBOUNDED
 STD_FUNCTIONS = set().union(*CALL_SEM.values(), UNBOUNDED)
 
  
@@ -373,7 +373,7 @@ def _is_mem_alloc_name(fname: str) -> bool:
      return (fl in MEM_ALLOC_FUNCS_LOWER) or (f in MEM_ALLOC_FUNCS_RAW)
  
 def _node_contains_sizeof(n: Any) -> bool:
-     """AST 노드 트리 내부에 sizeof 사용 흔적이 있는지 (보수적) 탐지."""
+     """Conservatively detect sizeof usage within AST node tree."""
      if not isinstance(n, dict):
          return False
      code = (n.get("code") or "")
@@ -386,7 +386,7 @@ def _node_contains_sizeof(n: Any) -> bool:
 
 
 def _strip_sizeof(s: str) -> str:
-    """문자열에서 sizeof(...) 블록을 제거해 식별자 탐지 오탐을 줄임"""
+    """Remove sizeof(...) blocks from string to reduce false identifier detection."""
     out = []
     i = 0; L = len(s); depth = 0; in_sizeof = False
     while i < L:
@@ -395,7 +395,7 @@ def _strip_sizeof(s: str) -> str:
             while j < L and s[j].isspace(): j += 1
             if j < L and s[j] == "(":
                 in_sizeof = True; depth = 0; i = j
-                # 균형 괄호 스킵
+                # skip balanced parentheses
                 while i < L:
                     if s[i] == "(":
                         depth += 1
@@ -411,7 +411,7 @@ def _strip_sizeof(s: str) -> str:
     return "".join(out) 
 
 def _find_matching_paren(s: str, start: int) -> int:
-    """문자열 s에서 start 위치의 '('에 대응하는 ')' 인덱스 반환 (없으면 -1)"""
+    """Returns the index of ')' corresponding to '(' at start position in string s (-1 if none)."""
     depth = 0
     for i in range(start, len(s)):
         c = s[i]
@@ -424,7 +424,7 @@ def _find_matching_paren(s: str, start: int) -> int:
     return -1
 
 def _simple_parse_args(code: str, fname: str) -> List[str]:
-    """code에서 fname( ... )의 최초 호출 인자 목록을 best-effort로 파싱"""
+    """Best-effort parsing of first call arguments of fname(...) in code."""
     pattern = r'\b' + re.escape(fname) + r'\s*\('
     m = re.search(pattern, code or "")
     if not m:
@@ -434,7 +434,7 @@ def _simple_parse_args(code: str, fname: str) -> List[str]:
     if r == -1:
         return []
     inner = code[l+1:r]
-    # 최상위 콤마로 분리
+    # split by top-level commas
     args = []
     cur = []; depth = 0
     for ch in inner:
@@ -452,7 +452,7 @@ def _simple_parse_args(code: str, fname: str) -> List[str]:
 
 
 def norm_val(n: Optional[int], cap: int = 100) -> float:
-    """0..cap을 0..1로 정규화. None/음수는 0.0"""
+    """Normalize 0..cap to 0..1. 0.0 for None/negative."""
     if n is None:
         return 0.0
     return min(max(int(n),0), cap)/float(cap)
@@ -460,9 +460,9 @@ def norm_val(n: Optional[int], cap: int = 100) -> float:
 
 def parse_array_size_state_and_norm(code: str) -> Tuple[int, float]:
     """
-    배열 선언 문자열에서 (buffer_size_state, buffer_size_norm) 계산
-      - state: 0=NA(배열 아님), 1=CONST, 2=NONCONST
-      - norm : CONST일 때 정규화 값, 그 외 0.0
+    Calculate (buffer_size_state, buffer_size_norm) from array declaration string.
+      - state: 0=NA (not an array), 1=CONST, 2=NONCONST
+      - norm : normalized value for CONST, else 0.0
     """
     dims = re.findall(r'\[[^\]]+\]', code or "")
     if not dims:
@@ -497,7 +497,7 @@ def parse_array_size_state_and_norm(code: str) -> Tuple[int, float]:
 
 
 
-class ASTExtractorV1_12:
+class ASTExtractor:
 
     def __init__(self, ast_json: Dict[str, Any], *,
                  lift_pure_cond_calls: bool = False):
@@ -523,19 +523,19 @@ class ASTExtractorV1_12:
         _idx(self.ast)
 
         self.nodes: List[Dict[str,Any]] = []
-        self.id2sid: Dict[int, int] = {}   # AST orig_id -> created sid (중복 방지
+        self.id2sid: Dict[int, int] = {}   # AST orig_id -> created sid (prevent duplicates)
 
         self.edges_pc: List[Tuple[int,int,int]] = []   # (src, dst, 0)
         self.edges_sb: List[Tuple[int,int,int]] = []   # (src, dst, 1)
-        # GUARD 에지는 학습에선 guard_kind만 쓰고, guard_branch는 디버그 전용
+        # GUARD edges use guard_kind in training, guard_branch is for debug only
         self.edges_ast_guard: List[Dict[str,Any]] = [] # {"src","dst","edge_type":2,"guard_kind", "guard_branch"(dbg)}
 
         self.sid_counter = 1
 
         self.LIFT_PURE_COND_CALLS = lift_pure_cond_calls  
 
-        # switch 라벨 표현 모드: "label"(권장) | "numeric"
-        self.SWITCH_BRANCH_MODE = "int"    # "int"로 기본값 변경 (label은 debug로만 보존)
+        # Switch branch representation mode: "label" | "numeric"
+        self.SWITCH_BRANCH_MODE = "int"    # Changed default to "int" (label preserved only for debug)
         self._switch_case_map: Dict[int, Dict[str,int]] = {}
 
         func_name = self.ast.get("name","<func>")
@@ -546,9 +546,9 @@ class ASTExtractorV1_12:
             "node_type": "FunctionEntry",
             "code": f"<entry:{func_name}>",
             "orig_id": func_orig_id,
-            # 학습용 feat (AST-GNN 전용 피처만)
+            # Training feat (AST-GNN specific features only)
             "feat": {
-                "node_type_id": _node_type_id("FunctionEntry"),  # ← 정수 ID (FunctionEntry=1)
+                "node_type_id": _node_type_id("FunctionEntry"),  # <- integer ID (FunctionEntry=1)
                 "train_mask": 1,
                 "in_loop": 0,
                 "is_loop": 0,
@@ -558,7 +558,7 @@ class ASTExtractorV1_12:
                 "buffer_size_state": 0,
                 "buffer_size_norm": 0.0,
                 "call_sem_cat_id": 0,
-                # 호출/사이즈 관련 AST 보강 플래그(비호출이므로 0)
+                # AST enhancement flags for call/size (0 as it is non-call)
                 "call_flag_danger_unbounded": 0,
                 "call_flag_len_linked_to_dst": 0,
                 "call_flag_sizeof_non_dst": 0,
@@ -570,13 +570,13 @@ class ASTExtractorV1_12:
                 "call_size_mismatch_field": 0,
                 "alloc_sizeof_state": 0
             }
-            # debug는 추가 메모가 있을 때만 붙임(중복 금지)
+            # debug attached only when additional notes are present (no duplication)
         })  
 
     def run(self) -> Dict[str,Any]:
         # Added: emit ParameterDeclaration as prologue
         self._emit_param_statements_prologue()
-        """함수 AST에서 CompoundStatement를 찾아 평탄화 수행"""
+        """Flatten by finding CompoundStatement in function AST."""
         func_body = None
         for c in (self.ast.get("children") or []):
             if isinstance(c, dict) and c.get("nodeType") == "CompoundStatement":
@@ -588,11 +588,11 @@ class ASTExtractorV1_12:
         # postprocess control nodes for call semantics
         self._postprocess_control_calls()
         return {
-            "nodes": self.nodes,                # 각 노드: {sid, node_type_id, code, orig_id, feat{...}, debug{...}}
-            "edges_ast_pc": self.edges_pc,      # (변경 없음) [(parent_sid, child_sid, 0)]
-            "edges_ast_sb": self.edges_sb,      # (변경 없음) [(prev_sid, next_sid, 1)]
-            "edges_ast_guard": self.edges_ast_guard # (변경 없음) [{src, dst, guard_kind, guard_branch}]
-    }
+            "nodes": self.nodes,                # Nodes: {sid, node_type_id, code, orig_id, feat{...}, debug{...}}
+            "edges_ast_pc": self.edges_pc,      # (Unchanged) [(parent_sid, child_sid, 0)]
+            "edges_ast_sb": self.edges_sb,      # (Unchanged) [(prev_sid, next_sid, 1)]
+            "edges_ast_guard": self.edges_ast_guard # (Unchanged) [{src, dst, guard_kind, guard_branch}]
+        }
 
         def _extract_for_condition_code(self, for_node: dict) -> str:
             """
@@ -640,25 +640,26 @@ class ASTExtractorV1_12:
     def _process_block(self, block_node: Dict[str,Any], parent_sid: int,
                    active_guards: Dict[str, Dict[str,Any]], in_loop: int) -> Tuple[Optional[int], Optional[int]]:
         """
-        블록(CompoundStatement) 내부를 순회하며 statement-level 노드를 생성
-        - edges_ast_pc: parent→child
+        Traverse block (CompoundStatement) and create statement-level nodes
+        - edges_ast_pc: parent->child
         - edges_ast_sb: statement order
-        - edges_ast_guard: (guard_stmt → first_stmt_in_block, {guard_kind, guard_branch})
+        - edges_ast_guard: (guard_stmt -> first_stmt_in_block, {guard_kind, guard_branch})
+        # (Modified) train_mask: Break/Continue excluded from training data (0)
+        # Note: _make_node handles train_mask setting, removed redundant code overwrite.
+        # Switch flattening: external SB always continues from switch node (sb_prev = sid_sw fixed).
+        # edges_ast_guard generated via common helper (_emit_guard) -> training uses kind, debug keeps guard_branch label.
+        # If/For/While/DoWhile guard edges use _emit_guard.
+        # Removed unnecessary gfeat calculation (aggregation happens in DFG phase).
         """
-        #Break/Continue는 _make_node가 train_mask=0을 설정하므로, 이후에 self.nodes[...]로 덮어쓰는 코드 제거.
-        #Switch 평탄화 후 외부 SB는 항상 스위치 노드에서 다음 문장으로 이어지도록 유지(sb_prev = sid_sw 고정).
-        #edges_ast_guard는 공통 헬퍼(_emit_guard)로 생성 → 학습은 guard_kind만, guard_branch는 디버그용 문자열 유지(옵션 numeric 모드도 지원).
-        #If/For/While/DoWhile의 가드 에지도 모두 _emit_guard 경유.
-        #불필요하게 계산만 하던 gfeat 제거(집계는 DFG 단계에서 사용)
 
 
-        # --- guard edge emitter (디버그용 라벨 유지, 학습은 kind만 사용) ---
+        # --- guard edge emitter (maintain labels for debug, use kind only for training) ---
         def _emit_guard(src_sid: int, dst_sid: int, guard_kind: int, branch_label: Any):
             """
             branch_label:
             if → 0(then) / 1(else)
             loop → 2
-            switch → "7", "default" 같은 라벨 문자열
+            switch → label string like "7", "default"
             """
             mode = getattr(self, "SWITCH_BRANCH_MODE", "label")  # "label" | "numeric"
             gb = branch_label
@@ -666,11 +667,11 @@ class ASTExtractorV1_12:
             edge = {"src": src_sid, "dst": dst_sid, "edge_type": 2, "guard_kind": guard_kind}
 
             if guard_kind == 4 and mode == "int":
-                # switch만 정수 인코딩 + 원문 라벨 디버그 보존
+                # Only switch uses integer encoding + preserves debug label
                 if branch_label == "default":
                     gb = -1
                 else:
-                    # 가능하면 실제 정수값으로 파싱, 실패 시 per-switch 안정 매핑
+                    # Parse as integer if possible, else per-switch stable mapping
                     try:
                         gb = self._parse_case_int(str(branch_label), src_sid)
                     except Exception:
@@ -681,9 +682,9 @@ class ASTExtractorV1_12:
                 edge["guard_branch"] = gb
                 edge.setdefault("debug", {})["guard_label"] = str(branch_label)
             else:
-                # if/loop 또는 label 모드의 switch
+                # if/loop or switch in label mode
                 edge["guard_branch"] = gb
-                # edge["guard_branch_dbg"]는 넣지 않음 (중복 제거)
+                # edge["guard_branch_dbg"] not added (deduplication)
 
             self.edges_ast_guard.append(edge)
 
@@ -694,7 +695,7 @@ class ASTExtractorV1_12:
         for ch in (block_node.get("children") or []):
             t = ch.get("nodeType")
 
-            # 중첩 블록
+            # Nested block
             if t == "CompoundStatement":
                 child_first, child_last = self._process_block(ch, parent_sid, dict(active_guards), in_loop)
                 if child_first is not None:
@@ -705,7 +706,7 @@ class ASTExtractorV1_12:
                     sb_prev = child_last
                 continue
 
-            # ContinueStatement: 제어 이전만 표시(DFG 없음, 학습 제외)
+            # ContinueStatement: control transfer only (no DFG, excluded from training)
             if t == "ContinueStatement":
                 sid_ct = self._make_node("ContinueStatement", "continue", in_loop, 0, 0, 0, 0.0,
                                         orig_id=ch.get("id"))
@@ -718,11 +719,11 @@ class ASTExtractorV1_12:
                 continue
 
             # ------------------------------------------------------------
-            # CaseLabel / DefaultLabel (switch 내부 전용 컨테이너)
-            # - 라벨 자체는 Statement로 만들지 않음
-            # - 내부 자식 Statement들을 평탄화하고,
-            #   첫 Statement에 guard(kind=4, branch=라벨) 부여
-            # - 마지막 자식(예: break;)까지 SB/PC로 연결
+            # CaseLabel / DefaultLabel (switch internal container only)
+            # - Label itself is not made into a Statement
+            # - Flatten internal child Statements and give first Statement
+            #   guard(kind=4, branch=label)
+            # - Connect with SB/PC up to the last child (e.g., break;)
             # ------------------------------------------------------------
             if t in CASE_LABEL_TYPES:
                 c_first, c_last = self._process_case_block(
@@ -737,7 +738,7 @@ class ASTExtractorV1_12:
                     sb_prev = c_last or c_first
                 continue
 
-            # BreakStatement: 제어 이전만 표시(DFG 없음)
+            # BreakStatement: control transfer only (no DFG)
             if t == "BreakStatement":
                 sid_br = self._make_node("BreakStatement", "break", in_loop, 0, 0, 0, 0.0,
                                         orig_id=ch.get("id"))
@@ -756,13 +757,13 @@ class ASTExtractorV1_12:
                 then_block = kids[1] if len(kids) >= 2 and isinstance(kids[1], dict) else None
                 else_block = kids[2] if len(kids) >= 3 and isinstance(kids[2], dict) else None
 
-                # 1) (신규) 조건식 내 부작용 호출 리프팅: If 앞에 '호출 Statement' 삽입
+                # 1) (New) Lift call side effects in condition: insert 'Call Statement' before If
                 if isinstance(cond, dict):
                     sb_prev, _lifted_sid = self._maybe_lift_call_in_condition(
                         parent_sid=parent_sid, sb_prev=sb_prev, in_loop=in_loop, cond_node=cond
                     )
 
-                # 2) IfStatement 노드 생성 (조건식 '코드'만)
+                # 2) Create IfStatement node (condition 'code' only)
                 cond_code = cond.get("code","") if isinstance(cond, dict) else ch.get("code","")
                 sid_if = self._make_node("IfStatement", cond_code, in_loop, 0, 0, 0, 0.0,
                                         orig_id=ch.get("id"))
@@ -773,7 +774,7 @@ class ASTExtractorV1_12:
                     first_sid = sid_if
                 sb_prev = sid_if
 
-                # 3) 가드 컨텍스트 집계
+                # 3) Aggregate guard context
                 cond_guards = self._guards_from_condition_ast(cond)
                 def _push_guards(base: dict, add: dict) -> dict:
                     pushed = dict(base)
@@ -793,39 +794,24 @@ class ASTExtractorV1_12:
                 # 5) ELSE
                 if isinstance(else_block, dict) and else_block.get("nodeType") == "CompoundStatement":
                     else_first, _else_last = self._process_block(else_block, sid_if,
-                                                                dict(active_guards),  # 반전 없이 컨텍스트만 유지
+                                                                dict(active_guards),  # maintain context without inversion
                                                                 in_loop)
                     if else_first is not None:
                        _emit_guard(sid_if, else_first, 1, 1)  # else=1
                 continue
 
 
-            # ForStatement
             # if t == "ForStatement":
             #     sid_for = self._make_node("ForStatement", ch.get("code",""), in_loop, 1, 0, 0, 0.0,
             #                             orig_id=ch.get("id"))
             #     self.edges_pc.append((parent_sid, sid_for, 0))
-            #     if sb_prev is not None:
+            # SB update: lifted node becomes the new prev
+            # if sb_prev is not None:
             #         self.edges_sb.append((sb_prev, sid_for, 1))
             #     if first_sid is None:
             #         first_sid = sid_for
             #     sb_prev = sid_for
 
-            #     kids = ch.get("children", []) or []
-            #     cond = kids[1] if len(kids) > 1 else None
-
-            #     lguards = self._guards_from_for_header(cond)
-
-            #     pushed = dict(active_guards)
-            #     for v,g in lguards.items():
-            #         pushed[v] = {"lower": g.get("lower",0), "upper": g.get("upper",0), "upper_const": g.get("upper_const",0.0)}
-
-            #     body = kids[3] if len(kids) > 3 else None
-            #     if isinstance(body, dict) and body.get("nodeType") == "CompoundStatement":
-            #         body_first, _body_last = self._process_block(body, sid_for, pushed, 1)
-            #         if body_first is not None:
-            #             _emit_guard(sid_for, body_first, 2, 2)  # loop-body=2
-            #     continue
             if t == "ForStatement":
                 # Create loop node
                 sid_for = self._make_node("ForStatement", ch.get("code",""), in_loop, 1, 0, 0, 0.0,
@@ -894,10 +880,10 @@ class ASTExtractorV1_12:
                         _emit_guard(sid_while, body_first, 2, 2)  # loop-body=2
                 continue
 
-            # DoWhileStatement (바디 먼저 실행, 조건식만 code에 기록)
+            # Create DoWhileStatement node (code: cond)
             if t in {"DoWhileStatement","DoStatement"}:
                 kids = ch.get("children") or []
-                # body: 첫 CompoundStatement, cond: 마지막 비-CompoundStatement
+                # body: first CompoundStatement, cond: last non-CompoundStatement
                 body = next((k for k in kids if isinstance(k, dict) and k.get("nodeType")=="CompoundStatement"), None)
                 cond = next((k for k in reversed(kids) if isinstance(k, dict) and k.get("nodeType")!="CompoundStatement"), None)
                 cond_code = cond.get("code","") if isinstance(cond, dict) else ""
@@ -911,13 +897,13 @@ class ASTExtractorV1_12:
                     first_sid = sid_do
                 sb_prev = sid_do
 
-                # 가드(루프) 증거 주입 컨텍스트 구성
+                # build context for guard (loop) evidence injection
                 lguards = self._guards_from_condition_ast(cond) if cond_code else {}
                 pushed = dict(active_guards)
                 for v,g in lguards.items():
                     pushed[v] = {"lower": g.get("lower",0), "upper": g.get("upper",0), "upper_const": g.get("upper_const",0.0)}
 
-                # 바디 평탄화 + 루프 가드 에지 생성
+                # block flattening + loop guard edge creation
                 if isinstance(body, dict) and body.get("nodeType") == "CompoundStatement":
                     body_first, _ = self._process_block(body, sid_do, pushed, 1)
                     if body_first is not None:
@@ -925,7 +911,7 @@ class ASTExtractorV1_12:
 
                 continue
 
-            # SwitchStatement (노드 생성 + case/default 가드 에지 생성)
+            # SwitchStatement (node creation + case/default guard edge creation)
             if t == "SwitchStatement":               
                 
                 cond_code = self._extract_switch_condition_code(ch)
@@ -937,7 +923,7 @@ class ASTExtractorV1_12:
                 if first_sid is None:
                     first_sid = sid_sw
 
-                # 바디에서 CaseLabel/DefaultLabel 직접 순회
+                # direct traversal of CaseLabel/DefaultLabel in body
                 body = self._find_switch_body(ch)
                 local_prev = None
                 for elem in (body.get("children") if body else (ch.get("children") or [])):
@@ -955,7 +941,7 @@ class ASTExtractorV1_12:
                                 self.edges_sb.append((local_prev, cf, 1))
                             local_prev = cl or cf
 
-                # 외부 SB는 항상 switch 자신에서 다음 문장으로 이어지도록
+                # external SB always continues from switch itself to the next statement
                 sb_prev = sid_sw
                 continue
 
@@ -1608,13 +1594,11 @@ class ASTExtractorV1_12:
                 guard_lower: int, guard_upper: int, upper_norm: float,
                 name_hint: str = "", orig_id: Optional[int] = None,
                 debug_extra: dict | None = None) -> int:
-        """Statement-level 노드 생성 + AST-GNN '학습용 feat' / '디버그용 debug' 분리 주입.
-        - DFG-GNN 전용 피처(예: is_buffer_access, is_sink_assign 등)는 여기서 절대 넣지 않음.
-        - node_type_id는 정수 ID로 저장해 모델 임베딩에 바로 사용 가능.
-        - Break/Continue(필요 시 Return)는 train_mask=0으로 학습에서 제외.
+        """Statement-level node creation + inject AST-GNN 'training feat' / 'debug info' separately.
+        - DFG-GNN specific features (e.g. is_buffer_access, is_sink_assign) are NEVER added here.
+        - node_type_id is stored as an integer ID for direct use in model embedding.
+        - Break/Continue (and Return if needed) are excluded from training (train_mask=0).
         """
-
-        # ✅ sid 발급 (누락되었던 부분)
         sid = self.sid_counter
         self.sid_counter += 1
 
@@ -1633,10 +1617,6 @@ class ASTExtractorV1_12:
             # 3) 그 외에는 안전하게 부모로 상승(루프 가드 있음)
             elif isinstance(raw_ast, dict):
                 call_ast = self._nearest_call_node(raw_ast)
-
-            # (옵션) 디버그
-            # if name_hint == "memset":
-            #     print(f"[_make_node] fname={name_hint} raw={getattr(raw_ast,'get',lambda k:None)('nodeType') if isinstance(raw_ast,dict) else type(raw_ast)} -> call_ast={getattr(call_ast,'get',lambda k:None)('nodeType') if isinstance(call_ast,dict) else None}")
            
             call_flags = self.compute_call_flags(fname=name_hint, call_ast=call_ast, code=code)
 
@@ -1647,7 +1627,7 @@ class ASTExtractorV1_12:
                 "call_flag_len_linked_to_dst": 0,
                 "call_flag_sizeof_non_dst": 0,
                 "call_flag_has_varargs": 0,
-                # AST 보강
+              # Calculate AST enhancement flags related to calls
                 "call_dst_is_field": 0,
                 "call_size_kind": 0,
                 "call_len_linked_to_dst_extended": 0,
@@ -1656,7 +1636,7 @@ class ASTExtractorV1_12:
                 "alloc_sizeof_state": 0
             }
 
-        # 버퍼 선언 컨텍스트
+        # Buffer declaration context
         is_buf_decl = 1 if node_type == "ArrayDeclaration" else 0
         if is_buf_decl:
             buf_state, buf_norm = parse_array_size_state_and_norm(code)
@@ -1670,8 +1650,6 @@ class ASTExtractorV1_12:
         train_mask = 1
         if node_type in {"BreakStatement","ContinueStatement"}:
             train_mask = 0
-        # 필요 시 Return도 마스킹
-        # if node_type == "ReturnStatement": train_mask = 0
 
         # --- 학습용 feat ---
         feat = {
@@ -2361,6 +2339,10 @@ class ASTExtractorV1_12:
 
             # Call: 함수 이름은 변수 아님(기본은 스킵), 인자 리스트만 재귀
             if nt in {"UserDefinedCall", "StandardLibCall", "CallExpression"}:
+                """
+                Find UserDefinedCall/StandardLibCall within cond_node of condition (If/For/While/Switch)
+                and lift as a node before the condition statement.
+                """
                 if not skip_callee:
                     emit(x.get("name"))  # 함수명을 변수처럼 취급하고 싶을 때만
                 for c in children(x):

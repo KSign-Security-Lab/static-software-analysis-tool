@@ -5,7 +5,7 @@ import os
 import subprocess
 from typing import Any, Dict, List, Optional, Set
 
-from ..ast.extractor import ASTExtractorV1_12
+from ..ast.extractor import ASTExtractor
 from ..ast.utils import recursively_get_functions_from_template
 from ..ast.validate import validate_ast_results
 from ..cpg.generator import CPGGenerator
@@ -71,10 +71,12 @@ def _build_template_artifacts(root: CPGRoot) -> Dict[str, Any]:
     ])
     tree_to_text = TreeToText(["properties", "line_no", "code"])
 
-    template: List[TreeNode] = _with_context("getTemplateTree", lambda: extractor.get_template_tree(root.get("export", {})))
+    export_data = root.export if isinstance(root, CPGRoot) else root.get("export", {}) if isinstance(root, dict) else {}
+    template: List[TreeNode] = _with_context("getTemplateTree", lambda: extractor.get_template_tree(export_data))
     converted = _with_context("convertTree", lambda: converter.convert_tree(template))
     template_result: List[TemplateNodes] = _with_context("removeInvalidNodes", lambda: post_processor.remove_invalid_nodes(converted))
-    template_result = _with_context("addCodeProperties", lambda: post_processor.add_code_properties(template_result, root))
+    root_data = root if isinstance(root, dict) else (root.model_dump() if isinstance(root, CPGRoot) else {})
+    template_result = _with_context("addCodeProperties", lambda: post_processor.add_code_properties(template_result, root_data))
 
     text_lines = [tree_to_text.convert(root_node) for root_node in template_result]
     flatten = planation_tool.flatten(template_result)
@@ -113,13 +115,15 @@ async def generate_cpg(
         if file_type == "file"
         else {"repr": representation, "format": export_format},
     )
-    validate_cpg_root([cpg_result.cpg_data.get("export", {})])
+    export_data = cpg_result.cpg_data.export if isinstance(cpg_result.cpg_data, CPGRoot) else cpg_result.cpg_data.get("export", {})
+    validate_cpg_root([export_data])
     return cpg_result.cpg_data
 
 
 def generate_template(cpg: CPGRoot) -> List[TemplateNodes]:
     """Generate template from CPG."""
-    validate_cpg_root([cpg.get("export", {})])
+    export_data = cpg.export if isinstance(cpg, CPGRoot) else cpg.get("export", {})
+    validate_cpg_root([export_data])
     artifacts = _build_template_artifacts(cpg)
     return artifacts["templateResult"]
 
@@ -134,7 +138,7 @@ async def generate_ast(template: List[TemplateNodes]) -> List[IASTResult]:
     ast_result = []
     for root in functions:
         try:
-            extractor = ASTExtractorV1_12(root)
+            extractor = ASTExtractor(root)
             ast_result.append(extractor.run())
         except Exception as e:
             ast_result.append({"error": str(e)})
@@ -145,7 +149,8 @@ async def generate_ast(template: List[TemplateNodes]) -> List[IASTResult]:
 
 def generate_dfg(cpg: CPGRoot, asts: List[IASTResult]) -> List[IDFGGraph]:
     """Generate DFG from CPG and AST."""
-    validate_cpg_root([cpg.get("export", {})])
+    export_data = cpg.export if isinstance(cpg, CPGRoot) else cpg.get("export", {})
+    validate_cpg_root([export_data])
     templates = _build_template_artifacts(cpg)
     dfgs: List[IDFGGraph] = []
     for ast in asts:

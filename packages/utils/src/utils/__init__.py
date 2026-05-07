@@ -1,37 +1,47 @@
-import os
-from typing import Callable, List, Any, Dict
+"""Utility functions for SSAT."""
+
 import json
 from multiprocessing import Pool
+from pathlib import Path
+from typing import Any, Callable, Dict, List
 
 
-def multiprocess(func: Callable, args: List[Any], num_processes: int) -> List[Any]:
+def multiprocess(func: Callable[[Any], Any], args: List[Any], num_processes: int) -> List[Any]:
+    """Run a function in parallel across multiple processes."""
     with Pool(num_processes) as p:
         return p.map(func, args)
 
 
-def read_json(file_path: str) -> Dict[str, Any]:
-    with open(file_path, "r") as f:
+def read_json(file_path: str | Path) -> Dict[str, Any]:
+    """Read a JSON file and return its contents as a dictionary."""
+    path = Path(file_path)
+    with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def recursvely_get_json_files(directory: str) -> List[str]:
-    files = []
-    for root, _, filenames in os.walk(directory):
-        for filename in filenames:
-            if filename.endswith(".json"):
-                files.append(os.path.join(root, filename))
-    return files
+def recursively_get_json_files(directory: str | Path) -> List[Path]:
+    """Recursively find all JSON files in a directory."""
+    return list(Path(directory).rglob("*.json"))
 
 
-def recursivelyGetFunctionsFromTemplate(
-    template: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+def get_functions_from_template(template: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Recursively extract function definitions from template nodes.
+    
+    Args:
+        template: List of template nodes to search.
+        
+    Returns:
+        List of function definition nodes.
+    """
     functions: List[Dict[str, Any]] = []
     for node in template:
-        if node["nodeType"] == "FunctionDefinition":
+        node_type = node.get("nodeType")
+        if node_type in ("FunctionDefinition", "FunctionDeclaration"):
             functions.append(node)
-        elif node["nodeType"] == "FunctionDeclaration":
-            functions.append(node)
-        if node["children"]:
-            functions.extend(recursivelyGetFunctionsFromTemplate(node["children"]))
+        
+        children = node.get("children")
+        if isinstance(children, list) and children:
+            functions.extend(get_functions_from_template(children))
+            
     return functions

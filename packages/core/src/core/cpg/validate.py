@@ -8,14 +8,14 @@ from pydantic import BaseModel, Field, ValidationError
 class GraphSONNumber(BaseModel):
     """GraphSON number wrapper."""
 
-    @type: str = Field(alias="@type")
-    @value: Union[int, float] = Field(alias="@value")
+    type_: str = Field(alias="@type")
+    value_: Union[int, float] = Field(alias="@value")
 
 
 class EdgeSchema(BaseModel):
     """Edge schema."""
 
-    @type: str = Field(alias="@type")
+    type_: str = Field(alias="@type")
     id: GraphSONNumber
     inV: GraphSONNumber
     inVLabel: str
@@ -28,7 +28,7 @@ class EdgeSchema(BaseModel):
 class VertexSchema(BaseModel):
     """Vertex schema."""
 
-    @type: str = Field(alias="@type")
+    type_: str = Field(alias="@type")
     id: GraphSONNumber
     label: str
     properties: Dict[str, Any]
@@ -44,8 +44,8 @@ class GraphDataSchema(BaseModel):
 class GraphSONWrapper(BaseModel):
     """GraphSON wrapper."""
 
-    @type: str = Field(alias="@type")
-    @value: GraphDataSchema = Field(alias="@value")
+    type_: str = Field(alias="@type")
+    value_: GraphDataSchema = Field(alias="@value")
 
 
 def validate_cpg_root(input_data: Any) -> Union[GraphSONWrapper, List[GraphSONWrapper]]:
@@ -56,4 +56,3 @@ def validate_cpg_root(input_data: Any) -> Union[GraphSONWrapper, List[GraphSONWr
     if isinstance(input_data, list):
         return [GraphSONWrapper.model_validate(item) for item in input_data]
     return GraphSONWrapper.model_validate(input_data)
-

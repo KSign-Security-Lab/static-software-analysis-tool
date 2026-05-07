@@ -50,6 +50,32 @@ class TemplateNodeTypes(str, Enum):
     UserDefinedCall = "UserDefinedCall"
     VariableDeclaration = "VariableDeclaration"
     WhileStatement = "WhileStatement"
+    
+    # Additional types for CPG compatibility
+    UNKNOWN = "UNKNOWN"
+    IDENTIFIER = "IDENTIFIER"
+    LOCAL = "LOCAL"
+    MEMBER = "MEMBER"
+    METHOD = "METHOD"
+    METHOD_PARAMETER_IN = "METHOD_PARAMETER_IN"
+    METHOD_PARAMETER_OUT = "METHOD_PARAMETER_OUT"
+    METHOD_RETURN = "METHOD_RETURN"
+    PARAM = "PARAM"
+    BLOCK = "BLOCK"
+    CALL = "CALL"
+    CONTROL_STRUCTURE = "CONTROL_STRUCTURE"
+    FIELD_IDENTIFIER = "FIELD_IDENTIFIER"
+    FILE = "FILE"
+    IMPORT = "IMPORT"
+    JUMP_TARGET = "JUMP_TARGET"
+    METHOD_REF = "METHOD_REF"
+    MODIFIER = "MODIFIER"
+    NAMESPACE = "NAMESPACE"
+    NAMESPACE_BLOCK = "NAMESPACE_BLOCK"
+    RETURN = "RETURN"
+    TYPE = "TYPE"
+    TYPE_DECL = "TYPE_DECL"
+    TYPE_REF = "TYPE_REF"
 
 
 class IBaseNode(BaseModel):
@@ -126,5 +152,3 @@ def is_declaration(node: IBaseNode) -> bool:
         TemplateNodeTypes.VariableDeclaration,
     ]
     return node.nodeType in declaration_types
-
-

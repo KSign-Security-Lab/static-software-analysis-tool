@@ -10,15 +10,40 @@ dependencies = [
     "agent",
     "graph",
     "utils",
+    "pytest>=8.0.0",
+    "ruff>=0.9.0",
+    "mypy>=1.14.0",
 ]
 
 [tool.uv]
 package = true
 
 [project.scripts]
-ssat = "cli.__main__:main"
+ssat = "cli.__main__:ssat_main"
+cpg = "cli.__main__:cpg_main"
 agent = "agent:main"
 dfg = "graph:dfg"
+docker-up = "cli.__main__:docker_up"
+docker-down = "cli.__main__:docker_down"
+docker-remove = "cli.__main__:docker_remove"
+docker-fresh = "cli.__main__:docker_fresh"
+scripts-help = "cli.__main__:scripts_help"
+generate-cpg = "cli.__main__:generate_cpg_entry"
+generate-template = "cli.__main__:generate_template_entry"
+generate-template-functions = "cli.__main__:generate_template_functions_entry"
+generate-dfg = "cli.__main__:generate_dfg_entry"
+generate-ast = "cli.__main__:generate_ast_entry"
+generate-full = "cli.__main__:generate_full_entry"
+type-check = "cli.__main__:type_check_entry"
+lint = "cli.__main__:lint_entry"
+lint-fix = "cli.__main__:lint_fix_entry"
+format = "cli.__main__:format_entry"
+format-check = "cli.__main__:format_check_entry"
+test = "cli.__main__:test_entry"
+test-log = "cli.__main__:test_log_entry"
+web-dev = "cli.__main__:web_dev_entry"
+web-build = "cli.__main__:web_build_entry"
+web-start = "cli.__main__:web_start_entry"
 
 [tool.setuptools]
 py-modules = []
