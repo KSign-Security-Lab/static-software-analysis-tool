@@ -12,8 +12,8 @@ from .parser import CliOptions, CliParser
 
 # Import core functions
 try:
-    from core.endpoint import generate_ast, generate_cpg, generate_dfg, generate_template
-    from core.cpg.generator import batch_generate_cpg, SUPPORTED_EXTENSIONS
+    from ssat.endpoint import generate_ast, generate_cpg, generate_dfg, generate_template
+    from ssat.cpg.generator import batch_generate_cpg, SUPPORTED_EXTENSIONS
 except ImportError:
     # Fallback if core is not installed
     SUPPORTED_EXTENSIONS = frozenset({".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".java"})
@@ -134,7 +134,7 @@ async def process_single_file(
             result = {"ast": ast, "dfg": dfg}
         elif options.mode == "template-functions":
             template = generate_template(cpg)
-            from core.ast.utils import recursively_get_functions_from_template
+            from ssat.ast.utils import recursively_get_functions_from_template
             result = recursively_get_functions_from_template(template)
 
         # Write result

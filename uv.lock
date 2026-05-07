@@ -9,11 +9,8 @@ resolution-markers = [
 [manifest]
 members = [
     "agent",
-    "cli",
-    "core",
-    "graph",
+    "ssat",
     "static-software-analysis-tool",
-    "utils",
 ]
 
 [[package]]
@@ -218,21 +215,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cli"
-version = "2.4.3"
-source = { editable = "packages/cli" }
-dependencies = [
-    { name = "core" },
-    { name = "tqdm" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "core", editable = "packages/core" },
-    { name = "tqdm", specifier = ">=4.66.0" },
-]
-
-[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -273,32 +255,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fa/96/fd9f641ffedc4fa3ace923af73b9d07e869496c9cc7a459103e6e978992f/contourpy-1.3.3-cp314-cp314t-win_amd64.whl", hash = "sha256:13b68d6a62db8eafaebb8039218921399baf6e47bf85006fd8529f2a08ef33fc", size = 250331, upload-time = "2025-07-26T12:02:50.137Z" },
     { url = "https://files.pythonhosted.org/packages/ae/8c/469afb6465b853afff216f9528ffda78a915ff880ed58813ba4faf4ba0b6/contourpy-1.3.3-cp314-cp314t-win_arm64.whl", hash = "sha256:b7448cb5a725bb1e35ce88771b86fba35ef418952474492cf7c764059933ff8b", size = 203831, upload-time = "2025-07-26T12:02:51.449Z" },
 ]
-
-[[package]]
-name = "core"
-version = "2.4.3"
-source = { editable = "packages/core" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-test = [
-    { name = "deepdiff" },
-    { name = "jsonschema" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "deepdiff", marker = "extra == 'test'", specifier = ">=6.0.0" },
-    { name = "jsonschema", marker = "extra == 'test'", specifier = ">=4.0.0" },
-    { name = "pydantic", specifier = ">=2.12.3" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
-]
-provides-extras = ["test"]
 
 [[package]]
 name = "cuda-bindings"
@@ -469,17 +425,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/d5/8d/1c51c094345df128c
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d5/0c/043d5e551459da400957a1395e0febbf771446ff34291afcbe3d8be2a279/fsspec-2026.4.0-py3-none-any.whl", hash = "sha256:11ef7bb35dab8a394fde6e608221d5cf3e8499401c249bebaeaad760a1a8dec2", size = 203402, upload-time = "2026-04-29T20:42:36.842Z" },
 ]
-
-[[package]]
-name = "graph"
-version = "0.1.0"
-source = { editable = "packages/graph" }
-dependencies = [
-    { name = "utils" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "utils", editable = "packages/utils" }]
 
 [[package]]
 name = "idna"
@@ -1340,30 +1285,52 @@ wheels = [
 ]
 
 [[package]]
+name = "ssat"
+version = "2.4.3"
+source = { editable = "packages/ssat" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "tqdm" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "deepdiff" },
+    { name = "jsonschema" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "deepdiff", marker = "extra == 'test'", specifier = ">=6.0.0" },
+    { name = "jsonschema", marker = "extra == 'test'", specifier = ">=4.0.0" },
+    { name = "pydantic", specifier = ">=2.12.3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+    { name = "tqdm", specifier = ">=4.66.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
 name = "static-software-analysis-tool"
 version = "0.1.0"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "agent" },
-    { name = "cli" },
-    { name = "core" },
-    { name = "graph" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
-    { name = "utils" },
+    { name = "ssat" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "agent", editable = "packages/agent" },
-    { name = "cli", editable = "packages/cli" },
-    { name = "core", editable = "packages/core" },
-    { name = "graph", editable = "packages/graph" },
     { name = "mypy", specifier = ">=1.14.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.9.0" },
-    { name = "utils", editable = "packages/utils" },
+    { name = "ssat", editable = "packages/ssat" },
 ]
 
 [[package]]
@@ -1481,11 +1448,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/c7/24/5f1b3bdffd70275f6
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/08/aaaad47bc4e9dc8c725e68f9d04865dbcb2052843ff09c97b08904852d84/urllib3-2.6.3-py3-none-any.whl", hash = "sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4", size = 131584, upload-time = "2026-01-07T16:24:42.685Z" },
 ]
-
-[[package]]
-name = "utils"
-version = "0.1.0"
-source = { editable = "packages/utils" }
 
 [[package]]
 name = "xxhash"

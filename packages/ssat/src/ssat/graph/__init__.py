@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 from typing import List, Dict, Any
 
-from utils import (
+from ssat.utils import (
     get_functions_from_template,
     recursively_get_json_files,
 )
