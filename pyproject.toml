@@ -8,10 +8,19 @@ dependencies = ["graph"]
 
 [tool.uv.sources]
 graph = { workspace = true }
+core = { workspace = true }
+cli = { workspace = true }
+agent = { workspace = true }
+utils = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/graph",
     "packages/utils",
     "packages/agent",
+    "py-packages/core",
+    "py-packages/cli",
+    "py-packages/agent",
+    "py-packages/graph",
+    "py-packages/utils",
 ]

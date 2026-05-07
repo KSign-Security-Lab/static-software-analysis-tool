@@ -1,0 +1,27 @@
+[project]
+name = "core"
+version = "2.4.3"
+description = "Static Software Analysis Tool Core Processing Modules"
+readme = "README.md"
+authors = [{ name = "Keon Oh Kim", email = "keonoh00@gmail.com" }]
+requires-python = ">=3.14"
+dependencies = ["pydantic>=2.12.3"]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "deepdiff>=6.0.0",
+    "jsonschema>=4.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.4,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"

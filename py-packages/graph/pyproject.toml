@@ -1,0 +1,20 @@
+[project]
+name = "graph"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "Keon Oh Kim", email = "keonoh00@gmail.com" }]
+requires-python = ">=3.14"
+dependencies = [
+    "utils",
+]
+
+[project.scripts]
+dfg = "graph:dfg"
+
+[build-system]
+requires = ["uv_build>=0.9.4,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+utils = { workspace = true }
