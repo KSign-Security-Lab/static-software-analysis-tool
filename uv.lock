@@ -6,6 +6,7 @@ requires-python = ">=3.14"
 members = [
     "agent",
     "graph",
+    "sample",
     "static-software-analysis-tool",
     "utils",
 ]
@@ -314,6 +315,15 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "utils", editable = "packages/utils" }]
+
+[[package]]
+name = "graphviz"
+version = "0.21"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/b3/3ac91e9be6b761a4b30d66ff165e54439dcd48b83f4e20d644867215f6ca/graphviz-0.21.tar.gz", hash = "sha256:20743e7183be82aaaa8ad6c93f8893c923bd6658a04c32ee115edb3c8a835f78", size = 200434, upload-time = "2025-06-15T09:35:05.824Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/4c/e0ce1ef95d4000ebc1c11801f9b944fa5910ecc15b5e351865763d8657f8/graphviz-0.21-py3-none-any.whl", hash = "sha256:54f33de9f4f911d7e84e4191749cac8cc5653f815b06738c54db9a15ab8b1e42", size = 47300, upload-time = "2025-06-15T09:35:04.433Z" },
+]
 
 [[package]]
 name = "idna"
@@ -889,6 +899,17 @@ sdist = { url = "https://files.pythonhosted.org/packages/fb/d2/8920e102050a0de7b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/25/7a/b0178788f8dc6cafce37a212c99565fa1fe7872c70c6c9c1e1a372d9d88f/rich-14.2.0-py3-none-any.whl", hash = "sha256:76bc51fe2e57d2b1be1f96c524b890b816e334ab4c1e45888799bfaab0021edd", size = 243393, upload-time = "2025-10-09T14:16:51.245Z" },
 ]
+
+[[package]]
+name = "sample"
+version = "0.1.0"
+source = { virtual = "sample" }
+dependencies = [
+    { name = "graphviz" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "graphviz", specifier = ">=0.21" }]
 
 [[package]]
 name = "setuptools"

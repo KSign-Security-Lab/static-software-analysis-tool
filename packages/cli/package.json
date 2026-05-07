@@ -35,10 +35,10 @@
     "test": "Run CLI tests (if present)"
   },
   "dependencies": {
+    "@ssat/core": "*",
     "cli-progress": "^3.12.0",
     "commander": "^12.1.0",
-    "zod": "^3.25.67",
-    "@ssat/core": "*"
+    "zod": "^3.25.67"
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",

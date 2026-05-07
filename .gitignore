@@ -1,3 +1,6 @@
+cpg_results/*
+ksigncase64/*
+
 *.bin
 joern/*
 workspace/

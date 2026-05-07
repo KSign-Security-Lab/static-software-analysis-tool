@@ -15,9 +15,6 @@ utils = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "packages/graph",
-    "packages/utils",
-    "packages/agent",
     "py-packages/core",
     "py-packages/cli",
     "py-packages/agent",

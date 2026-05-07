@@ -22,7 +22,9 @@ export class CPGGenerator {
     }
 
     // Create temporary directory
-    const tmpDir = path.join(os.tmpdir(), `joern-cpg-${randomUUID()}`);
+    let baseTmpDir = os.tmpdir();
+    if (baseTmpDir.startsWith("/home/tmp")) baseTmpDir = "/tmp";
+    const tmpDir = path.join(baseTmpDir, `joern-cpg-${randomUUID()}`);
     await fs.mkdir(tmpDir, { recursive: true });
 
     try {
@@ -175,7 +177,9 @@ export class CPGGenerator {
       }
 
       // Create temporary directory
-      const tmpDir = path.join(os.tmpdir(), `joern-cpg-${randomUUID()}`);
+      let baseTmpDir = os.tmpdir();
+      if (baseTmpDir.startsWith("/home/tmp")) baseTmpDir = "/tmp";
+      const tmpDir = path.join(baseTmpDir, `joern-cpg-${randomUUID()}`);
       await fs.mkdir(tmpDir, { recursive: true });
 
       // Write C source to temporary file

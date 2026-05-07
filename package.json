@@ -23,7 +23,6 @@
     "web:dev": "yarn workspace @ssat/web dev",
     "web:build": "yarn workspace @ssat/web build",
     "web:start": "yarn workspace @ssat/web start",
-    
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down -v"
   },
@@ -45,12 +44,10 @@
     "web:dev": "Start Next.js dev server",
     "web:build": "Build Next.js app",
     "web:start": "Start Next.js production server",
-    
     "docker:up": "Start all Docker services",
     "docker:joern": "Start only Joern Docker service",
     "docker:down": "Stop all Docker services"
   },
-  "devDependencies": {},
   "engines": {
     "node": ">=18.17 <23"
   },
