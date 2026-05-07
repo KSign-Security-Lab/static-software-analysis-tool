@@ -1,10 +1,31 @@
 [project]
 name = "static-software-analysis-tool"
 version = "0.1.0"
-description = "Add your description here"
+description = "Static Software Analysis Tool (SSAT) - Python Monorepo"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = ["graph"]
+dependencies = [
+    "core",
+    "cli",
+    "agent",
+    "graph",
+    "utils",
+]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+ssat = "cli.__main__:main"
+agent = "agent:main"
+dfg = "graph:dfg"
+
+[tool.setuptools]
+py-modules = []
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
 
 [tool.uv.sources]
 graph = { workspace = true }
@@ -15,9 +36,18 @@ utils = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "py-packages/core",
-    "py-packages/cli",
-    "py-packages/agent",
-    "py-packages/graph",
-    "py-packages/utils",
+    "packages/core",
+    "packages/cli",
+    "packages/agent",
+    "packages/graph",
+    "packages/utils",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+ignore_missing_imports = true
