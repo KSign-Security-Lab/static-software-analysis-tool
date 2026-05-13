@@ -59,7 +59,7 @@ export function NodePropertiesPanel({ node, onClose }: NodePropertiesPanelProps)
           } else {
             // Generic fallback
             Object.entries(node).forEach(([k, v]) => {
-              if (!["_id", "x", "y", "vx", "vy", "color", "properties", "id", "label"].includes(k)) {
+              if (!["_id", "x", "y", "vx", "vy", "color", "properties", "id", "label", "source", "target"].includes(k)) {
                 flatProps[k] = v;
               }
             });

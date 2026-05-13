@@ -1,17 +1,23 @@
 "use client";
 
 import React, { useCallback, useState } from "react";
-import styles from "./CPGUploader.module.css";
+import styles from "./DataUploader.module.css";
 
-interface CPGUploaderProps {
-  onUpload: (data: any) => void;
+interface DataUploaderProps {
+  onUpload: (data: any, type: "cpg" | "asset") => void;
+  title?: string;
+  description?: string;
 }
 
-export function CPGUploader({ onUpload }: CPGUploaderProps) {
+export function DataUploader({ 
+  onUpload, 
+  title = "Upload Data JSON", 
+  description = "Drag and drop your JSON file here, or click to browse." 
+}: DataUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFile = (file: File) => {
+  const handleFile = useCallback((file: File) => {
     setError(null);
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -19,21 +25,21 @@ export function CPGUploader({ onUpload }: CPGUploaderProps) {
         const text = e.target?.result as string;
         const data = JSON.parse(text);
         
-        // Basic validation for generic graph data or CPG format.
-        // CPG JSON might just be an array of objects or have nodes/edges.
-        // We'll normalize in the visualizer, but basic checks here.
-        if (!data || typeof data !== "object") {
-          throw new Error("Invalid format: JSON must be an object or array.");
+        let type: "cpg" | "asset" = "cpg";
+        if (data.artifact_type === "visualization_context") {
+          type = "asset";
+        } else if (data["@type"] === "tinker:graph") {
+          type = "cpg";
         }
         
-        onUpload(data);
+        onUpload(data, type);
       } catch (err: any) {
         setError(err.message || "Failed to parse JSON file.");
       }
     };
     reader.onerror = () => setError("Failed to read file.");
     reader.readAsText(file);
-  };
+  }, [onUpload]);
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -51,7 +57,7 @@ export function CPGUploader({ onUpload }: CPGUploaderProps) {
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFile(e.dataTransfer.files[0]);
     }
-  }, []);
+  }, [handleFile]);
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -71,9 +77,9 @@ export function CPGUploader({ onUpload }: CPGUploaderProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
         </svg>
       </div>
-      <h3 className={styles.title}>Upload CPG JSON</h3>
+      <h3 className={styles.title}>{title}</h3>
       <p className={styles.description}>
-        Drag and drop your Code Property Graph JSON file here, or click to browse.
+        {description}
       </p>
       <label className={styles.browseButton}>
         Browse File
