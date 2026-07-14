@@ -13,14 +13,18 @@ in TypeScript; this service only produces the CPG and the F2-A evidence.
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ssat.cpg.generator import CPGGenerator
+from ssat.cpg.generator import _find_project_root, _worker_generate_one
 from ssat.f2a import run_f2a
 
 app = FastAPI(title="F2-A Test API", version="1.0.0")
@@ -59,24 +63,35 @@ def _filename_for(req: CpgRequest) -> str:
     return _LANG_EXT.get(req.language.lower(), "main.c")
 
 
-async def _generate_cpg(req: CpgRequest) -> Dict[str, Any]:
-    """Generate a CPG GraphSON dict from source via the Joern container."""
-    generator = CPGGenerator()
-    try:
-        result = await generator.convert_to_cpg_docker(
-            req.source,
-            {"isFilePath": False, "filename": _filename_for(req), "format": "graphson"},
-        )
-    except Exception as exc:  # noqa: BLE001 - surface the Joern error to the UI
-        raise HTTPException(status_code=502, detail=f"CPG generation failed: {exc}") from exc
+def _generate_cpg(req: CpgRequest) -> Dict[str, Any]:
+    """Generate a CPG GraphSON dict from source via the Joern container.
 
-    export = result.cpg_data.export
-    # ssat wraps the GraphSON in a pydantic model; unwrap back to a plain dict
-    # with the original @type/@value aliases so the frontend + f2a can read it.
-    if hasattr(export, "model_dump"):
-        cpg = export.model_dump(by_alias=True)
-    else:
-        cpg = export
+    Uses the same synchronous worker as the ``ssat cpg`` CLI
+    (``_worker_generate_one``). The older async path produced intermittently
+    incomplete data-flow (REACHING_DEF) overlays; this path is reliable.
+    """
+    filename = _filename_for(req)
+    source = req.source if req.source.endswith("\n") else req.source + "\n"
+    workspace = _find_project_root(Path.cwd()) / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    tmp = Path(tempfile.mkdtemp(prefix="f2a-cpg-"))
+    try:
+        src_path = tmp / filename
+        src_path.write_text(source, encoding="utf-8")
+        out_root = tmp / "out"
+        result = _worker_generate_one(
+            str(src_path), str(tmp), str(out_root), _joern_container(),
+            str(workspace), "all", "graphson", False,
+        )
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=502,
+                detail=f"CPG generation failed: {result.get('error', 'unknown error')}",
+            )
+        cpg = json.loads(Path(result["output"]).read_text(encoding="utf-8"))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     return {"cpg": cpg, "method_count": _count_methods(cpg)}
 
 
@@ -94,8 +109,8 @@ def health() -> Dict[str, Any]:
 
 
 @app.post("/cpg")
-async def cpg(req: CpgRequest) -> Dict[str, Any]:
-    return await _generate_cpg(req)
+def cpg(req: CpgRequest) -> Dict[str, Any]:
+    return _generate_cpg(req)
 
 
 @app.post("/f2a")
@@ -104,12 +119,13 @@ def f2a(req: F2aRequest) -> Dict[str, Any]:
         result = run_f2a(req.cpg)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"F2-A analysis failed: {exc}") from exc
-    return result.model_dump()
+    data: Dict[str, Any] = result.model_dump()
+    return data
 
 
 @app.post("/analyze")
-async def analyze(req: CpgRequest) -> Dict[str, Any]:
-    generated = await _generate_cpg(req)
+def analyze(req: CpgRequest) -> Dict[str, Any]:
+    generated = _generate_cpg(req)
     cpg_doc = generated["cpg"]
     try:
         f2a_result = run_f2a(cpg_doc)
