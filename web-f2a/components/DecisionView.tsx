@@ -119,23 +119,35 @@ function DecisionCard({
       <div className={`verdict ${verdictCls}`}>
         <div className="vtop">
           <span className={`vbadge ${verdictCls}`}>{d.verdict}</span>
+        </div>
+        <div className="vhero">
+          <div>
+            <h2 className="vheadline mono">{d.headline}</h2>
+            <p className="vlead">{d.lead}</p>
+            {d.cwe.length > 0 && (
+              <div className="chiprow">
+                {d.cwe.map((w) => (
+                  <span key={w} className="badge">
+                    {w}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
           {d.hasFinding && (
-            <span className="vconf">
-              confidence <b>{d.confidence.toFixed(2)}</b> · {d.confidenceLabel}
-            </span>
+            <div className="confring">
+              <div
+                className="ring"
+                style={{
+                  background: `conic-gradient(var(--accent) ${Math.round(d.confidence * 360)}deg, rgba(255,255,255,0.08) 0)`,
+                }}
+              >
+                <span className="rval">{d.confidence.toFixed(2)}</span>
+              </div>
+              <div className="rcap">신뢰도 · {d.confidenceLabel}</div>
+            </div>
           )}
         </div>
-        <h2 className="vheadline mono">{d.headline}</h2>
-        <p className="vlead">{d.lead}</p>
-        {d.cwe.length > 0 && (
-          <div className="chiprow">
-            {d.cwe.map((w) => (
-              <span key={w} className="badge">
-                {w}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       {d.hasFinding ? (

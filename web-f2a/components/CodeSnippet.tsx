@@ -31,20 +31,30 @@ export default function CodeSnippet({ source, refs }: { source: string; refs: Co
   return (
     <div className="snips">
       {groups.map((g, gi) => (
-        <pre className="snip" key={gi}>
-          {Array.from({ length: g.end - g.start + 1 }, (_, k) => {
-            const n = g.start + k;
-            const ref = g.refs.get(n);
-            const text = lines[n - 1] ?? "";
-            return (
-              <div key={n} className={`cline ${ref ? "hl tone-" + ref.tone : ""}`}>
-                <span className="ln">{n}</span>
-                <span className="ct">{text || " "}</span>
-                {ref && <span className="cap">{ref.caption}</span>}
-              </div>
-            );
-          })}
-        </pre>
+        <div className="codeblock" key={gi}>
+          <div className="codeblock-bar">
+            <span className="dots">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="cb-label">코드 근거 · L{g.start}–{g.end}</span>
+          </div>
+          <pre className="snip">
+            {Array.from({ length: g.end - g.start + 1 }, (_, k) => {
+              const n = g.start + k;
+              const ref = g.refs.get(n);
+              const text = lines[n - 1] ?? "";
+              return (
+                <div key={n} className={`cline ${ref ? "hl tone-" + ref.tone : ""}`}>
+                  <span className="ln">{n}</span>
+                  <span className="ct">{text || " "}</span>
+                  {ref && <span className="cap">{ref.caption}</span>}
+                </div>
+              );
+            })}
+          </pre>
+        </div>
       ))}
     </div>
   );

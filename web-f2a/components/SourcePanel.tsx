@@ -29,11 +29,11 @@ export default function SourcePanel({
   const [backend, setBackend] = useState("");
   useEffect(() => setBackend(apiBase()), []);
   return (
-    <div className="sidebar">
-      <h1>F2-A 테스트 웹</h1>
+    <div className="drawer-body">
       <p className="subtitle">
-        소스에서 <b>CPG · AST · CG · DFG · CFG</b> 를 추출하고 F2-A 근거 파이프라인을
-        실행합니다. ssat.cpg(Joern) + ssat.f2a 기반.
+        소스에서 코드 프로퍼티 그래프를 추출하고 F2-A 근거 파이프라인을 실행합니다.
+        <br />
+        ssat.cpg(Joern) + ssat.f2a 기반.
       </p>
 
       <div className="field">
@@ -63,31 +63,44 @@ export default function SourcePanel({
       </div>
 
       <div className="editor">
-        <label style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4 }}>소스</label>
-        <textarea
-          className="code"
-          spellCheck={false}
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          placeholder="C / C++ / Java 소스를 붙여넣으세요…"
-        />
+        <label>소스</label>
+        <div className="editor-shell">
+          <div className="editor-bar">
+            <span className="dots">
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="fname">{`main.${language === "cpp" ? "cpp" : language === "java" ? "java" : "c"}`}</span>
+          </div>
+          <textarea
+            className="code"
+            spellCheck={false}
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            placeholder="C / C++ / Java 소스를 붙여넣으세요…"
+          />
+        </div>
       </div>
 
-      <div className="actions">
-        <button className="primary" onClick={onAnalyze} disabled={loading || !source.trim()}>
-          {loading ? "분석 중…" : "분석"}
+      <div className="drawer-foot">
+        <div className="foot-status">
+          {error ? (
+            <span className="status err">{error}</span>
+          ) : loading ? (
+            <span className="status">Joern으로 CPG 생성 중…</span>
+          ) : stats ? (
+            <span className="status ok">
+              노드 {stats.vertices}개 · 엣지 {stats.edges}개 · 함수 {stats.methods}개
+            </span>
+          ) : (
+            <span className="status">백엔드 {backend || "…"}</span>
+          )}
+        </div>
+        <button className="primary block" onClick={onAnalyze} disabled={loading || !source.trim()}>
+          {loading && <span className="spinner" />}
+          {loading ? "분석 중…" : "분석 실행"}
         </button>
-        {error ? (
-          <span className="status err">{error}</span>
-        ) : loading ? (
-          <span className="status">Joern으로 CPG 생성 중…</span>
-        ) : stats ? (
-          <span className="status ok">
-            노드 {stats.vertices}개 · 엣지 {stats.edges}개 · 함수 {stats.methods}개
-          </span>
-        ) : (
-          <span className="status">백엔드: {backend || "…"}</span>
-        )}
       </div>
     </div>
   );

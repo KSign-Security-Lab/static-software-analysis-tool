@@ -6,6 +6,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Keep the dev-only indicator out of the sidebar's bottom-left corner.
+  devIndicators: { position: "bottom-right" },
   // This app is self-contained; pin the tracing root so sibling lockfiles
   // (the repo root / old web/) don't trigger a workspace-root warning.
   outputFileTracingRoot: here,
