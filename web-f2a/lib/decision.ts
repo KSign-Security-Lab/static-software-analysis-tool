@@ -30,6 +30,8 @@ export interface Decision {
   subtitle: string; // action.field · semantic  (mono)
   title: string; // plain-language headline
   verdict: string; // 검토 후보
+  component: string; // OCPP component (e.g. charge_point)
+  ocppVersion: string;
   confidence: number;
   confidenceLabel: string;
   cwe: string[];
@@ -171,6 +173,8 @@ function buildOne(pkg: EvidencePackage, handlers: HandlerMap[]): Decision {
     subtitle: `${ctx.action}.${ctx.field} · ${ctx.field_semantic}`,
     title: `외부 입력이 ${sink.api}() (${dNoun}) 싱크까지 도달합니다`,
     verdict: "검토 후보",
+    component: pkg.component_type,
+    ocppVersion: ctx.ocpp_version,
     confidence: conf,
     confidenceLabel: koConfidence(conf),
     cwe: pkg.related_cwe,
@@ -204,6 +208,8 @@ export function buildDecisions(result: F2AResult): Decision[] {
         subtitle: "",
         title: "신뢰할 수 없는 입력 → 위험 싱크 경로를 찾지 못했습니다",
         verdict: "발견 없음",
+        component: "",
+        ocppVersion: "",
         confidence: 0,
         confidenceLabel: "",
         cwe: [],

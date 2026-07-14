@@ -397,6 +397,14 @@ table.checks tr:last-child td { border-bottom: none; }
 .tblink { margin-top: 14px; background: none; border: none; color: var(--faint); font-size: 12px; cursor: pointer; padding: 0; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; transition: color 0.15s; }
 .tblink:hover { color: var(--accent); }
 
+/* ---- JSON output view --------------------------------------------------- */
+.jsonbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+.jsoncode {
+  margin: 0; padding: 14px 16px; max-height: 70vh; overflow: auto;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: #cdd6df;
+  white-space: pre; tab-size: 2;
+}
+
 /* ============================================================================
    Graph explorer toolbar
    ========================================================================== */

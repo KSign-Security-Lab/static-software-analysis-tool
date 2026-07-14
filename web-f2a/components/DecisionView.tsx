@@ -133,6 +133,8 @@ function FindingCard({
         {d.subtitle && <div className="fh-sub mono">{d.subtitle}</div>}
         {d.hasFinding && (
           <div className="fh-meta">
+            {d.component && <span className="badge mono">component · {d.component}</span>}
+            {d.ocppVersion && <span className="badge mono">{d.ocppVersion}</span>}
             {d.cwe.map((w) => (
               <span key={w} className="badge">
                 {w}

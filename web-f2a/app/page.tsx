@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import SourcePanel from "@/components/SourcePanel";
 import DecisionView from "@/components/DecisionView";
 import F2AReport from "@/components/F2AReport";
+import JsonView from "@/components/JsonView";
 import { analyze } from "@/lib/api";
 import { parseCpg } from "@/lib/cpg";
 import { SAMPLES } from "@/lib/samples";
@@ -13,7 +14,7 @@ import type { AnalyzeResponse, ViewKey } from "@/lib/types";
 // React Flow touches the DOM — load the graph explorer client-only.
 const GraphExplorer = dynamic(() => import("@/components/GraphExplorer"), { ssr: false });
 
-type Tab = "decision" | ViewKey | "report";
+type Tab = "decision" | ViewKey | "report" | "json";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "decision", label: "판단" },
@@ -23,6 +24,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "cg", label: "CG" },
   { key: "cpg", label: "CPG" },
   { key: "report", label: "리포트" },
+  { key: "json", label: "JSON" },
 ];
 
 const GRAPH_KEYS: ViewKey[] = ["ast", "cfg", "dfg", "cg", "cpg"];
@@ -143,6 +145,7 @@ export default function Home() {
           <DecisionView result={response.f2a} source={analyzedSource} onInspect={onInspect} />
         )}
         {response && tab === "report" && <F2AReport result={response.f2a} />}
+        {response && tab === "json" && <JsonView result={response.f2a} />}
         {parsed && isGraph && (
           <GraphExplorer cpg={parsed} tab={tab as ViewKey} defaultMethodId={defaultMethodId} />
         )}
