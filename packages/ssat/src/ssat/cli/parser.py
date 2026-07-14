@@ -3,7 +3,7 @@
 import argparse
 from typing import Dict, Literal, Optional
 
-Mode = Literal["cpg", "template", "ast", "dfg", "template-functions", "full"]
+Mode = Literal["cpg", "template", "ast", "dfg", "template-functions", "full", "f2a"]
 
 
 class CliOptions:
@@ -146,6 +146,20 @@ class CliParser:
         full_parser.add_argument("--workers", default="1", help="Number of parallel workers")
         full_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
         full_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+
+        # F2-A command (OCPP-native static evidence extraction from a CPG)
+        f2a_parser = subparsers.add_parser(
+            "f2a",
+            help="Extract OCPP-native source→sink evidence candidates from CPG data",
+            formatter_class=fmt,
+        )
+        f2a_parser.add_argument("-d", "--data", required=True, help="Input CPG file or directory")
+        f2a_parser.add_argument("-o", "--output", help="Output directory (default: result/f2a_<timestamp>)")
+        f2a_parser.add_argument("--ext", default="json", help="File extensions to process (comma-separated)")
+        f2a_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
+        f2a_parser.add_argument("--workers", default="1", help="Number of parallel workers")
+        f2a_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+        f2a_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
 
     def parse(self) -> CliOptions:
         """Parse command line arguments."""

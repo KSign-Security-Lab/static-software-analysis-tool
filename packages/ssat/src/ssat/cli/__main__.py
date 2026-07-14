@@ -136,6 +136,11 @@ async def process_single_file(
             template = generate_template(cpg)
             from ssat.ast.utils import recursively_get_functions_from_template
             result = recursively_get_functions_from_template(template)
+        elif options.mode == "f2a":
+            # F2-A consumes a CPG directly (see ssat.f2a).
+            from ssat.f2a import run_f2a
+            f2a_result = run_f2a(cpg, source_cpg=str(file_path))
+            result = f2a_result.model_dump()
 
         # Write result
         if result is not None:
@@ -348,6 +353,12 @@ def generate_ast_entry() -> None:
 def generate_full_entry() -> None:
     """Entry point for generate:full."""
     sys.argv.insert(1, "full")
+    ssat_main()
+
+
+def generate_f2a_entry() -> None:
+    """Entry point for generate:f2a."""
+    sys.argv.insert(1, "f2a")
     ssat_main()
 
 

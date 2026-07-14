@@ -25,6 +25,7 @@ generate-template-functions = "ssat.cli.__main__:generate_template_functions_ent
 generate-dfg = "ssat.cli.__main__:generate_dfg_entry"
 generate-ast = "ssat.cli.__main__:generate_ast_entry"
 generate-full = "ssat.cli.__main__:generate_full_entry"
+generate-f2a = "ssat.cli.__main__:generate_f2a_entry"
 type-check = "ssat.cli.__main__:type_check_entry"
 lint = "ssat.cli.__main__:lint_entry"
 lint-fix = "ssat.cli.__main__:lint_fix_entry"

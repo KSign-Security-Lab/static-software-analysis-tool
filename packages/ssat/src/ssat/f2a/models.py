@@ -1,0 +1,421 @@
+"""Data models for the F2-A OCPP-native evidence extraction pipeline.
+
+Field names and enums follow the F2-A concept design
+(``docs/v2/refs/V4_2 1 F2-A_개념상세 설계 …a1a85c.md``) and the implementation
+deck (``docs/v2/f2a_deck_v7_implementation.html``).
+
+The overarching invariant of F2-A: it does **not** confirm vulnerabilities.
+Every artifact is a *candidate* backed by file/function/line evidence, a
+connection-quality confidence, and explicit limitations, handed off to F6.
+"""
+
+from __future__ import annotations
+
+from typing import List, Literal, Optional, Union
+
+from pydantic import BaseModel, Field
+
+# ---------------------------------------------------------------------------
+# Enums (verbatim from the concept design)
+# ---------------------------------------------------------------------------
+
+# §10.2 Dangerous Sink Domain Profile
+SinkDomain = Literal[
+    "COMMAND_EXECUTION",
+    "UNSAFE_FIRMWARE_DOWNLOAD",
+    "UNSAFE_EXTERNAL_RESOURCE",
+    "FILE_WRITE",
+    "CONFIGURATION_MUTATION",
+    "AUTHORIZATION_DECISION",
+    "TRANSACTION_STATE_CHANGE",
+    "CONNECTOR_CONTROL",
+    "MEMORY_UNSAFE_OPERATION",
+    "LOG/DIAGNOSTIC_EXPORT",
+    "REMOTE_COMMAND_DISPATCH",
+    "FIRMWARE_INSTALL",
+    "UPDATE_ACTIVATION",
+]
+
+# §11.6 observed-check strength
+CheckStrength = Literal["STRONG", "PARTIAL", "WEAK", "UNKNOWN", "CONFLICTED"]
+
+# §12.4 expected↔observed matching status
+MatchingStatus = Literal[
+    "SATISFIED",
+    "PARTIALLY_SATISFIED",
+    "WEAKLY_RELATED",
+    "UNVERIFIED",
+    "NEGATIVE_EVIDENCE_FOUND",
+    "CONFLICTED",
+    "REVIEW_REQUIRED",
+]
+
+DetectionMethod = Literal["RULE_BASED", "LLM_ASSISTED"]
+
+# §16.4 F2-A only ever emits a static-suspect hint (never CONFIRMED/DISMISSED)
+LifecycleStateHint = Literal["STATIC_SUSPECT_HVVD", "REVIEW_READY_HVVD"]
+
+
+# ---------------------------------------------------------------------------
+# Shared building blocks
+# ---------------------------------------------------------------------------
+
+
+class CodeLocation(BaseModel):
+    """A file/function/line anchor. Every piece of evidence is traceable."""
+
+    file: str = ""
+    function: str = ""
+    line: Union[int, str] = ""
+
+
+class MappingEvidence(BaseModel):
+    """Evidence backing a handler mapping (``DISPATCH_STRING_MATCH`` / ``HANDLER_CALL``)."""
+
+    type: str
+    value: str = ""
+    file: str = ""
+    line: Union[int, str] = ""
+
+
+# ---------------------------------------------------------------------------
+# F2-A2 · Handler mapping
+# ---------------------------------------------------------------------------
+
+
+class HandlerRef(CodeLocation):
+    language: str = "c"
+
+
+class HandlerMap(BaseModel):
+    """F2-A2 output — which function handles an OCPP action."""
+
+    handler_map_id: str
+    action: str
+    handler: HandlerRef
+    mapping_evidence: List[MappingEvidence] = Field(default_factory=list)
+    confidence: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# F2-A3 · Payload field source extraction
+# ---------------------------------------------------------------------------
+
+
+class BindingEvidence(BaseModel):
+    type: str  # e.g. STRUCT_FIELD_ASSIGNMENT
+    expression: str = ""
+
+
+class FieldBindingDetail(BaseModel):
+    source_type: str = "OCPP_PAYLOAD_FIELD"
+    source_expression: str = ""
+    bound_variable: str = ""
+    file: str = ""
+    function: str = ""
+    line: Union[int, str] = ""
+
+
+class FieldBinding(BaseModel):
+    """F2-A3 output — the payload field bound to a concrete code variable."""
+
+    field_binding_id: str
+    action: str
+    field: str
+    field_semantic: str = ""
+    binding: FieldBindingDetail
+    binding_evidence: List[BindingEvidence] = Field(default_factory=list)
+    confidence: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# F2-A4 · Semantic binding (from the F1 knowledge base)
+# ---------------------------------------------------------------------------
+
+
+class SemanticBinding(BaseModel):
+    """F2-A4 output — KB meaning attached to the field."""
+
+    field_semantic: str = ""
+    trust_level: str = ""
+    expected_checks: List[str] = Field(default_factory=list)
+    dangerous_sink_domains: List[str] = Field(default_factory=list)
+    related_cwe: List[str] = Field(default_factory=list)
+    validation_requirement: List[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# F2-A5 · Source→sink flow
+# ---------------------------------------------------------------------------
+
+
+class FlowStep(BaseModel):
+    step: int
+    function: str = ""
+    file: str = ""
+    line: Union[int, str] = ""
+    operation: str = ""
+
+
+class SourceRef(BaseModel):
+    source_type: str = "OCPP_PAYLOAD_FIELD"
+    binding: str = ""
+    file: str = ""
+    function: str = ""
+    line: Union[int, str] = ""
+
+
+class SinkInfo(BaseModel):
+    sink_domain: str = ""
+    api: str = ""
+    file: str = ""
+    function: str = ""
+    line: Union[int, str] = ""
+
+
+# ---------------------------------------------------------------------------
+# F2-A6 · Dangerous sink mapping
+# ---------------------------------------------------------------------------
+
+
+class SinkMapping(BaseModel):
+    """F2-A6 output — the reached dangerous call, mapped to a domain + CWE."""
+
+    sink_mapping_id: str
+    sink: CodeLocation
+    api: str = ""
+    sink_domain: str = ""
+    related_cwe: List[str] = Field(default_factory=list)
+    severity_hint: str = ""
+    mapping_evidence: List[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# F2-A7 · Observed check detection
+# ---------------------------------------------------------------------------
+
+
+class ObservedCheck(BaseModel):
+    observed_check_id: str
+    detection_method: DetectionMethod = "RULE_BASED"
+    check_type: str = ""
+    action: str = ""
+    field: str = ""
+    applies_to: List[str] = Field(default_factory=list)
+    file: str = ""
+    function: str = ""
+    line: Union[int, str] = ""
+    evidence: str = ""
+    check_strength: CheckStrength = "UNKNOWN"
+    matched_expected_check: Optional[str] = None
+    confidence: float = 0.0
+
+
+class NegativeCheckEvidence(BaseModel):
+    evidence_id: str
+    evidence_type: Literal["NEGATIVE_CHECK_EVIDENCE"] = "NEGATIVE_CHECK_EVIDENCE"
+    related_expected_check: str = ""
+    reason: str = ""
+    file: str = ""
+    function: str = ""
+    line: Union[int, str] = ""
+    confidence: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# F2-A8 · Expected check matching
+# ---------------------------------------------------------------------------
+
+
+class MatchingResult(BaseModel):
+    expected_check: str
+    matching_status: MatchingStatus
+    matched_observed_check: Optional[str] = None
+    check_strength: Optional[CheckStrength] = None
+    basis: List[str] = Field(default_factory=list)
+    confidence: float = 0.0
+    limitations: List[str] = Field(default_factory=list)
+
+
+class MissingCheckSummary(BaseModel):
+    satisfied_checks: List[str] = Field(default_factory=list)
+    partially_satisfied_checks: List[str] = Field(default_factory=list)
+    weakly_related_checks: List[str] = Field(default_factory=list)
+    missing_check_candidates: List[str] = Field(default_factory=list)
+    review_required_checks: List[str] = Field(default_factory=list)
+
+
+class ExpectedCheckMatching(BaseModel):
+    expected_check_matching_id: str
+    candidate_id: str
+    action: str
+    field: str
+    field_semantic: str = ""
+    expected_checks: List[str] = Field(default_factory=list)
+    observed_check_references: List[str] = Field(default_factory=list)
+    matching_results: List[MatchingResult] = Field(default_factory=list)
+    missing_check_summary: MissingCheckSummary = Field(default_factory=MissingCheckSummary)
+
+
+# ---------------------------------------------------------------------------
+# F2-A9 · Missing check candidate
+# ---------------------------------------------------------------------------
+
+
+class MissingCheckItem(BaseModel):
+    check_id: str
+    basis: str = ""  # UNVERIFIED / WEAKLY_RELATED / NEGATIVE_EVIDENCE_FOUND
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class WeakCheckItem(BaseModel):
+    check_id: str
+    related_expected_check: Optional[str] = None
+    reason: str = ""
+
+
+class MissingCheckCandidateSet(BaseModel):
+    missing_check_candidate_id: str
+    candidate_id: str
+    action: str
+    field: str
+    missing_check_candidates: List[MissingCheckItem] = Field(default_factory=list)
+    weak_or_partial_check_candidates: List[WeakCheckItem] = Field(default_factory=list)
+    review_required_missing_check_candidates: List[MissingCheckItem] = Field(
+        default_factory=list
+    )
+    limitations: List[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# F2-A10/A11 · Evidence package (the primary F6 hand-off)
+# ---------------------------------------------------------------------------
+
+
+class OcppContext(BaseModel):
+    ocpp_version: str = ""
+    action: str = ""
+    field: str = ""
+    field_semantic: str = ""
+    trust_level: str = ""
+
+
+class CodeEvidence(BaseModel):
+    source: SourceRef
+    flow: List[FlowStep] = Field(default_factory=list)
+    sink: SinkInfo
+
+
+class CheckEvidence(BaseModel):
+    expected_checks: List[str] = Field(default_factory=list)
+    observed_checks: List[ObservedCheck] = Field(default_factory=list)
+    missing_check_candidates: List[MissingCheckItem] = Field(default_factory=list)
+
+
+class PrimaryLocation(BaseModel):
+    file: str = ""
+    line: Union[int, str] = ""
+    evidence: str = ""
+
+
+class Traceability(BaseModel):
+    files: List[str] = Field(default_factory=list)
+    functions: List[str] = Field(default_factory=list)
+    primary_locations: List[PrimaryLocation] = Field(default_factory=list)
+
+
+class ConfidenceBreakdown(BaseModel):
+    handler_mapping: float = 0.0
+    field_binding: float = 0.0
+    semantic_binding: float = 0.0
+    source_sink_flow: float = 0.0
+    sink_mapping: float = 0.0
+    check_detection: float = 0.0
+    traceability: float = 0.0
+    overall_static_confidence: float = 0.0
+
+
+class SecurityInterpretation(BaseModel):
+    summary: str = ""
+    root_cause_candidates: List[str] = Field(default_factory=list)
+    related_cwe: List[str] = Field(default_factory=list)
+
+
+class EvidencePackage(BaseModel):
+    """F2-A10 output — the OCPP-native evidence package."""
+
+    evidence_id: str
+    candidate_type: Literal["OCPP_NATIVE_EVIDENCE_PACKAGE"] = "OCPP_NATIVE_EVIDENCE_PACKAGE"
+    language: str = "c"
+    component_type: str = ""
+    ocpp_context: OcppContext
+    code_evidence: CodeEvidence
+    check_evidence: CheckEvidence
+    traceability: Traceability = Field(default_factory=Traceability)
+    security_interpretation: SecurityInterpretation = Field(
+        default_factory=SecurityInterpretation
+    )
+    root_cause_candidates: List[str] = Field(default_factory=list)
+    related_cwe: List[str] = Field(default_factory=list)
+    confidence: ConfidenceBreakdown = Field(default_factory=ConfidenceBreakdown)
+    static_confidence: float = 0.0
+    limitations: List[str] = Field(default_factory=list)
+
+
+class CandidateFragment(BaseModel):
+    """F2-A15 output — the ``OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT`` handed to F6."""
+
+    candidate_id: str
+    candidate_type: Literal[
+        "OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"
+    ] = "OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"
+    language: str = "c"
+    component_type: str = ""
+    ocpp_context: OcppContext
+    code_evidence: CodeEvidence
+    expected_checks: List[str] = Field(default_factory=list)
+    observed_checks: List[ObservedCheck] = Field(default_factory=list)
+    missing_check_candidates: List[MissingCheckItem] = Field(default_factory=list)
+    root_cause_candidates: List[str] = Field(default_factory=list)
+    related_cwe: List[str] = Field(default_factory=list)
+    static_confidence: float = 0.0
+    lifecycle_state_hint: LifecycleStateHint = "STATIC_SUSPECT_HVVD"
+    limitations: List[str] = Field(default_factory=list)
+
+
+class FlowCandidate(BaseModel):
+    """F2-A5 output row (``ocpp_flow_candidates.jsonl``)."""
+
+    candidate_id: str
+    language: str = "c"
+    component_type: str = ""
+    ocpp_version: str = ""
+    action: str
+    field: str
+    field_semantic: str = ""
+    source: SourceRef
+    flow: List[FlowStep] = Field(default_factory=list)
+    sink: SinkInfo
+    observed_checks: List[str] = Field(default_factory=list)
+    expected_checks: List[str] = Field(default_factory=list)
+    missing_check_candidates: List[str] = Field(default_factory=list)
+    static_confidence: float = 0.0
+    limitations: List[str] = Field(default_factory=list)
+
+
+class F2AResult(BaseModel):
+    """The full bundle produced for one CPG (all artifacts of one run)."""
+
+    source_cpg: str = ""
+    handler_maps: List[HandlerMap] = Field(default_factory=list)
+    field_bindings: List[FieldBinding] = Field(default_factory=list)
+    flow_candidates: List[FlowCandidate] = Field(default_factory=list)
+    sink_mappings: List[SinkMapping] = Field(default_factory=list)
+    expected_check_matchings: List[ExpectedCheckMatching] = Field(default_factory=list)
+    missing_check_candidate_sets: List[MissingCheckCandidateSet] = Field(
+        default_factory=list
+    )
+    evidence_packages: List[EvidencePackage] = Field(default_factory=list)
+    candidate_fragments: List[CandidateFragment] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
