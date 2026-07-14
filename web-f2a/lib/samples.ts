@@ -90,7 +90,9 @@ typedef struct sqlite3 sqlite3;
 int sqlite3_exec(sqlite3 *db, const char *sql, int (*cb)(void *, int, char **, char **),
                  void *arg, char **errmsg);
 
-typedef struct DataTransferReq { char *data; } DataTransferReq;
+typedef struct DataTransferReq {
+    char *data;
+} DataTransferReq;
 
 void store_vendor_data(sqlite3 *db, const char *data) {
     char sql[512];
