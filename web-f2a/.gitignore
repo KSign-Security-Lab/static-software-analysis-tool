@@ -3,6 +3,10 @@
 /out
 /build
 *.tsbuildinfo
+
+# The repo-root .gitignore excludes "lib/" (Python); our TS source lives in lib/.
+!/lib
+!/lib/**
 next-env.d.ts.bak
 .env*.local
 .DS_Store
