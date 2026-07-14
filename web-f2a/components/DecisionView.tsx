@@ -35,7 +35,7 @@ function roleTone(role: TraceStep["role"]): CodeTone {
 function StepSnippet({ step, lines }: { step: TraceStep; lines: string[] }) {
   const tone = roleTone(step.role);
   const groups = useMemo(
-    () => buildGroups([{ line: step.line, caption: step.note, tone }], lines.length, 1),
+    () => buildGroups([{ line: step.line, caption: step.note, tone }], lines.length, 3),
     [step.line, step.note, tone, lines.length],
   );
   const g = groups[0];
