@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { buildDecisions, koStatus, type Decision, type TraceStep } from "@/lib/decision";
-import { sourceLines } from "@/lib/code";
+import { buildGroups, sourceLines, type CodeTone } from "@/lib/code";
 import type { F2AResult } from "@/lib/types";
 
 function statusClass(status: string): string {
@@ -28,6 +28,52 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
+function roleTone(role: TraceStep["role"]): CodeTone {
+  return role === "source" ? "source" : role === "sink" ? "sink" : "call";
+}
+
+function StepSnippet({ step, lines }: { step: TraceStep; lines: string[] }) {
+  const tone = roleTone(step.role);
+  const groups = useMemo(
+    () => buildGroups([{ line: step.line, caption: step.note, tone }], lines.length, 1),
+    [step.line, step.note, tone, lines.length],
+  );
+  const g = groups[0];
+  return (
+    <div className="codeblock">
+      <div className="codeblock-bar">
+        <span className="dots">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="cb-label">
+          {step.fn} · {step.file}:{step.line}
+        </span>
+      </div>
+      <pre className="snip">
+        {g ? (
+          Array.from({ length: g.end - g.start + 1 }, (_, k) => {
+            const n = g.start + k;
+            const ref = g.refs.get(n);
+            return (
+              <div key={n} className={`cline ${ref ? "hl tone-" + ref.tone : ""}`}>
+                <span className="ln">{n}</span>
+                <span className="ct">{lines[n - 1] || " "}</span>
+                {ref && <span className="cap">{ref.caption}</span>}
+              </div>
+            );
+          })
+        ) : (
+          <div className="cline hl">
+            <span className="ct">{step.note}</span>
+          </div>
+        )}
+      </pre>
+    </div>
+  );
+}
+
 function Trace({
   steps,
   lines,
@@ -39,21 +85,14 @@ function Trace({
 }) {
   return (
     <ol className="trace">
-      {steps.map((s) => {
-        const code = lines[s.line - 1]?.trim() || "";
-        return (
-          <li className={`trace-step ${s.role}`} key={s.n}>
-            <span className="tnum">{s.n}</span>
-            <div className="tmain">
-              <code className="tcode">{code || s.note}</code>
-              <span className="tloc">
-                {s.fn} · {s.file}:{s.line}
-              </span>
-            </div>
-            <span className={`trole ${s.role}`}>{s.note}</span>
-          </li>
-        );
-      })}
+      {steps.map((s) => (
+        <li className={`trace-step ${s.role}`} key={s.n}>
+          <span className="tnum">{s.n}</span>
+          <div className="tmain">
+            <StepSnippet step={s} lines={lines} />
+          </div>
+        </li>
+      ))}
       {onInspect && steps[0] && (
         <button className="tblink" onClick={() => onInspect(steps[steps.length - 1].fn)}>
           그래프 탐색기에서 데이터 흐름 보기 ▸
