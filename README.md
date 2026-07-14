@@ -136,14 +136,19 @@ yarn generate:cpg --data <input> [options]
 **Options:**
 
 - `-o, --output <path>`: Output directory (default: `result/cpg_<timestamp>`)
-- `--ext <extensions>`: File extensions to process (comma-separated, default: "c")
+- `--ext <extensions>`: File extensions to process (comma-separated, default: "c,h,cpp,cc,cxx,hpp,hxx,java")
+- `--workers <number>`: Number of parallel workers for batch processing (default: 4)
+- `--repr <representation>`: Joern representation to export (default: "all")
+- `-f, --format <format>`: Joern export format (default: "graphson")
 - `--replace-macro`: Replace macros in source files (default: true)
 - `--no-replace-macro`: Skip macro replacement
+- `--copy-source`: Copy original source files alongside generated CPG JSON
 - `--keep-intermediate`: Keep intermediate files
-- `--workers <number>`: Number of parallel workers (default: 1)
 - `-v, --verbose`: Verbose output
 - `--debug`: Enable debug mode
 - `-h, --help`: Display help
+
+For directory inputs, CPG generation preserves the input directory structure. Each source file is written to the corresponding output path with `.json` appended to the full filename, so `src/foo.c` becomes `out/foo.c.json` and `src/foo.h` becomes `out/foo.h.json`. With `--copy-source`, the original source file is copied next to its generated CPG.
 
 #### Generate Template
 
@@ -229,6 +234,9 @@ yarn generate:cpg --data input.c
 # Generate CPG from a directory
 yarn generate:cpg --data src/
 
+# Generate CPG from a directory and keep source files next to CPG JSON
+yarn generate:cpg --data src/ --output result/cpg_out --copy-source
+
 # Generate Template from CPG
 yarn generate:template --data cpg_output/
 
@@ -250,6 +258,9 @@ yarn generate:template --data cpg_output/ --keep-intermediate --verbose
 
 # Use multiple workers for parallel processing
 yarn generate:cpg --data src/ --workers 4
+
+# Preserve source files and nested directories in the CPG output tree
+yarn generate:cpg --data java_sample --output result/java_sample_cpg --workers 4 --copy-source
 ```
 
 **Get help:**
@@ -292,7 +303,8 @@ Outputs are written under `result/` by default (timestamped) unless `--output` i
 
 **CPG Output:**
 
-- `cpg_result.json`: Code Property Graph in JSON format
+- `<source-file-name>.<source-extension>.json`: Code Property Graph in JSON format, preserving the input directory structure
+- `<source-file>`: Original source file, when `--copy-source` is used
 
 **Template Output:**
 

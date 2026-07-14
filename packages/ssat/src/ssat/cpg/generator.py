@@ -10,7 +10,7 @@ import subprocess
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from ..types.cpg import CPGRoot, ICPGRootExport
 
@@ -25,6 +25,22 @@ SUPPORTED_EXTENSIONS = frozenset({
 def is_supported_source_file(path: Path) -> bool:
     """Check if a file has a Joern-supported extension."""
     return path.suffix.lower() in SUPPORTED_EXTENSIONS
+
+
+def _relative_source_path(src: Path, input_root: Path) -> Path:
+    """Return the source path relative to a directory input, or just the filename."""
+    if input_root.is_file():
+        return Path(src.name)
+    try:
+        rel_path = src.relative_to(input_root)
+    except ValueError:
+        return Path(src.name)
+    return Path(src.name) if rel_path == Path(".") else rel_path
+
+
+def _cpg_json_output_path(output_root: Path, rel_source_path: Path) -> Path:
+    """Build a collision-resistant CPG JSON path, preserving the source suffix."""
+    return output_root / rel_source_path.parent / f"{rel_source_path.name}.json"
 
 
 class StandaloneCPGResult:
@@ -68,11 +84,8 @@ def _worker_generate_one(
     job_dir = ws / f"job_{job_id}"
 
     try:
-        # Preserve relative path structure
-        try:
-            rel_path = src.relative_to(in_root)
-        except ValueError:
-            rel_path = Path(src.name)
+        # Preserve relative path structure for directory inputs.
+        rel_path = _relative_source_path(src, in_root)
 
         # Copy source file into job directory
         job_source = job_dir / rel_path
@@ -160,7 +173,7 @@ def _worker_generate_one(
                     merged.update(data)
 
         # Write result to output directory preserving structure
-        output_file = out_root / rel_path.with_suffix(".json")
+        output_file = _cpg_json_output_path(out_root, rel_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(json.dumps(merged, indent=2), encoding="utf-8")
 
@@ -273,8 +286,6 @@ class CPGGenerator:
         self, input_data: str, options: Optional[Dict[str, Any]] = None
     ) -> StandaloneCPGResult:
         """Convert source code to CPG using Docker."""
-        import asyncio
-
         if options is None:
             options = {}
 
