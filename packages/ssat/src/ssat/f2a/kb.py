@@ -61,6 +61,10 @@ class SinkDomainProfile:
     apis: List[str]  # C APIs (lower-cased match)
     related_cwe: List[str] = field(default_factory=list)
     severity: str = "HIGH"
+    # Advisory: which 1-based argument positions carry the dangerous value.
+    # Recorded from the KB for reference; sink detection currently flags a
+    # tainted value in ANY argument (arg conventions vary across APIs).
+    dangerous_arg_indexes: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -162,6 +166,25 @@ DEFAULT_CHECK_PATTERNS: List[CheckPattern] = [
         call_names=["is_authorized", "check_permission", "has_permission", "authorize"],
         matched_expected_check="OPERATOR_PERMISSION_CHECK",
     ),
+    # DataTransfer.data — vendor payload validation + safe SQL usage.
+    CheckPattern(
+        check_type="SCHEMA_VALIDATION",
+        default_strength="STRONG",
+        call_names=["json_schema_validate", "validate_data_transfer_payload"],
+        matched_expected_check="DT_DATA_SCHEMA_VALIDATION",
+    ),
+    CheckPattern(
+        check_type="LENGTH_LIMIT",
+        default_strength="STRONG",
+        call_names=["strlen_bound", "bounded_parser", "max_length_check", "strnlen"],
+        matched_expected_check="DT_DATA_LENGTH_LIMIT",
+    ),
+    CheckPattern(
+        check_type="SQL_PARAMETERIZATION",
+        default_strength="STRONG",
+        call_names=["sqlite3_prepare_v2", "sqlite3_bind_text", "parameterized_query"],
+        matched_expected_check="SQL_PARAMETERIZATION",
+    ),
 ]
 
 
@@ -239,6 +262,13 @@ def default_knowledge_base() -> KnowledgeBase:
             message_direction="CSMS_TO_CHARGE_POINT",
             sensitive_fields=["location"],
         ),
+        ActionProfile(
+            action_name="DataTransfer",
+            protocol_version="ocpp1.6",
+            component_type="charge_point",
+            message_direction="CSMS_TO_CHARGE_POINT",
+            sensitive_fields=["data"],
+        ),
     ]
 
     fields = [
@@ -262,6 +292,27 @@ def default_knowledge_base() -> KnowledgeBase:
                 "download must not go through a shell",
             ],
             field_source_aliases=["location", "firmware_url", "firmwareLocation"],
+        ),
+        FieldProfile(
+            action_name="DataTransfer",
+            field_name="data",
+            semantic_type="vendor_controlled_payload",
+            trust_level="remote_ocpp_input",
+            dangerous_sink_domain=["database_query_execution"],
+            expected_checks=[
+                "DT_DATA_SCHEMA_VALIDATION",
+                "DT_DATA_LENGTH_LIMIT",
+                "SQL_PARAMETERIZATION",
+            ],
+            related_cwe=["CWE-89", "CWE-20"],
+            validation_requirement=[
+                "validate the vendor payload against the expected schema",
+                "reject payloads over the max length",
+                "use parameterized queries instead of string concatenation",
+            ],
+            # matched against FIELD_IDENTIFIER canonical names + string-literal
+            # subscripts (request->data, request.data, payload["data"]).
+            field_source_aliases=["data"],
         ),
     ]
 
@@ -294,6 +345,27 @@ def default_knowledge_base() -> KnowledgeBase:
             negative_sink_domains=["COMMAND_EXECUTION"],
             related_cwe=["CWE-78"],
         ),
+        ExpectedCheckProfile(
+            check_id="DT_DATA_SCHEMA_VALIDATION",
+            check_type="INPUT_VALIDATION",
+            description="Validate the vendor payload against the expected message schema before use.",
+            related_cwe=["CWE-20"],
+        ),
+        ExpectedCheckProfile(
+            check_id="DT_DATA_LENGTH_LIMIT",
+            check_type="INPUT_VALIDATION",
+            description="Reject payloads that exceed the implementation-defined maximum length.",
+            related_cwe=["CWE-20", "CWE-1284"],
+        ),
+        ExpectedCheckProfile(
+            check_id="SQL_PARAMETERIZATION",
+            check_type="SAFE_API_USAGE",
+            description="Use a prepared statement / bound parameter instead of concatenating payload into SQL.",
+            # Reaching a raw DB-query sink is structural negative evidence: the
+            # payload was concatenated into SQL rather than bound.
+            negative_sink_domains=["database_query_execution"],
+            related_cwe=["CWE-89"],
+        ),
     ]
 
     sink_domains = [
@@ -318,6 +390,14 @@ def default_knowledge_base() -> KnowledgeBase:
             related_cwe=["CWE-22"],
             severity="MEDIUM",
         ),
+        SinkDomainProfile(
+            sink_domain="database_query_execution",
+            description="Executes a database query.",
+            apis=["sqlite3_exec", "mysql_query", "pqexec"],
+            related_cwe=["CWE-89"],
+            severity="HIGH",
+            dangerous_arg_indexes=[1],
+        ),
     ]
 
     root_causes = [
@@ -338,6 +418,13 @@ def default_knowledge_base() -> KnowledgeBase:
             related_missing_checks=["SIGNATURE_VERIFICATION"],
             related_sink_domains=["UNSAFE_FIRMWARE_DOWNLOAD", "FIRMWARE_INSTALL"],
             related_cwe=["CWE-345", "CWE-494"],
+        ),
+        RootCause(
+            root_cause_id="untrusted_payload_to_sql_injection",
+            description="A vendor-controlled payload is concatenated into a database query without parameterization.",
+            related_missing_checks=["SQL_PARAMETERIZATION", "DT_DATA_SCHEMA_VALIDATION"],
+            related_sink_domains=["database_query_execution"],
+            related_cwe=["CWE-89"],
         ),
     ]
 

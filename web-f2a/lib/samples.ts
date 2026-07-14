@@ -76,4 +76,37 @@ void dispatch(const char *action, Request *req) {
 }
 `,
   },
+  {
+    id: "data_transfer",
+    label: "OCPP DataTransfer → sqlite3_exec (SQL 인젝션)",
+    language: "c",
+    filename: "data_transfer.c",
+    description:
+      "벤더 페이로드 request->data 가 검증 없이 SQL 문자열로 이어져 sqlite3_exec 로 흘러갑니다.",
+    source: `#include <string.h>
+#include <stdio.h>
+
+typedef struct sqlite3 sqlite3;
+int sqlite3_exec(sqlite3 *db, const char *sql, int (*cb)(void *, int, char **, char **),
+                 void *arg, char **errmsg);
+
+typedef struct DataTransferReq { char *data; } DataTransferReq;
+
+void store_vendor_data(sqlite3 *db, const char *data) {
+    char sql[512];
+    sprintf(sql, "INSERT INTO vendor_log(payload) VALUES('%s')", data);
+    sqlite3_exec(db, sql, 0, 0, 0);
+}
+
+void handle_data_transfer(sqlite3 *db, DataTransferReq *request) {
+    char *payload = request->data;
+    store_vendor_data(db, payload);
+}
+
+void dispatch(const char *action, sqlite3 *db, DataTransferReq *request) {
+    if (strcmp(action, "DataTransfer") == 0)
+        handle_data_transfer(db, request);
+}
+`,
+  },
 ];

@@ -34,6 +34,7 @@ SinkDomain = Literal[
     "REMOTE_COMMAND_DISPATCH",
     "FIRMWARE_INSTALL",
     "UPDATE_ACTIVATION",
+    "database_query_execution",
 ]
 
 # §11.6 observed-check strength

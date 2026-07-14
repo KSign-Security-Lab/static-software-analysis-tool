@@ -15,6 +15,7 @@ from ssat.f2a import run_f2a_file
 FIXTURES = Path(__file__).parent / "fixtures" / "f2a" / "cpg"
 FIXTURE_CPG = FIXTURES / "update_firmware.c.json"
 FIXTURE_CHECKED_CPG = FIXTURES / "update_firmware_checked.c.json"
+FIXTURE_DT_CPG = FIXTURES / "data_transfer.c.json"
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +30,13 @@ def checked_result():
     if not FIXTURE_CHECKED_CPG.exists():
         pytest.skip(f"fixture CPG not present: {FIXTURE_CHECKED_CPG}")
     return run_f2a_file(FIXTURE_CHECKED_CPG)
+
+
+@pytest.fixture(scope="module")
+def data_transfer_result():
+    if not FIXTURE_DT_CPG.exists():
+        pytest.skip(f"fixture CPG not present: {FIXTURE_DT_CPG}")
+    return run_f2a_file(FIXTURE_DT_CPG)
 
 
 def test_handler_discovered(result):
@@ -77,6 +85,29 @@ def test_missing_and_negative_checks(result):
         assert by_id.get(check) == "UNVERIFIED"
     # using system() is negative evidence for the no-shell requirement
     assert by_id.get("SAFE_DOWNLOAD_API_NO_SHELL") == "NEGATIVE_EVIDENCE_FOUND"
+
+
+# --- DataTransfer.data -> SQL sink (KB entry) --------------------------------
+
+
+def test_data_transfer_reaches_sql_sink(data_transfer_result):
+    assert len(data_transfer_result.evidence_packages) == 1
+    p = data_transfer_result.evidence_packages[0]
+    assert p.ocpp_context.action == "DataTransfer"
+    assert p.ocpp_context.field == "data"
+    assert p.ocpp_context.field_semantic == "vendor_controlled_payload"
+    assert p.code_evidence.sink.api == "sqlite3_exec"
+    assert p.code_evidence.sink.sink_domain == "database_query_execution"
+
+
+def test_data_transfer_missing_and_negative_checks(data_transfer_result):
+    p = data_transfer_result.evidence_packages[0]
+    by_id = {m.check_id: m.basis for m in p.check_evidence.missing_check_candidates}
+    assert by_id.get("DT_DATA_SCHEMA_VALIDATION") == "UNVERIFIED"
+    assert by_id.get("DT_DATA_LENGTH_LIMIT") == "UNVERIFIED"
+    # reaching the raw DB sink is negative evidence for parameterization
+    assert by_id.get("SQL_PARAMETERIZATION") == "NEGATIVE_EVIDENCE_FOUND"
+    assert "CWE-89" in p.related_cwe
 
 
 def test_related_cwe_and_lifecycle(result):
