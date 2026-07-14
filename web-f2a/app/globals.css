@@ -298,76 +298,73 @@ table.checks tr:last-child td { border-bottom: none; }
 .chip { display: inline-block; font-family: var(--mono); font-size: 11px; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--line-2); }
 
 /* ============================================================================
-   Decision view
+   Decision view — conventional SAST finding (header + sections)
    ========================================================================== */
-.report .decision { max-width: 860px; }
+.finding { max-width: 880px; }
 
-.verdict {
-  position: relative; overflow: hidden;
-  border: 1px solid var(--line-2); border-radius: var(--r-xl); padding: 26px 28px;
-  background:
-    radial-gradient(600px 200px at 100% -30%, rgba(239, 91, 91, 0.12), transparent 70%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%),
-    var(--surface);
-  box-shadow: var(--shadow-2);
+.finding-head {
+  border: 1px solid var(--line-2); border-radius: var(--r-lg); padding: 22px 24px 20px; margin-bottom: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 45%), var(--surface);
+  box-shadow: var(--shadow-1); position: relative; overflow: hidden;
 }
-.verdict::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: linear-gradient(180deg, var(--danger), var(--serious)); }
-.verdict.none { background: var(--surface); }
-.verdict.none::before { background: var(--faint); }
-
-.vtop { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.finding-head::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: linear-gradient(180deg, var(--danger), var(--serious)); }
+.fh-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .vbadge {
   font-family: var(--mono); font-size: 11px; font-weight: 800; letter-spacing: 0.06em;
-  border-radius: 999px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 999px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 7px;
   background: var(--danger-weak); color: #ff8f8f; border: 1px solid rgba(239, 91, 91, 0.35);
 }
 .vbadge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
 .vbadge.none { background: rgba(152, 160, 173, 0.12); color: var(--muted); border-color: var(--line-2); }
 .vbadge.none::before { box-shadow: none; }
+.fh-conf { display: flex; align-items: center; gap: 10px; }
+.fh-conf-num { font-family: var(--mono); font-size: 18px; font-weight: 800; color: var(--fg-strong); }
+.fh-title { font-size: 21px; line-height: 1.35; font-weight: 700; margin: 0; letter-spacing: -0.01em; color: var(--fg-strong); }
+.fh-sub { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.fh-meta { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 14px; }
 
-.vhero { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
-.vheadline { font-size: 22px; line-height: 1.4; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.01em; color: var(--fg-strong); }
-.vlead { color: var(--muted); margin: 0 0 14px; font-size: 13.5px; line-height: 1.55; }
-
-/* confidence ring */
-.confring { flex-shrink: 0; width: 92px; text-align: center; }
-.ring { width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center; position: relative; }
-.ring::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--surface); }
-.ring .rval { position: relative; font-family: var(--mono); font-size: 21px; font-weight: 800; color: var(--fg-strong); z-index: 1; }
-.confring .rcap { font-size: 11px; color: var(--muted); margin-top: 8px; }
-
-.howlabel { margin: 24px 2px 12px; letter-spacing: 0.12em; font-family: var(--mono); font-weight: 700; color: var(--faint); font-size: 11px; }
-.reasons { display: flex; flex-direction: column; gap: 10px; }
-
-.reason { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); transition: border-color 0.15s var(--ease), background 0.15s var(--ease); }
-.reason:hover { border-color: var(--line-2); }
-.reason[open] { border-color: var(--line-2); background: var(--surface-2); box-shadow: var(--shadow-1); }
-.reason > summary { display: flex; align-items: flex-start; gap: 14px; padding: 15px 17px; cursor: pointer; list-style: none; }
-.reason > summary::-webkit-details-marker { display: none; }
-.ricon {
-  flex-shrink: 0; width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center;
-  font-family: var(--mono); font-weight: 800; font-size: 14px; margin-top: 1px; border: 1px solid transparent;
+/* sections */
+.section { margin-bottom: 24px; }
+.section-title {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--faint); text-transform: uppercase; margin-bottom: 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--line);
 }
-.ricon.found { background: var(--good-weak); color: var(--good); border-color: rgba(52, 199, 123, 0.28); }
-.ricon.warn { background: var(--warn-weak); color: var(--warn); border-color: rgba(240, 180, 41, 0.28); }
-.ricon.bad, .ricon.missing { background: var(--danger-weak); color: var(--danger); border-color: rgba(239, 91, 91, 0.28); }
-.ricon.info { background: var(--accent-weak); color: var(--accent); border-color: rgba(91, 140, 255, 0.28); }
-.rbody { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
-.rtitle { font-weight: 700; font-size: 14.5px; color: var(--fg-strong); }
-.rplain { color: var(--muted); font-size: 13px; line-height: 1.55; }
-.rchev { color: var(--faint); transition: transform 0.18s var(--ease); margin-top: 4px; font-size: 12px; }
-.reason[open] .rchev { transform: rotate(90deg); color: var(--accent); }
-.rdetail { padding: 2px 17px 18px 59px; }
+.prose { color: var(--fg); font-size: 14px; line-height: 1.65; margin: 0; }
 
-/* mini source→sink hops (report/story) */
-.minihops { display: flex; flex-direction: column; margin-top: 4px; }
-.minihop { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
-.hdot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-2); flex-shrink: 0; }
-.minihop.source .hdot { background: var(--good); }
-.minihop.sink .hdot { background: var(--danger); }
-.hname { font-size: 13px; font-weight: 700; }
-.minihop.sink .hname { color: var(--danger); }
-.minihop.source .hname { color: var(--good); }
+/* data-flow (taint) trace */
+.trace { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.trace-step { display: flex; align-items: stretch; gap: 14px; padding: 10px 0; position: relative; }
+.trace-step:not(:last-of-type)::after {
+  content: ""; position: absolute; left: 13px; top: 34px; bottom: -10px; width: 2px; background: var(--line-2);
+}
+.tnum {
+  flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--mono); font-size: 12px; font-weight: 700; z-index: 1;
+  background: var(--surface-3); color: var(--muted); border: 1px solid var(--line-2);
+}
+.trace-step.source .tnum { background: var(--good-weak); color: var(--good); border-color: rgba(52, 199, 123, 0.4); }
+.trace-step.sink .tnum { background: var(--danger-weak); color: var(--danger); border-color: rgba(239, 91, 91, 0.4); }
+.tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-top: 2px; }
+.tcode {
+  font-family: var(--mono); font-size: 12.5px; color: #d7e2dd; background: #0c0f14;
+  border: 1px solid var(--line); border-left: 3px solid var(--line-2);
+  border-radius: 6px; padding: 6px 10px; overflow-x: auto; white-space: pre;
+}
+.trace-step.source .tcode { border-left-color: var(--good); }
+.trace-step.sink .tcode { border-left-color: var(--danger); color: #f2f5f8; }
+.tloc { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.trole { flex-shrink: 0; align-self: center; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.trole.source { color: var(--good); }
+.trole.sink { color: var(--danger); }
+.trace .tblink { align-self: flex-start; margin-top: 8px; }
+
+/* remediation */
+.remedy { margin: 0; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.remedy li { position: relative; padding-left: 26px; font-size: 13.5px; line-height: 1.55; color: var(--fg); }
+.remedy li::before {
+  content: "→"; position: absolute; left: 0; top: 0; color: var(--accent); font-weight: 700;
+}
 
 /* ============================================================================
    Concrete code evidence

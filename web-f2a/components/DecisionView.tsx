@@ -1,23 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import CodeSnippet from "./CodeSnippet";
-import { buildDecisions, koStatus, type Decision, type Reason } from "@/lib/decision";
+import { buildDecisions, koStatus, type Decision, type TraceStep } from "@/lib/decision";
+import { sourceLines } from "@/lib/code";
 import type { F2AResult } from "@/lib/types";
-
-const ICON: Record<Reason["icon"], string> = {
-  found: "✓",
-  warn: "!",
-  bad: "→",
-  missing: "✗",
-  info: "i",
-};
 
 function statusClass(status: string): string {
   switch (status) {
     case "SATISFIED":
       return "sat";
     case "NEGATIVE":
+    case "NEGATIVE_EVIDENCE_FOUND":
       return "neg";
     case "WEAKLY_RELATED":
       return "weak";
@@ -26,85 +19,51 @@ function statusClass(status: string): string {
   }
 }
 
-function ExtraDetail({ reason }: { reason: Reason }) {
-  const d = reason.detail;
-  if (!d) return null;
-  if (d.kind === "checks") {
-    return (
-      <table className="checks" style={{ marginTop: 12 }}>
-        <thead>
-          <tr>
-            <th>필요한 검사</th>
-            <th>상태</th>
-            <th>관찰된 검사</th>
-          </tr>
-        </thead>
-        <tbody>
-          {d.rows.map((r) => (
-            <tr key={r.id}>
-              <td className="mono">{r.id}</td>
-              <td>
-                <span className={`tag ${statusClass(r.status)}`}>{koStatus(r.status)}</span>
-              </td>
-              <td className="muted small mono">{r.observed ?? r.evidence ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
-  }
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginTop: 4 }}>
-      <div className="muted small" style={{ marginBottom: 8 }}>
-        {d.note}
-      </div>
-      <div className="confgrid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-        {d.factors.map(([k, v]) => (
-          <div className="confrow" key={k}>
-            <span className="muted mono small">{k}</span>
-            <span className="cbar">
-              <span style={{ width: `${Math.round(v * 100)}%` }} />
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <section className="section">
+      <div className="section-title">{label}</div>
+      {children}
+    </section>
   );
 }
 
-function ReasonRow({
-  reason,
-  source,
+function Trace({
+  steps,
+  lines,
   onInspect,
 }: {
-  reason: Reason;
-  source: string;
+  steps: TraceStep[];
+  lines: string[];
   onInspect?: (fn: string) => void;
 }) {
   return (
-    <details className="reason">
-      <summary>
-        <span className={`ricon ${reason.icon}`}>{ICON[reason.icon]}</span>
-        <span className="rbody">
-          <span className="rtitle">{reason.title}</span>
-          <span className="rplain">{reason.plain}</span>
-        </span>
-        <span className="rchev">▸</span>
-      </summary>
-      <div className="rdetail">
-        {reason.code && reason.code.length > 0 && <CodeSnippet source={source} refs={reason.code} />}
-        <ExtraDetail reason={reason} />
-        {reason.inspectFn && onInspect && (
-          <button className="tblink" onClick={() => onInspect(reason.inspectFn!)}>
-            그래프 탐색기에서 {reason.inspectFn}() 열기 ▸
-          </button>
-        )}
-      </div>
-    </details>
+    <ol className="trace">
+      {steps.map((s) => {
+        const code = lines[s.line - 1]?.trim() || "";
+        return (
+          <li className={`trace-step ${s.role}`} key={s.n}>
+            <span className="tnum">{s.n}</span>
+            <div className="tmain">
+              <code className="tcode">{code || s.note}</code>
+              <span className="tloc">
+                {s.fn} · {s.file}:{s.line}
+              </span>
+            </div>
+            <span className={`trole ${s.role}`}>{s.note}</span>
+          </li>
+        );
+      })}
+      {onInspect && steps[0] && (
+        <button className="tblink" onClick={() => onInspect(steps[steps.length - 1].fn)}>
+          그래프 탐색기에서 데이터 흐름 보기 ▸
+        </button>
+      )}
+    </ol>
   );
 }
 
-function DecisionCard({
+function FindingCard({
   d,
   source,
   onInspect,
@@ -113,73 +72,114 @@ function DecisionCard({
   source: string;
   onInspect?: (fn: string) => void;
 }) {
+  const lines = useMemo(() => (source ? sourceLines(source) : []), [source]);
   const verdictCls = d.hasFinding ? "suspect" : "none";
+
   return (
-    <div className="decision">
-      <div className={`verdict ${verdictCls}`}>
-        <div className="vtop">
+    <article className="finding">
+      <header className="finding-head">
+        <div className="fh-top">
           <span className={`vbadge ${verdictCls}`}>{d.verdict}</span>
-        </div>
-        <div className="vhero">
-          <div>
-            <h2 className="vheadline mono">{d.headline}</h2>
-            <p className="vlead">{d.lead}</p>
-            {d.cwe.length > 0 && (
-              <div className="chiprow">
-                {d.cwe.map((w) => (
-                  <span key={w} className="badge">
-                    {w}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
           {d.hasFinding && (
-            <div className="confring">
-              <div
-                className="ring"
-                style={{
-                  background: `conic-gradient(var(--accent) ${Math.round(d.confidence * 360)}deg, rgba(255,255,255,0.08) 0)`,
-                }}
-              >
-                <span className="rval">{d.confidence.toFixed(2)}</span>
-              </div>
-              <div className="rcap">신뢰도 · {d.confidenceLabel}</div>
+            <div className="fh-conf">
+              <span className="fh-conf-num">{d.confidence.toFixed(2)}</span>
+              <span className="cbar" style={{ width: 84 }}>
+                <span style={{ width: `${Math.round(d.confidence * 100)}%` }} />
+              </span>
+              <span className="muted small">신뢰도 {d.confidenceLabel}</span>
             </div>
           )}
         </div>
-      </div>
+        <h1 className="fh-title">{d.title}</h1>
+        {d.subtitle && <div className="fh-sub mono">{d.subtitle}</div>}
+        {d.hasFinding && (
+          <div className="fh-meta">
+            {d.cwe.map((w) => (
+              <span key={w} className="badge">
+                {w}
+              </span>
+            ))}
+            {d.location && <span className="badge mono">{d.location}</span>}
+          </div>
+        )}
+      </header>
 
-      {d.hasFinding ? (
+      <Section label="개요">
+        <p className="prose">{d.overview}</p>
+      </Section>
+
+      {d.hasFinding && (
         <>
-          <div className="howlabel muted small">이렇게 판단했습니다 — 각 단계를 눌러 코드 근거를 확인하세요</div>
-          <div className="reasons">
-            {d.reasons.map((r) => (
-              <ReasonRow key={r.id} reason={r} source={source} onInspect={onInspect} />
+          <Section label="데이터 흐름">
+            <Trace steps={d.trace} lines={lines} onInspect={onInspect} />
+          </Section>
+
+          <Section label="검사">
+            <table className="checks">
+              <thead>
+                <tr>
+                  <th>필요한 검사</th>
+                  <th>상태</th>
+                  <th>관찰된 근거</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.checks.map((c, i) => (
+                  <tr key={c.id + i}>
+                    <td className="mono">{c.id}</td>
+                    <td>
+                      <span className={`tag ${statusClass(c.status)}`}>{koStatus(c.status)}</span>
+                    </td>
+                    <td className="mono muted small">{c.evidence ?? c.observed ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+
+          {d.remediation.length > 0 && (
+            <Section label="권고">
+              <ul className="remedy">
+                {d.remediation.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          <Section label="신뢰도 근거">
+            <p className="muted small" style={{ margin: "0 0 10px" }}>
+              근거가 얼마나 잘 연결되는지를 나타낼 뿐, 실제 악용 가능 여부는 아닙니다. F2-A는
+              취약점을 확정하지 않습니다.
+            </p>
+            <div className="confgrid">
+              {d.confidenceFactors.map(([k, v]) => (
+                <div className="confrow" key={k}>
+                  <span className="muted mono small">{k}</span>
+                  <span className="cbar">
+                    <span style={{ width: `${Math.round(v * 100)}%` }} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Section>
+        </>
+      )}
+
+      {!d.hasFinding && d.handlers.length > 0 && (
+        <Section label="발견된 핸들러">
+          <div className="chiprow">
+            {d.handlers.map((h, i) => (
+              <span key={i} className="badge">
+                {h.action} → {h.fn}
+              </span>
             ))}
           </div>
-        </>
-      ) : (
-        <div className="card">
-          {d.handlers.length > 0 && (
-            <>
-              <div className="muted small mono" style={{ marginBottom: 6 }}>
-                발견된 핸들러
-              </div>
-              <div className="chiprow">
-                {d.handlers.map((h, i) => (
-                  <span key={i} className="badge">
-                    {h.action} → {h.fn}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        </Section>
       )}
 
       {d.limitations.length > 0 && (
-        <details className="limdetails" style={{ marginTop: 16 }}>
+        <details className="limdetails">
           <summary className="muted small">한계 및 범위 ({d.limitations.length})</summary>
           <ul className="limits">
             {d.limitations.map((l, i) => (
@@ -188,7 +188,7 @@ function DecisionCard({
           </ul>
         </details>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -208,7 +208,7 @@ export default function DecisionView({
   return (
     <div className="report">
       {decisions.length > 1 && (
-        <div className="chiprow" style={{ marginBottom: 14 }}>
+        <div className="chiprow" style={{ marginBottom: 16 }}>
           {decisions.map((x, i) => (
             <button key={x.id} className={`tab ${i === idx ? "active" : ""}`} onClick={() => setIdx(i)}>
               {x.action}.{x.field}
@@ -216,7 +216,7 @@ export default function DecisionView({
           ))}
         </div>
       )}
-      <DecisionCard d={d} source={source} onInspect={onInspect} />
+      <FindingCard d={d} source={source} onInspect={onInspect} />
     </div>
   );
 }
