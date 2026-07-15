@@ -251,6 +251,12 @@ def select_cascade(candidates: List[HandlerCandidate]) -> SelectionResult:
     highest-weight evidence wins, reproducing the historical most-precise-first
     cascade. Competitors are *recorded* in a ConflictReport but never downgrade
     the status — corroboration and contradiction are a separate (later) policy.
+
+    Contract for downstream ordering: ``chosen`` is the selected candidate and
+    ``candidate.confidence`` is the post-policy score. The public projection
+    orders candidates as *selection order* (chosen first, then by that score with
+    a function/file/line tie-break), so a future policy that selects a
+    non-max-confidence candidate still serialises chosen-first.
     """
     if not candidates:
         return SelectionResult(

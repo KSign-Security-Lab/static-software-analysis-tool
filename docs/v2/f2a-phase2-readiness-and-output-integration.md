@@ -154,6 +154,31 @@ belonging to this increment.
 (Phase 2) is enabled only after the public result can represent RESOLVED,
 AMBIGUOUS, and UNRESOLVED cleanly.
 
+### Increment closed — review notes (commit `e8d2543` + ordering refinement)
+
+Output-model integration shipped: `handler_resolutions` is the authoritative
+per-action output; `handler_maps` is a resolved-only back-compat projection;
+extractors emit all evidence; RESOLVED/AMBIGUOUS/UNRESOLVED are representable.
+Three review comments closed the increment:
+
+1. **Candidate ordering is defined as *selection order*, not confidence order.**
+   Invariant: `chosen` (when present) is always `candidates[0]` and is taken
+   directly from the selector (never re-derived); the remainder is ordered by the
+   selection policy's post-policy `confidence` score with a documented
+   (function, file, line) tie-break. This holds even if a future policy selects a
+   non-max-confidence candidate. Pinned by
+   `test_chosen_is_always_first_candidate_invariant`.
+2. **Compatibility limitation strings are a *derived view*, not canonical.** They
+   are regenerated from `UnresolvedReport` (`_limitation_for`), so the structured
+   reports remain the single source of truth. Long-term they may be dropped from
+   the canonical model entirely.
+3. **Emit-all confirmed** as the extractor boundary: extractors produce
+   `ResolutionEvidence[]`; candidate aggregation and selection own policy.
+
+**Architecture is now stable.** The next design discussion moves entirely to the
+*evidence calculus* that drives Phase 2: exact evidence identity, `provenance_group`,
+independence, aggregation, and ambiguity policy.
+
 ---
 
 ## Provenance

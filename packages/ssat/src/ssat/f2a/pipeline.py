@@ -390,7 +390,13 @@ class F2AAnalyzer:
                 action_id_consistency=_consistency(cand),
             )
 
-        # Deterministic order: confidence desc, then function / file / line.
+        # Candidate order is *selection order*, not raw-confidence order:
+        #   1. the selected candidate (sel.chosen) is always first, and
+        #   2. the remainder is ordered by the selection policy — represented by
+        #      the post-policy `confidence` score — with a documented tie-break
+        #      of (function, file, line) for stability.
+        # Under the cascade policy chosen == max-confidence, but this holds even
+        # if a future policy selects a non-max-confidence candidate.
         ordered = sorted(
             sel.candidates,
             key=lambda c: (-c.confidence, cpg.name(c.callback), cpg.method_filename(c.callback), str(cpg.line(c.callback))),

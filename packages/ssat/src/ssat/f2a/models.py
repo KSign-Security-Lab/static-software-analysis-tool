@@ -146,10 +146,17 @@ class UnresolvedReportView(BaseModel):
 class HandlerResolution(BaseModel):
     """Authoritative per-action resolution outcome (one per requested action).
 
-    ``chosen`` is set *iff* ``status == 'RESOLVED'``. ``candidates`` are ranked
-    (confidence desc, then function/file/line); for a RESOLVED action the chosen
-    candidate is first and competitors are retained. ``conflict`` is present
-    whenever more than one callback competed; ``unresolved`` when nothing bound.
+    ``chosen`` is set *iff* ``status == 'RESOLVED'`` and is taken directly from
+    the selector — assembly never re-derives a winner.
+
+    ``candidates`` are in **selection order**: the selected candidate (when
+    present) is always first, and the remainder is ordered by the selection
+    policy (its post-policy confidence score) with a documented tie-break of
+    (function, file, line). This tracks the selector rather than raw scoring, so
+    it stays correct if a future policy selects a non-max-confidence candidate.
+
+    ``conflict`` is present whenever more than one callback competed;
+    ``unresolved`` when nothing bound.
     """
 
     action: str

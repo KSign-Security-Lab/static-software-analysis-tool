@@ -92,6 +92,17 @@ def test_handler_maps_backcompat_resolved_only():
     assert mapped == {"DataTransfer": "bar"}  # only the resolved action
 
 
+def test_chosen_is_always_first_candidate_invariant():
+    """Selection-order invariant: for a RESOLVED action, chosen is candidates[0]
+    (not merely the max-confidence entry, though they coincide under cascade)."""
+    _need(A)
+    r = run_f2a_file(A)
+    for res in r.handler_resolutions:
+        if res.status == "RESOLVED":
+            assert res.chosen is not None
+            assert res.candidates[0].function == res.chosen.function
+
+
 def test_result_is_json_serializable():
     _need(A)
     r = run_f2a_file(A)
