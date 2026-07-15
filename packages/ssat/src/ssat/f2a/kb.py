@@ -25,6 +25,16 @@ class ActionProfile:
     component_type: str = "charge_point"
     message_direction: str = "CSMS_TO_CHARGE_POINT"
     sensitive_fields: List[str] = field(default_factory=list)
+    # Handler discovery hints (used when the action reaches its handler without
+    # a dispatch string literal):
+    #  - handler_patterns: function-name patterns for the name-match fallback
+    #    (e.g. handle_data_transfer).
+    #  - action_symbols: explicit enum/macro constant names, for the enum/switch
+    #    strategy. Usually unneeded — the action name is normalized to
+    #    UPPER_SNAKE (DataTransfer -> DATA_TRANSFER) and matched against case
+    #    labels automatically; set this only when the constant differs.
+    handler_patterns: List[str] = field(default_factory=list)
+    action_symbols: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -261,6 +271,11 @@ def default_knowledge_base() -> KnowledgeBase:
             component_type="charge_point",
             message_direction="CSMS_TO_CHARGE_POINT",
             sensitive_fields=["location"],
+            handler_patterns=[
+                "handle_update_firmware",
+                "on_update_firmware",
+                "process_update_firmware",
+            ],
         ),
         ActionProfile(
             action_name="DataTransfer",
@@ -268,6 +283,11 @@ def default_knowledge_base() -> KnowledgeBase:
             component_type="charge_point",
             message_direction="CSMS_TO_CHARGE_POINT",
             sensitive_fields=["data"],
+            handler_patterns=[
+                "handle_data_transfer",
+                "on_data_transfer",
+                "process_data_transfer",
+            ],
         ),
     ]
 

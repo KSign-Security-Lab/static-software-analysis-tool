@@ -16,6 +16,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "f2a" / "cpg"
 FIXTURE_CPG = FIXTURES / "update_firmware.c.json"
 FIXTURE_CHECKED_CPG = FIXTURES / "update_firmware_checked.c.json"
 FIXTURE_DT_CPG = FIXTURES / "data_transfer.c.json"
+FIXTURE_DT_ENUM_CPG = FIXTURES / "data_transfer_enum.c.json"
 
 
 @pytest.fixture(scope="module")
@@ -90,6 +91,13 @@ def test_missing_and_negative_checks(result):
 # --- DataTransfer.data -> SQL sink (KB entry) --------------------------------
 
 
+@pytest.fixture(scope="module")
+def data_transfer_enum_result():
+    if not FIXTURE_DT_ENUM_CPG.exists():
+        pytest.skip(f"fixture CPG not present: {FIXTURE_DT_ENUM_CPG}")
+    return run_f2a_file(FIXTURE_DT_ENUM_CPG)
+
+
 def test_data_transfer_reaches_sql_sink(data_transfer_result):
     assert len(data_transfer_result.evidence_packages) == 1
     p = data_transfer_result.evidence_packages[0]
@@ -150,3 +158,35 @@ def test_satisfied_checks_leave_only_host_and_shell_missing(checked_result):
     assert status["SIGNATURE_VERIFICATION"] == "SATISFIED"
     assert status["HOST_ALLOWLIST"] == "UNVERIFIED"
     assert status["SAFE_DOWNLOAD_API_NO_SHELL"] == "NEGATIVE_EVIDENCE_FOUND"
+
+
+# --- enum/switch dispatch: handler discovery without a string literal --------
+
+
+def test_enum_dispatch_handler_discovered(data_transfer_enum_result):
+    """The handler is reached through `case ACTION_DATA_TRANSFER:` (no
+    "DataTransfer" string literal), so discovery must fall to the enum/switch
+    strategy: match the case symbol, then the internal call reachable over CFG."""
+    assert len(data_transfer_enum_result.handler_maps) == 1
+    hm = data_transfer_enum_result.handler_maps[0]
+    assert hm.action == "DataTransfer"
+    assert hm.handler.function == "handle_data_transfer"
+    assert {e.type for e in hm.mapping_evidence} == {
+        "DISPATCH_ENUM_CASE",
+        "HANDLER_CALL",
+    }
+
+
+def test_enum_dispatch_flow_reaches_sql_sink(data_transfer_enum_result):
+    """Discovery is only step 1 — the taint flow must still cross field access
+    (request->data), the arg->param bridge into insert_diagnostic_record, and
+    snprintf propagation to reach sqlite3_exec."""
+    assert len(data_transfer_enum_result.evidence_packages) == 1
+    p = data_transfer_enum_result.evidence_packages[0]
+    assert p.ocpp_context.action == "DataTransfer"
+    assert p.ocpp_context.field == "data"
+    assert p.code_evidence.sink.api == "sqlite3_exec"
+    assert p.code_evidence.sink.sink_domain == "database_query_execution"
+    functions = {step.function for step in p.code_evidence.flow}
+    assert {"handle_data_transfer", "insert_diagnostic_record"} <= functions
+    assert "CWE-89" in p.related_cwe

@@ -216,15 +216,64 @@ class F2AAnalyzer:
         return preferred or fallback
 
     # ------------------------------------------------------------------
-    # Step 1 · Handler discovery  (AST literal + CG call)
+    # Step 1 · Handler discovery
+    #   Multiple strategies, most precise first:
+    #     1. string dispatch      "DataTransfer" literal -> nearby call
+    #     2. enum/switch dispatch  case ACTION_DATA_TRANSFER: -> CFG -> call
+    #     3. handler-name pattern  handle_data_transfer() (fallback)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _upper_snake(name: str) -> str:
+        """DataTransfer -> DATA_TRANSFER (for matching enum/case symbols)."""
+        out = []
+        for i, ch in enumerate(name):
+            if ch.isupper() and i > 0 and not name[i - 1].isupper():
+                out.append("_")
+            out.append(ch.upper())
+        return "".join(out)
+
+    def _action_symbol_tokens(self, action: str) -> Set[str]:
+        prof = self.kb.actions.get(action)
+        toks = {self._upper_snake(action)}
+        for s in (prof.action_symbols if prof else []):
+            toks.add(s.upper())
+        return toks
 
     def _step1_discover_handler(self, action: str) -> Optional[HandlerMap]:
         cpg = self.cpg
         if not hasattr(self, "_handler_method_id"):
             self._handler_method_id: Dict[str, int] = {}
 
-        # AST: find the action string literal.
+        for strategy in (
+            self._handler_by_string,
+            self._handler_by_enum_case,
+            self._handler_by_name,
+        ):
+            found = strategy(action)
+            if found is None:
+                continue
+            callee, evidence, confidence = found
+            self._handler_method_id[action] = callee
+            return HandlerMap(
+                handler_map_id=self.ids.next("OCPP-HMAP"),
+                action=action,
+                handler=HandlerRef(
+                    file=cpg.method_filename(callee),
+                    function=cpg.name(callee),
+                    line=cpg.line(callee),
+                    language="c",
+                ),
+                mapping_evidence=evidence,
+                confidence=confidence,
+            )
+        return None
+
+    def _handler_by_string(
+        self, action: str
+    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
+        """Strategy 1 — action string literal + the call in its branch."""
+        cpg = self.cpg
         literal_id = None
         for v in cpg.vertices:
             if v.get("label") != "LITERAL":
@@ -235,47 +284,94 @@ class F2AAnalyzer:
                 break
         if literal_id is None:
             return None
-
         dispatcher = cpg.method_of(literal_id)
         if dispatcher is None:
             return None
-
-        # CG: the internal function called in the same branch as the literal.
         handler_call = self._handler_call_near(dispatcher, literal_id)
         if handler_call is None:
             return None
         callee = cpg.call_target(handler_call)
         if callee is None:
             return None
-
-        self._handler_method_id[action] = callee
-        handler_ref = HandlerRef(
-            file=cpg.method_filename(callee),
-            function=cpg.name(callee),
-            line=cpg.line(callee),
-            language="c",
-        )
         evidence = [
-            MappingEvidence(
-                type="DISPATCH_STRING_MATCH",
-                value=action,
-                file=cpg.method_filename(dispatcher),
-                line=cpg.line(literal_id),
-            ),
-            MappingEvidence(
-                type="HANDLER_CALL",
-                value=cpg.code(handler_call),
-                file=cpg.method_filename(dispatcher),
-                line=cpg.line(handler_call),
-            ),
+            MappingEvidence(type="DISPATCH_STRING_MATCH", value=action,
+                            file=cpg.method_filename(dispatcher), line=cpg.line(literal_id)),
+            MappingEvidence(type="HANDLER_CALL", value=cpg.code(handler_call),
+                            file=cpg.method_filename(dispatcher), line=cpg.line(handler_call)),
         ]
-        return HandlerMap(
-            handler_map_id=self.ids.next("OCPP-HMAP"),
-            action=action,
-            handler=handler_ref,
-            mapping_evidence=evidence,
-            confidence=0.9,
-        )
+        return callee, evidence, 0.9
+
+    def _handler_by_enum_case(
+        self, action: str
+    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
+        """Strategy 2 — enum/switch: a `case <SYMBOL>:` whose symbol matches the
+        action, then the internal call reachable from that case via CFG."""
+        cpg = self.cpg
+        tokens = self._action_symbol_tokens(action)
+        for v in cpg.vertices:
+            if v.get("label") != "JUMP_TARGET":
+                continue
+            jt = cpg_id(v)
+            code = str(cpg.code(jt) or "").upper()
+            if not any(t in code for t in tokens):
+                continue
+            call = self._first_internal_call_via_cfg(jt)
+            if call is None:
+                continue
+            callee = cpg.call_target(call)
+            if callee is None:
+                continue
+            method = cpg.method_of(jt)
+            evidence = [
+                MappingEvidence(type="DISPATCH_ENUM_CASE", value=cpg.code(jt),
+                                file=cpg.method_filename(method), line=cpg.line(jt)),
+                MappingEvidence(type="HANDLER_CALL", value=cpg.code(call),
+                                file=cpg.method_filename(method), line=cpg.line(call)),
+            ]
+            return callee, evidence, 0.85
+        return None
+
+    def _handler_by_name(
+        self, action: str
+    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
+        """Strategy 3 (fallback) — an internal function whose name matches the
+        KB handler patterns, or contains the normalized action token."""
+        cpg = self.cpg
+        prof = self.kb.actions.get(action)
+        patterns = {p.lower() for p in (prof.handler_patterns if prof else [])}
+        snake = self._upper_snake(action).lower()  # data_transfer
+        fallback: Optional[int] = None
+        for m in cpg.internal_methods():
+            nm = cpg.name(m).lower()
+            if nm in patterns:
+                return m, [MappingEvidence(type="HANDLER_NAME_PATTERN", value=cpg.name(m),
+                                           file=cpg.method_filename(m), line=cpg.line(m))], 0.7
+            if fallback is None and snake and snake in nm:
+                fallback = m
+        if fallback is not None:
+            return fallback, [MappingEvidence(type="HANDLER_NAME_MATCH", value=cpg.name(fallback),
+                                              file=cpg.method_filename(fallback), line=cpg.line(fallback))], 0.65
+        return None
+
+    def _first_internal_call_via_cfg(self, start: int) -> Optional[int]:
+        """First internal CALL reachable from `start` over CFG edges, without
+        crossing into another case label (JUMP_TARGET)."""
+        cpg = self.cpg
+        seen: Set[int] = set()
+        queue: "deque[int]" = deque([start])
+        while queue:
+            cur = queue.popleft()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            if cur != start and cpg.label(cur) == "JUMP_TARGET":
+                continue  # next case — stop this branch
+            if cpg.label(cur) == "CALL" and self._is_internal_call(cur):
+                return cur
+            for nxt in cpg.out_ids(cur, "CFG"):
+                if nxt not in seen:
+                    queue.append(nxt)
+        return None
 
     def _handler_call_near(self, dispatcher: int, literal_id: int) -> Optional[int]:
         cpg = self.cpg
