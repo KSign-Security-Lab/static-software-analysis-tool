@@ -394,10 +394,50 @@ and the policy change (phase 2) are reviewable — and revertable — separately
 
 ---
 
+# Implementation status
+
+| Item | Status | Where |
+|---|---|---|
+| `ActionIdentifier` value object + `consistency()` (Q1) | **shipped** | `resolution.py` |
+| `MatchStrength` granularity (Q3) | **shipped** | `resolution.py` |
+| `ResolutionEvidence` (`mechanism` → `kind`; `provenance_group` for Q2) | **shipped** | `resolution.py` |
+| `HandlerCandidate` / `SelectionResult` / `ConflictReport` | **shipped** | `resolution.py` |
+| `UnresolvedReport` status+reason, primary+secondary (Q4) | **shipped** | `resolution.py`, `pipeline._diagnose_unresolved` |
+| `select_cascade` (most-precise-first, records conflict, no corroboration) | **shipped** | `resolution.py` |
+| Four strategies emit evidence; discovery = evidence→candidates→selection | **shipped** | `pipeline.py` |
+| Corroboration + contradiction policy (`select_corroborate`) | **not started** | phase 2 |
+| DFG slot-correlation extractor (V2/V5) | **not started** | phase 3 |
+| Call-graph registrar extractor (V3/V6) | **not started** | phase 3 |
+| Surface `SelectionResult` / `UnresolvedReport` into `F2AResult` | **not started** | later |
+
+**Phase 1 is complete and behaviour-preserving** (commit `ada75ea`):
+
+- `_step1_discover_handler` now runs extractors → candidates → `select_cascade`,
+  then rebuilds the `HandlerMap` from the single highest-weight evidence, so
+  evidence types and confidence are byte-identical to the previous cascade.
+- Verified on real CPGs: `UpdateFirmware` and `DataTransfer` (enum) candidates
+  each gather **multiple** evidences (STRING_DISPATCH+NAME_MATCH / ENUM_CASE+NAME_MATCH)
+  yet confidence stays at the **max** weight (0.9 / 0.85) — corroboration is
+  deliberately **off**. `RemoteStart` (registrar) →
+  `UNRESOLVED` / `UNSUPPORTED_REGISTRAR_CALL` (+ secondary `UNRESOLVED_INDIRECT_CALL`).
+- Tests: 20 existing unchanged + 11 new (`test_resolution.py`) = **31 green**;
+  ruff + mypy clean. No corroboration policy change, no KB change.
+
+Deferred by design (not yet surfaced): `analyze()`'s limitation strings are
+unchanged; the richer `SelectionResult` is exposed on the analyzer
+(`self._selection`) for inspection/tests but not yet written into `F2AResult`.
+
+**Next:** phase 2 flips selection to corroborate+contradict (this will update the
+enum-fixture evidence assertion, since `handle_data_transfer` legitimately gains
+a second support) — an explicit, reviewable step behind the selection-mode flag.
+
+---
+
 ## Provenance
 
-- Design review only; no implementation change in this document.
+- Round-1/round-2 sections are design; the **Implementation status** section
+  records shipped code (`ssat/f2a/resolution.py`, `pipeline.py`,
+  `tests/test_resolution.py`, commit `ada75ea`).
 - Q2 verified against the real embedded-Joern CPG (receiver-subtree identity
-  probe, shown above). Other claims reference the shipped code
-  (`_handler_by_registration`, the four-strategy cascade) and the 6-variant survey
-  in `f2a-handler-registration-ir.md`.
+  probe, shown above). The Phase-1 behaviour claims were verified by running the
+  real pipeline over the fixture CPGs and the RemoteStart registrar source.
