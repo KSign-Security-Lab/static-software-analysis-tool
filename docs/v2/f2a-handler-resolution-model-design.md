@@ -172,6 +172,228 @@ kinds is free; implementing every extractor is not.
 
 ---
 
+# Revised target schema (round 2)
+
+A second review tightened three parts of the model: `action_id` was too narrow,
+confidence must handle *contradiction* (not only corroboration), and
+"unresolved" should be a status+reason rather than an evidence kind. The schema
+below supersedes the sketch under "Convergence" above.
+
+## Schema
+
+```text
+# ---- value object: the identity observed at a site (or declared in KB) ----
+ActionIdentifier {
+  protocol_string:   str?     # "RemoteStartTransaction"  (wire name / string literal)
+  symbol:            str?     # "ACTION_REMOTE_START"     (enum/macro constant)
+  numeric_id:        int?     # 15                         (integer id as written)
+  normalized_name:   str?     # KB canonical action_name it maps to, once matched
+  raw_expression:    str?     # raw CPG `code` of the id node ("ACTION_REMOTE_START", "0x0F", "msg->action")
+  resolved_value:    int|str? # constant a symbol/macro resolves to (15), if resolvable
+  node:              NodeRef?
+}
+# ONE matching function replaces today's scattered comparisons:
+#   match(observed: ActionIdentifier, profile: ActionProfile) -> EXACT | WEAK | NONE
+#   EXACT if numeric_id/resolved_value in profile.numeric_ids, symbol in profile.action_symbols,
+#         protocol_string == profile.action_name, or normalized_name == profile.action_name
+#   WEAK  if symbol/raw_expression *contains* a profile token (today's substring behavior)
+
+# ---- one piece of evidence linking an action id (and/or dispatch site) to a callback ----
+ResolutionEvidence {
+  kind:           EvidenceKind
+  action_id:      ActionIdentifier      # may be partial (some fields null)
+  callback:       MethodRef?            # None when evidence is only a dispatch site
+  dispatch_site:  NodeRef?              # the indirect-call / switch node, if any
+  nodes:          [NodeRef]             # supporting CPG nodes
+  weight:         float                 # PRIOR reliability of this KIND
+  match_strength: EXACT | WEAK
+  extractor:      str                   # provenance
+}
+EvidenceKind = STRING_DISPATCH | ENUM_CASE | REGISTRATION_INIT | REGISTRATION_ASSIGN
+             | REGISTRAR_CALL | NAME_MATCH | VTABLE_SLOT | FACTORY_RETURN | DISPATCH_SITE
+
+# ---- candidate = all evidence agreeing on one callback ----
+HandlerCandidate { callback: MethodRef, evidence: [ResolutionEvidence], confidence: float }
+
+# ---- outcome of selection over all candidates ----
+SelectionResult {
+  status:     RESOLVED | AMBIGUOUS | UNRESOLVED
+  chosen:     HandlerCandidate?     # iff RESOLVED
+  candidates: [HandlerCandidate]    # all, ranked desc
+  conflict:   ConflictReport?       # whenever ≥2 competing callbacks existed (even if RESOLVED)
+  unresolved: UnresolvedReport?     # iff UNRESOLVED
+}
+ConflictReport   { competing: [{callback, confidence, evidence_kinds}], margin: float, note: str }
+UnresolvedReport { reason: UnresolvedReason, dispatch_site: NodeRef?,
+                   attempted_extractors: [str], available_evidence: [ResolutionEvidence] }
+UnresolvedReason = NO_EVIDENCE | EXTERNAL_DEFINITION | DYNAMIC_ACTION_ID | MISSING_POINTSTO
+                 | UNRESOLVED_INDIRECT_CALL | GENERATED_CODE_UNAVAILABLE | REGISTRATION_OUT_OF_TU
+```
+
+- **Q1 (identity):** `ActionIdentifier` is the single home for identity; every
+  extractor fills the fields it can observe, and one `match()` replaces today's
+  per-strategy `literal == action` / symbol-token / numeric checks. `mechanism`
+  is gone — it is now `evidence.kind`.
+- **Q3 (unresolved):** "could not resolve" is a **status + reason + dispatch_site
+  + attempted_extractors**, never a fake evidence kind. `DISPATCH_SITE` is a real
+  evidence kind (an indirect call with no binding); the *inability to bind* is a
+  status that carries the site as provenance.
+
+## Confidence semantics
+
+**Ordinal, bounded score in `[0, 0.99]` — explicitly NOT a calibrated
+probability** (no labeled corpus to calibrate against; it would be false
+precision). It exists to rank candidates and hint F6.
+
+Per-kind **weight** (priors == today's hardcoded confidences, so behavior is
+preserved):
+
+| Kind | weight |
+|---|---|
+| STRING_DISPATCH | 0.90 |
+| ENUM_CASE | 0.85 |
+| REGISTRATION_INIT / REGISTRATION_ASSIGN | 0.80 |
+| REGISTRAR_CALL | 0.70 |
+| NAME_MATCH (pattern) | 0.70 |
+| NAME_MATCH (token) | 0.65 |
+
+- **Per-evidence score** = `weight × (1.0 if EXACT else 0.85)`.
+- **Corroboration** (same callback): noisy-OR *shape* (monotonic, capped, order
+  independent — not a probability): `confidence = min(0.99, 1 − Π_i (1 − score_i))`.
+  e.g. `ENUM_CASE(0.85)` + `NAME_MATCH(0.70)` → `1 − 0.15·0.30 = 0.955`.
+- **Contradiction** (different callbacks): competitors, never merged. A
+  `ConflictReport` is emitted whenever ≥2 candidates exist — even when we still
+  resolve — so disagreement is always visible.
+- **Tie / ambiguity policy** (`AMBIGUITY_MARGIN = 0.15`, `MIN_CONFIDENCE = 0.50`):
+
+  ```
+  0 candidates                    -> UNRESOLVED (reason from extractors; default NO_EVIDENCE)
+  1 candidate,  conf >= floor      -> RESOLVED
+  1 candidate,  conf <  floor      -> RESOLVED (flagged low); policy-tunable to UNRESOLVED
+  >=2, margin >= AMBIGUITY_MARGIN  -> RESOLVED top1 + ConflictReport (runner-up recorded)
+  >=2, margin <  AMBIGUITY_MARGIN  -> AMBIGUOUS (chosen=None) + ConflictReport(close set)
+  ```
+
+  Worked example (registration→foo 0.80, name→foo 0.70, switch→bar 0.85):
+  foo corroborates to `1 − 0.2·0.3 = 0.94`, bar `0.85`, margin `0.09 < 0.15`
+  → **AMBIGUOUS**. The two authoritative kinds (registration vs switch) disagree;
+  the margin rule surfaces that instead of letting a weak name match tip it.
+
+## Concrete outcomes (one JSON each)
+
+**RESOLVED (corroboration)** — DataTransfer via enum case, handler name also matches:
+
+```json
+{
+  "status": "RESOLVED",
+  "chosen": {
+    "callback": {"method": "handle_data_transfer", "file": "dt.c", "line": 22},
+    "confidence": 0.955,
+    "evidence": [
+      {"kind": "ENUM_CASE", "extractor": "enum_case",
+       "action_id": {"symbol": "ACTION_DATA_TRANSFER", "normalized_name": "DataTransfer",
+                     "raw_expression": "case ACTION_DATA_TRANSFER:", "node": 81604378624},
+       "callback": {"method": "handle_data_transfer"}, "weight": 0.85, "match_strength": "EXACT",
+       "nodes": [81604378624, 30064771084]},
+      {"kind": "NAME_MATCH", "extractor": "name_pattern",
+       "action_id": {"normalized_name": "DataTransfer", "raw_expression": "handle_data_transfer"},
+       "callback": {"method": "handle_data_transfer"}, "weight": 0.70, "match_strength": "EXACT",
+       "nodes": [111669149700]}
+    ]
+  },
+  "candidates": ["<chosen above>"],
+  "conflict": null,
+  "unresolved": null
+}
+```
+
+**AMBIGUOUS** — contradiction between authoritative kinds:
+
+```json
+{
+  "status": "AMBIGUOUS",
+  "chosen": null,
+  "candidates": [
+    {"callback": {"method": "foo"}, "confidence": 0.94,
+     "evidence": [
+       {"kind": "REGISTRATION_INIT", "callback": {"method": "foo"}, "weight": 0.80,
+        "match_strength": "EXACT", "action_id": {"symbol": "ACTION_X", "numeric_id": 7}},
+       {"kind": "NAME_MATCH", "callback": {"method": "foo"}, "weight": 0.70,
+        "match_strength": "EXACT", "action_id": {"normalized_name": "ActionX"}}
+     ]},
+    {"callback": {"method": "bar"}, "confidence": 0.85,
+     "evidence": [
+       {"kind": "ENUM_CASE", "callback": {"method": "bar"}, "weight": 0.85,
+        "match_strength": "EXACT", "action_id": {"symbol": "ACTION_X", "raw_expression": "case ACTION_X:"}}
+     ]}
+  ],
+  "conflict": {
+    "competing": [
+      {"callback": "foo", "confidence": 0.94, "evidence_kinds": ["REGISTRATION_INIT", "NAME_MATCH"]},
+      {"callback": "bar", "confidence": 0.85, "evidence_kinds": ["ENUM_CASE"]}
+    ],
+    "margin": 0.09,
+    "note": "authoritative kinds disagree (REGISTRATION_INIT->foo vs ENUM_CASE->bar); margin 0.09 < 0.15"
+  },
+  "unresolved": null
+}
+```
+
+**UNRESOLVED** — RemoteStart registrar-call (V3): dispatch site exists, no wired
+extractor produced a callback-bearing evidence:
+
+```json
+{
+  "status": "UNRESOLVED",
+  "chosen": null,
+  "candidates": [],
+  "conflict": null,
+  "unresolved": {
+    "reason": "UNRESOLVED_INDIRECT_CALL",
+    "dispatch_site": {"node": 30064771118, "code": "g_registry[i].fn(frame->payload)",
+                      "file": "remote_start.c", "line": 36, "kind": "<operator>.pointerCall"},
+    "attempted_extractors": ["string_dispatch", "enum_case", "registration_ast", "name_match"],
+    "available_evidence": [
+      {"kind": "DISPATCH_SITE", "callback": null, "dispatch_site": {"node": 30064771118},
+       "action_id": {"raw_expression": "frame->action"}, "weight": 0.0, "match_strength": "NONE",
+       "extractor": "dispatch_site_finder", "nodes": [30064771118]}
+    ]
+  }
+}
+```
+
+(The cross-TU variant is identical with `reason: "EXTERNAL_DEFINITION"`; a
+runtime-computed id is `"DYNAMIC_ACTION_ID"`.)
+
+## Mapping the current four strategies (behavior preservation)
+
+| Today's strategy | Producer | `kind` | `ActionIdentifier` filled | weight | callback from |
+|---|---|---|---|---|---|
+| string dispatch | `StringDispatchExtractor` | `STRING_DISPATCH` | `protocol_string` = literal | 0.90 | call in the literal's branch |
+| enum/switch | `EnumCaseExtractor` | `ENUM_CASE` | `symbol` (+`resolved_value` if macro→int) | 0.85 | first internal call via CFG from case |
+| registration (init/assign) | `RegistrationAstExtractor` | `REGISTRATION_INIT`/`REGISTRATION_ASSIGN` | `symbol` and/or `numeric_id` | 0.80 | `METHOD_REF` target |
+| name fallback | `NameMatchExtractor` | `NAME_MATCH` | `normalized_name` / `symbol` | 0.70 / 0.65 | the method itself |
+
+Behavior preservation is a property of the **selection policy**, in two phases:
+
+- **Phase 1 — cascade-compatible mode:** consider evidence in weight-tier order
+  (0.90 → 0.85 → 0.80 → 0.70) and stop at the first tier that yields a candidate.
+  On every current fixture only one strategy fires per action → exactly one
+  candidate, `confidence == weight`, identical evidence → all 20 tests stay green.
+  This is the safe structural pivot.
+- **Phase 2 — corroborate+contradict mode:** *not* assertion-preserving, and
+  flagged deliberately. `data_transfer_enum.c`'s handler `handle_data_transfer`
+  matches **both** `ENUM_CASE` and the DataTransfer `NAME_MATCH` patterns; under
+  corroboration its evidence set grows and confidence rises 0.85 → ~0.955,
+  changing `test_enum_dispatch_handler_discovered`'s evidence-type assertion. That
+  change is *correct* (two independent supports really exist), but enabling
+  corroboration is an explicit, test-updating step, not a silent one.
+
+Plan: keep the mode a selection-stage parameter so the structural pivot (phase 1)
+and the policy change (phase 2) are reviewable — and revertable — separately.
+
+---
+
 ## Provenance
 
 - Design review only; no implementation change in this document.
