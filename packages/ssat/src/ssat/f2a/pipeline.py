@@ -218,9 +218,10 @@ class F2AAnalyzer:
     # ------------------------------------------------------------------
     # Step 1 · Handler discovery
     #   Multiple strategies, most precise first:
-    #     1. string dispatch      "DataTransfer" literal -> nearby call
-    #     2. enum/switch dispatch  case ACTION_DATA_TRANSFER: -> CFG -> call
-    #     3. handler-name pattern  handle_data_transfer() (fallback)
+    #     1. string dispatch       "DataTransfer" literal -> nearby call
+    #     2. enum/switch dispatch    case ACTION_DATA_TRANSFER: -> CFG -> call
+    #     3. registration table    { 41, process_configuration } -> METHOD_REF
+    #     4. handler-name pattern   handle_data_transfer() (fallback)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -248,6 +249,7 @@ class F2AAnalyzer:
         for strategy in (
             self._handler_by_string,
             self._handler_by_enum_case,
+            self._handler_by_registration_table,
             self._handler_by_name,
         ):
             found = strategy(action)
@@ -334,7 +336,7 @@ class F2AAnalyzer:
     def _handler_by_name(
         self, action: str
     ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
-        """Strategy 3 (fallback) — an internal function whose name matches the
+        """Strategy 4 (fallback) — an internal function whose name matches the
         KB handler patterns, or contains the normalized action token."""
         cpg = self.cpg
         prof = self.kb.actions.get(action)
@@ -371,6 +373,88 @@ class F2AAnalyzer:
             for nxt in cpg.out_ids(cur, "CFG"):
                 if nxt not in seen:
                     queue.append(nxt)
+        return None
+
+    def _ast_parent(self, node_id: int) -> Optional[int]:
+        for parent in self.cpg.in_ids(node_id, "AST"):
+            return parent
+        return None
+
+    def _handler_by_registration_table(
+        self, action: str
+    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
+        """Strategy 3 — a handler registration table:
+
+            static HandlerEntry g_table[] = {
+                { MSG_SET_PROFILE, process_configuration },  // id  <-> handler
+                ...
+            };
+
+        The handler is not named after the action and reaches its dispatch via a
+        function pointer, so the only structural link is the initializer entry
+        that pairs the action's message-id (symbol or numeric literal) with a
+        METHOD_REF to an internal function. Each entry is matched on its own, so
+        a table with several handlers still pairs each id with the right one.
+        """
+        cpg = self.cpg
+        tokens = {t for t in self._action_symbol_tokens(action) if t}
+        prof = self.kb.actions.get(action)
+        numeric = {str(n) for n in (prof.numeric_ids if prof else [])}
+
+        by_name: Dict[str, int] = {}
+        for m in cpg.internal_methods():
+            by_name.setdefault(cpg.name(m), m)
+
+        for v in cpg.vertices:
+            if v.get("label") != "METHOD_REF":
+                continue
+            ref = cpg_id(v)
+            entry = self._ast_parent(ref)
+            if entry is None or cpg.label(entry) != "CALL":
+                continue
+            if cpg.name(entry) not in ("<operator>.arrayInitializer", "<operator>.assignment"):
+                continue
+            callee = by_name.get(_strip_quotes(cpg.code(ref)))
+            if callee is None:
+                continue
+
+            # Collect the id spelled in the *same* entry (excluding the ref).
+            symbol_hits: Set[str] = set()
+            literal_hits: Set[str] = set()
+            for child in cpg.out_ids(entry, "AST"):
+                if child == ref:
+                    continue
+                for d in [child, *cpg.ast_descendants(child)]:
+                    code_u = str(cpg.code(d) or "").upper()
+                    name_u = str(cpg.name(d) or "").upper()
+                    if code_u:
+                        symbol_hits.add(code_u)
+                    if name_u:
+                        symbol_hits.add(name_u)
+                    if cpg.label(d) == "LITERAL":
+                        literal_hits.add(_strip_quotes(cpg.code(d)))
+
+            matched = any(any(t in hit for hit in symbol_hits) for t in tokens) or bool(
+                numeric & literal_hits
+            )
+            if not matched:
+                continue
+
+            evidence = [
+                MappingEvidence(
+                    type="DISPATCH_HANDLER_TABLE",
+                    value=cpg.code(entry),
+                    file=cpg.method_filename(callee),
+                    line=cpg.line(ref),
+                ),
+                MappingEvidence(
+                    type="HANDLER_REF",
+                    value=cpg.name(callee),
+                    file=cpg.method_filename(callee),
+                    line=cpg.line(callee),
+                ),
+            ]
+            return callee, evidence, 0.8
         return None
 
     def _handler_call_near(self, dispatcher: int, literal_id: int) -> Optional[int]:
@@ -488,7 +572,7 @@ class F2AAnalyzer:
     def _assignment_target(
         self, access_call: int
     ) -> Tuple[Optional[str], Optional[int], Optional[int]]:
-        """If the field access is the RHS of an assignment, return its LHS."""
+        """If the field access / call is the RHS of an assignment, return its LHS."""
         cpg = self.cpg
         for call_id, _idx in cpg.argument_of(access_call):
             if cpg.name(call_id) in ASSIGNMENT_OPS:
@@ -497,6 +581,25 @@ class F2AAnalyzer:
                     target = args[0][1]
                     return cpg.name(target) or cpg.code(target), target, call_id
         return None, None, None
+
+    def _is_returned_expr(self, node: int) -> bool:
+        """True if ``node`` is (part of) a ``return <expr>;`` operand."""
+        cpg = self.cpg
+        cur: Optional[int] = node
+        for _ in range(6):  # a few AST levels: field access -> ... -> RETURN
+            cur = self._ast_parent(cur) if cur is not None else None
+            if cur is None:
+                return False
+            if cpg.label(cur) == "RETURN":
+                return True
+        return False
+
+    def _callsites_of(self, method: Optional[int]) -> List[int]:
+        """Internal CALL sites invoking ``method`` (reverse of CALL edge)."""
+        if method is None:
+            return []
+        cpg = self.cpg
+        return [c for c in cpg.in_ids(method, "CALL") if cpg.label(c) == "CALL"]
 
     # ------------------------------------------------------------------
     # Step 3 · Source→sink flow  (DFG + CG bridge)
@@ -542,6 +645,19 @@ class F2AAnalyzer:
                         trace.visited.add(param)
                         parent[param] = (cur, f"parameter_bind→{cpg.name(callee)}")
                         queue.append(param)
+
+            # Return→caller bridge: the value is the returned expression of an
+            # internal getter (e.g. resolve_schedule), so it flows out to each
+            # caller's assignment target (schedule = resolve_schedule(...)).
+            if self._is_returned_expr(cur):
+                owner = cpg.method_of(cur)
+                for call_site in self._callsites_of(owner):
+                    _name, tgt, _assign = self._assignment_target(call_site)
+                    nxt = tgt if tgt is not None else call_site
+                    if nxt not in trace.visited:
+                        trace.visited.add(nxt)
+                        parent[nxt] = (cur, f"return_bind←{cpg.name(owner)}")
+                        queue.append(nxt)
 
             # DFG successors (intraprocedural REACHING_DEF).
             for nxt in cpg.reaching_out(cur):
@@ -630,6 +746,8 @@ class F2AAnalyzer:
             return "source_binding"
         if op_raw.startswith("parameter_bind"):
             return "argument_pass " + op_raw.replace("parameter_bind→", "→ ")
+        if op_raw.startswith("return_bind"):
+            return "return_value " + op_raw.replace("return_bind←", "← ")
         if lbl == "CALL":
             nm = cpg.name(node)
             if nm.startswith("<operator>"):
@@ -836,13 +954,23 @@ class F2AAnalyzer:
     def _ordered_before(
         self, cond: int, cs: int, departure: Optional[int], method: int
     ) -> bool:
-        """CFG: does the check dominate the flow's departure toward the sink?"""
+        """CFG: does the check dominate the flow's departure toward the sink?
+
+        A check only *guards* the sink if it dominates the departure — i.e. every
+        path to the sink runs through it. A check nested in an unrelated branch
+        (e.g. ``if (connector_id == 0) { if (len >= CAP) return; }``) does not,
+        even though it textually precedes the sink.
+        """
         cpg = self.cpg
         if departure is None:
             return True  # nothing downstream in this method to order against
         if cpg.dominates(cond, departure) or cpg.dominates(cs, departure):
             return True
-        # Fall back to intra-method source order.
+        # The departure sits in a populated dominator tree, so a False result is
+        # authoritative: the check is in a branch that does not guard the sink.
+        if cpg.in_ids(departure, "DOMINATE"):
+            return False
+        # No dominator info here (e.g. a cross-TU stub) — fall back to source order.
         cl, dl = cpg.line(cs), cpg.line(departure)
         return isinstance(cl, int) and isinstance(dl, int) and cl <= dl
 

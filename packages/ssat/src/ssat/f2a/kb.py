@@ -35,6 +35,9 @@ class ActionProfile:
     #    labels automatically; set this only when the constant differs.
     handler_patterns: List[str] = field(default_factory=list)
     action_symbols: List[str] = field(default_factory=list)
+    # Numeric OCPP message-type id(s), matched against literals in a handler
+    # registration table (e.g. { 41, process_configuration }).
+    numeric_ids: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -320,6 +323,7 @@ def default_knowledge_base() -> KnowledgeBase:
             # of ACTION_SET_CHARGING_PROFILE), MSG_SET_PROFILE is listed so the
             # enum/switch strategy also matches that spelling.
             action_symbols=["MSG_SET_PROFILE", "ACTION_SET_CHARGING_PROFILE"],
+            numeric_ids=[41],
         ),
     ]
 
@@ -382,7 +386,8 @@ def default_knowledge_base() -> KnowledgeBase:
                 "the copied length must be bounded by the destination capacity",
             ],
             # leaf FIELD_IDENTIFIER of request->charging_schedule.schedule
-            field_source_aliases=["schedule", "chargingSchedule", "charging_schedule"],
+            # (the leaf `.schedule`, not the intermediate struct member)
+            field_source_aliases=["schedule"],
         ),
         FieldProfile(
             action_name="SetChargingProfile",

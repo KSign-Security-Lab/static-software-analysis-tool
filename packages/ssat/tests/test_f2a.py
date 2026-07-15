@@ -19,6 +19,7 @@ FIXTURE_DT_CPG = FIXTURES / "data_transfer.c.json"
 FIXTURE_DT_ENUM_CPG = FIXTURES / "data_transfer_enum.c.json"
 FIXTURE_SCP_CPG = FIXTURES / "set_charging_profile.c.json"
 FIXTURE_SCP_CHECKED_CPG = FIXTURES / "set_charging_profile_checked.c.json"
+FIXTURE_SCP_TABLE_CPG = FIXTURES / "set_charging_profile_table.c.json"
 
 
 @pytest.fixture(scope="module")
@@ -211,27 +212,40 @@ def scp_checked_result():
     return run_f2a_file(FIXTURE_SCP_CHECKED_CPG)
 
 
+def _pkg_for_field(result, suffix):
+    for p in result.evidence_packages:
+        if p.ocpp_context.field.endswith(suffix):
+            return p
+    raise AssertionError(f"no evidence package for field *{suffix}")
+
+
 def test_scp_flow_reaches_memcpy_sink(scp_result):
-    """The dispatch has no action string literal, so the handler is found by the
-    name fallback; the profile length then flows through the arg->param bridge
-    into the fixed-buffer memcpy."""
+    """The handler is found by the name fallback; both the schedule payload and
+    its length then flow (payload directly, length via the arg->param bridge)
+    into the fixed-buffer memcpy — two findings for the one action."""
     hm = scp_result.handler_maps[0]
     assert hm.action == "SetChargingProfile"
     assert hm.handler.function == "handle_set_charging_profile"
     assert {e.type for e in hm.mapping_evidence} == {"HANDLER_NAME_PATTERN"}
 
-    assert len(scp_result.evidence_packages) == 1
-    p = scp_result.evidence_packages[0]
-    assert p.ocpp_context.action == "SetChargingProfile"
-    assert p.code_evidence.sink.api == "memcpy"
-    assert p.code_evidence.sink.sink_domain == "MEMORY_UNSAFE_OPERATION"
-    functions = {step.function for step in p.code_evidence.flow}
+    # Both the payload field and the length field reach the copy.
+    fields = {p.ocpp_context.field for p in scp_result.evidence_packages}
+    assert fields == {
+        "csChargingProfiles.chargingSchedule",
+        "csChargingProfiles.chargingSchedule.length",
+    }
+    for p in scp_result.evidence_packages:
+        assert p.ocpp_context.action == "SetChargingProfile"
+        assert p.code_evidence.sink.api == "memcpy"
+        assert p.code_evidence.sink.sink_domain == "MEMORY_UNSAFE_OPERATION"
+        assert "CWE-120" in p.related_cwe
+    payload = _pkg_for_field(scp_result, "chargingSchedule")
+    functions = {step.function for step in payload.code_evidence.flow}
     assert {"handle_set_charging_profile", "store_charging_profile"} <= functions
-    assert "CWE-120" in p.related_cwe
 
 
 def test_scp_length_bound_missing_when_absent(scp_result):
-    p = scp_result.evidence_packages[0]
+    p = _pkg_for_field(scp_result, "chargingSchedule.length")
     by_id = {m.check_id: m.basis for m in p.check_evidence.missing_check_candidates}
     # No bounds check on the path -> the length bound is unverifiable statically.
     assert by_id.get("SCP_PROFILE_LENGTH_BOUND") == "UNVERIFIED"
@@ -240,11 +254,67 @@ def test_scp_length_bound_missing_when_absent(scp_result):
 def test_scp_length_bound_observed_structurally(scp_checked_result):
     """`schedule_length >= PROFILE_BUFFER_SIZE` is classified by operator shape
     (>=), not text, and matched to the expected length-bound check."""
-    p = scp_checked_result.evidence_packages[0]
+    p = _pkg_for_field(scp_checked_result, "chargingSchedule.length")
     by_type = {o.check_type: o for o in p.check_evidence.observed_checks}
     assert "LENGTH_BOUND_CHECK" in by_type
     assert by_type["LENGTH_BOUND_CHECK"].check_strength == "STRONG"
     assert by_type["LENGTH_BOUND_CHECK"].matched_expected_check == "SCP_PROFILE_LENGTH_BOUND"
-    # with the guard present, the length bound is satisfied -> not missing
+    # with the guard present (and dominating the copy), the length bound is
+    # satisfied -> not missing
     by_id = {m.check_id: m.basis for m in p.check_evidence.missing_check_candidates}
     assert "SCP_PROFILE_LENGTH_BOUND" not in by_id
+
+
+# --- fnptr registration table + interprocedural getter/return flow -----------
+
+
+@pytest.fixture(scope="module")
+def scp_table_result():
+    if not FIXTURE_SCP_TABLE_CPG.exists():
+        pytest.skip(f"fixture CPG not present: {FIXTURE_SCP_TABLE_CPG}")
+    return run_f2a_file(FIXTURE_SCP_TABLE_CPG)
+
+
+def test_scp_table_handler_discovered_by_registration_entry(scp_table_result):
+    """No string literal, no switch, and a generic handler name: the handler is
+    found only via the registration-table entry pairing the message id with a
+    METHOD_REF (`{ MSG_SET_PROFILE, process_configuration }`)."""
+    hm = scp_table_result.handler_maps[0]
+    assert hm.action == "SetChargingProfile"
+    assert hm.handler.function == "process_configuration"
+    assert {e.type for e in hm.mapping_evidence} == {"DISPATCH_HANDLER_TABLE", "HANDLER_REF"}
+
+
+def test_scp_table_flow_reaches_memcpy_via_getter_return(scp_table_result):
+    """The tainted field is read inside getter helpers whose return values flow
+    back into the handler, so the flow only reaches memcpy through the new
+    return->caller bridge."""
+    fields = {p.ocpp_context.field for p in scp_table_result.evidence_packages}
+    assert fields == {
+        "csChargingProfiles.chargingSchedule",
+        "csChargingProfiles.chargingSchedule.length",
+    }
+    payload = _pkg_for_field(scp_table_result, "chargingSchedule")
+    assert payload.code_evidence.sink.api == "memcpy"
+    ops = [s.operation for s in payload.code_evidence.flow]
+    assert any(o.startswith("return_value") for o in ops), ops
+    functions = {s.function for s in payload.code_evidence.flow}
+    assert {"resolve_schedule", "process_configuration", "copy_profile_bytes"} <= functions
+
+
+def test_scp_table_guarded_bound_is_only_partial(scp_table_result):
+    """The length bound `copy_length >= PROFILE_BUFFER_SIZE` is nested under
+    `if (connector_id == 0)`, so it does NOT dominate the memcpy — it must be
+    reported PARTIAL / PARTIALLY_SATISFIED, never SATISFIED."""
+    length = _pkg_for_field(scp_table_result, "chargingSchedule.length")
+    by_type = {o.check_type: o for o in length.check_evidence.observed_checks}
+    assert by_type["LENGTH_BOUND_CHECK"].check_strength == "PARTIAL"
+    statuses = {
+        r.matching_status
+        for m in scp_table_result.expected_check_matchings
+        for r in m.matching_results
+        if r.expected_check == "SCP_PROFILE_LENGTH_BOUND"
+    }
+    # the guarded bound must never be reported as fully SATISFIED
+    assert "PARTIALLY_SATISFIED" in statuses
+    assert "SATISFIED" not in statuses
