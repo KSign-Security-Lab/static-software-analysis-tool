@@ -17,6 +17,8 @@ FIXTURE_CPG = FIXTURES / "update_firmware.c.json"
 FIXTURE_CHECKED_CPG = FIXTURES / "update_firmware_checked.c.json"
 FIXTURE_DT_CPG = FIXTURES / "data_transfer.c.json"
 FIXTURE_DT_ENUM_CPG = FIXTURES / "data_transfer_enum.c.json"
+FIXTURE_SCP_CPG = FIXTURES / "set_charging_profile.c.json"
+FIXTURE_SCP_CHECKED_CPG = FIXTURES / "set_charging_profile_checked.c.json"
 
 
 @pytest.fixture(scope="module")
@@ -190,3 +192,59 @@ def test_enum_dispatch_flow_reaches_sql_sink(data_transfer_enum_result):
     functions = {step.function for step in p.code_evidence.flow}
     assert {"handle_data_transfer", "insert_diagnostic_record"} <= functions
     assert "CWE-89" in p.related_cwe
+
+
+# --- SetChargingProfile: remote length -> unbounded memcpy (KB entry) ---------
+
+
+@pytest.fixture(scope="module")
+def scp_result():
+    if not FIXTURE_SCP_CPG.exists():
+        pytest.skip(f"fixture CPG not present: {FIXTURE_SCP_CPG}")
+    return run_f2a_file(FIXTURE_SCP_CPG)
+
+
+@pytest.fixture(scope="module")
+def scp_checked_result():
+    if not FIXTURE_SCP_CHECKED_CPG.exists():
+        pytest.skip(f"fixture CPG not present: {FIXTURE_SCP_CHECKED_CPG}")
+    return run_f2a_file(FIXTURE_SCP_CHECKED_CPG)
+
+
+def test_scp_flow_reaches_memcpy_sink(scp_result):
+    """The dispatch has no action string literal, so the handler is found by the
+    name fallback; the profile length then flows through the arg->param bridge
+    into the fixed-buffer memcpy."""
+    hm = scp_result.handler_maps[0]
+    assert hm.action == "SetChargingProfile"
+    assert hm.handler.function == "handle_set_charging_profile"
+    assert {e.type for e in hm.mapping_evidence} == {"HANDLER_NAME_PATTERN"}
+
+    assert len(scp_result.evidence_packages) == 1
+    p = scp_result.evidence_packages[0]
+    assert p.ocpp_context.action == "SetChargingProfile"
+    assert p.code_evidence.sink.api == "memcpy"
+    assert p.code_evidence.sink.sink_domain == "MEMORY_UNSAFE_OPERATION"
+    functions = {step.function for step in p.code_evidence.flow}
+    assert {"handle_set_charging_profile", "store_charging_profile"} <= functions
+    assert "CWE-120" in p.related_cwe
+
+
+def test_scp_length_bound_missing_when_absent(scp_result):
+    p = scp_result.evidence_packages[0]
+    by_id = {m.check_id: m.basis for m in p.check_evidence.missing_check_candidates}
+    # No bounds check on the path -> the length bound is unverifiable statically.
+    assert by_id.get("SCP_PROFILE_LENGTH_BOUND") == "UNVERIFIED"
+
+
+def test_scp_length_bound_observed_structurally(scp_checked_result):
+    """`schedule_length >= PROFILE_BUFFER_SIZE` is classified by operator shape
+    (>=), not text, and matched to the expected length-bound check."""
+    p = scp_checked_result.evidence_packages[0]
+    by_type = {o.check_type: o for o in p.check_evidence.observed_checks}
+    assert "LENGTH_BOUND_CHECK" in by_type
+    assert by_type["LENGTH_BOUND_CHECK"].check_strength == "STRONG"
+    assert by_type["LENGTH_BOUND_CHECK"].matched_expected_check == "SCP_PROFILE_LENGTH_BOUND"
+    # with the guard present, the length bound is satisfied -> not missing
+    by_id = {m.check_id: m.basis for m in p.check_evidence.missing_check_candidates}
+    assert "SCP_PROFILE_LENGTH_BOUND" not in by_id

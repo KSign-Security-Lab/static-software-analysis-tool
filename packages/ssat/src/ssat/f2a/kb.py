@@ -195,6 +195,20 @@ DEFAULT_CHECK_PATTERNS: List[CheckPattern] = [
         call_names=["sqlite3_prepare_v2", "sqlite3_bind_text", "parameterized_query"],
         matched_expected_check="SQL_PARAMETERIZATION",
     ),
+    # SetChargingProfile — a relational bound on the copy length. A comparison
+    # operator (`len < CAP`, `CAP > len`, ...) is sufficient on its own; the
+    # NULL check uses equals/notEquals, so the two never collide.
+    CheckPattern(
+        check_type="LENGTH_BOUND_CHECK",
+        default_strength="STRONG",
+        operators=[
+            "<operator>.lessThan",
+            "<operator>.lessEqualsThan",
+            "<operator>.greaterThan",
+            "<operator>.greaterEqualsThan",
+        ],
+        matched_expected_check="SCP_PROFILE_LENGTH_BOUND",
+    ),
 ]
 
 
@@ -289,6 +303,24 @@ def default_knowledge_base() -> KnowledgeBase:
                 "process_data_transfer",
             ],
         ),
+        ActionProfile(
+            action_name="SetChargingProfile",
+            protocol_version="ocpp1.6",
+            component_type="charge_point",
+            message_direction="CSMS_TO_CHARGE_POINT",
+            sensitive_fields=["chargingSchedule"],
+            handler_patterns=[
+                "handle_set_charging_profile",
+                "on_set_charging_profile",
+                "process_set_charging_profile",
+                "set_charging_profile",
+            ],
+            # Numeric OCPP message id 41 dispatches through these constants; the
+            # action name normalizes to SET_CHARGING_PROFILE (already a substring
+            # of ACTION_SET_CHARGING_PROFILE), MSG_SET_PROFILE is listed so the
+            # enum/switch strategy also matches that spelling.
+            action_symbols=["MSG_SET_PROFILE", "ACTION_SET_CHARGING_PROFILE"],
+        ),
     ]
 
     fields = [
@@ -333,6 +365,40 @@ def default_knowledge_base() -> KnowledgeBase:
             # matched against FIELD_IDENTIFIER canonical names + string-literal
             # subscripts (request->data, request.data, payload["data"]).
             field_source_aliases=["data"],
+        ),
+        FieldProfile(
+            action_name="SetChargingProfile",
+            field_name="csChargingProfiles.chargingSchedule",
+            semantic_type="charging_schedule_payload",
+            trust_level="remote_ocpp_input",
+            dangerous_sink_domain=["MEMORY_UNSAFE_OPERATION"],
+            expected_checks=[
+                "SCP_CHARGING_SCHEDULE_NOT_NULL",
+                "SCP_PROFILE_LENGTH_BOUND",
+            ],
+            related_cwe=["CWE-120", "CWE-787", "CWE-20"],
+            validation_requirement=[
+                "the charging schedule pointer must be non-null before use",
+                "the copied length must be bounded by the destination capacity",
+            ],
+            # leaf FIELD_IDENTIFIER of request->charging_schedule.schedule
+            field_source_aliases=["schedule", "chargingSchedule", "charging_schedule"],
+        ),
+        FieldProfile(
+            action_name="SetChargingProfile",
+            field_name="csChargingProfiles.chargingSchedule.length",
+            semantic_type="profile_copy_length",
+            trust_level="remote_ocpp_input",
+            dangerous_sink_domain=["MEMORY_UNSAFE_OPERATION"],
+            expected_checks=[
+                "SCP_PROFILE_LENGTH_BOUND",
+            ],
+            related_cwe=["CWE-120", "CWE-787", "CWE-20"],
+            validation_requirement=[
+                "the length must be checked against PROFILE_BUFFER_SIZE before the copy",
+            ],
+            # leaf FIELD_IDENTIFIER of request->charging_schedule.schedule_length
+            field_source_aliases=["schedule_length", "chargingScheduleLength"],
         ),
     ]
 
@@ -385,6 +451,21 @@ def default_knowledge_base() -> KnowledgeBase:
             # payload was concatenated into SQL rather than bound.
             negative_sink_domains=["database_query_execution"],
             related_cwe=["CWE-89"],
+        ),
+        ExpectedCheckProfile(
+            check_id="SCP_CHARGING_SCHEDULE_NOT_NULL",
+            check_type="INPUT_VALIDATION",
+            description="The charging-schedule pointer is checked non-null before it is dereferenced/copied.",
+            related_cwe=["CWE-476", "CWE-20"],
+        ),
+        ExpectedCheckProfile(
+            check_id="SCP_PROFILE_LENGTH_BOUND",
+            check_type="INPUT_VALIDATION",
+            description="The copy length is bounded (e.g. length < PROFILE_BUFFER_SIZE) before memcpy.",
+            # Reaching memcpy is NOT itself negative evidence — a bounds check can
+            # legitimately precede the copy — so this is UNVERIFIED unless the
+            # bound is structurally observed.
+            related_cwe=["CWE-120", "CWE-787", "CWE-20"],
         ),
     ]
 
@@ -445,6 +526,13 @@ def default_knowledge_base() -> KnowledgeBase:
             related_missing_checks=["SQL_PARAMETERIZATION", "DT_DATA_SCHEMA_VALIDATION"],
             related_sink_domains=["database_query_execution"],
             related_cwe=["CWE-89"],
+        ),
+        RootCause(
+            root_cause_id="remote_length_to_unbounded_profile_copy",
+            description="A remote-controlled charging-profile payload/length is copied into a fixed-size buffer without a bounds check.",
+            related_missing_checks=["SCP_PROFILE_LENGTH_BOUND", "SCP_CHARGING_SCHEDULE_NOT_NULL"],
+            related_sink_domains=["MEMORY_UNSAFE_OPERATION"],
+            related_cwe=["CWE-120", "CWE-787"],
         ),
     ]
 
