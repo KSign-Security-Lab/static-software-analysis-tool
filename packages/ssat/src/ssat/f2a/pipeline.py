@@ -21,6 +21,23 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from .graph import ASSIGNMENT_OPS, FIELD_ACCESS_OPS, CPGModel
+from .resolution import (
+    ENUM_CASE,
+    KIND_RANK,
+    NAME_MATCH,
+    REGISTRATION_ASSIGN,
+    REGISTRATION_INIT,
+    STRING_DISPATCH,
+    ActionIdentifier,
+    HandlerCandidate,
+    MatchStrength,
+    ResolutionEvidence,
+    ResolutionStatus,
+    SelectionResult,
+    UnresolvedReason,
+    UnresolvedReport,
+    select_cascade,
+)
 from .kb import CheckPattern, FieldProfile, KnowledgeBase, default_knowledge_base
 from .models import (
     BindingEvidence,
@@ -263,36 +280,126 @@ class F2AAnalyzer:
         cpg = self.cpg
         if not hasattr(self, "_handler_method_id"):
             self._handler_method_id: Dict[str, int] = {}
+        if not hasattr(self, "_selection"):
+            self._selection: Dict[str, SelectionResult] = {}
 
-        for strategy in (
+        sel = self._resolve_handler(action)
+        self._selection[action] = sel  # exposed for inspection / tests; not consumed by analyze()
+        if sel.status is not ResolutionStatus.RESOLVED or sel.chosen is None:
+            return None
+
+        # Cascade-compatible: build the HandlerMap from the single highest-weight
+        # piece of evidence, so evidence types + confidence are identical to the
+        # historical per-strategy output.
+        best = max(
+            sel.chosen.evidence, key=lambda e: (e.weight, KIND_RANK.get(e.kind, 0))
+        )
+        callee = sel.chosen.callback
+        self._handler_method_id[action] = callee
+        return HandlerMap(
+            handler_map_id=self.ids.next("OCPP-HMAP"),
+            action=action,
+            handler=HandlerRef(
+                file=cpg.method_filename(callee),
+                function=cpg.name(callee),
+                line=cpg.line(callee),
+                language="c",
+            ),
+            mapping_evidence=list(best.mapping_evidence),
+            confidence=best.weight,
+        )
+
+    def _resolve_handler(self, action: str) -> SelectionResult:
+        """Gather resolution evidence from every extractor, group it into
+        candidates, and select. Phase 1 uses cascade-compatible selection."""
+        evidences: List[ResolutionEvidence] = []
+        for extractor in (
             self._handler_by_string,
             self._handler_by_enum_case,
             self._handler_by_registration,
             self._handler_by_name,
         ):
-            found = strategy(action)
-            if found is None:
-                continue
-            callee, evidence, confidence = found
-            self._handler_method_id[action] = callee
-            return HandlerMap(
-                handler_map_id=self.ids.next("OCPP-HMAP"),
-                action=action,
-                handler=HandlerRef(
-                    file=cpg.method_filename(callee),
-                    function=cpg.name(callee),
-                    line=cpg.line(callee),
-                    language="c",
-                ),
-                mapping_evidence=evidence,
-                confidence=confidence,
-            )
-        return None
+            ev = extractor(action)
+            if ev is not None:
+                evidences.append(ev)
 
-    def _handler_by_string(
-        self, action: str
-    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
-        """Strategy 1 — action string literal + the call in its branch."""
+        by_callback: Dict[int, List[ResolutionEvidence]] = {}
+        for ev in evidences:
+            if ev.callback is None:
+                continue
+            by_callback.setdefault(ev.callback, []).append(ev)
+        candidates = [
+            HandlerCandidate(callback=cb, evidence=evs) for cb, evs in by_callback.items()
+        ]
+
+        sel = select_cascade(candidates)
+        if sel.status is ResolutionStatus.UNRESOLVED:
+            sel.unresolved = self._diagnose_unresolved(action, evidences)
+        return sel
+
+    def _diagnose_unresolved(
+        self, action: str, evidences: List[ResolutionEvidence]
+    ) -> UnresolvedReport:
+        """Explain *why* no handler resolved, primary reason first — so the
+        result is actionable (e.g. 'registrar-style call unsupported' rather than
+        the generic 'indirect call unresolved')."""
+        cpg = self.cpg
+        tokens = {t for t in self._action_symbol_tokens(action) if t}
+        prof = self.kb.actions.get(action)
+        numeric = {str(n) for n in (prof.numeric_ids if prof else [])}
+
+        dispatch_site: Optional[int] = None
+        registrar = False
+        for v in cpg.vertices:
+            label = v.get("label")
+            if label == "CALL" and cpg.name(cpg_id(v)) == "<operator>.pointerCall":
+                if dispatch_site is None:
+                    dispatch_site = cpg_id(v)
+                continue
+            if label != "METHOD_REF" or registrar:
+                continue
+            ref = cpg_id(v)
+            parent = self._ast_parent(ref)
+            if parent is None or cpg.label(parent) != "CALL":
+                continue
+            if cpg.name(parent) in ("<operator>.arrayInitializer", "<operator>.assignment"):
+                continue  # handled by the AST registration extractor
+            # A registrar-style call: an internal METHOD_REF passed alongside an
+            # id token / numeric that matches this action.
+            for d in cpg.ast_descendants(parent):
+                code_u = str(cpg.code(d) or "").upper()
+                if any(t in code_u for t in tokens):
+                    registrar = True
+                    break
+                if cpg.label(d) == "LITERAL" and _strip_quotes(cpg.code(d)) in numeric:
+                    registrar = True
+                    break
+
+        if registrar:
+            reason = UnresolvedReason.UNSUPPORTED_REGISTRAR_CALL
+            secondary = UnresolvedReason.UNRESOLVED_INDIRECT_CALL if dispatch_site else None
+        elif dispatch_site is not None:
+            reason = UnresolvedReason.UNRESOLVED_INDIRECT_CALL
+            secondary = None
+        else:
+            reason = UnresolvedReason.NO_EVIDENCE
+            secondary = None
+
+        return UnresolvedReport(
+            reason=reason,
+            dispatch_site=dispatch_site,
+            attempted_extractors=[
+                "string_dispatch",
+                "enum_case",
+                "registration_ast",
+                "name_match",
+            ],
+            available_evidence=list(evidences),
+            secondary=secondary,
+        )
+
+    def _handler_by_string(self, action: str) -> Optional[ResolutionEvidence]:
+        """Extractor — action string literal + the call in its branch."""
         cpg = self.cpg
         literal_id = None
         for v in cpg.vertices:
@@ -313,21 +420,34 @@ class F2AAnalyzer:
         callee = cpg.call_target(handler_call)
         if callee is None:
             return None
-        evidence = [
+        mapping = [
             MappingEvidence(type="DISPATCH_STRING_MATCH", value=action,
                             file=cpg.method_filename(dispatcher), line=cpg.line(literal_id)),
             MappingEvidence(type="HANDLER_CALL", value=cpg.code(handler_call),
                             file=cpg.method_filename(dispatcher), line=cpg.line(handler_call)),
         ]
-        return callee, evidence, 0.9
+        return ResolutionEvidence(
+            kind=STRING_DISPATCH,
+            action_id=ActionIdentifier(
+                protocol_string=action, normalized_name=action,
+                raw_expression=_strip_quotes(cpg.code(literal_id)), node=literal_id,
+            ),
+            weight=0.9,
+            match_strength=MatchStrength.EXACT_IDENTIFIER,
+            callback=callee,
+            nodes=[literal_id, handler_call],
+            provenance_group=f"string-dispatch:{dispatcher}",
+            extractor="string_dispatch",
+            mapping_evidence=mapping,
+            score=0.9,
+        )
 
-    def _handler_by_enum_case(
-        self, action: str
-    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
-        """Strategy 2 — enum/switch: a `case <SYMBOL>:` whose symbol matches the
+    def _handler_by_enum_case(self, action: str) -> Optional[ResolutionEvidence]:
+        """Extractor — enum/switch: a `case <SYMBOL>:` whose symbol matches the
         action, then the internal call reachable from that case via CFG."""
         cpg = self.cpg
         tokens = self._action_symbol_tokens(action)
+        prof = self.kb.actions.get(action)
         for v in cpg.vertices:
             if v.get("label") != "JUMP_TARGET":
                 continue
@@ -342,20 +462,42 @@ class F2AAnalyzer:
             if callee is None:
                 continue
             method = cpg.method_of(jt)
-            evidence = [
+            matched_symbol = next(
+                (s for s in (prof.action_symbols if prof else []) if s.upper() in code), None
+            )
+            if matched_symbol is not None:
+                strength = MatchStrength.EXACT_IDENTIFIER
+            elif self._upper_snake(action) in code:
+                strength = MatchStrength.NORMALIZED_NAME
+            else:
+                strength = MatchStrength.HEURISTIC_SUBSTRING
+            mapping = [
                 MappingEvidence(type="DISPATCH_ENUM_CASE", value=cpg.code(jt),
                                 file=cpg.method_filename(method), line=cpg.line(jt)),
                 MappingEvidence(type="HANDLER_CALL", value=cpg.code(call),
                                 file=cpg.method_filename(method), line=cpg.line(call)),
             ]
-            return callee, evidence, 0.85
+            return ResolutionEvidence(
+                kind=ENUM_CASE,
+                action_id=ActionIdentifier(
+                    symbol=matched_symbol, normalized_name=action,
+                    raw_expression=cpg.code(jt), node=jt,
+                ),
+                weight=0.85,
+                match_strength=strength,
+                callback=callee,
+                dispatch_site=jt,
+                nodes=[jt, call],
+                provenance_group=f"enum-switch:{method}",
+                extractor="enum_case",
+                mapping_evidence=mapping,
+                score=0.85,
+            )
         return None
 
-    def _handler_by_name(
-        self, action: str
-    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
-        """Strategy 4 (fallback) — an internal function whose name matches the
-        KB handler patterns, or contains the normalized action token."""
+    def _handler_by_name(self, action: str) -> Optional[ResolutionEvidence]:
+        """Extractor (fallback) — an internal function whose name matches the KB
+        handler patterns, or contains the normalized action token."""
         cpg = self.cpg
         prof = self.kb.actions.get(action)
         patterns = {p.lower() for p in (prof.handler_patterns if prof else [])}
@@ -364,13 +506,43 @@ class F2AAnalyzer:
         for m in cpg.internal_methods():
             nm = cpg.name(m).lower()
             if nm in patterns:
-                return m, [MappingEvidence(type="HANDLER_NAME_PATTERN", value=cpg.name(m),
-                                           file=cpg.method_filename(m), line=cpg.line(m))], 0.7
+                return ResolutionEvidence(
+                    kind=NAME_MATCH,
+                    action_id=ActionIdentifier(
+                        normalized_name=action, raw_expression=cpg.name(m), node=m
+                    ),
+                    weight=0.7,
+                    match_strength=MatchStrength.NORMALIZED_NAME,
+                    callback=m,
+                    nodes=[m],
+                    provenance_group="naming-convention",
+                    extractor="name_pattern",
+                    mapping_evidence=[
+                        MappingEvidence(type="HANDLER_NAME_PATTERN", value=cpg.name(m),
+                                        file=cpg.method_filename(m), line=cpg.line(m))
+                    ],
+                    score=0.7,
+                )
             if fallback is None and snake and snake in nm:
                 fallback = m
         if fallback is not None:
-            return fallback, [MappingEvidence(type="HANDLER_NAME_MATCH", value=cpg.name(fallback),
-                                              file=cpg.method_filename(fallback), line=cpg.line(fallback))], 0.65
+            return ResolutionEvidence(
+                kind=NAME_MATCH,
+                action_id=ActionIdentifier(
+                    normalized_name=action, raw_expression=cpg.name(fallback), node=fallback
+                ),
+                weight=0.65,
+                match_strength=MatchStrength.HEURISTIC_SUBSTRING,
+                callback=fallback,
+                nodes=[fallback],
+                provenance_group="naming-convention",
+                extractor="name_token",
+                mapping_evidence=[
+                    MappingEvidence(type="HANDLER_NAME_MATCH", value=cpg.name(fallback),
+                                    file=cpg.method_filename(fallback), line=cpg.line(fallback))
+                ],
+                score=0.65,
+            )
         return None
 
     def _first_internal_call_via_cfg(self, start: int) -> Optional[int]:
@@ -398,10 +570,8 @@ class F2AAnalyzer:
             return parent
         return None
 
-    def _handler_by_registration(
-        self, action: str
-    ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
-        """Strategy 3 — a handler *registration*, e.g.
+    def _handler_by_registration(self, action: str) -> Optional[ResolutionEvidence]:
+        """Extractor — a handler *registration*, e.g.
 
             static HandlerEntry g_table[] = {
                 { MSG_SET_PROFILE, process_configuration },   // aggregate init
@@ -411,24 +581,31 @@ class F2AAnalyzer:
         The handler is not named after the action and is reached through a
         function pointer, so the structural link is a *registration fact*: an
         action id (symbol or numeric literal) paired with a ``METHOD_REF`` to an
-        internal function. This strategy is now a thin consumer over
-        :meth:`_handler_registrations` — a shape-agnostic intermediate
-        representation produced by one extractor per registration syntax. Adding
-        a new syntax (correlated field stores, registrar calls) is a new
-        extractor, not new matching logic here.
+        internal function, recovered by :meth:`_handler_registrations`.
         """
         cpg = self.cpg
         tokens = {t for t in self._action_symbol_tokens(action) if t}
         prof = self.kb.actions.get(action)
         numeric = {str(n) for n in (prof.numeric_ids if prof else [])}
+        symbols = set(prof.action_symbols) if prof else set()
 
         for reg in self._handler_registrations():
-            matched = any(
-                any(t in s for s in reg.action_id_symbols) for t in tokens
-            ) or bool(numeric & reg.action_id_literals)
-            if not matched:
+            symbol_hit = any(any(t in s for s in reg.action_id_symbols) for t in tokens)
+            numeric_hit = numeric & reg.action_id_literals
+            if not (symbol_hit or numeric_hit):
                 continue
-            evidence = [
+
+            matched_symbol = next(
+                (s for s in symbols if s.upper() in reg.action_id_symbols), None
+            )
+            matched_numeric = int(next(iter(numeric_hit))) if numeric_hit else None
+            if matched_numeric is not None or matched_symbol is not None:
+                strength = MatchStrength.EXACT_IDENTIFIER
+            else:
+                strength = MatchStrength.HEURISTIC_SUBSTRING
+            kind = REGISTRATION_INIT if reg.mechanism == "AGGREGATE_INIT" else REGISTRATION_ASSIGN
+
+            mapping = [
                 MappingEvidence(
                     type="DISPATCH_HANDLER_TABLE",
                     value=cpg.code(reg.evidence_node),
@@ -442,7 +619,23 @@ class F2AAnalyzer:
                     line=cpg.line(reg.callback_method),
                 ),
             ]
-            return reg.callback_method, evidence, 0.8
+            return ResolutionEvidence(
+                kind=kind,
+                action_id=ActionIdentifier(
+                    symbol=matched_symbol,
+                    numeric_id=matched_numeric,
+                    raw_expression=cpg.code(reg.evidence_node),
+                    node=reg.ref_node,
+                ),
+                weight=0.8,
+                match_strength=strength,
+                callback=reg.callback_method,
+                nodes=[reg.evidence_node, reg.ref_node],
+                provenance_group=f"registration:{reg.evidence_node}",
+                extractor="registration_ast",
+                mapping_evidence=mapping,
+                score=0.8,
+            )
         return None
 
     # -- registration intermediate representation ------------------------
