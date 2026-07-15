@@ -17,6 +17,7 @@ F2-A never confirms a vulnerability; it produces a reviewable *candidate*.
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from .graph import ASSIGNMENT_OPS, FIELD_ACCESS_OPS, CPGModel
@@ -110,6 +111,23 @@ class FlowTrace:
         # reconstruct the flow to each one.
         self.sinks: List[Tuple[int, int]] = []
         self.parent: Dict[int, Tuple[Optional[int], str]] = {}
+
+
+@dataclass
+class HandlerRegistration:
+    """Shape-agnostic 'action id is bound to this callback here' fact.
+
+    One extractor recovers it from each registration syntax (aggregate
+    initializer, indexed assignment, and — in future — DFG-correlated field
+    stores or registrar calls); handler discovery consumes the list uniformly.
+    """
+
+    action_id_symbols: Set[str]   # upper-cased id tokens co-located with the ref
+    action_id_literals: Set[str]  # numeric/string literal ids co-located with the ref
+    callback_method: int          # METHOD node of the handler
+    mechanism: str                # AGGREGATE_INIT | INDEXED_ASSIGN | ...
+    evidence_node: int            # the initializer/assignment node proving the pairing
+    ref_node: int                 # the METHOD_REF node
 
 
 class F2AAnalyzer:
@@ -220,7 +238,7 @@ class F2AAnalyzer:
     #   Multiple strategies, most precise first:
     #     1. string dispatch       "DataTransfer" literal -> nearby call
     #     2. enum/switch dispatch    case ACTION_DATA_TRANSFER: -> CFG -> call
-    #     3. registration table    { 41, process_configuration } -> METHOD_REF
+    #     3. registration          { 41, handler } / arr[id]=handler -> METHOD_REF
     #     4. handler-name pattern   handle_data_transfer() (fallback)
     # ------------------------------------------------------------------
 
@@ -249,7 +267,7 @@ class F2AAnalyzer:
         for strategy in (
             self._handler_by_string,
             self._handler_by_enum_case,
-            self._handler_by_registration_table,
+            self._handler_by_registration,
             self._handler_by_name,
         ):
             found = strategy(action)
@@ -380,31 +398,82 @@ class F2AAnalyzer:
             return parent
         return None
 
-    def _handler_by_registration_table(
+    def _handler_by_registration(
         self, action: str
     ) -> Optional[Tuple[int, List[MappingEvidence], float]]:
-        """Strategy 3 — a handler registration table:
+        """Strategy 3 — a handler *registration*, e.g.
 
             static HandlerEntry g_table[] = {
-                { MSG_SET_PROFILE, process_configuration },  // id  <-> handler
-                ...
+                { MSG_SET_PROFILE, process_configuration },   // aggregate init
             };
+            g_handlers[ACTION_REMOTE_START] = process_request; // indexed assign
 
-        The handler is not named after the action and reaches its dispatch via a
-        function pointer, so the only structural link is the initializer entry
-        that pairs the action's message-id (symbol or numeric literal) with a
-        METHOD_REF to an internal function. Each entry is matched on its own, so
-        a table with several handlers still pairs each id with the right one.
+        The handler is not named after the action and is reached through a
+        function pointer, so the structural link is a *registration fact*: an
+        action id (symbol or numeric literal) paired with a ``METHOD_REF`` to an
+        internal function. This strategy is now a thin consumer over
+        :meth:`_handler_registrations` — a shape-agnostic intermediate
+        representation produced by one extractor per registration syntax. Adding
+        a new syntax (correlated field stores, registrar calls) is a new
+        extractor, not new matching logic here.
         """
         cpg = self.cpg
         tokens = {t for t in self._action_symbol_tokens(action) if t}
         prof = self.kb.actions.get(action)
         numeric = {str(n) for n in (prof.numeric_ids if prof else [])}
 
+        for reg in self._handler_registrations():
+            matched = any(
+                any(t in s for s in reg.action_id_symbols) for t in tokens
+            ) or bool(numeric & reg.action_id_literals)
+            if not matched:
+                continue
+            evidence = [
+                MappingEvidence(
+                    type="DISPATCH_HANDLER_TABLE",
+                    value=cpg.code(reg.evidence_node),
+                    file=cpg.method_filename(reg.callback_method),
+                    line=cpg.line(reg.ref_node),
+                ),
+                MappingEvidence(
+                    type="HANDLER_REF",
+                    value=cpg.name(reg.callback_method),
+                    file=cpg.method_filename(reg.callback_method),
+                    line=cpg.line(reg.callback_method),
+                ),
+            ]
+            return reg.callback_method, evidence, 0.8
+        return None
+
+    # -- registration intermediate representation ------------------------
+    #
+    # A HandlerRegistration is the shape-agnostic fact "this action id is bound
+    # to this callback function, here". Each *extractor* recovers it from one
+    # registration syntax; discovery (above) consumes the IR uniformly. Today
+    # two AST extractors are wired in (aggregate initializer + single
+    # assignment); DFG-correlated field stores and registrar-call resolution are
+    # future extractors that would append to the same list.
+
+    def _handler_registrations(self) -> List["HandlerRegistration"]:
+        if not hasattr(self, "_registration_cache"):
+            self._registration_cache = self._extract_registrations_ast()
+        return self._registration_cache
+
+    def _extract_registrations_ast(self) -> List["HandlerRegistration"]:
+        """AST extractor: a ``METHOD_REF`` whose enclosing node is a single
+        aggregate initializer or assignment, with the action id spelled in the
+        *same* node (a sibling — initializer element or assignment LHS index).
+
+        Covers ``{ id, fn }`` tables and ``handlers[id] = fn`` arrays. It does
+        NOT cover ids split across statements (needs DFG slot correlation) or
+        ids passed to a registrar call (needs the call graph).
+        """
+        cpg = self.cpg
         by_name: Dict[str, int] = {}
         for m in cpg.internal_methods():
             by_name.setdefault(cpg.name(m), m)
 
+        regs: List[HandlerRegistration] = []
         for v in cpg.vertices:
             if v.get("label") != "METHOD_REF":
                 continue
@@ -412,15 +481,19 @@ class F2AAnalyzer:
             entry = self._ast_parent(ref)
             if entry is None or cpg.label(entry) != "CALL":
                 continue
-            if cpg.name(entry) not in ("<operator>.arrayInitializer", "<operator>.assignment"):
+            op = cpg.name(entry)
+            if op == "<operator>.arrayInitializer":
+                mechanism = "AGGREGATE_INIT"
+            elif op == "<operator>.assignment":
+                mechanism = "INDEXED_ASSIGN"
+            else:
                 continue
-            callee = by_name.get(_strip_quotes(cpg.code(ref)))
-            if callee is None:
+            callback = by_name.get(_strip_quotes(cpg.code(ref)))
+            if callback is None:
                 continue
 
-            # Collect the id spelled in the *same* entry (excluding the ref).
-            symbol_hits: Set[str] = set()
-            literal_hits: Set[str] = set()
+            symbols: Set[str] = set()
+            literals: Set[str] = set()
             for child in cpg.out_ids(entry, "AST"):
                 if child == ref:
                     continue
@@ -428,34 +501,23 @@ class F2AAnalyzer:
                     code_u = str(cpg.code(d) or "").upper()
                     name_u = str(cpg.name(d) or "").upper()
                     if code_u:
-                        symbol_hits.add(code_u)
+                        symbols.add(code_u)
                     if name_u:
-                        symbol_hits.add(name_u)
+                        symbols.add(name_u)
                     if cpg.label(d) == "LITERAL":
-                        literal_hits.add(_strip_quotes(cpg.code(d)))
+                        literals.add(_strip_quotes(cpg.code(d)))
 
-            matched = any(any(t in hit for hit in symbol_hits) for t in tokens) or bool(
-                numeric & literal_hits
+            regs.append(
+                HandlerRegistration(
+                    action_id_symbols=symbols,
+                    action_id_literals=literals,
+                    callback_method=callback,
+                    mechanism=mechanism,
+                    evidence_node=entry,
+                    ref_node=ref,
+                )
             )
-            if not matched:
-                continue
-
-            evidence = [
-                MappingEvidence(
-                    type="DISPATCH_HANDLER_TABLE",
-                    value=cpg.code(entry),
-                    file=cpg.method_filename(callee),
-                    line=cpg.line(ref),
-                ),
-                MappingEvidence(
-                    type="HANDLER_REF",
-                    value=cpg.name(callee),
-                    file=cpg.method_filename(callee),
-                    line=cpg.line(callee),
-                ),
-            ]
-            return callee, evidence, 0.8
-        return None
+        return regs
 
     def _handler_call_near(self, dispatcher: int, literal_id: int) -> Optional[int]:
         cpg = self.cpg
