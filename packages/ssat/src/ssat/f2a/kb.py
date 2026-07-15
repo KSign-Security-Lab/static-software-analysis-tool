@@ -325,6 +325,17 @@ def default_knowledge_base() -> KnowledgeBase:
             action_symbols=["MSG_SET_PROFILE", "ACTION_SET_CHARGING_PROFILE"],
             numeric_ids=[41],
         ),
+        ActionProfile(
+            action_name="RemoteStartTransaction",
+            protocol_version="ocpp1.6",
+            component_type="charge_point",
+            message_direction="CSMS_TO_CHARGE_POINT",
+            sensitive_fields=["idTag"],
+            # No handler_patterns: this profile intentionally adds no handler-name
+            # hints. Only the protocol-level identifiers below are declared.
+            action_symbols=["ACTION_REMOTE_START"],
+            numeric_ids=[15],
+        ),
     ]
 
     fields = [
@@ -405,6 +416,23 @@ def default_knowledge_base() -> KnowledgeBase:
             # leaf FIELD_IDENTIFIER of request->charging_schedule.schedule_length
             field_source_aliases=["schedule_length", "chargingScheduleLength"],
         ),
+        FieldProfile(
+            action_name="RemoteStartTransaction",
+            field_name="idTag",
+            semantic_type="remote_authorization_id",
+            trust_level="remote_ocpp_input",
+            dangerous_sink_domain=["COMMAND_EXECUTION"],
+            expected_checks=[
+                "RS_IDTAG_INPUT_VALIDATION",
+                "RS_NO_SHELL_EXECUTION",
+            ],
+            related_cwe=["CWE-78", "CWE-20"],
+            validation_requirement=[
+                "validate idTag against the expected identifier format/allowlist",
+                "authorization must not be performed by building/executing a shell command",
+            ],
+            field_source_aliases=["idTag"],
+        ),
     ]
 
     expected_checks = [
@@ -472,6 +500,21 @@ def default_knowledge_base() -> KnowledgeBase:
             # bound is structurally observed.
             related_cwe=["CWE-120", "CWE-787", "CWE-20"],
         ),
+        ExpectedCheckProfile(
+            check_id="RS_IDTAG_INPUT_VALIDATION",
+            check_type="INPUT_VALIDATION",
+            description="idTag is validated against an expected identifier format/allowlist before use.",
+            related_cwe=["CWE-20"],
+        ),
+        ExpectedCheckProfile(
+            check_id="RS_NO_SHELL_EXECUTION",
+            check_type="SAFE_API_USAGE",
+            description="Authorization must not be performed by constructing and executing a shell command.",
+            # Reaching a command-execution sink is structural negative evidence:
+            # the id was passed to a shell rather than a safe API.
+            negative_sink_domains=["COMMAND_EXECUTION"],
+            related_cwe=["CWE-78"],
+        ),
     ]
 
     sink_domains = [
@@ -538,6 +581,13 @@ def default_knowledge_base() -> KnowledgeBase:
             related_missing_checks=["SCP_PROFILE_LENGTH_BOUND", "SCP_CHARGING_SCHEDULE_NOT_NULL"],
             related_sink_domains=["MEMORY_UNSAFE_OPERATION"],
             related_cwe=["CWE-120", "CWE-787"],
+        ),
+        RootCause(
+            root_cause_id="remote_id_to_command_injection",
+            description="A remote-controlled authorization id reaches a shell command-execution sink without validation.",
+            related_missing_checks=["RS_IDTAG_INPUT_VALIDATION", "RS_NO_SHELL_EXECUTION"],
+            related_sink_domains=["COMMAND_EXECUTION"],
+            related_cwe=["CWE-78", "CWE-20"],
         ),
     ]
 
