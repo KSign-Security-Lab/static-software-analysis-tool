@@ -29,6 +29,7 @@ from .resolution import (
     REGISTRATION_INIT,
     STRING_DISPATCH,
     ActionIdentifier,
+    ConsistencyState,
     HandlerCandidate,
     MatchStrength,
     ResolutionEvidence,
@@ -46,7 +47,9 @@ from .models import (
     CheckStrength,
     CodeEvidence,
     CodeLocation,
+    CompetingCandidateView,
     ConfidenceBreakdown,
+    ConflictReportView,
     EvidencePackage,
     ExpectedCheckMatching,
     F2AResult,
@@ -56,6 +59,8 @@ from .models import (
     FlowStep,
     HandlerMap,
     HandlerRef,
+    HandlerResolution,
+    HandlerResolutionCandidate,
     MappingEvidence,
     MatchingResult,
     MatchingStatus,
@@ -71,6 +76,8 @@ from .models import (
     SinkMapping,
     SourceRef,
     Traceability,
+    UnresolvedDispatchSite,
+    UnresolvedReportView,
     WeakCheckItem,
 )
 
@@ -165,11 +172,19 @@ class F2AAnalyzer:
 
         for action in self.kb.all_actions():
             handler_map = self._step1_discover_handler(action)
-            if handler_map is None:
-                result.limitations.append(
-                    f"No handler found for action '{action}' in this CPG "
-                    f"(dispatch may be dynamic / in another translation unit)."
+
+            # Authoritative per-action outcome (exactly one entry per requested
+            # action, RESOLVED / AMBIGUOUS / UNRESOLVED alike).
+            sel = self._selection.get(action)
+            if sel is not None:
+                result.handler_resolutions.append(
+                    self._selection_to_resolution(action, sel)
                 )
+
+            if handler_map is None:
+                # Compatibility limitation, generated from the structured report
+                # so the two representations cannot diverge.
+                result.limitations.append(self._limitation_for(action, sel))
                 continue
             result.handler_maps.append(handler_map)
             handler_method = self._handler_method_id.get(action)
@@ -319,9 +334,7 @@ class F2AAnalyzer:
             self._handler_by_registration,
             self._handler_by_name,
         ):
-            ev = extractor(action)
-            if ev is not None:
-                evidences.append(ev)
+            evidences.extend(extractor(action))
 
         by_callback: Dict[int, List[ResolutionEvidence]] = {}
         for ev in evidences:
@@ -336,6 +349,102 @@ class F2AAnalyzer:
         if sel.status is ResolutionStatus.UNRESOLVED:
             sel.unresolved = self._diagnose_unresolved(action, evidences)
         return sel
+
+    def _limitation_for(self, action: str, sel: Optional[SelectionResult]) -> str:
+        """Compatibility limitation string, derived from the structured
+        unresolved report so it cannot drift from ``handler_resolutions``."""
+        if sel is not None and sel.unresolved is not None:
+            msg = f"No handler resolved for action '{action}': {sel.unresolved.reason.value}"
+            if sel.unresolved.secondary is not None:
+                msg += f" ({sel.unresolved.secondary.value})"
+            return msg + " [compat: see handler_resolutions]"
+        return (
+            f"No handler found for action '{action}' in this CPG "
+            f"(dispatch may be dynamic / in another translation unit). "
+            f"[compat: see handler_resolutions]"
+        )
+
+    def _selection_to_resolution(self, action: str, sel: SelectionResult) -> HandlerResolution:
+        """Project the internal SelectionResult (CPG node ids) onto the public,
+        serializable HandlerResolution (functions / files / lines). ``chosen`` is
+        taken *only* from ``status == RESOLVED`` — assembly never re-picks a
+        winner."""
+        cpg = self.cpg
+
+        def _consistency(cand: HandlerCandidate) -> str:
+            states = [e.action_id.consistency(self.kb) for e in cand.evidence]
+            if any(s is ConsistencyState.CONFLICTING for s in states):
+                return "CONFLICTING"
+            if any(s is ConsistencyState.CONSISTENT for s in states):
+                return "CONSISTENT"
+            return "PARTIAL"
+
+        def _view(cand: HandlerCandidate) -> HandlerResolutionCandidate:
+            cb = cand.callback
+            return HandlerResolutionCandidate(
+                function=cpg.name(cb),
+                file=cpg.method_filename(cb),
+                line=cpg.line(cb),
+                confidence=cand.confidence,
+                evidence_kinds=sorted({e.kind for e in cand.evidence}),
+                action_id_consistency=_consistency(cand),
+            )
+
+        # Deterministic order: confidence desc, then function / file / line.
+        ordered = sorted(
+            sel.candidates,
+            key=lambda c: (-c.confidence, cpg.name(c.callback), cpg.method_filename(c.callback), str(cpg.line(c.callback))),
+        )
+        chosen_ref: Optional[HandlerRef] = None
+        if sel.status is ResolutionStatus.RESOLVED and sel.chosen is not None:
+            chosen = sel.chosen
+            ordered = [c for c in ordered if c is chosen] + [c for c in ordered if c is not chosen]
+            cb = chosen.callback
+            chosen_ref = HandlerRef(
+                file=cpg.method_filename(cb), function=cpg.name(cb), line=cpg.line(cb),
+            )
+
+        conflict_view: Optional[ConflictReportView] = None
+        if sel.conflict is not None:
+            conflict_view = ConflictReportView(
+                competing=[
+                    CompetingCandidateView(
+                        function=cpg.name(c["callback"]),
+                        confidence=c["confidence"],
+                        evidence_kinds=list(c["evidence_kinds"]),
+                    )
+                    for c in sel.conflict.competing
+                ],
+                margin=sel.conflict.margin,
+                note=sel.conflict.note,
+            )
+
+        unresolved_view: Optional[UnresolvedReportView] = None
+        if sel.unresolved is not None:
+            u = sel.unresolved
+            site = None
+            if u.dispatch_site is not None:
+                owner = cpg.method_of(u.dispatch_site)
+                site = UnresolvedDispatchSite(
+                    file=cpg.method_filename(owner) if owner is not None else "",
+                    line=cpg.line(u.dispatch_site),
+                    code=cpg.code(u.dispatch_site),
+                )
+            unresolved_view = UnresolvedReportView(
+                reason=u.reason.value,
+                secondary=u.secondary.value if u.secondary else None,
+                dispatch_site=site,
+                attempted_extractors=list(u.attempted_extractors),
+            )
+
+        return HandlerResolution(
+            action=action,
+            status=sel.status.value,
+            chosen=chosen_ref,
+            candidates=[_view(c) for c in ordered],
+            conflict=conflict_view,
+            unresolved=unresolved_view,
+        )
 
     def _diagnose_unresolved(
         self, action: str, evidences: List[ResolutionEvidence]
@@ -398,7 +507,7 @@ class F2AAnalyzer:
             secondary=secondary,
         )
 
-    def _handler_by_string(self, action: str) -> Optional[ResolutionEvidence]:
+    def _handler_by_string(self, action: str) -> List[ResolutionEvidence]:
         """Extractor — action string literal + the call in its branch."""
         cpg = self.cpg
         literal_id = None
@@ -410,23 +519,23 @@ class F2AAnalyzer:
                 literal_id = vid
                 break
         if literal_id is None:
-            return None
+            return []
         dispatcher = cpg.method_of(literal_id)
         if dispatcher is None:
-            return None
+            return []
         handler_call = self._handler_call_near(dispatcher, literal_id)
         if handler_call is None:
-            return None
+            return []
         callee = cpg.call_target(handler_call)
         if callee is None:
-            return None
+            return []
         mapping = [
             MappingEvidence(type="DISPATCH_STRING_MATCH", value=action,
                             file=cpg.method_filename(dispatcher), line=cpg.line(literal_id)),
             MappingEvidence(type="HANDLER_CALL", value=cpg.code(handler_call),
                             file=cpg.method_filename(dispatcher), line=cpg.line(handler_call)),
         ]
-        return ResolutionEvidence(
+        return [ResolutionEvidence(
             kind=STRING_DISPATCH,
             action_id=ActionIdentifier(
                 protocol_string=action, normalized_name=action,
@@ -440,9 +549,9 @@ class F2AAnalyzer:
             extractor="string_dispatch",
             mapping_evidence=mapping,
             score=0.9,
-        )
+        )]
 
-    def _handler_by_enum_case(self, action: str) -> Optional[ResolutionEvidence]:
+    def _handler_by_enum_case(self, action: str) -> List[ResolutionEvidence]:
         """Extractor — enum/switch: a `case <SYMBOL>:` whose symbol matches the
         action, then the internal call reachable from that case via CFG."""
         cpg = self.cpg
@@ -477,7 +586,7 @@ class F2AAnalyzer:
                 MappingEvidence(type="HANDLER_CALL", value=cpg.code(call),
                                 file=cpg.method_filename(method), line=cpg.line(call)),
             ]
-            return ResolutionEvidence(
+            return [ResolutionEvidence(
                 kind=ENUM_CASE,
                 action_id=ActionIdentifier(
                     symbol=matched_symbol, normalized_name=action,
@@ -492,10 +601,10 @@ class F2AAnalyzer:
                 extractor="enum_case",
                 mapping_evidence=mapping,
                 score=0.85,
-            )
-        return None
+            )]
+        return []
 
-    def _handler_by_name(self, action: str) -> Optional[ResolutionEvidence]:
+    def _handler_by_name(self, action: str) -> List[ResolutionEvidence]:
         """Extractor (fallback) — an internal function whose name matches the KB
         handler patterns, or contains the normalized action token."""
         cpg = self.cpg
@@ -506,7 +615,7 @@ class F2AAnalyzer:
         for m in cpg.internal_methods():
             nm = cpg.name(m).lower()
             if nm in patterns:
-                return ResolutionEvidence(
+                return [ResolutionEvidence(
                     kind=NAME_MATCH,
                     action_id=ActionIdentifier(
                         normalized_name=action, raw_expression=cpg.name(m), node=m
@@ -522,11 +631,11 @@ class F2AAnalyzer:
                                         file=cpg.method_filename(m), line=cpg.line(m))
                     ],
                     score=0.7,
-                )
+                )]
             if fallback is None and snake and snake in nm:
                 fallback = m
         if fallback is not None:
-            return ResolutionEvidence(
+            return [ResolutionEvidence(
                 kind=NAME_MATCH,
                 action_id=ActionIdentifier(
                     normalized_name=action, raw_expression=cpg.name(fallback), node=fallback
@@ -542,8 +651,8 @@ class F2AAnalyzer:
                                     file=cpg.method_filename(fallback), line=cpg.line(fallback))
                 ],
                 score=0.65,
-            )
-        return None
+            )]
+        return []
 
     def _first_internal_call_via_cfg(self, start: int) -> Optional[int]:
         """First internal CALL reachable from `start` over CFG edges, without
@@ -570,18 +679,19 @@ class F2AAnalyzer:
             return parent
         return None
 
-    def _handler_by_registration(self, action: str) -> Optional[ResolutionEvidence]:
-        """Extractor — a handler *registration*, e.g.
+    def _handler_by_registration(self, action: str) -> List[ResolutionEvidence]:
+        """Extractor — handler *registrations*, e.g.
 
             static HandlerEntry g_table[] = {
                 { MSG_SET_PROFILE, process_configuration },   // aggregate init
             };
             g_handlers[ACTION_REMOTE_START] = process_request; // indexed assign
 
-        The handler is not named after the action and is reached through a
-        function pointer, so the structural link is a *registration fact*: an
-        action id (symbol or numeric literal) paired with a ``METHOD_REF`` to an
-        internal function, recovered by :meth:`_handler_registrations`.
+        Emits **all** matching registrations, not just the first: two
+        registrations for the same callback become two evidences on one
+        candidate; registrations for different callbacks become competing
+        candidates. Candidate selection is the selection layer's job, not the
+        extractor's.
         """
         cpg = self.cpg
         tokens = {t for t in self._action_symbol_tokens(action) if t}
@@ -589,6 +699,7 @@ class F2AAnalyzer:
         numeric = {str(n) for n in (prof.numeric_ids if prof else [])}
         symbols = set(prof.action_symbols) if prof else set()
 
+        out: List[ResolutionEvidence] = []
         for reg in self._handler_registrations():
             symbol_hit = any(any(t in s for s in reg.action_id_symbols) for t in tokens)
             numeric_hit = numeric & reg.action_id_literals
@@ -619,7 +730,7 @@ class F2AAnalyzer:
                     line=cpg.line(reg.callback_method),
                 ),
             ]
-            return ResolutionEvidence(
+            out.append(ResolutionEvidence(
                 kind=kind,
                 action_id=ActionIdentifier(
                     symbol=matched_symbol,
@@ -635,8 +746,8 @@ class F2AAnalyzer:
                 extractor="registration_ast",
                 mapping_evidence=mapping,
                 score=0.8,
-            )
-        return None
+            ))
+        return out
 
     # -- registration intermediate representation ------------------------
     #

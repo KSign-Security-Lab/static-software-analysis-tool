@@ -89,13 +89,75 @@ class HandlerRef(CodeLocation):
 
 
 class HandlerMap(BaseModel):
-    """F2-A2 output — which function handles an OCPP action."""
+    """F2-A2 output — which function handles an OCPP action.
+
+    Back-compat: populated only for RESOLVED actions. The authoritative
+    per-action diagnostic (including AMBIGUOUS / UNRESOLVED) is
+    ``F2AResult.handler_resolutions``.
+    """
 
     handler_map_id: str
     action: str
     handler: HandlerRef
     mapping_evidence: List[MappingEvidence] = Field(default_factory=list)
     confidence: float = 0.0
+
+
+# --- Public handler-resolution view (serializable projection of the internal
+#     SelectionResult; carries no CPG node references) -----------------------
+
+
+class HandlerResolutionCandidate(BaseModel):
+    """One competing handler candidate, resolved to source coordinates."""
+
+    function: str = ""
+    file: str = ""
+    line: Union[int, str] = ""
+    confidence: float = 0.0
+    evidence_kinds: List[str] = Field(default_factory=list)
+    action_id_consistency: str = "PARTIAL"  # CONSISTENT | CONFLICTING | PARTIAL
+
+
+class CompetingCandidateView(BaseModel):
+    function: str = ""
+    confidence: float = 0.0
+    evidence_kinds: List[str] = Field(default_factory=list)
+
+
+class ConflictReportView(BaseModel):
+    competing: List[CompetingCandidateView] = Field(default_factory=list)
+    margin: float = 0.0
+    note: str = ""
+
+
+class UnresolvedDispatchSite(BaseModel):
+    file: str = ""
+    line: Union[int, str] = ""
+    code: str = ""
+
+
+class UnresolvedReportView(BaseModel):
+    reason: str = ""
+    secondary: Optional[str] = None
+    dispatch_site: Optional[UnresolvedDispatchSite] = None
+    attempted_extractors: List[str] = Field(default_factory=list)
+
+
+class HandlerResolution(BaseModel):
+    """Authoritative per-action resolution outcome (one per requested action).
+
+    ``chosen`` is set *iff* ``status == 'RESOLVED'``. ``candidates`` are ranked
+    (confidence desc, then function/file/line); for a RESOLVED action the chosen
+    candidate is first and competitors are retained. ``conflict`` is present
+    whenever more than one callback competed; ``unresolved`` when nothing bound.
+    """
+
+    action: str
+    status: str  # RESOLVED | AMBIGUOUS | UNRESOLVED
+    chosen: Optional[HandlerRef] = None
+    candidates: List[HandlerResolutionCandidate] = Field(default_factory=list)
+    conflict: Optional[ConflictReportView] = None
+    unresolved: Optional[UnresolvedReportView] = None
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +472,7 @@ class F2AResult(BaseModel):
 
     source_cpg: str = ""
     handler_maps: List[HandlerMap] = Field(default_factory=list)
+    handler_resolutions: List[HandlerResolution] = Field(default_factory=list)
     field_bindings: List[FieldBinding] = Field(default_factory=list)
     flow_candidates: List[FlowCandidate] = Field(default_factory=list)
     sink_mappings: List[SinkMapping] = Field(default_factory=list)

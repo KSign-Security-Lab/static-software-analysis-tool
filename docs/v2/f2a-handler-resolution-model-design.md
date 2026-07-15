@@ -408,7 +408,8 @@ and the policy change (phase 2) are reviewable — and revertable — separately
 | Corroboration + contradiction policy (`select_corroborate`) | **not started** | phase 2 |
 | DFG slot-correlation extractor (V2/V5) | **not started** | phase 3 |
 | Call-graph registrar extractor (V3/V6) | **not started** | phase 3 |
-| Surface `SelectionResult` / `UnresolvedReport` into `F2AResult` | **not started** | later |
+| Surface `SelectionResult` / `UnresolvedReport` into `F2AResult` (`handler_resolutions`) | **shipped** | `models.py`, `pipeline._selection_to_resolution` |
+| Registration extractor emits **all** matches | **shipped** | `pipeline._handler_by_registration` |
 
 **Phase 1 is complete and behaviour-preserving** (commit `ada75ea`):
 
