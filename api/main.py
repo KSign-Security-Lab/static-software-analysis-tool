@@ -13,18 +13,13 @@ in TypeScript; this service only produces the CPG and the F2-A evidence.
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ssat.cpg.generator import _find_project_root, _worker_generate_one
+from ssat.cpg.embedded import generate_cpg, joern_home
 from ssat.f2a import run_f2a
 
 app = FastAPI(title="F2-A Test API", version="1.0.0")
@@ -42,9 +37,6 @@ app.add_middleware(
 _LANG_EXT = {"c": "main.c", "cpp": "main.cpp", "java": "Main.java"}
 
 
-def _joern_container() -> str:
-    user = os.getenv("USER") or os.getenv("USERNAME") or "user"
-    return f"ssat-joern-{user}"
 
 
 class CpgRequest(BaseModel):
@@ -64,34 +56,16 @@ def _filename_for(req: CpgRequest) -> str:
 
 
 def _generate_cpg(req: CpgRequest) -> Dict[str, Any]:
-    """Generate a CPG GraphSON dict from source via the Joern container.
+    """Generate a CPG GraphSON dict from source, in-process via embedded Joern.
 
-    Uses the same synchronous worker as the ``ssat cpg`` CLI
-    (``_worker_generate_one``). The older async path produced intermittently
-    incomplete data-flow (REACHING_DEF) overlays; this path is reliable.
+    No Docker / subprocess / server: Joern's JARs run in a JVM inside this
+    process (see ssat.cpg.embedded). Output is the same GraphSON joern-export
+    produces, so f2a and the web read it unchanged.
     """
-    filename = _filename_for(req)
-    source = req.source if req.source.endswith("\n") else req.source + "\n"
-    workspace = _find_project_root(Path.cwd()) / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
-
-    tmp = Path(tempfile.mkdtemp(prefix="f2a-cpg-"))
     try:
-        src_path = tmp / filename
-        src_path.write_text(source, encoding="utf-8")
-        out_root = tmp / "out"
-        result = _worker_generate_one(
-            str(src_path), str(tmp), str(out_root), _joern_container(),
-            str(workspace), "all", "graphson", False,
-        )
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=502,
-                detail=f"CPG generation failed: {result.get('error', 'unknown error')}",
-            )
-        cpg = json.loads(Path(result["output"]).read_text(encoding="utf-8"))
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        cpg = generate_cpg(req.source, filename=_filename_for(req))
+    except Exception as exc:  # noqa: BLE001 - surface the Joern error to the UI
+        raise HTTPException(status_code=502, detail=f"CPG generation failed: {exc}") from exc
     return {"cpg": cpg, "method_count": _count_methods(cpg)}
 
 
@@ -105,7 +79,7 @@ def _count_methods(cpg: Dict[str, Any]) -> int:
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {"status": "ok", "joern_container": _joern_container()}
+    return {"status": "ok", "joern_home": str(joern_home()), "mode": "embedded"}
 
 
 @app.post("/cpg")

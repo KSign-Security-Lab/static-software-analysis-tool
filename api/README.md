@@ -4,6 +4,21 @@ A thin FastAPI service over `ssat.cpg` (CPG generation via Joern) and
 `ssat.f2a` (evidence extraction). It backs the `web-f2a` testing frontend and
 deliberately avoids the older template/ast/dfg modules.
 
+## CPG generation is embedded (no Docker)
+
+CPG generation runs Joern **in-process** via an embedded JVM (JPype) — see
+`ssat.cpg.embedded`. There is no Docker container, subprocess, or server to
+manage; Joern's JARs are loaded into a JVM inside the API process and its
+`JoernParse`/`JoernExport` entrypoints are called directly, producing the same
+GraphSON `joern-export` does. The JVM starts on the first request and is reused.
+
+Requirements:
+- A **JDK** on the host (Java 17+; tested on 21).
+- A **Joern install** on the host. Set `JOERN_HOME` to its `joern-cli`
+  directory (default `/usr/bin/joern/joern-cli`).
+
+`GET /health` reports `{"mode": "embedded", "joern_home": ...}`.
+
 ## Endpoints
 
 | method | path | body | returns |
@@ -18,18 +33,18 @@ deliberately avoids the older template/ast/dfg modules.
 
 ## Running
 
-Requires the Joern container (`docker compose up -d`) and the workspace venv
-(`uv sync`). From the repo root:
+Requires a host JDK + Joern install (see above) and the workspace venv
+(`uv sync`). No Docker container needed. From the repo root:
 
 ```bash
-uv run uvicorn api.main:app --host 127.0.0.1 --port 8000 --app-dir .
+JOERN_HOME=/usr/bin/joern/joern-cli \
+  uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --app-dir .
 ```
 
-CORS is open to any `localhost` origin so the Next.js dev server can call it.
+CORS is open so the Next.js dev server (localhost or tailnet) can call it.
 
 ## Notes
 
-- CPG generation runs `joern-parse` + `joern-export` inside the container via the
-  shared `workspace/` volume, so the service must run from the repo root (where
-  that volume is mounted).
+- CPG generation is fully in-process (embedded JVM); the first request pays the
+  JVM start-up cost, then the JVM is reused and generation is serialised.
 - `POST /analyze` is one round trip: generate the CPG, then run F2-A on it.
