@@ -375,8 +375,18 @@ class F2AAnalyzer:
         return sel
 
     def _limitation_for(self, action: str, sel: Optional[SelectionResult]) -> str:
-        """Compatibility limitation string, derived from the structured
-        unresolved report so it cannot drift from ``handler_resolutions``."""
+        """Compatibility limitation string, derived from the structured selection
+        result (conflict / unresolved report) so it cannot drift from
+        ``handler_resolutions``."""
+        if sel is not None and sel.status is ResolutionStatus.AMBIGUOUS:
+            # Handlers WERE found; the selector declined to choose. Derive from
+            # the competing candidates rather than claiming none was found.
+            fns = ", ".join(self.cpg.name(c.callback) for c in sel.candidates)
+            return (
+                f"Multiple competing handlers found for action '{action}' "
+                f"({len(sel.candidates)} candidates: {fns}); no handler selected. "
+                f"[compat: see handler_resolutions]"
+            )
         if sel is not None and sel.unresolved is not None:
             msg = f"No handler resolved for action '{action}': {sel.unresolved.reason.value}"
             if sel.unresolved.secondary is not None:

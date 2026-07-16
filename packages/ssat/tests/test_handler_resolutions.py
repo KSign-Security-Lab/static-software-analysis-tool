@@ -192,6 +192,17 @@ def test_producer2_registrar_store_not_reached_emits_no_evidence():
     assert scp.unresolved.reason == "REGISTRAR_STORE_NOT_REACHED"
 
 
+def test_ambiguous_compat_limitation_names_competitors_not_not_found():
+    """The compatibility limitation for an AMBIGUOUS action must reflect that
+    handlers WERE found (selector declined), derived from the candidates —
+    not the misleading 'No handler found'."""
+    _need(D)
+    r = run_f2a_file(D)
+    scp_lims = [x for x in r.limitations if "'SetChargingProfile'" in x]
+    assert any("Multiple competing handlers" in x and "no handler selected" in x for x in scp_lims)
+    assert not any("No handler found for action 'SetChargingProfile'" in x for x in scp_lims)
+
+
 def test_exact_numeric_registration_beats_weak_name():
     _need(C)
     r = run_f2a_file(C)
