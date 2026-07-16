@@ -1,9 +1,19 @@
-# F2-A Evidence Calculus — Phase 2 policy spec (for review)
+# F2-A Evidence Calculus — Phase 2 policy spec
 
-**Status: SPEC / not implemented.** This locks the math behind `select_corroborate`
-before any runtime change. `select_cascade` (Phase 1) is unaffected. Enabling this
-policy is a later, explicit flip that will update the confidence/margin assertions
-noted at the end.
+**Status: REVIEWED & IMPLEMENTED** — `select_corroborate` is the default policy;
+`select_cascade` remains selectable (`F2AAnalyzer(selection="cascade")`). The
+calculus below is the implemented behavior. Review decisions applied:
+
+- WEAK_ONLY_CAP = 0.85 (configurable via `CalculusConfig`).
+- CONFLICTING penalty = cap M at 0.70 then ×0.5; pre/post scores exposed on
+  `ResolutionEvidence.score_pre_penalty` / `.score`.
+- Strong-competitor ambiguity hardening: **not adopted** (hook kept as
+  `CalculusConfig.strong_competitor_hardening=False`).
+- Below `MIN_CONFIDENCE` → UNRESOLVED(LOW_CONFIDENCE), candidates retained.
+- Duplicate registrations in one table share one `("site", table)` group → max,
+  no corroboration.
+- Weak provenance key = global `("token", normalized_name)` collapse (conservative).
+- Dedup survivor uses an explicit `MATCH_STRENGTH_RANK` table (tested directly).
 
 Prereqs shipped: `ActionIdentifier`, `ResolutionEvidence` (with `provenance_group`),
 `HandlerCandidate`, `select_cascade`, and the public `HandlerResolution` projection.

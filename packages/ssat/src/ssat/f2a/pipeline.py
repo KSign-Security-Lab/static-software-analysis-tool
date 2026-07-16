@@ -29,6 +29,7 @@ from .resolution import (
     REGISTRATION_INIT,
     STRING_DISPATCH,
     ActionIdentifier,
+    CalculusConfig,
     ConsistencyState,
     HandlerCandidate,
     MatchStrength,
@@ -37,7 +38,9 @@ from .resolution import (
     SelectionResult,
     UnresolvedReason,
     UnresolvedReport,
+    dedupe_evidence,
     select_cascade,
+    select_corroborate,
 )
 from .kb import CheckPattern, FieldProfile, KnowledgeBase, default_knowledge_base
 from .models import (
@@ -152,16 +155,27 @@ class HandlerRegistration:
     mechanism: str                # AGGREGATE_INIT | INDEXED_ASSIGN | ...
     evidence_node: int            # the initializer/assignment node proving the pairing
     ref_node: int                 # the METHOD_REF node
+    site_key: str = ""            # the enclosing table/array (shared by entries of one table)
 
 
 class F2AAnalyzer:
     """Runs the seven F2-A steps over one CPG."""
 
-    def __init__(self, cpg: CPGModel, kb: Optional[KnowledgeBase] = None):
+    def __init__(
+        self,
+        cpg: CPGModel,
+        kb: Optional[KnowledgeBase] = None,
+        selection: str = "corroborate",
+        calculus: Optional[CalculusConfig] = None,
+    ):
         self.cpg = cpg
         self.kb = kb or default_knowledge_base()
         self.ids = _Ids()
         self._sink_apis = set(self.kb.sink_apis())
+        # Handler-resolution policy: "corroborate" (Phase 2, default) or
+        # "cascade" (Phase 1, most-precise-first, no corroboration).
+        self.selection = selection
+        self.calculus = calculus or CalculusConfig()
 
     # ------------------------------------------------------------------
     # Orchestration
@@ -336,6 +350,8 @@ class F2AAnalyzer:
         ):
             evidences.extend(extractor(action))
 
+        evidences = dedupe_evidence(evidences)  # spec §1: collapse identical observations
+
         by_callback: Dict[int, List[ResolutionEvidence]] = {}
         for ev in evidences:
             if ev.callback is None:
@@ -345,8 +361,14 @@ class F2AAnalyzer:
             HandlerCandidate(callback=cb, evidence=evs) for cb, evs in by_callback.items()
         ]
 
-        sel = select_cascade(candidates)
-        if sel.status is ResolutionStatus.UNRESOLVED:
+        if self.selection == "cascade":
+            sel = select_cascade(candidates)
+        else:
+            sel = select_corroborate(candidates, self.kb, self.calculus)
+
+        # Only synthesize a dispatch-based unresolved reason when nothing bound at
+        # all; a below-floor candidate keeps its LOW_CONFIDENCE report + candidates.
+        if sel.status is ResolutionStatus.UNRESOLVED and not sel.candidates:
             sel.unresolved = self._diagnose_unresolved(action, evidences)
         return sel
 
@@ -551,7 +573,7 @@ class F2AAnalyzer:
             match_strength=MatchStrength.EXACT_IDENTIFIER,
             callback=callee,
             nodes=[literal_id, handler_call],
-            provenance_group=f"string-dispatch:{dispatcher}",
+            provenance_group=f"site:string:{dispatcher}",
             extractor="string_dispatch",
             mapping_evidence=mapping,
             score=0.9,
@@ -582,10 +604,13 @@ class F2AAnalyzer:
             )
             if matched_symbol is not None:
                 strength = MatchStrength.EXACT_IDENTIFIER
+                group = f"site:switch:{method}"
             elif self._upper_snake(action) in code:
                 strength = MatchStrength.NORMALIZED_NAME
+                group = f"token:{action}"
             else:
                 strength = MatchStrength.HEURISTIC_SUBSTRING
+                group = f"token:{action}"
             mapping = [
                 MappingEvidence(type="DISPATCH_ENUM_CASE", value=cpg.code(jt),
                                 file=cpg.method_filename(method), line=cpg.line(jt)),
@@ -603,7 +628,7 @@ class F2AAnalyzer:
                 callback=callee,
                 dispatch_site=jt,
                 nodes=[jt, call],
-                provenance_group=f"enum-switch:{method}",
+                provenance_group=group,
                 extractor="enum_case",
                 mapping_evidence=mapping,
                 score=0.85,
@@ -630,7 +655,7 @@ class F2AAnalyzer:
                     match_strength=MatchStrength.NORMALIZED_NAME,
                     callback=m,
                     nodes=[m],
-                    provenance_group="naming-convention",
+                    provenance_group=f"token:{action}",
                     extractor="name_pattern",
                     mapping_evidence=[
                         MappingEvidence(type="HANDLER_NAME_PATTERN", value=cpg.name(m),
@@ -650,7 +675,7 @@ class F2AAnalyzer:
                 match_strength=MatchStrength.HEURISTIC_SUBSTRING,
                 callback=fallback,
                 nodes=[fallback],
-                provenance_group="naming-convention",
+                provenance_group=f"token:{action}",
                 extractor="name_token",
                 mapping_evidence=[
                     MappingEvidence(type="HANDLER_NAME_MATCH", value=cpg.name(fallback),
@@ -718,8 +743,10 @@ class F2AAnalyzer:
             matched_numeric = int(next(iter(numeric_hit))) if numeric_hit else None
             if matched_numeric is not None or matched_symbol is not None:
                 strength = MatchStrength.EXACT_IDENTIFIER
+                group = f"site:reg:{reg.site_key}"
             else:
                 strength = MatchStrength.HEURISTIC_SUBSTRING
+                group = f"token:{action}"
             kind = REGISTRATION_INIT if reg.mechanism == "AGGREGATE_INIT" else REGISTRATION_ASSIGN
 
             mapping = [
@@ -748,7 +775,7 @@ class F2AAnalyzer:
                 match_strength=strength,
                 callback=reg.callback_method,
                 nodes=[reg.evidence_node, reg.ref_node],
-                provenance_group=f"registration:{reg.evidence_node}",
+                provenance_group=group,
                 extractor="registration_ast",
                 mapping_evidence=mapping,
                 score=0.8,
@@ -794,8 +821,19 @@ class F2AAnalyzer:
             op = cpg.name(entry)
             if op == "<operator>.arrayInitializer":
                 mechanism = "AGGREGATE_INIT"
+                # All entries of one table literal `{ {..}, {..} }` share the
+                # outer initializer, so duplicate registrations collapse into one
+                # provenance group (spec §2, no noisy-OR inflation).
+                table = self._ast_parent(entry)
+                site_key = str(table if table is not None else entry)
             elif op == "<operator>.assignment":
                 mechanism = "INDEXED_ASSIGN"
+                # Group by the assigned array/struct base (e.g. `g_handlers`), so
+                # repeated `g_handlers[id] = fn` writes share one group.
+                args = cpg.call_args(entry)
+                lhs = args[0][1] if args else entry
+                base = cpg.out_ids(lhs, "AST")
+                site_key = cpg.code(base[0]) if base else cpg.code(lhs)
             else:
                 continue
             callback = by_name.get(_strip_quotes(cpg.code(ref)))
@@ -825,6 +863,7 @@ class F2AAnalyzer:
                     mechanism=mechanism,
                     evidence_node=entry,
                     ref_node=ref,
+                    site_key=site_key,
                 )
             )
         return regs

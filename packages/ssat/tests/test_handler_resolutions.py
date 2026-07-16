@@ -21,6 +21,7 @@ FX = Path(__file__).parent / "fixtures" / "f2a" / "cpg"
 A = FX / "data_transfer_reg_vs_switch.c.json"
 B = FX / "scp_dup_registration.c.json"
 C = FX / "scp_numeric_vs_name.c.json"
+D = FX / "scp_ambiguous_two_registrations.c.json"
 
 
 def _need(p):
@@ -41,14 +42,17 @@ def test_competing_registration_vs_switch_retains_loser_and_conflict():
     dt = _res(r, "DataTransfer")
 
     assert dt.status == "RESOLVED"
-    assert dt.chosen is not None and dt.chosen.function == "bar"       # switch (0.85) wins
+    assert dt.chosen is not None and dt.chosen.function == "bar"       # switch wins
     # chosen is first; the registration loser `foo` is retained as a ranked candidate
     assert dt.candidates[0].function == "bar"
     assert {c.function for c in dt.candidates} == {"bar", "foo"}
-    # conflict is exposed with both competitors and the margin
+    # conflict is exposed with both competitors and the margin. Under the
+    # corroborate policy (default) DataTransfer has no KB symbol/numeric, so both
+    # matches are weak-basis: enum NORMALIZED 0.85*0.85=0.7225, registration
+    # HEURISTIC 0.80*0.70=0.56 -> margin 0.1625.
     assert dt.conflict is not None
     assert {c.function for c in dt.conflict.competing} == {"bar", "foo"}
-    assert dt.conflict.margin == round(0.85 - 0.80, 6)
+    assert dt.conflict.margin == round(0.7225 - 0.56, 6)
 
 
 # --- detail 1: exactly one entry per requested action -------------------------
@@ -123,6 +127,22 @@ def test_duplicate_registrations_form_one_candidate_multi_evidence():
 
 
 # --- match-strength distinction: exact numeric registration beats weak name ---
+
+
+def test_ambiguous_two_registrations_no_binding():
+    """Two rows for the same action id (41) pointing to different callbacks: two
+    candidates at 0.80, margin 0 < AMBIGUITY_MARGIN -> AMBIGUOUS, no binding, both
+    retained, conflict exposed, and no HandlerMap emitted."""
+    _need(D)
+    r = run_f2a_file(D)
+    scp = _res(r, "SetChargingProfile")
+    assert scp.status == "AMBIGUOUS"
+    assert scp.chosen is None
+    assert {c.function for c in scp.candidates} == {"handler_a", "handler_b"}
+    assert scp.conflict is not None
+    assert scp.conflict.margin == 0.0
+    # AMBIGUOUS must not leak into the back-compat resolved-only projection
+    assert "SetChargingProfile" not in {h.action for h in r.handler_maps}
 
 
 def test_exact_numeric_registration_beats_weak_name():

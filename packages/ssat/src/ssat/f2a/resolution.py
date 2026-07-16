@@ -56,6 +56,7 @@ class ResolutionStatus(Enum):
 
 class UnresolvedReason(Enum):
     NO_EVIDENCE = "NO_EVIDENCE"
+    LOW_CONFIDENCE = "LOW_CONFIDENCE"
     UNSUPPORTED_REGISTRAR_CALL = "UNSUPPORTED_REGISTRAR_CALL"
     UNRESOLVED_INDIRECT_CALL = "UNRESOLVED_INDIRECT_CALL"
     EXTERNAL_DEFINITION = "EXTERNAL_DEFINITION"
@@ -95,6 +96,43 @@ KIND_RANK: Dict[str, int] = {
     NAME_MATCH: 1,
     DISPATCH_SITE: 0,
 }
+
+# Explicit ordinal rank for MatchStrength — used by the dedup survivor rule so it
+# never relies on the enum's incidental value ordering (tested directly).
+MATCH_STRENGTH_RANK: Dict[MatchStrength, int] = {
+    MatchStrength.EXACT_IDENTIFIER: 4,
+    MatchStrength.RESOLVED_VALUE: 3,
+    MatchStrength.NORMALIZED_NAME: 2,
+    MatchStrength.HEURISTIC_SUBSTRING: 1,
+    MatchStrength.NONE: 0,
+}
+
+# Score multiplier per match strength (the Q3 granularity feeding the calculus).
+MATCH_MULTIPLIER: Dict[MatchStrength, float] = {
+    MatchStrength.EXACT_IDENTIFIER: 1.00,
+    MatchStrength.RESOLVED_VALUE: 0.95,
+    MatchStrength.NORMALIZED_NAME: 0.85,
+    MatchStrength.HEURISTIC_SUBSTRING: 0.70,
+    MatchStrength.NONE: 0.00,
+}
+
+STRONG_BASIS = (MatchStrength.EXACT_IDENTIFIER, MatchStrength.RESOLVED_VALUE)
+
+
+@dataclass
+class CalculusConfig:
+    """Tunable Phase-2 policy constants (kept out of the aggregation code so they
+    can be retuned without touching the algorithm)."""
+
+    weak_only_cap: float = 0.85
+    global_cap: float = 0.99
+    min_confidence: float = 0.50
+    ambiguity_margin: float = 0.15
+    conflict_multiplier_cap: float = 0.70   # CONFLICTING identifier caps M here
+    conflict_scale: float = 0.5             # ...then scales the evidence score
+    # Documented-but-disabled hook (see spec §4): widen the margin when the top
+    # two candidates both own a strong-basis group. Off by default.
+    strong_competitor_hardening: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +238,8 @@ class ResolutionEvidence:
     provenance_group: Optional[str] = None  # correlated-evidence key (used by corroboration, not cascade)
     extractor: str = ""
     mapping_evidence: List[Any] = field(default_factory=list)  # human-facing MappingEvidence for the HandlerMap
-    score: float = 0.0                       # weight adjusted by match strength (Phase 2 uses); == weight in Phase 1
+    score: float = 0.0                       # post-policy score (W*M, after any consistency penalty)
+    score_pre_penalty: float = 0.0           # W*M before the consistency penalty (diagnostic)
 
 
 @dataclass
@@ -246,6 +285,58 @@ def _best_evidence(cand: HandlerCandidate) -> ResolutionEvidence:
     return max(cand.evidence, key=lambda e: (e.weight, KIND_RANK.get(e.kind, 0)))
 
 
+def _conflict_report(ranked: List[HandlerCandidate]) -> Optional[ConflictReport]:
+    if len(ranked) <= 1:
+        return None
+    margin = round(ranked[0].confidence - ranked[1].confidence, 6)
+    return ConflictReport(
+        competing=[
+            {
+                "callback": c.callback,
+                "confidence": c.confidence,
+                "evidence_kinds": sorted({e.kind for e in c.evidence}),
+            }
+            for c in ranked[:3]
+        ],
+        margin=margin,
+        note="competing callbacks; margin between top two",
+    )
+
+
+# --- exact deduplication (spec §1) -----------------------------------------
+
+
+def _dedup_key(e: ResolutionEvidence) -> Any:
+    return (
+        e.kind,
+        e.callback,
+        e.dispatch_site if e.dispatch_site is not None else -1,
+        tuple(sorted(e.nodes)),
+    )
+
+
+def _survivor(a: ResolutionEvidence, b: ResolutionEvidence) -> ResolutionEvidence:
+    """Deterministic winner between two exact-duplicate evidences that differ
+    only in metadata: higher match-strength rank, then higher weight, then the
+    lexicographically smaller extractor name."""
+    ka = (MATCH_STRENGTH_RANK[a.match_strength], a.weight)
+    kb = (MATCH_STRENGTH_RANK[b.match_strength], b.weight)
+    if ka != kb:
+        return a if ka > kb else b
+    return a if a.extractor <= b.extractor else b
+
+
+def dedupe_evidence(evidences: List[ResolutionEvidence]) -> List[ResolutionEvidence]:
+    """Collapse literally-identical observations (§1). Extractor identity is NOT
+    part of the key, so the same fact seen by two extractors becomes one."""
+    best: Dict[Any, ResolutionEvidence] = {}
+    for e in evidences:
+        key = _dedup_key(e)
+        cur = best.get(key)
+        best[key] = e if cur is None else _survivor(cur, e)
+    return [best[k] for k in sorted(best, key=lambda k: (str(k[0]), k[1] if k[1] is not None else -1, k[2], k[3]))]
+
+
 def select_cascade(candidates: List[HandlerCandidate]) -> SelectionResult:
     """Cascade-compatible selection: the candidate owning the single
     highest-weight evidence wins, reproducing the historical most-precise-first
@@ -272,21 +363,88 @@ def select_cascade(candidates: List[HandlerCandidate]) -> SelectionResult:
         return (c.confidence, KIND_RANK.get(best.kind, 0), -c.callback)
 
     ranked = sorted(candidates, key=sort_key, reverse=True)
-    conflict: Optional[ConflictReport] = None
-    if len(ranked) > 1:
-        margin = round(ranked[0].confidence - ranked[1].confidence, 6)
-        conflict = ConflictReport(
-            competing=[
-                {
-                    "callback": c.callback,
-                    "confidence": c.confidence,
-                    "evidence_kinds": sorted({e.kind for e in c.evidence}),
-                }
-                for c in ranked[:3]
-            ],
-            margin=margin,
-            note="cascade mode: highest-weight evidence wins; competitors recorded, status not downgraded",
+    return SelectionResult(
+        status=ResolutionStatus.RESOLVED,
+        chosen=ranked[0],
+        candidates=ranked,
+        conflict=_conflict_report(ranked),
+    )
+
+
+# --- Phase 2 policy: corroborate + contradict (spec) ------------------------
+
+
+def _score_evidence(e: ResolutionEvidence, kb: Any, cfg: CalculusConfig) -> None:
+    """Set e.score_pre_penalty and e.score per the calculus (spec §3.1–3.2)."""
+    m = MATCH_MULTIPLIER[e.match_strength]
+    pre = e.weight * m
+    e.score_pre_penalty = round(pre, 6)
+    if e.action_id.consistency(kb) is ConsistencyState.CONFLICTING:
+        m_eff = min(m, cfg.conflict_multiplier_cap)
+        e.score = round(e.weight * m_eff * cfg.conflict_scale, 6)
+    else:
+        e.score = e.score_pre_penalty
+
+
+def select_corroborate(
+    candidates: List[HandlerCandidate], kb: Any = None, cfg: Optional[CalculusConfig] = None
+) -> SelectionResult:
+    """Phase-2 selection: per-evidence scoring + consistency penalty, max within
+    a provenance group, noisy-OR across groups, caps, then margin-based status.
+
+    Aggregation order is fixed: penalty (per-evidence) -> group-max -> noisy-OR
+    -> caps. Contradiction is a competing-callback margin; identifier conflict is
+    a per-evidence penalty only and never forces AMBIGUOUS on its own.
+    """
+    cfg = cfg or CalculusConfig()
+    if not candidates:
+        return SelectionResult(
+            status=ResolutionStatus.UNRESOLVED,
+            unresolved=UnresolvedReport(reason=UnresolvedReason.NO_EVIDENCE),
         )
+
+    for c in candidates:
+        groups: Dict[str, float] = {}
+        for e in c.evidence:
+            _score_evidence(e, kb, cfg)
+            key = e.provenance_group or f"nogroup:{id(e)}"
+            groups[key] = max(groups.get(key, 0.0), e.score)
+        doubt = 1.0
+        for g in groups.values():
+            doubt *= (1.0 - g)
+        conf = min(cfg.global_cap, 1.0 - doubt)
+        if not any(e.match_strength in STRONG_BASIS for e in c.evidence):
+            conf = min(conf, cfg.weak_only_cap)
+        c.confidence = round(conf, 6)
+
+    ranked = sorted(
+        candidates,
+        key=lambda c: (c.confidence, KIND_RANK.get(_best_evidence(c).kind, 0), -c.callback),
+        reverse=True,
+    )
+    conflict = _conflict_report(ranked)
+
+    # min-confidence: never bind below the floor; retain candidates for review.
+    if ranked[0].confidence < cfg.min_confidence:
+        return SelectionResult(
+            status=ResolutionStatus.UNRESOLVED,
+            chosen=None,
+            candidates=ranked,
+            conflict=conflict,
+            unresolved=UnresolvedReport(
+                reason=UnresolvedReason.LOW_CONFIDENCE,
+                available_evidence=[e for c in ranked for e in c.evidence],
+            ),
+        )
+
+    if len(ranked) > 1 and (ranked[0].confidence - ranked[1].confidence) < cfg.ambiguity_margin:
+        return SelectionResult(
+            status=ResolutionStatus.AMBIGUOUS,
+            chosen=None,
+            candidates=ranked,
+            conflict=conflict,
+        )
+
     return SelectionResult(
         status=ResolutionStatus.RESOLVED,
         chosen=ranked[0],
