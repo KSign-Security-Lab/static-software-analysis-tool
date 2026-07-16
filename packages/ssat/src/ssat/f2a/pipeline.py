@@ -17,7 +17,7 @@ F2-A never confirms a vulnerability; it produces a reviewable *candidate*.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from .graph import ASSIGNMENT_OPS, FIELD_ACCESS_OPS, CPGModel
@@ -49,11 +49,13 @@ from .models import (
     CandidateFragment,
     CheckEvidence,
     CheckStrength,
+    ActionIdentifierView,
     CodeEvidence,
     CodeLocation,
     CompetingCandidateView,
     ConfidenceBreakdown,
     ConflictReportView,
+    EvidenceRecord,
     EvidencePackage,
     ExpectedCheckMatching,
     F2AResult,
@@ -65,6 +67,7 @@ from .models import (
     HandlerRef,
     HandlerResolution,
     HandlerResolutionCandidate,
+    HandlerResolutionEvidence,
     MappingEvidence,
     MatchingResult,
     MatchingStatus,
@@ -157,6 +160,8 @@ class HandlerRegistration:
     evidence_node: int            # the initializer/assignment node proving the pairing
     ref_node: int                 # the METHOD_REF node
     site_key: str = ""            # the enclosing table/array (shared by entries of one table)
+    id_sites: List[int] = field(default_factory=list)  # sibling `.action = id` store(s), for the trail
+    slot: str = ""                # receiver/slot code (e.g. `handlers[0]`), for the trail
 
 
 class F2AAnalyzer:
@@ -413,6 +418,40 @@ class F2AAnalyzer:
                 return "CONSISTENT"
             return "PARTIAL"
 
+        def _ev_view(e: ResolutionEvidence) -> HandlerResolutionEvidence:
+            aid = e.action_id
+            site = None
+            if e.dispatch_site is not None:
+                owner = cpg.method_of(e.dispatch_site)
+                site = UnresolvedDispatchSite(
+                    file=cpg.method_filename(owner) if owner is not None else "",
+                    line=cpg.line(e.dispatch_site),
+                    code=cpg.code(e.dispatch_site),
+                )
+            return HandlerResolutionEvidence(
+                kind=e.kind,
+                extractor=e.extractor,
+                match_strength=e.match_strength.name,
+                action_id_consistency=aid.consistency(self.kb).value,
+                provenance_group=e.provenance_group or "",
+                weight=e.weight,
+                score=e.score,
+                score_pre_penalty=e.score_pre_penalty,
+                action_id=ActionIdentifierView(
+                    protocol_string=aid.protocol_string,
+                    symbol=aid.symbol,
+                    numeric_id=aid.numeric_id,
+                    normalized_name=aid.normalized_name,
+                    raw_expression=aid.raw_expression,
+                    resolved_value=aid.resolved_value,
+                ),
+                dispatch_site=site,
+                records=[
+                    EvidenceRecord(type=m.type, value=m.value, file=m.file, line=m.line)
+                    for m in e.mapping_evidence
+                ],
+            )
+
         def _view(cand: HandlerCandidate) -> HandlerResolutionCandidate:
             cb = cand.callback
             return HandlerResolutionCandidate(
@@ -422,6 +461,7 @@ class F2AAnalyzer:
                 confidence=cand.confidence,
                 evidence_kinds=sorted({e.kind for e in cand.evidence}),
                 action_id_consistency=_consistency(cand),
+                evidence=[_ev_view(e) for e in cand.evidence],
             )
 
         # Candidate order is *selection order*, not raw-confidence order:
@@ -767,6 +807,7 @@ class F2AAnalyzer:
                 group = f"token:{action}"
             kind = REGISTRATION_INIT if reg.mechanism == "AGGREGATE_INIT" else REGISTRATION_ASSIGN
 
+            fn_file = cpg.method_filename(cpg.method_of(reg.evidence_node))
             mapping = [
                 MappingEvidence(
                     type="DISPATCH_HANDLER_TABLE",
@@ -774,13 +815,22 @@ class F2AAnalyzer:
                     file=cpg.method_filename(reg.callback_method),
                     line=cpg.line(reg.ref_node),
                 ),
-                MappingEvidence(
-                    type="HANDLER_REF",
-                    value=cpg.name(reg.callback_method),
-                    file=cpg.method_filename(reg.callback_method),
-                    line=cpg.line(reg.callback_method),
-                ),
             ]
+            # Correlated field stores: show the paired `.action = id` write(s) and
+            # the shared slot, so the pairing is auditable in the trail.
+            for id_site in reg.id_sites:
+                mapping.append(MappingEvidence(
+                    type="ACTION_STORE", value=cpg.code(id_site),
+                    file=fn_file, line=cpg.line(id_site),
+                ))
+            if reg.slot:
+                mapping.append(MappingEvidence(type="SLOT", value=reg.slot, file=fn_file, line=""))
+            mapping.append(MappingEvidence(
+                type="HANDLER_REF",
+                value=cpg.name(reg.callback_method),
+                file=cpg.method_filename(reg.callback_method),
+                line=cpg.line(reg.callback_method),
+            ))
             out.append(ResolutionEvidence(
                 kind=kind,
                 action_id=ActionIdentifier(
@@ -868,9 +918,10 @@ class F2AAnalyzer:
                 continue
 
             depth = self.calculus.registrar_depth
-            if not self._registrar_reaches_store(
+            trace = self._registrar_trace(
                 target, cpg.name(id_param), cpg.name(cb_param), depth
-            ):
+            )
+            if trace is None:
                 self._registrar_store_miss = True  # for _diagnose_unresolved
                 continue
 
@@ -878,6 +929,7 @@ class F2AAnalyzer:
             mapping = [
                 MappingEvidence(type="DISPATCH_REGISTRAR_CALL", value=cpg.code(call),
                                 file=cpg.method_filename(cpg.method_of(call)), line=cpg.line(call)),
+                *trace,
                 MappingEvidence(type="HANDLER_REF", value=cpg.name(callback),
                                 file=cpg.method_filename(callback), line=cpg.line(callback)),
             ]
@@ -902,13 +954,14 @@ class F2AAnalyzer:
             ))
         return out
 
-    def _registrar_reaches_store(
+    def _registrar_trace(
         self, method: int, id_name: str, cb_name: str, depth: int
-    ) -> bool:
-        """Does `method` store its `cb_name` parameter into a table slot paired
+    ) -> Optional[List[MappingEvidence]]:
+        """If `method` stores its `cb_name` parameter into a table slot paired
         with its `id_name` parameter — directly, or by delegating to a resolved
-        callee (arg->param substitution) within `depth` hops? Reuses Producer 1's
-        receiver-identity slot pairing."""
+        callee (arg->param substitution) within `depth` hops — return the ordered
+        chain (delegate calls + the terminal paired field stores) as evidence
+        records; else None. Reuses Producer 1's receiver-identity slot pairing."""
         cpg = self.cpg
 
         def rhs_names(assign: int) -> Set[str]:
@@ -922,6 +975,12 @@ class F2AAnalyzer:
                     names.add(cpg.name(d) or _strip_quotes(cpg.code(d)))
             return names
 
+        def rec(kind: str, node: int) -> MappingEvidence:
+            return MappingEvidence(
+                type=kind, value=cpg.code(node),
+                file=cpg.method_filename(method), line=cpg.line(node),
+            )
+
         assigns = [c for c in cpg.calls_in_method(method) if cpg.name(c) == "<operator>.assignment"]
         # direct: cb-param stored into a slot whose sibling stores the id-param
         for ca in assigns:
@@ -932,9 +991,9 @@ class F2AAnalyzer:
                 if other is ca:
                     continue
                 if self._store_receiver(cpg.call_args(other)[0][1]) == slot and id_name in rhs_names(other):
-                    return True
+                    return [rec("CHAIN_STORE", other), rec("CHAIN_STORE", ca)]
         if depth <= 0:
-            return False
+            return None
         # delegate: a resolved callee receiving both params by position
         for c in cpg.calls_in_method(method):
             if cpg.name(c).startswith("<operator>"):
@@ -953,11 +1012,12 @@ class F2AAnalyzer:
                 continue
             params = cpg.params_of_method(t)
             cb2, id2 = params.get(cb_idx), params.get(id_idx)
-            if cb2 is not None and id2 is not None and self._registrar_reaches_store(
-                t, cpg.name(id2), cpg.name(cb2), depth - 1
-            ):
-                return True
-        return False
+            if cb2 is None or id2 is None:
+                continue
+            sub = self._registrar_trace(t, cpg.name(id2), cpg.name(cb2), depth - 1)
+            if sub is not None:
+                return [rec("CHAIN_CALL", c), *sub]
+        return None
 
     # -- registration intermediate representation ------------------------
     #
@@ -1039,6 +1099,8 @@ class F2AAnalyzer:
                     continue
                 self._collect_ids(child, symbols, literals)
 
+            slot = ""
+            id_sites: List[int] = []
             if op == "<operator>.arrayInitializer":
                 mechanism = "AGGREGATE_INIT"
                 # All entries of one table literal share the outer initializer.
@@ -1051,7 +1113,8 @@ class F2AAnalyzer:
                 slot = self._store_receiver(lhs)
                 method = cpg.method_of(entry)
                 site_key = f"assign:{method}:{slot}"
-                # Producer 1: pull the id from a sibling store to the SAME slot.
+                # Producer 1: pull the id from a sibling store to the SAME slot,
+                # and remember that store so the trail can show the pairing.
                 for other in cpg.calls_in_method(method) if method is not None else []:
                     if other == entry or cpg.name(other) != "<operator>.assignment":
                         continue
@@ -1060,7 +1123,10 @@ class F2AAnalyzer:
                         continue
                     if self._store_receiver(oargs[0][1]) != slot:
                         continue
+                    before = (len(symbols), len(literals))
                     self._collect_ids(oargs[1][1], symbols, literals)
+                    if (len(symbols), len(literals)) != before:
+                        id_sites.append(other)  # this sibling contributed the id
 
             regs.append(
                 HandlerRegistration(
@@ -1071,6 +1137,8 @@ class F2AAnalyzer:
                     evidence_node=entry,
                     ref_node=ref,
                     site_key=site_key,
+                    id_sites=id_sites,
+                    slot=slot,
                 )
             )
         return regs

@@ -22,6 +22,26 @@ const resolutions: HandlerResolution[] = [
         confidence: 0.8,
         evidence_kinds: ["REGISTRAR_CALL"],
         action_id_consistency: "PARTIAL",
+        evidence: [
+          {
+            kind: "REGISTRAR_CALL",
+            extractor: "registrar_call",
+            match_strength: "EXACT_IDENTIFIER",
+            action_id_consistency: "PARTIAL",
+            provenance_group: "site:registrar:99",
+            weight: 0.7,
+            score: 0.7,
+            score_pre_penalty: 0.7,
+            action_id: { symbol: null, numeric_id: null, raw_expression: "ACTION_REMOTE_START" },
+            dispatch_site: null,
+            records: [
+              { type: "DISPATCH_REGISTRAR_CALL", value: "register_handler(ACTION_REMOTE_START, remote_handler)", file: "u.c", line: 17 },
+              { type: "CHAIN_CALL", value: "store_handler(0, action, callback)", file: "u.c", line: 15 },
+              { type: "CHAIN_STORE", value: "handlers[slot].fn = callback", file: "u.c", line: 13 },
+              { type: "HANDLER_REF", value: "remote_handler", file: "u.c", line: 15 },
+            ],
+          },
+        ],
       },
     ],
     conflict: null,
@@ -39,6 +59,25 @@ const resolutions: HandlerResolution[] = [
         confidence: 0.56,
         evidence_kinds: ["REGISTRATION_ASSIGN"],
         action_id_consistency: "PARTIAL",
+        evidence: [
+          {
+            kind: "REGISTRATION_ASSIGN",
+            extractor: "registration_ast",
+            match_strength: "HEURISTIC_SUBSTRING",
+            action_id_consistency: "PARTIAL",
+            provenance_group: "token:DataTransfer",
+            weight: 0.8,
+            score: 0.56,
+            score_pre_penalty: 0.56,
+            action_id: { raw_expression: "table_a[0].fn = handle_a" },
+            dispatch_site: null,
+            records: [
+              { type: "ACTION_STORE", value: "table_a[0].action = ACTION_DATA_TRANSFER", file: "u.c", line: 20 },
+              { type: "SLOT", value: "table_a[0]", file: "u.c", line: "" },
+              { type: "HANDLER_REF", value: "handle_a", file: "u.c", line: 1 },
+            ],
+          },
+        ],
       },
       {
         function: "handle_b",
@@ -47,6 +86,7 @@ const resolutions: HandlerResolution[] = [
         confidence: 0.56,
         evidence_kinds: ["REGISTRATION_ASSIGN"],
         action_id_consistency: "PARTIAL",
+        evidence: [],
       },
     ],
     conflict: { competing: [], margin: 0, note: "" },
@@ -89,6 +129,21 @@ describe("HandlerResolutionView", () => {
     expect(html).toContain("handle_b");
     expect(html).toContain("UNRESOLVED");
     expect(html).toContain("NO_EVIDENCE");
+  });
+
+  it("renders the evidence trail: registrar chain + paired field stores", () => {
+    const html = renderToStaticMarkup(h(HandlerResolutionView, { resolutions }));
+    // registrar chain (RESOLVED candidate)
+    expect(html).toContain("DISPATCH_REGISTRAR_CALL");
+    expect(html).toContain("store_handler(0, action, callback)");
+    expect(html).toContain("CHAIN_STORE");
+    // paired field-store trail (AMBIGUOUS candidate handle_a)
+    expect(html).toContain("ACTION_STORE");
+    expect(html).toContain("table_a[0].action = ACTION_DATA_TRANSFER");
+    expect(html).toContain("SLOT");
+    // scoring / provenance surfaced
+    expect(html).toContain("site:registrar:99");
+    expect(html).toContain("EXACT_IDENTIFIER");
   });
 });
 

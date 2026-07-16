@@ -121,8 +121,53 @@ class HandlerMap(BaseModel):
 #     SelectionResult; carries no CPG node references) -----------------------
 
 
+class UnresolvedDispatchSite(BaseModel):
+    file: str = ""
+    line: Union[int, str] = ""
+    code: str = ""
+
+
+class ActionIdentifierView(BaseModel):
+    """The action-id observation(s) a piece of evidence matched on."""
+
+    protocol_string: Optional[str] = None
+    symbol: Optional[str] = None
+    numeric_id: Optional[int] = None
+    normalized_name: Optional[str] = None
+    raw_expression: Optional[str] = None
+    resolved_value: Optional[Union[int, str]] = None
+
+
+class EvidenceRecord(BaseModel):
+    """One line of the resolution trail (a CPG anchor with its code)."""
+
+    type: str  # DISPATCH_*, HANDLER_REF, ACTION_STORE, SLOT, CHAIN_CALL, CHAIN_STORE, ...
+    value: str = ""  # the original code / value at that site
+    file: str = ""
+    line: Union[int, str] = ""
+
+
+class HandlerResolutionEvidence(BaseModel):
+    """A single auditable evidence record behind a candidate — the "how it was
+    resolved" detail: kind, matched identifier, provenance, scores, and the trail
+    of CPG sites (paired assignments / registrar chain)."""
+
+    kind: str
+    extractor: str = ""
+    match_strength: str = ""  # EXACT_IDENTIFIER | RESOLVED_VALUE | NORMALIZED_NAME | HEURISTIC_SUBSTRING | NONE
+    action_id_consistency: str = "PARTIAL"
+    provenance_group: str = ""
+    weight: float = 0.0
+    score: float = 0.0                # post-penalty score used by the calculus
+    score_pre_penalty: float = 0.0    # W*M before any identifier-consistency penalty
+    action_id: ActionIdentifierView = Field(default_factory=ActionIdentifierView)
+    dispatch_site: Optional[UnresolvedDispatchSite] = None
+    records: List[EvidenceRecord] = Field(default_factory=list)
+
+
 class HandlerResolutionCandidate(BaseModel):
-    """One competing handler candidate, resolved to source coordinates."""
+    """One competing handler candidate, resolved to source coordinates, with the
+    underlying evidence trail so the mapping is auditable."""
 
     function: str = ""
     file: str = ""
@@ -130,6 +175,7 @@ class HandlerResolutionCandidate(BaseModel):
     confidence: float = 0.0  # authoritative Phase-2 aggregated score (NOT HandlerMap.confidence)
     evidence_kinds: List[str] = Field(default_factory=list)
     action_id_consistency: str = "PARTIAL"  # CONSISTENT | CONFLICTING | PARTIAL
+    evidence: List[HandlerResolutionEvidence] = Field(default_factory=list)
 
 
 class CompetingCandidateView(BaseModel):
@@ -142,12 +188,6 @@ class ConflictReportView(BaseModel):
     competing: List[CompetingCandidateView] = Field(default_factory=list)
     margin: float = 0.0
     note: str = ""
-
-
-class UnresolvedDispatchSite(BaseModel):
-    file: str = ""
-    line: Union[int, str] = ""
-    code: str = ""
 
 
 class UnresolvedReportView(BaseModel):

@@ -1,6 +1,51 @@
 "use client";
 
-import type { HandlerResolution, ResolutionStatus } from "@/lib/types";
+import type {
+  HandlerResolution,
+  HandlerResolutionEvidence,
+  ResolutionStatus,
+} from "@/lib/types";
+
+function EvidenceTrail({ evidence }: { evidence: HandlerResolutionEvidence[] }) {
+  if (!evidence.length) return null;
+  return (
+    <div className="evtrail">
+      {evidence.map((e, i) => {
+        const a = e.action_id;
+        const id = a.symbol ?? a.raw_expression ?? (a.numeric_id != null ? String(a.numeric_id) : null);
+        return (
+          <div className="evrec" key={i} style={{ marginTop: 8 }}>
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+              <span className="badge">{e.kind}</span>
+              <span className="badge">일치 {e.match_strength}</span>
+              <span className="badge">식별자 {e.action_id_consistency}</span>
+              {e.provenance_group && <span className="badge mono">{e.provenance_group}</span>}
+              <span className="badge">
+                점수 {e.score_pre_penalty.toFixed(2)}→{e.score.toFixed(2)}
+              </span>
+            </div>
+            {id && (
+              <p className="status mono" style={{ margin: "6px 0", fontSize: 12 }}>
+                매칭된 식별자: {id}
+                {a.resolved_value != null ? ` (= ${a.resolved_value})` : ""}
+              </p>
+            )}
+            <div className="flowline">
+              {e.records.map((rec, j) => (
+                <span key={j} style={{ display: "contents" }}>
+                  {j > 0 && <span className="arrow">→</span>}
+                  <span className="pill step" title={`${rec.file}:${String(rec.line)}`}>
+                    <b>{rec.type}</b> {rec.value}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function resStatusTag(status: ResolutionStatus): { cls: string; label: string } {
   switch (status) {
@@ -53,6 +98,12 @@ export function HandlerResolutionCard({ hr }: { hr: HandlerResolution }) {
               <span className="badge">식별자 일관성: {top.action_id_consistency}</span>
             </div>
           )}
+          {top && (top.evidence?.length ?? 0) > 0 && (
+            <details className="limdetails" style={{ marginTop: 8 }}>
+              <summary className="muted small">판정 근거 ({top.evidence!.length})</summary>
+              <EvidenceTrail evidence={top.evidence!} />
+            </details>
+          )}
         </>
       )}
 
@@ -62,30 +113,16 @@ export function HandlerResolutionCard({ hr }: { hr: HandlerResolution }) {
             경합하는 핸들러가 여러 개라 선택하지 않았습니다 (chosen = null).
             {hr.conflict ? ` 상위 두 후보 마진 ${hr.conflict.margin.toFixed(4)}.` : ""}
           </p>
-          <table className="checks">
-            <thead>
-              <tr>
-                <th>경합 후보</th>
-                <th>신뢰도</th>
-                <th>근거 종류</th>
-              </tr>
-            </thead>
-            <tbody>
-              {hr.candidates.map((c) => (
-                <tr key={c.function}>
-                  <td className="mono">{c.function}</td>
-                  <td>{c.confidence.toFixed(2)}</td>
-                  <td>
-                    {c.evidence_kinds.map((k) => (
-                      <span key={k} className="badge">
-                        {k}
-                      </span>
-                    ))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {/* Each candidate's evidence trail shown separately, so users can see
+              why both survived and why no winner was chosen. */}
+          {hr.candidates.map((c) => (
+            <details className="limdetails" key={c.function} style={{ marginTop: 8 }}>
+              <summary className="muted small">
+                {c.function} · 신뢰도 {c.confidence.toFixed(2)} · {c.evidence_kinds.join(", ")}
+              </summary>
+              <EvidenceTrail evidence={c.evidence ?? []} />
+            </details>
+          ))}
         </>
       )}
 

@@ -100,6 +100,36 @@ export interface F2AResult {
 // Authoritative per-action resolution outcome (mirrors the backend public model).
 export type ResolutionStatus = "RESOLVED" | "AMBIGUOUS" | "UNRESOLVED";
 
+export interface ActionIdentifierView {
+  protocol_string?: string | null;
+  symbol?: string | null;
+  numeric_id?: number | null;
+  normalized_name?: string | null;
+  raw_expression?: string | null;
+  resolved_value?: number | string | null;
+}
+
+export interface EvidenceRecord {
+  type: string; // DISPATCH_*, HANDLER_REF, ACTION_STORE, SLOT, CHAIN_CALL, CHAIN_STORE, ...
+  value: string;
+  file: string;
+  line: string | number;
+}
+
+export interface HandlerResolutionEvidence {
+  kind: string;
+  extractor: string;
+  match_strength: string;
+  action_id_consistency: string;
+  provenance_group: string;
+  weight: number;
+  score: number;
+  score_pre_penalty: number;
+  action_id: ActionIdentifierView;
+  dispatch_site: UnresolvedDispatchSite | null;
+  records: EvidenceRecord[];
+}
+
 export interface HandlerResolutionCandidate {
   function: string;
   file: string;
@@ -107,6 +137,7 @@ export interface HandlerResolutionCandidate {
   confidence: number;
   evidence_kinds: string[];
   action_id_consistency: string; // CONSISTENT | CONFLICTING | PARTIAL
+  evidence?: HandlerResolutionEvidence[];
 }
 
 export interface CompetingCandidateView {
