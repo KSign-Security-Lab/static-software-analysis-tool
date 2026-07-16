@@ -1,238 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { buildDecisions, koStatus, type Decision, type TraceStep } from "@/lib/decision";
-import { buildGroups, sourceLines, type CodeTone } from "@/lib/code";
-import HandlerResolutionView from "@/components/HandlerResolutionView";
+import { buildDecisions } from "@/lib/decision";
+import ResultCard from "@/components/ResultCard";
 import type { F2AResult } from "@/lib/types";
-
-function statusClass(status: string): string {
-  switch (status) {
-    case "SATISFIED":
-      return "sat";
-    case "NEGATIVE":
-    case "NEGATIVE_EVIDENCE_FOUND":
-      return "neg";
-    case "WEAKLY_RELATED":
-      return "weak";
-    default:
-      return "unv";
-  }
-}
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <section className="section">
-      <div className="section-title">{label}</div>
-      {children}
-    </section>
-  );
-}
-
-function roleTone(role: TraceStep["role"]): CodeTone {
-  return role === "source" ? "source" : role === "sink" ? "sink" : "call";
-}
-
-function StepSnippet({ step, lines }: { step: TraceStep; lines: string[] }) {
-  const tone = roleTone(step.role);
-  const groups = useMemo(
-    () => buildGroups([{ line: step.line, caption: step.note, tone }], lines.length, 3),
-    [step.line, step.note, tone, lines.length],
-  );
-  const g = groups[0];
-  return (
-    <div className="codeblock">
-      <div className="codeblock-bar">
-        <span className="dots">
-          <i />
-          <i />
-          <i />
-        </span>
-        <span className="cb-label">
-          {step.fn} · {step.file}:{step.line}
-        </span>
-      </div>
-      <pre className="snip">
-        {g ? (
-          Array.from({ length: g.end - g.start + 1 }, (_, k) => {
-            const n = g.start + k;
-            const ref = g.refs.get(n);
-            return (
-              <div key={n} className={`cline ${ref ? "hl tone-" + ref.tone : ""}`}>
-                <span className="ln">{n}</span>
-                <span className="ct">{lines[n - 1] || " "}</span>
-                {ref && <span className="cap">{ref.caption}</span>}
-              </div>
-            );
-          })
-        ) : (
-          <div className="cline hl">
-            <span className="ct">{step.note}</span>
-          </div>
-        )}
-      </pre>
-    </div>
-  );
-}
-
-function Trace({
-  steps,
-  lines,
-  onInspect,
-}: {
-  steps: TraceStep[];
-  lines: string[];
-  onInspect?: (fn: string) => void;
-}) {
-  return (
-    <ol className="trace">
-      {steps.map((s) => (
-        <li className={`trace-step ${s.role}`} key={s.n}>
-          <span className="tnum">{s.n}</span>
-          <div className="tmain">
-            <StepSnippet step={s} lines={lines} />
-          </div>
-        </li>
-      ))}
-      {onInspect && steps[0] && (
-        <button className="tblink" onClick={() => onInspect(steps[steps.length - 1].fn)}>
-          그래프 탐색기에서 데이터 흐름 보기 ▸
-        </button>
-      )}
-    </ol>
-  );
-}
-
-function FindingCard({
-  d,
-  source,
-  onInspect,
-}: {
-  d: Decision;
-  source: string;
-  onInspect?: (fn: string) => void;
-}) {
-  const lines = useMemo(() => (source ? sourceLines(source) : []), [source]);
-  const verdictCls = d.hasFinding ? "suspect" : "none";
-
-  return (
-    <article className="finding">
-      <header className="finding-head">
-        <div className="fh-top">
-          <span className={`vbadge ${verdictCls}`}>{d.verdict}</span>
-          {d.hasFinding && (
-            <div className="fh-conf">
-              <span className="fh-conf-num">{d.confidence.toFixed(2)}</span>
-              <span className="cbar" style={{ width: 84 }}>
-                <span style={{ width: `${Math.round(d.confidence * 100)}%` }} />
-              </span>
-              <span className="muted small">신뢰도 {d.confidenceLabel}</span>
-            </div>
-          )}
-        </div>
-        <h1 className="fh-title">{d.title}</h1>
-        {d.subtitle && <div className="fh-sub mono">{d.subtitle}</div>}
-        {d.hasFinding && (
-          <div className="fh-meta">
-            {d.component && <span className="badge mono">component · {d.component}</span>}
-            {d.ocppVersion && <span className="badge mono">{d.ocppVersion}</span>}
-            {d.cwe.map((w) => (
-              <span key={w} className="badge">
-                {w}
-              </span>
-            ))}
-            {d.location && <span className="badge mono">{d.location}</span>}
-          </div>
-        )}
-      </header>
-
-      <Section label="개요">
-        <p className="prose">{d.overview}</p>
-      </Section>
-
-      {d.hasFinding && (
-        <>
-          <Section label="데이터 흐름">
-            <Trace steps={d.trace} lines={lines} onInspect={onInspect} />
-          </Section>
-
-          <Section label="검사">
-            <table className="checks">
-              <thead>
-                <tr>
-                  <th>필요한 검사</th>
-                  <th>상태</th>
-                  <th>관찰된 근거</th>
-                </tr>
-              </thead>
-              <tbody>
-                {d.checks.map((c, i) => (
-                  <tr key={c.id + i}>
-                    <td className="mono">{c.id}</td>
-                    <td>
-                      <span className={`tag ${statusClass(c.status)}`}>{koStatus(c.status)}</span>
-                    </td>
-                    <td className="mono muted small">{c.evidence ?? c.observed ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Section>
-
-          {d.remediation.length > 0 && (
-            <Section label="권고">
-              <ul className="remedy">
-                {d.remediation.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </Section>
-          )}
-
-          <Section label="신뢰도 근거">
-            <p className="muted small" style={{ margin: "0 0 10px" }}>
-              근거가 얼마나 잘 연결되는지를 나타낼 뿐, 실제 악용 가능 여부는 아닙니다. F2-A는
-              취약점을 확정하지 않습니다.
-            </p>
-            <div className="confgrid">
-              {d.confidenceFactors.map(([k, v]) => (
-                <div className="confrow" key={k}>
-                  <span className="muted mono small">{k}</span>
-                  <span className="cbar">
-                    <span style={{ width: `${Math.round(v * 100)}%` }} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Section>
-        </>
-      )}
-
-      {!d.hasFinding && d.handlers.length > 0 && (
-        <Section label="발견된 핸들러">
-          <div className="chiprow">
-            {d.handlers.map((h, i) => (
-              <span key={i} className="badge">
-                {h.action} → {h.fn}
-              </span>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {d.limitations.length > 0 && (
-        <details className="limdetails">
-          <summary className="muted small">한계 및 범위 ({d.limitations.length})</summary>
-          <ul className="limits">
-            {d.limitations.map((l, i) => (
-              <li key={i}>{l}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </article>
-  );
-}
 
 export default function DecisionView({
   result,
@@ -247,40 +18,35 @@ export default function DecisionView({
   const [idx, setIdx] = useState(0);
   const d = decisions[Math.min(idx, decisions.length - 1)];
 
-  // No source→sink finding but the resolver produced per-action outcomes:
-  // show the first-class Handler Resolution view instead of a bare "no finding"
-  // card. handler_resolutions is the authoritative result.
-  const resolutions = result.handler_resolutions ?? [];
-  const showResolutions = result.evidence_packages.length === 0 && resolutions.length > 0;
+  // A handler-resolution report (no source→sink finding) gets a one-line summary
+  // above the chip row so the two result types read as one report, not two UIs.
+  const handlerMode = d?.kind === "handler";
+  const nRes = decisions.filter((x) => x.verdict === "확정").length;
+  const nAmb = decisions.filter((x) => x.verdict === "모호").length;
+  const nUnres = decisions.filter((x) => x.verdict === "미해결").length;
 
   return (
     <div className="report">
+      {handlerMode && (
+        <p className="status" style={{ margin: "0 0 12px" }}>
+          소스→싱크 근거는 없지만, 액션별 핸들러 판정이 권위 있는 결과입니다 (확정 {nRes} · 모호{" "}
+          {nAmb} · 미해결 {nUnres}).
+        </p>
+      )}
       {decisions.length > 1 && (
         <div className="chiprow" style={{ marginBottom: 16 }}>
           {decisions.map((x, i) => (
-            <button key={x.id} className={`tab ${i === idx ? "active" : ""}`} onClick={() => setIdx(i)}>
-              {x.action}.{x.field}
+            <button
+              key={x.id}
+              className={`tab ${i === idx ? "active" : ""}`}
+              onClick={() => setIdx(i)}
+            >
+              {x.chipLabel}
             </button>
           ))}
         </div>
       )}
-      {showResolutions ? (
-        <>
-          <HandlerResolutionView resolutions={resolutions} />
-          {result.limitations.length > 0 && (
-            <details className="limdetails">
-              <summary className="muted small">한계 및 범위 ({result.limitations.length})</summary>
-              <ul className="limits">
-                {result.limitations.map((l, i) => (
-                  <li key={i}>{l}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </>
-      ) : (
-        <FindingCard d={d} source={source} onInspect={onInspect} />
-      )}
+      <ResultCard d={d} source={source} onInspect={onInspect} />
     </div>
   );
 }

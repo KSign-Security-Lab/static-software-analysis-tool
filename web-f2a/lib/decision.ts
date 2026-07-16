@@ -4,7 +4,13 @@
 // literals. Korean phrasing comes from small maps over the design's controlled
 // enums (sink domain / check id / strength / status) with generic fallbacks.
 
-import type { F2AResult, EvidencePackage, HandlerMap } from "./types";
+import type {
+  F2AResult,
+  EvidencePackage,
+  HandlerMap,
+  HandlerResolution,
+  HandlerResolutionCandidate,
+} from "./types";
 
 export interface TraceStep {
   n: number;
@@ -24,12 +30,15 @@ export interface CheckRow {
 
 export interface Decision {
   id: string;
-  hasFinding: boolean;
+  kind: "vuln" | "handler"; // one result model, two result types
+  hasFinding: boolean; // gates the vuln-only sections (checks / remediation / confidence factors)
   action: string;
   field: string;
   subtitle: string; // action.field · semantic  (mono)
   title: string; // plain-language headline
-  verdict: string; // 검토 후보
+  verdict: string; // 검토 후보 / 확정 / 모호 / 미해결
+  tone: string; // vbadge tone: suspect | none | ok | warn
+  chipLabel: string; // label in the multi-result chip row
   component: string; // OCPP component (e.g. charge_point)
   ocppVersion: string;
   confidence: number;
@@ -37,12 +46,34 @@ export interface Decision {
   cwe: string[];
   location: string; // sink file:line
   overview: string;
+  traceLabel: string; // "데이터 흐름" (vuln) | "판정 근거" (handler)
   trace: TraceStep[];
+  meta: [string, string][]; // header badge pairs (handler: match/consistency/group/score)
   checks: CheckRow[];
   confidenceFactors: [string, number][];
   remediation: string[];
   handlers: { action: string; fn: string }[];
   limitations: string[];
+}
+
+function koRecordType(t: string): string {
+  return (
+    {
+      DISPATCH_STRING_MATCH: "문자열 디스패치",
+      DISPATCH_ENUM_CASE: "enum/switch",
+      DISPATCH_HANDLER_TABLE: "등록 테이블",
+      DISPATCH_REGISTRAR_CALL: "등록 함수 호출",
+      HANDLER_CALL: "핸들러 호출",
+      HANDLER_REF: "핸들러",
+      HANDLER_NAME_PATTERN: "이름 패턴",
+      HANDLER_NAME_MATCH: "이름 매칭",
+      ACTION_STORE: "액션 저장",
+      FN_STORE: "핸들러 저장",
+      SLOT: "슬롯",
+      CHAIN_CALL: "위임 호출",
+      CHAIN_STORE: "필드 저장",
+    }[t] ?? t
+  );
 }
 
 function num(x: unknown): number {
@@ -167,12 +198,15 @@ function buildOne(pkg: EvidencePackage, handlers: HandlerMap[]): Decision {
 
   return {
     id: pkg.evidence_id,
+    kind: "vuln",
     hasFinding: true,
     action: ctx.action,
     field: ctx.field,
     subtitle: `${ctx.action}.${ctx.field} · ${ctx.field_semantic}`,
     title: `외부 입력이 ${sink.api}() (${dNoun}) 싱크까지 도달합니다`,
     verdict: "검토 후보",
+    tone: "suspect",
+    chipLabel: `${ctx.action}.${ctx.field}`,
     component: pkg.component_type,
     ocppVersion: ctx.ocpp_version,
     confidence: conf,
@@ -180,7 +214,9 @@ function buildOne(pkg: EvidencePackage, handlers: HandlerMap[]): Decision {
     cwe: pkg.related_cwe,
     location: `${sink.file}:${sink.line}`,
     overview,
+    traceLabel: "데이터 흐름",
     trace,
+    meta: [],
     checks,
     confidenceFactors: [
       ["handler", pkg.confidence.handler_mapping],
@@ -197,32 +233,140 @@ function buildOne(pkg: EvidencePackage, handlers: HandlerMap[]): Decision {
   };
 }
 
-export function buildDecisions(result: F2AResult): Decision[] {
-  if (result.evidence_packages.length === 0) {
-    return [
-      {
-        id: "none",
-        hasFinding: false,
-        action: "",
-        field: "",
-        subtitle: "",
-        title: "신뢰할 수 없는 입력 → 위험 싱크 경로를 찾지 못했습니다",
-        verdict: "발견 없음",
-        component: "",
-        ocppVersion: "",
-        confidence: 0,
-        confidenceLabel: "",
-        cwe: [],
-        location: "",
-        overview: "이 코드에서 위험한 싱크에 도달하는 OCPP 페이로드 필드를 찾지 못했습니다.",
-        trace: [],
-        checks: [],
-        confidenceFactors: [],
-        remediation: [],
-        handlers: result.handler_maps.map((h) => ({ action: h.action, fn: h.handler.function })),
-        limitations: result.limitations,
-      },
-    ];
+function traceFromCandidate(c: HandlerResolutionCandidate): TraceStep[] {
+  const recs = (c.evidence ?? []).flatMap((e) => e.records);
+  return recs.map((rec, i) => ({
+    n: i + 1,
+    line: num(rec.line),
+    fn: koRecordType(rec.type),
+    file: rec.file,
+    role: rec.type === "HANDLER_REF" ? "sink" : i === 0 ? "source" : "step",
+    note: rec.value,
+  }));
+}
+
+const STATUS_META: Record<string, { tone: string; verdict: string }> = {
+  RESOLVED: { tone: "ok", verdict: "확정" },
+  AMBIGUOUS: { tone: "warn", verdict: "모호" },
+  UNRESOLVED: { tone: "none", verdict: "미해결" },
+};
+
+function handlerDecision(
+  hr: HandlerResolution,
+  cand: HandlerResolutionCandidate | undefined,
+  idx: number,
+  n: number,
+  limitations: string[],
+): Decision {
+  const sm = STATUS_META[hr.status] ?? STATUS_META.UNRESOLVED;
+  const e0 = cand?.evidence?.[0];
+  const conf = cand?.confidence ?? 0;
+
+  const meta: [string, string][] = [];
+  let overview: string;
+  if (hr.status === "RESOLVED" && cand) {
+    overview = `${hr.action} 액션은 등록 근거를 통해 핸들러 ${cand.function}() 로 확정되었습니다.`;
+  } else if (hr.status === "AMBIGUOUS" && cand) {
+    overview =
+      `${hr.action} 액션에 경합하는 핸들러가 여러 개라 어느 하나를 선택하지 않았습니다 ` +
+      `(후보 ${idx + 1}/${n}). 각 후보의 근거를 아래에서 확인하세요.`;
+    if (hr.conflict) meta.push(["마진", hr.conflict.margin.toFixed(4)]);
+  } else {
+    const u = hr.unresolved;
+    overview = `${hr.action} 액션의 핸들러를 확정하지 못했습니다: ${u?.reason ?? "NO_EVIDENCE"}.`;
+    if (u?.secondary) meta.push(["보조", u.secondary]);
+    if (u?.attempted_extractors?.length) meta.push(["시도", u.attempted_extractors.join(", ")]);
   }
-  return result.evidence_packages.map((p) => buildOne(p, result.handler_maps));
+  if (e0) {
+    meta.push(["일치", e0.match_strength]);
+    meta.push(["식별자", e0.action_id_consistency]);
+    if (e0.provenance_group) meta.push(["그룹", e0.provenance_group]);
+    meta.push(["점수", `${e0.score_pre_penalty.toFixed(2)}→${e0.score.toFixed(2)}`]);
+  }
+
+  return {
+    id: `${hr.action}:${cand?.function ?? hr.status}:${idx}`,
+    kind: "handler",
+    hasFinding: false,
+    action: hr.action,
+    field: "",
+    subtitle: cand ? `→ ${cand.function}()` : "",
+    title: hr.action,
+    verdict: sm.verdict,
+    tone: sm.tone,
+    chipLabel: hr.status === "AMBIGUOUS" && cand ? `${hr.action} · ${cand.function}` : hr.action,
+    component: "",
+    ocppVersion: "",
+    confidence: hr.status === "RESOLVED" ? conf : 0,
+    confidenceLabel: hr.status === "RESOLVED" ? koConfidence(conf) : "",
+    cwe: [],
+    location: cand ? `${cand.file}:${cand.line}` : "",
+    overview,
+    traceLabel: "판정 근거",
+    trace: cand ? traceFromCandidate(cand) : [],
+    meta,
+    checks: [],
+    confidenceFactors: [],
+    remediation: [],
+    handlers: [],
+    limitations,
+  };
+}
+
+function noFinding(result: F2AResult): Decision {
+  return {
+    id: "none",
+    kind: "vuln",
+    hasFinding: false,
+    action: "",
+    field: "",
+    subtitle: "",
+    title: "신뢰할 수 없는 입력 → 위험 싱크 경로를 찾지 못했습니다",
+    verdict: "발견 없음",
+    tone: "none",
+    chipLabel: "결과",
+    component: "",
+    ocppVersion: "",
+    confidence: 0,
+    confidenceLabel: "",
+    cwe: [],
+    location: "",
+    overview: "이 코드에서 위험한 싱크에 도달하는 OCPP 페이로드 필드를 찾지 못했습니다.",
+    traceLabel: "데이터 흐름",
+    trace: [],
+    meta: [],
+    checks: [],
+    confidenceFactors: [],
+    remediation: [],
+    handlers: result.handler_maps.map((h) => ({ action: h.action, fn: h.handler.function })),
+    limitations: result.limitations,
+  };
+}
+
+export function buildDecisions(result: F2AResult): Decision[] {
+  if (result.evidence_packages.length > 0) {
+    return result.evidence_packages.map((p) => buildOne(p, result.handler_maps));
+  }
+
+  // No source→sink finding: render the handler resolutions through the SAME
+  // result model (one card per action; per-candidate for AMBIGUOUS).
+  const resolutions = result.handler_resolutions ?? [];
+  if (resolutions.length > 0) {
+    const order: Record<string, number> = { RESOLVED: 0, AMBIGUOUS: 1, UNRESOLVED: 2 };
+    const sorted = [...resolutions].sort(
+      (a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || a.action.localeCompare(b.action),
+    );
+    const out: Decision[] = [];
+    for (const hr of sorted) {
+      if (hr.status === "AMBIGUOUS" && hr.candidates.length > 0) {
+        hr.candidates.forEach((c, i) =>
+          out.push(handlerDecision(hr, c, i, hr.candidates.length, result.limitations)),
+        );
+      } else {
+        out.push(handlerDecision(hr, hr.candidates[0], 0, hr.candidates.length, result.limitations));
+      }
+    }
+    if (out.length) return out;
+  }
+  return [noFinding(result)];
 }

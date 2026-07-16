@@ -1,7 +1,8 @@
 "use client";
 
 import type { EvidencePackage, F2AResult } from "@/lib/types";
-import HandlerResolutionView from "@/components/HandlerResolutionView";
+import { buildDecisions } from "@/lib/decision";
+import ResultCard from "@/components/ResultCard";
 
 function strengthTag(s: string): string {
   if (s === "STRONG") return "strong";
@@ -193,10 +194,11 @@ export default function F2AReport({ result }: { result: F2AResult }) {
       ))}
 
       {/* Handler-resolution is a first-class result: when there is no source→sink
-          finding, show the per-action resolution instead of an empty page. */}
-      {!hasPackages && resolutions.length > 0 && (
-        <HandlerResolutionView resolutions={resolutions} />
-      )}
+          finding, show the per-action resolution through the SAME result card as
+          vulnerability findings, not a parallel layout. */}
+      {!hasPackages &&
+        resolutions.length > 0 &&
+        buildDecisions(result).map((d) => <ResultCard key={d.id} d={d} source="" />)}
 
       {!hasPackages && resolutions.length === 0 && (
         <div className="card">

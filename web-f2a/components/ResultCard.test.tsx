@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import HandlerResolutionView from "@/components/HandlerResolutionView";
+import ResultCard from "@/components/ResultCard";
 import DecisionView from "@/components/DecisionView";
+import { buildDecisions } from "@/lib/decision";
 import type { F2AResult, HandlerResolution } from "@/lib/types";
 
 // createElement (not JSX) so the test file needs no JSX transform; the imported
@@ -86,7 +87,25 @@ const resolutions: HandlerResolution[] = [
         confidence: 0.56,
         evidence_kinds: ["REGISTRATION_ASSIGN"],
         action_id_consistency: "PARTIAL",
-        evidence: [],
+        evidence: [
+          {
+            kind: "REGISTRATION_ASSIGN",
+            extractor: "registration_ast",
+            match_strength: "HEURISTIC_SUBSTRING",
+            action_id_consistency: "PARTIAL",
+            provenance_group: "token:DataTransfer",
+            weight: 0.8,
+            score: 0.56,
+            score_pre_penalty: 0.56,
+            action_id: { raw_expression: "table_b[0].fn = handle_b" },
+            dispatch_site: null,
+            records: [
+              { type: "ACTION_STORE", value: "table_b[0].action = ACTION_DATA_TRANSFER", file: "u.c", line: 30 },
+              { type: "SLOT", value: "table_b[0]", file: "u.c", line: "" },
+              { type: "HANDLER_REF", value: "handle_b", file: "u.c", line: 2 },
+            ],
+          },
+        ],
       },
     ],
     conflict: { competing: [], margin: 0, note: "" },
@@ -118,43 +137,70 @@ function baseResult(overrides: Partial<F2AResult>): F2AResult {
   };
 }
 
-describe("HandlerResolutionView", () => {
-  it("renders one card per action with chosen / competitors / reason", () => {
-    const html = renderToStaticMarkup(h(HandlerResolutionView, { resolutions }));
-    expect(html).toContain("핸들러 판정");
-    expect(html).toContain("RESOLVED");
-    expect(html).toContain("remote_handler"); // RESOLVED chosen
-    expect(html).toContain("AMBIGUOUS");
-    expect(html).toContain("handle_a"); // both competing candidates retained
-    expect(html).toContain("handle_b");
-    expect(html).toContain("UNRESOLVED");
-    expect(html).toContain("NO_EVIDENCE");
+describe("buildDecisions (handler resolutions → common result model)", () => {
+  const decisions = buildDecisions(baseResult({ handler_resolutions: resolutions }));
+
+  it("emits one decision per action, per-candidate for AMBIGUOUS, sorted", () => {
+    // RESOLVED(1) + AMBIGUOUS(2 candidates) + UNRESOLVED(1) = 4, in status order
+    expect(decisions.map((d) => d.verdict)).toEqual(["확정", "모호", "모호", "미해결"]);
+    expect(decisions.every((d) => d.kind === "handler")).toBe(true);
   });
 
-  it("renders the evidence trail: registrar chain + paired field stores", () => {
-    const html = renderToStaticMarkup(h(HandlerResolutionView, { resolutions }));
-    // registrar chain (RESOLVED candidate)
-    expect(html).toContain("DISPATCH_REGISTRAR_CALL");
+  it("builds a numbered trace from the resolution evidence records", () => {
+    const resolved = decisions[0];
+    expect(resolved.trace.length).toBe(4); // registrar chain
+    expect(resolved.trace[0].role).toBe("source");
+    expect(resolved.trace[3].role).toBe("sink"); // HANDLER_REF
+    // UNRESOLVED has no candidate → no trace
+    const unresolved = decisions[3];
+    expect(unresolved.trace.length).toBe(0);
+  });
+});
+
+describe("ResultCard (handler decision)", () => {
+  const decisions = buildDecisions(baseResult({ handler_resolutions: resolutions }));
+
+  it("renders the registrar chain as a numbered trace with scoring meta", () => {
+    const html = renderToStaticMarkup(h(ResultCard, { d: decisions[0], source: "" }));
+    expect(html).toContain("확정");
+    expect(html).toContain("판정 근거"); // trace section label
+    expect(html).toContain("등록 함수 호출"); // koRecordType(DISPATCH_REGISTRAR_CALL)
     expect(html).toContain("store_handler(0, action, callback)");
-    expect(html).toContain("CHAIN_STORE");
-    // paired field-store trail (AMBIGUOUS candidate handle_a)
-    expect(html).toContain("ACTION_STORE");
-    expect(html).toContain("table_a[0].action = ACTION_DATA_TRANSFER");
-    expect(html).toContain("SLOT");
-    // scoring / provenance surfaced
+    expect(html).toContain("remote_handler");
+    // scoring / provenance surfaced in header meta
     expect(html).toContain("site:registrar:99");
     expect(html).toContain("EXACT_IDENTIFIER");
+  });
+
+  it("renders each AMBIGUOUS candidate's paired field-store trail separately", () => {
+    const a = renderToStaticMarkup(h(ResultCard, { d: decisions[1], source: "" }));
+    expect(a).toContain("모호");
+    expect(a).toContain("액션 저장"); // koRecordType(ACTION_STORE)
+    expect(a).toContain("table_a[0].action = ACTION_DATA_TRANSFER");
+    expect(a).toContain("슬롯"); // koRecordType(SLOT)
+    expect(a).toContain("handle_a");
+    const b = renderToStaticMarkup(h(ResultCard, { d: decisions[2], source: "" }));
+    expect(b).toContain("table_b[0].action = ACTION_DATA_TRANSFER");
+    expect(b).toContain("handle_b");
+  });
+
+  it("renders UNRESOLVED with the reason and no trace", () => {
+    const html = renderToStaticMarkup(h(ResultCard, { d: decisions[3], source: "" }));
+    expect(html).toContain("미해결");
+    expect(html).toContain("NO_EVIDENCE");
+    expect(html).not.toContain("판정 근거"); // no trace section
   });
 });
 
 describe("DecisionView routing (the default 판단 tab)", () => {
-  it("renders the Handler Resolution view when packages are empty but resolutions exist", () => {
+  it("renders a handler-resolution report when packages are empty but resolutions exist", () => {
     const html = renderToStaticMarkup(
       h(DecisionView, { result: baseResult({ handler_resolutions: resolutions }), source: "" }),
     );
-    expect(html).toContain("핸들러 판정");
-    expect(html).toContain("remote_handler");
-    expect(html).toContain("handle_b");
+    // single coherent report: summary line + chip row + first result card
+    expect(html).toContain("액션별 핸들러 판정");
+    expect(html).toContain("확정 1");
+    expect(html).toContain("remote_handler"); // first (RESOLVED) card
   });
 
   it("falls back to the no-finding card when there are no resolutions", () => {
@@ -162,6 +208,6 @@ describe("DecisionView routing (the default 판단 tab)", () => {
       h(DecisionView, { result: baseResult({ handler_resolutions: [] }), source: "" }),
     );
     expect(html).toContain("발견 없음");
-    expect(html).not.toContain("핸들러 판정");
+    expect(html).not.toContain("액션별 핸들러 판정");
   });
 });
