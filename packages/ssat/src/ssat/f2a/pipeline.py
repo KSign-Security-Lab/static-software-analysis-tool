@@ -25,6 +25,7 @@ from .resolution import (
     ENUM_CASE,
     KIND_RANK,
     NAME_MATCH,
+    REGISTRAR_CALL,
     REGISTRATION_ASSIGN,
     REGISTRATION_INIT,
     STRING_DISPATCH,
@@ -346,6 +347,7 @@ class F2AAnalyzer:
             self._handler_by_string,
             self._handler_by_enum_case,
             self._handler_by_registration,
+            self._handler_by_registrar_call,
             self._handler_by_name,
         ):
             evidences.extend(extractor(action))
@@ -513,7 +515,13 @@ class F2AAnalyzer:
                     break
 
         if registrar:
-            reason = UnresolvedReason.UNSUPPORTED_REGISTRAR_CALL
+            # Producer 2 tried a resolved registrar call but did not reach the
+            # terminal store -> a more precise reason than "unsupported".
+            reason = (
+                UnresolvedReason.REGISTRAR_STORE_NOT_REACHED
+                if getattr(self, "_registrar_store_miss", False)
+                else UnresolvedReason.UNSUPPORTED_REGISTRAR_CALL
+            )
             secondary = UnresolvedReason.UNRESOLVED_INDIRECT_CALL if dispatch_site else None
         elif dispatch_site is not None:
             reason = UnresolvedReason.UNRESOLVED_INDIRECT_CALL
@@ -781,6 +789,165 @@ class F2AAnalyzer:
                 score=0.8,
             ))
         return out
+
+    # -- Producer 2: registrar call (layered on Producer 1) ---------------
+
+    def _handler_by_registrar_call(self, action: str) -> List[ResolutionEvidence]:
+        """Extractor — a registration performed through a registrar function:
+
+            register_handler(ACTION, fn);   // fn stored into a table by the callee
+
+        A call site *qualifies as a registrar* by observable behavior, not by
+        name: it has a resolved internal call target, one arg is a METHOD_REF to
+        an internal function (the callback), another arg is an action id matching
+        the KB, and — following resolved call targets with arg->param substitution
+        (bounded by ``registrar_depth``, default 2) — the callback parameter is
+        stored into a table slot paired with the id parameter (Producer 1's
+        slot-pairing, reused). If the terminal store is not reached, NO evidence
+        is emitted (the miss is reported via _diagnose_unresolved).
+        """
+        cpg = self.cpg
+        tokens = {t for t in self._action_symbol_tokens(action) if t}
+        prof = self.kb.actions.get(action)
+        numeric = {str(n) for n in (prof.numeric_ids if prof else [])}
+        symbols = {s.upper() for s in (prof.action_symbols if prof else [])}
+        by_name: Dict[str, int] = {}
+        for m in cpg.internal_methods():
+            by_name.setdefault(cpg.name(m), m)
+
+        out: List[ResolutionEvidence] = []
+        self._registrar_store_miss = False  # reset per action; read by _diagnose_unresolved
+        internal_methods = set(by_name.values())
+        for v in cpg.vertices:
+            if v.get("label") != "CALL":
+                continue
+            call = cpg_id(v)
+            if cpg.name(call).startswith("<operator>"):
+                continue
+            target = cpg.call_target(call)
+            if target is None or target not in internal_methods:
+                continue
+            args = cpg.call_args(call)
+
+            cb_arg = next(
+                ((idx, a) for idx, a in args
+                 if cpg.label(a) == "METHOD_REF" and by_name.get(_strip_quotes(cpg.code(a)))),
+                None,
+            )
+            if cb_arg is None:
+                continue
+            callback = by_name[_strip_quotes(cpg.code(cb_arg[1]))]
+
+            id_arg = None
+            id_exact = False
+            for idx, a in args:
+                code_u = str(cpg.code(a) or "").upper()
+                if cpg.label(a) == "LITERAL" and _strip_quotes(cpg.code(a)) in numeric:
+                    id_arg, id_exact = (idx, a), True
+                    break
+                if any(t in code_u for t in tokens):
+                    id_arg = (idx, a)
+                    id_exact = code_u in symbols or code_u in {n for n in numeric}
+            if id_arg is None:
+                continue
+
+            params = cpg.params_of_method(target)
+            cb_param = params.get(cb_arg[0])
+            id_param = params.get(id_arg[0])
+            if cb_param is None or id_param is None:
+                continue
+
+            depth = self.calculus.registrar_depth
+            if not self._registrar_reaches_store(
+                target, cpg.name(id_param), cpg.name(cb_param), depth
+            ):
+                self._registrar_store_miss = True  # for _diagnose_unresolved
+                continue
+
+            strength = MatchStrength.EXACT_IDENTIFIER if id_exact else MatchStrength.HEURISTIC_SUBSTRING
+            mapping = [
+                MappingEvidence(type="DISPATCH_REGISTRAR_CALL", value=cpg.code(call),
+                                file=cpg.method_filename(cpg.method_of(call)), line=cpg.line(call)),
+                MappingEvidence(type="HANDLER_REF", value=cpg.name(callback),
+                                file=cpg.method_filename(callback), line=cpg.line(callback)),
+            ]
+            out.append(ResolutionEvidence(
+                kind=REGISTRAR_CALL,
+                action_id=ActionIdentifier(
+                    symbol=(_strip_quotes(cpg.code(id_arg[1])) if not id_exact or not id_arg[1] else None),
+                    numeric_id=(int(_strip_quotes(cpg.code(id_arg[1])))
+                                if cpg.label(id_arg[1]) == "LITERAL" and _strip_quotes(cpg.code(id_arg[1])).lstrip("-").isdigit()
+                                else None),
+                    raw_expression=cpg.code(id_arg[1]), node=call,
+                ),
+                weight=0.7,
+                match_strength=strength,
+                callback=callback,
+                dispatch_site=call,
+                nodes=[call, cb_arg[1]],
+                provenance_group=f"site:registrar:{call}",
+                extractor="registrar_call",
+                mapping_evidence=mapping,
+                score=0.7,
+            ))
+        return out
+
+    def _registrar_reaches_store(
+        self, method: int, id_name: str, cb_name: str, depth: int
+    ) -> bool:
+        """Does `method` store its `cb_name` parameter into a table slot paired
+        with its `id_name` parameter — directly, or by delegating to a resolved
+        callee (arg->param substitution) within `depth` hops? Reuses Producer 1's
+        receiver-identity slot pairing."""
+        cpg = self.cpg
+
+        def rhs_names(assign: int) -> Set[str]:
+            a = cpg.call_args(assign)
+            if len(a) < 2:
+                return set()
+            rhs = a[1][1]
+            names: Set[str] = set()
+            for d in [rhs, *cpg.ast_descendants(rhs)]:
+                if cpg.label(d) in ("IDENTIFIER", "METHOD_REF"):
+                    names.add(cpg.name(d) or _strip_quotes(cpg.code(d)))
+            return names
+
+        assigns = [c for c in cpg.calls_in_method(method) if cpg.name(c) == "<operator>.assignment"]
+        # direct: cb-param stored into a slot whose sibling stores the id-param
+        for ca in assigns:
+            if cb_name not in rhs_names(ca):
+                continue
+            slot = self._store_receiver(cpg.call_args(ca)[0][1])
+            for other in assigns:
+                if other is ca:
+                    continue
+                if self._store_receiver(cpg.call_args(other)[0][1]) == slot and id_name in rhs_names(other):
+                    return True
+        if depth <= 0:
+            return False
+        # delegate: a resolved callee receiving both params by position
+        for c in cpg.calls_in_method(method):
+            if cpg.name(c).startswith("<operator>"):
+                continue
+            t = cpg.call_target(c)
+            if t is None:
+                continue
+            cb_idx = id_idx = None
+            for idx, a in cpg.call_args(c):
+                anames = {cpg.name(a)} | {cpg.name(d) for d in cpg.ast_descendants(a)}
+                if cb_name in anames:
+                    cb_idx = idx
+                if id_name in anames:
+                    id_idx = idx
+            if cb_idx is None or id_idx is None:
+                continue
+            params = cpg.params_of_method(t)
+            cb2, id2 = params.get(cb_idx), params.get(id_idx)
+            if cb2 is not None and id2 is not None and self._registrar_reaches_store(
+                t, cpg.name(id2), cpg.name(cb2), depth - 1
+            ):
+                return True
+        return False
 
     # -- registration intermediate representation ------------------------
     #

@@ -407,8 +407,8 @@ and the policy change (phase 2) are reviewable — and revertable — separately
 | Four strategies emit evidence; discovery = evidence→candidates→selection | **shipped** | `pipeline.py` |
 | Corroboration + contradiction policy (`select_corroborate`) | **shipped** (default) | `resolution.py`; spec `f2a-evidence-calculus-spec.md` |
 | Exact dedup + provenance groups + caps + LOW_CONFIDENCE + ambiguity margin | **shipped** | `resolution.py`, `pipeline.py` |
-| DFG slot-correlation extractor (V2/V5) | **not started** | phase 3 |
-| Call-graph registrar extractor (V3/V6) | **not started** | phase 3 |
+| Correlated field-store extractor / Producer 1 (V2) | **shipped** | `pipeline._extract_registrations_ast` |
+| Registrar-call extractor / Producer 2 (V3/V6) | **shipped** | `pipeline._handler_by_registrar_call` |
 | Strong-competitor ambiguity hardening | **hook only, disabled** | `CalculusConfig.strong_competitor_hardening` |
 | Surface `SelectionResult` / `UnresolvedReport` into `F2AResult` (`handler_resolutions`) | **shipped** | `models.py`, `pipeline._selection_to_resolution` |
 | Registration extractor emits **all** matches | **shipped** | `pipeline._handler_by_registration` |

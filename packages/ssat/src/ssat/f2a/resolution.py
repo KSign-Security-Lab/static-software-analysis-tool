@@ -58,6 +58,7 @@ class UnresolvedReason(Enum):
     NO_EVIDENCE = "NO_EVIDENCE"
     LOW_CONFIDENCE = "LOW_CONFIDENCE"
     UNSUPPORTED_REGISTRAR_CALL = "UNSUPPORTED_REGISTRAR_CALL"
+    REGISTRAR_STORE_NOT_REACHED = "REGISTRAR_STORE_NOT_REACHED"
     UNRESOLVED_INDIRECT_CALL = "UNRESOLVED_INDIRECT_CALL"
     EXTERNAL_DEFINITION = "EXTERNAL_DEFINITION"
     DYNAMIC_ACTION_ID = "DYNAMIC_ACTION_ID"
@@ -133,6 +134,10 @@ class CalculusConfig:
     # Documented-but-disabled hook (see spec §4): widen the margin when the top
     # two candidates both own a strong-basis group. Off by default.
     strong_competitor_hardening: bool = False
+    # Producer 2 (registrar call): max resolved-target hops to follow from a
+    # registrar call site to the terminal field-store (dispatcher -> register ->
+    # store). Conservative default; not a call-graph traversal engine.
+    registrar_depth: int = 2
 
 
 # ---------------------------------------------------------------------------

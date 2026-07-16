@@ -23,6 +23,9 @@ B = FX / "scp_dup_registration.c.json"
 C = FX / "scp_numeric_vs_name.c.json"
 D = FX / "scp_ambiguous_two_registrations.c.json"
 E = FX / "scp_field_store.c.json"
+R_DIRECT = FX / "scp_registrar_direct.c.json"
+R_TWO = FX / "scp_registrar_two_level.c.json"
+R_NOSTORE = FX / "scp_registrar_no_store.c.json"
 
 
 def _need(p):
@@ -156,6 +159,37 @@ def test_producer1_correlated_field_store():
     assert scp.status == "RESOLVED"
     assert scp.chosen.function == "on_scp"
     assert scp.candidates[0].evidence_kinds == ["REGISTRATION_ASSIGN"]
+
+
+def test_producer2_registrar_direct():
+    """Producer 2: register_handler(id, fn) that stores the params into a slot
+    itself (depth 1) -> REGISTRAR_CALL resolves the handler."""
+    _need(R_DIRECT)
+    scp = _res(run_f2a_file(R_DIRECT), "SetChargingProfile")
+    assert scp.status == "RESOLVED"
+    assert scp.chosen.function == "on_scp"
+    assert scp.candidates[0].evidence_kinds == ["REGISTRAR_CALL"]
+
+
+def test_producer2_registrar_two_level():
+    """Producer 2: register_handler -> store (depth 2), followed via resolved call
+    targets + arg->param substitution."""
+    _need(R_TWO)
+    scp = _res(run_f2a_file(R_TWO), "SetChargingProfile")
+    assert scp.status == "RESOLVED"
+    assert scp.chosen.function == "on_scp"
+    assert scp.candidates[0].evidence_kinds == ["REGISTRAR_CALL"]
+
+
+def test_producer2_registrar_store_not_reached_emits_no_evidence():
+    """A call that receives (id, fn) but never stores fn into a table yields NO
+    REGISTRAR_CALL evidence; the miss is reported as REGISTRAR_STORE_NOT_REACHED."""
+    _need(R_NOSTORE)
+    scp = _res(run_f2a_file(R_NOSTORE), "SetChargingProfile")
+    assert scp.status == "UNRESOLVED"
+    assert scp.candidates == []
+    assert scp.unresolved is not None
+    assert scp.unresolved.reason == "REGISTRAR_STORE_NOT_REACHED"
 
 
 def test_exact_numeric_registration_beats_weak_name():

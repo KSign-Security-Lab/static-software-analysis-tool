@@ -1,7 +1,12 @@
 # F2-A Phase 3 — evidence-producer design (correlated field store + registrar call)
 
-**Status: DESIGN / not implemented.** Phase 3 adds two evidence producers; it does
-**not** change the evidence calculus (`select_corroborate`) or the output model.
+**Status: IMPLEMENTED.** Producer 1 (correlated field store, commit `a75b9fb`) and
+Producer 2 (registrar call, this commit) are shipped with the boundaries below and
+the reviewed defaults (registrar depth 2 via `CalculusConfig.registrar_depth`;
+behavioral registrar qualification; no partial evidence — a missed store reports
+`REGISTRAR_STORE_NOT_REACHED`; Producer 2 reuses Producer 1's slot pairing). Phase 3
+adds two evidence producers; it does **not** change the evidence calculus
+(`select_corroborate`) or the output model.
 Both producers emit `ResolutionEvidence` into the existing dedup → group →
 aggregate → select pipeline and never select a handler themselves.
 
