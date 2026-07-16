@@ -41,6 +41,13 @@ JOERN_HOME=/usr/bin/joern/joern-cli \
   uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --app-dir .
 ```
 
+For development with auto-reload, use `scripts/dev-api.sh` instead — it runs
+uvicorn `--reload` watching `packages/ssat/src/ssat` and `api`, so `.py` edits
+restart the worker automatically (no manual restart). The embedded Joern JVM
+re-attaches on the first request after each reload, so that request is a few
+seconds slower. Without `--reload` the server holds imported code in memory and
+must be restarted manually to pick up changes.
+
 CORS is open so the Next.js dev server (localhost or tailnet) can call it.
 
 ## Notes
