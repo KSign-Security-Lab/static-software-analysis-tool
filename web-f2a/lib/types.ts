@@ -90,10 +90,57 @@ export type ViewKey = "cpg" | "ast" | "cg" | "dfg" | "cfg";
 export interface F2AResult {
   source_cpg?: string;
   handler_maps: HandlerMap[];
+  handler_resolutions?: HandlerResolution[];
   field_bindings: FieldBinding[];
   evidence_packages: EvidencePackage[];
   candidate_fragments: CandidateFragment[];
   limitations: string[];
+}
+
+// Authoritative per-action resolution outcome (mirrors the backend public model).
+export type ResolutionStatus = "RESOLVED" | "AMBIGUOUS" | "UNRESOLVED";
+
+export interface HandlerResolutionCandidate {
+  function: string;
+  file: string;
+  line: string | number;
+  confidence: number;
+  evidence_kinds: string[];
+  action_id_consistency: string; // CONSISTENT | CONFLICTING | PARTIAL
+}
+
+export interface CompetingCandidateView {
+  function: string;
+  confidence: number;
+  evidence_kinds: string[];
+}
+
+export interface ConflictReportView {
+  competing: CompetingCandidateView[];
+  margin: number;
+  note: string;
+}
+
+export interface UnresolvedDispatchSite {
+  file: string;
+  line: string | number;
+  code: string;
+}
+
+export interface UnresolvedReportView {
+  reason: string;
+  secondary: string | null;
+  dispatch_site: UnresolvedDispatchSite | null;
+  attempted_extractors: string[];
+}
+
+export interface HandlerResolution {
+  action: string;
+  status: ResolutionStatus;
+  chosen: { file: string; function: string; line: string | number; language?: string } | null;
+  candidates: HandlerResolutionCandidate[];
+  conflict: ConflictReportView | null;
+  unresolved: UnresolvedReportView | null;
 }
 
 export interface HandlerMap {
