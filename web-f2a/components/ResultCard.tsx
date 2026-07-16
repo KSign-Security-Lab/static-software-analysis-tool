@@ -135,6 +135,7 @@ export default function ResultCard({
             </div>
           )}
         </div>
+        {d.eyebrow && <div className="fh-eyebrow mono">{d.eyebrow}</div>}
         <h1 className="fh-title">{d.title}</h1>
         {d.subtitle && <div className="fh-sub mono">{d.subtitle}</div>}
         <div className="fh-meta">
@@ -165,6 +166,16 @@ export default function ResultCard({
 
       {showTrace && (
         <Section label={d.traceLabel}>
+          {d.traceNote.length > 0 && (
+            <div className="tracenote">
+              {d.traceNote.map((t, i) => (
+                <span key={t.label + i} className="tnote" title={t.hint}>
+                  <span className="tnote-k">{t.label}</span>
+                  <span className="tnote-v">{t.value}</span>
+                </span>
+              ))}
+            </div>
+          )}
           <Trace steps={d.trace} lines={lines} label={d.traceLabel} onInspect={onInspect} />
         </Section>
       )}

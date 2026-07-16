@@ -20,17 +20,20 @@ export default function DecisionView({
 
   // A handler-resolution report (no source→sink finding) gets a one-line summary
   // above the chip row so the two result types read as one report, not two UIs.
+  // Counts are per-action (from the resolutions), not per-card — AMBIGUOUS emits
+  // one card per candidate but is a single action outcome.
   const handlerMode = d?.kind === "handler";
-  const nRes = decisions.filter((x) => x.verdict === "확정").length;
-  const nAmb = decisions.filter((x) => x.verdict === "모호").length;
-  const nUnres = decisions.filter((x) => x.verdict === "미해결").length;
+  const res = result.handler_resolutions ?? [];
+  const nRes = res.filter((r) => r.status === "RESOLVED").length;
+  const nAmb = res.filter((r) => r.status === "AMBIGUOUS").length;
+  const nUnres = res.filter((r) => r.status === "UNRESOLVED").length;
 
   return (
     <div className="report">
       {handlerMode && (
         <p className="status" style={{ margin: "0 0 12px" }}>
-          소스→싱크 근거는 없지만, 액션별 핸들러 판정이 권위 있는 결과입니다 (확정 {nRes} · 모호{" "}
-          {nAmb} · 미해결 {nUnres}).
+          소스→싱크 취약점은 발견되지 않았지만, 액션별 핸들러 분석을 완료했습니다 — 핸들러 확인{" "}
+          {nRes} · 복수 후보 {nAmb} · 판정 불가 {nUnres}.
         </p>
       )}
       {decisions.length > 1 && (

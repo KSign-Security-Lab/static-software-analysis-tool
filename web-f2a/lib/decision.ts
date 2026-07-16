@@ -28,16 +28,23 @@ export interface CheckRow {
   evidence?: string;
 }
 
+export interface TraceNote {
+  label: string; // user-facing label (e.g. "매칭 방식")
+  value: string; // user-facing value (e.g. "식별자 정확 일치")
+  hint: string; // tooltip: the raw implementation term / what it means
+}
+
 export interface Decision {
   id: string;
   kind: "vuln" | "handler"; // one result model, two result types
   hasFinding: boolean; // gates the vuln-only sections (checks / remediation / confidence factors)
   action: string;
   field: string;
-  subtitle: string; // action.field · semantic  (mono)
-  title: string; // plain-language headline
-  verdict: string; // 검토 후보 / 확정 / 모호 / 미해결
-  tone: string; // vbadge tone: suspect | none | ok | warn
+  eyebrow: string; // small context label above the headline (handler: the OCPP action)
+  subtitle: string; // action.field · semantic (vuln) | → handler() (handler)
+  title: string; // plain-language conclusion headline (the meaning, not the backend status)
+  verdict: string; // analysis-specific badge: 검토 후보 (vuln) | 핸들러 확인 / 복수 후보 / 판정 불가 (handler)
+  tone: string; // vbadge tone: suspect | none | ok | warn | info (info = resolved, a non-security state)
   chipLabel: string; // label in the multi-result chip row
   component: string; // OCPP component (e.g. charge_point)
   ocppVersion: string;
@@ -48,7 +55,8 @@ export interface Decision {
   overview: string;
   traceLabel: string; // "데이터 흐름" (vuln) | "판정 근거" (handler)
   trace: TraceStep[];
-  meta: [string, string][]; // header badge pairs (handler: match/consistency/group/score)
+  traceNote: TraceNote[]; // supporting detail shown as a caption above the trace (handler)
+  meta: [string, string][]; // header badge pairs (kept minimal — conclusions come first)
   checks: CheckRow[];
   confidenceFactors: [string, number][];
   remediation: string[];
@@ -73,6 +81,68 @@ function koRecordType(t: string): string {
       CHAIN_CALL: "위임 호출",
       CHAIN_STORE: "필드 저장",
     }[t] ?? t
+  );
+}
+
+// Friendly renderings of F2-A implementation vocabulary, so a reader who did not
+// build the pipeline can understand the result. Each keeps the raw term available
+// as a tooltip (the `hint`) for auditability.
+function koMatchStrength(s: string): string {
+  return (
+    {
+      EXACT_IDENTIFIER: "식별자 정확 일치",
+      NORMALIZED_IDENTIFIER: "정규화 후 일치",
+      HEURISTIC_SUBSTRING: "부분 문자열(휴리스틱)",
+      NAME_ONLY: "이름만 일치",
+      NONE: "일치 없음",
+    }[s] ?? s
+  );
+}
+
+function koConsistency(s: string): string {
+  return { CONSISTENT: "일관됨", PARTIAL: "부분 일치", CONFLICTING: "상충" }[s] ?? s;
+}
+
+function koEvidenceKind(s: string): string {
+  return (
+    {
+      STRING_DISPATCH: "문자열 디스패치",
+      ENUM_CASE: "enum/switch 분기",
+      REGISTRATION_INIT: "등록 테이블 초기화",
+      REGISTRATION_ASSIGN: "등록 테이블 대입",
+      REGISTRAR_CALL: "등록 함수 호출",
+      NAME_MATCH: "이름 매칭",
+      DISPATCH_SITE: "디스패치 지점",
+    }[s] ?? s
+  );
+}
+
+function koReason(s: string): string {
+  return (
+    {
+      NO_EVIDENCE: "근거 없음",
+      LOW_CONFIDENCE: "신뢰도 부족",
+      UNSUPPORTED_REGISTRAR_CALL: "지원하지 않는 등록 함수 호출",
+      REGISTRAR_STORE_NOT_REACHED: "등록 저장 지점에 도달하지 못함",
+      UNRESOLVED_INDIRECT_CALL: "간접 호출을 해석하지 못함",
+      EXTERNAL_DEFINITION: "외부에 정의된 핸들러",
+      DYNAMIC_ACTION_ID: "동적으로 결정되는 액션 식별자",
+      MISSING_POINTSTO: "포인터 분석 정보 부족",
+      GENERATED_CODE_UNAVAILABLE: "생성 코드가 없어 분석 불가",
+      REGISTRATION_OUT_OF_TU: "번역 단위 밖에서 등록됨",
+    }[s] ?? s
+  );
+}
+
+function koExtractor(s: string): string {
+  return (
+    {
+      name_match: "이름 매칭",
+      registration_ast: "등록 테이블 분석",
+      registrar_call: "등록 함수 추적",
+      string_dispatch: "문자열 디스패치 분석",
+      enum_case: "enum/switch 분석",
+    }[s] ?? s
   );
 }
 
@@ -202,6 +272,7 @@ function buildOne(pkg: EvidencePackage, handlers: HandlerMap[]): Decision {
     hasFinding: true,
     action: ctx.action,
     field: ctx.field,
+    eyebrow: "",
     subtitle: `${ctx.action}.${ctx.field} · ${ctx.field_semantic}`,
     title: `외부 입력이 ${sink.api}() (${dNoun}) 싱크까지 도달합니다`,
     verdict: "검토 후보",
@@ -216,6 +287,7 @@ function buildOne(pkg: EvidencePackage, handlers: HandlerMap[]): Decision {
     overview,
     traceLabel: "데이터 흐름",
     trace,
+    traceNote: [],
     meta: [],
     checks,
     confidenceFactors: [
@@ -245,11 +317,34 @@ function traceFromCandidate(c: HandlerResolutionCandidate): TraceStep[] {
   }));
 }
 
-const STATUS_META: Record<string, { tone: string; verdict: string }> = {
-  RESOLVED: { tone: "ok", verdict: "확정" },
-  AMBIGUOUS: { tone: "warn", verdict: "모호" },
-  UNRESOLVED: { tone: "none", verdict: "미해결" },
+// Analysis-specific status vocabulary. `tone` deliberately avoids ok(green) /
+// suspect(red): a resolved handler is not a security "pass", so it reads blue
+// (info); green/red stay reserved for actual security findings.
+const STATUS_META: Record<string, { tone: string; verdict: string; title: string }> = {
+  RESOLVED: { tone: "info", verdict: "핸들러 확인", title: "핸들러를 확인했습니다" },
+  AMBIGUOUS: { tone: "warn", verdict: "복수 후보", title: "핸들러 후보가 여러 개입니다" },
+  UNRESOLVED: { tone: "none", verdict: "판정 불가", title: "핸들러를 확정하지 못했습니다" },
 };
+
+function evidenceNotes(cand: HandlerResolutionCandidate | undefined): TraceNote[] {
+  const e0 = cand?.evidence?.[0];
+  if (!e0) return [];
+  const notes: TraceNote[] = [
+    { label: "판정 방식", value: koEvidenceKind(e0.kind), hint: e0.kind },
+    { label: "매칭 방식", value: koMatchStrength(e0.match_strength), hint: e0.match_strength },
+    {
+      label: "식별자 일관성",
+      value: koConsistency(e0.action_id_consistency),
+      hint: `${e0.action_id_consistency} — 액션 식별자가 등록/디스패치 지점과 얼마나 일치하는지`,
+    },
+    {
+      label: "근거 점수",
+      value: `${e0.score_pre_penalty.toFixed(2)} → ${e0.score.toFixed(2)}`,
+      hint: "패널티 적용 전 → 적용 후 (근거의 연결 강도이며, 보안 심각도가 아님)",
+    },
+  ];
+  return notes;
+}
 
 function handlerDecision(
   hr: HandlerResolution,
@@ -259,29 +354,46 @@ function handlerDecision(
   limitations: string[],
 ): Decision {
   const sm = STATUS_META[hr.status] ?? STATUS_META.UNRESOLVED;
-  const e0 = cand?.evidence?.[0];
   const conf = cand?.confidence ?? 0;
 
-  const meta: [string, string][] = [];
+  // Lead with the conclusion (the meaning), not the backend status code.
+  let title = sm.title;
+  let subtitle = cand ? `→ ${cand.function}()` : "";
   let overview: string;
+  const traceNote = evidenceNotes(cand);
+
   if (hr.status === "RESOLVED" && cand) {
-    overview = `${hr.action} 액션은 등록 근거를 통해 핸들러 ${cand.function}() 로 확정되었습니다.`;
-  } else if (hr.status === "AMBIGUOUS" && cand) {
     overview =
-      `${hr.action} 액션에 경합하는 핸들러가 여러 개라 어느 하나를 선택하지 않았습니다 ` +
-      `(후보 ${idx + 1}/${n}). 각 후보의 근거를 아래에서 확인하세요.`;
-    if (hr.conflict) meta.push(["마진", hr.conflict.margin.toFixed(4)]);
+      `${hr.action} 액션은 코드에서 핸들러 함수 ${cand.function}() 로 연결됩니다. ` +
+      `아래 근거가 이 매핑을 뒷받침합니다.`;
+  } else if (hr.status === "AMBIGUOUS" && cand) {
+    title = `${sm.title} (후보 ${idx + 1}/${n})`;
+    subtitle = `후보 ${idx + 1}/${n} · → ${cand.function}()`;
+    overview =
+      `${hr.action} 액션에 대해 여러 핸들러 후보가 비슷한 강도로 경합하여, ` +
+      `자동으로 하나를 선택하지 않았습니다. 각 후보의 근거를 나란히 확인하세요.`;
+    if (hr.conflict) {
+      traceNote.unshift({
+        label: "이 후보 신뢰도",
+        value: conf.toFixed(2),
+        hint: "이 후보 근거의 연결 강도 (보안 심각도가 아님)",
+      });
+      traceNote.push({
+        label: "상위 후보 점수차",
+        value: hr.conflict.margin.toFixed(2),
+        hint: "1·2위 후보의 점수 차이 — 작을수록 더 모호합니다",
+      });
+    }
   } else {
     const u = hr.unresolved;
-    overview = `${hr.action} 액션의 핸들러를 확정하지 못했습니다: ${u?.reason ?? "NO_EVIDENCE"}.`;
-    if (u?.secondary) meta.push(["보조", u.secondary]);
-    if (u?.attempted_extractors?.length) meta.push(["시도", u.attempted_extractors.join(", ")]);
-  }
-  if (e0) {
-    meta.push(["일치", e0.match_strength]);
-    meta.push(["식별자", e0.action_id_consistency]);
-    if (e0.provenance_group) meta.push(["그룹", e0.provenance_group]);
-    meta.push(["점수", `${e0.score_pre_penalty.toFixed(2)}→${e0.score.toFixed(2)}`]);
+    const rawReason = u?.reason ?? "NO_EVIDENCE";
+    subtitle = `사유 · ${koReason(rawReason)}`;
+    const tried = (u?.attempted_extractors ?? []).map(koExtractor).join(", ");
+    overview =
+      `${hr.action} 액션의 핸들러를 코드에서 찾지 못했습니다. ` +
+      `사유: ${koReason(rawReason)} (${rawReason}).` +
+      (u?.secondary ? ` 부가 사유: ${koReason(u.secondary)}.` : "") +
+      (tried ? ` 시도한 분석: ${tried}.` : "");
   }
 
   return {
@@ -290,13 +402,16 @@ function handlerDecision(
     hasFinding: false,
     action: hr.action,
     field: "",
-    subtitle: cand ? `→ ${cand.function}()` : "",
-    title: hr.action,
+    eyebrow: hr.action,
+    subtitle,
+    title,
     verdict: sm.verdict,
     tone: sm.tone,
     chipLabel: hr.status === "AMBIGUOUS" && cand ? `${hr.action} · ${cand.function}` : hr.action,
     component: "",
     ocppVersion: "",
+    // Confidence supports the conclusion; it is not the headline. Shown only for a
+    // single resolved handler, where a single number is meaningful.
     confidence: hr.status === "RESOLVED" ? conf : 0,
     confidenceLabel: hr.status === "RESOLVED" ? koConfidence(conf) : "",
     cwe: [],
@@ -304,7 +419,8 @@ function handlerDecision(
     overview,
     traceLabel: "판정 근거",
     trace: cand ? traceFromCandidate(cand) : [],
-    meta,
+    traceNote,
+    meta: [], // header stays conclusion-first; detail lives in traceNote
     checks: [],
     confidenceFactors: [],
     remediation: [],
@@ -320,6 +436,7 @@ function noFinding(result: F2AResult): Decision {
     hasFinding: false,
     action: "",
     field: "",
+    eyebrow: "",
     subtitle: "",
     title: "신뢰할 수 없는 입력 → 위험 싱크 경로를 찾지 못했습니다",
     verdict: "발견 없음",
@@ -334,6 +451,7 @@ function noFinding(result: F2AResult): Decision {
     overview: "이 코드에서 위험한 싱크에 도달하는 OCPP 페이로드 필드를 찾지 못했습니다.",
     traceLabel: "데이터 흐름",
     trace: [],
+    traceNote: [],
     meta: [],
     checks: [],
     confidenceFactors: [],

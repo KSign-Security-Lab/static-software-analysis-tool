@@ -141,9 +141,17 @@ describe("buildDecisions (handler resolutions → common result model)", () => {
   const decisions = buildDecisions(baseResult({ handler_resolutions: resolutions }));
 
   it("emits one decision per action, per-candidate for AMBIGUOUS, sorted", () => {
-    // RESOLVED(1) + AMBIGUOUS(2 candidates) + UNRESOLVED(1) = 4, in status order
-    expect(decisions.map((d) => d.verdict)).toEqual(["확정", "모호", "모호", "미해결"]);
+    // RESOLVED(1) + AMBIGUOUS(2 candidates) + UNRESOLVED(1) = 4, in status order.
+    // Verdicts use analysis-specific terms, not generic status names.
+    expect(decisions.map((d) => d.verdict)).toEqual([
+      "핸들러 확인",
+      "복수 후보",
+      "복수 후보",
+      "판정 불가",
+    ]);
     expect(decisions.every((d) => d.kind === "handler")).toBe(true);
+    // resolved reads as a non-security "info" state, not green/red
+    expect(decisions[0].tone).toBe("info");
   });
 
   it("builds a numbered trace from the resolution evidence records", () => {
@@ -160,21 +168,24 @@ describe("buildDecisions (handler resolutions → common result model)", () => {
 describe("ResultCard (handler decision)", () => {
   const decisions = buildDecisions(baseResult({ handler_resolutions: resolutions }));
 
-  it("renders the registrar chain as a numbered trace with scoring meta", () => {
+  it("leads with the conclusion, then the registrar chain and friendly detail", () => {
     const html = renderToStaticMarkup(h(ResultCard, { d: decisions[0], source: "" }));
-    expect(html).toContain("확정");
+    expect(html).toContain("핸들러 확인"); // verdict badge (analysis-specific)
+    expect(html).toContain("핸들러를 확인했습니다"); // conclusion headline
+    expect(html).toContain("RemoteStartTransaction"); // action as eyebrow
     expect(html).toContain("판정 근거"); // trace section label
     expect(html).toContain("등록 함수 호출"); // koRecordType(DISPATCH_REGISTRAR_CALL)
     expect(html).toContain("store_handler(0, action, callback)");
     expect(html).toContain("remote_handler");
-    // scoring / provenance surfaced in header meta
-    expect(html).toContain("site:registrar:99");
-    expect(html).toContain("EXACT_IDENTIFIER");
+    // implementation terms rendered user-friendly, raw term kept in the tooltip
+    expect(html).toContain("식별자 정확 일치"); // koMatchStrength(EXACT_IDENTIFIER)
+    expect(html).toContain('title="EXACT_IDENTIFIER"'); // raw term available on hover
   });
 
   it("renders each AMBIGUOUS candidate's paired field-store trail separately", () => {
     const a = renderToStaticMarkup(h(ResultCard, { d: decisions[1], source: "" }));
-    expect(a).toContain("모호");
+    expect(a).toContain("복수 후보");
+    expect(a).toContain("핸들러 후보가 여러 개입니다");
     expect(a).toContain("액션 저장"); // koRecordType(ACTION_STORE)
     expect(a).toContain("table_a[0].action = ACTION_DATA_TRANSFER");
     expect(a).toContain("슬롯"); // koRecordType(SLOT)
@@ -184,10 +195,12 @@ describe("ResultCard (handler decision)", () => {
     expect(b).toContain("handle_b");
   });
 
-  it("renders UNRESOLVED with the reason and no trace", () => {
+  it("renders 판정 불가 with a plain-language reason and no trace", () => {
     const html = renderToStaticMarkup(h(ResultCard, { d: decisions[3], source: "" }));
-    expect(html).toContain("미해결");
-    expect(html).toContain("NO_EVIDENCE");
+    expect(html).toContain("판정 불가"); // verdict badge
+    expect(html).toContain("핸들러를 확정하지 못했습니다"); // conclusion headline
+    expect(html).toContain("근거 없음"); // koReason(NO_EVIDENCE)
+    expect(html).toContain("NO_EVIDENCE"); // raw code still shown for auditability
     expect(html).not.toContain("판정 근거"); // no trace section
   });
 });
@@ -198,8 +211,9 @@ describe("DecisionView routing (the default 판단 tab)", () => {
       h(DecisionView, { result: baseResult({ handler_resolutions: resolutions }), source: "" }),
     );
     // single coherent report: summary line + chip row + first result card
-    expect(html).toContain("액션별 핸들러 판정");
-    expect(html).toContain("확정 1");
+    expect(html).toContain("액션별 핸들러 분석을 완료했습니다");
+    expect(html).toContain("핸들러 확인 1"); // per-action count
+    expect(html).toContain("판정 불가 1");
     expect(html).toContain("remote_handler"); // first (RESOLVED) card
   });
 
@@ -208,6 +222,6 @@ describe("DecisionView routing (the default 판단 tab)", () => {
       h(DecisionView, { result: baseResult({ handler_resolutions: [] }), source: "" }),
     );
     expect(html).toContain("발견 없음");
-    expect(html).not.toContain("액션별 핸들러 판정");
+    expect(html).not.toContain("액션별 핸들러 분석을 완료했습니다");
   });
 });
