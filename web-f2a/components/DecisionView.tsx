@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { buildDecisions, koStatus, type Decision, type TraceStep } from "@/lib/decision";
 import { buildGroups, sourceLines, type CodeTone } from "@/lib/code";
+import HandlerResolutionView from "@/components/HandlerResolutionView";
 import type { F2AResult } from "@/lib/types";
 
 function statusClass(status: string): string {
@@ -246,6 +247,12 @@ export default function DecisionView({
   const [idx, setIdx] = useState(0);
   const d = decisions[Math.min(idx, decisions.length - 1)];
 
+  // No source→sink finding but the resolver produced per-action outcomes:
+  // show the first-class Handler Resolution view instead of a bare "no finding"
+  // card. handler_resolutions is the authoritative result.
+  const resolutions = result.handler_resolutions ?? [];
+  const showResolutions = result.evidence_packages.length === 0 && resolutions.length > 0;
+
   return (
     <div className="report">
       {decisions.length > 1 && (
@@ -257,7 +264,23 @@ export default function DecisionView({
           ))}
         </div>
       )}
-      <FindingCard d={d} source={source} onInspect={onInspect} />
+      {showResolutions ? (
+        <>
+          <HandlerResolutionView resolutions={resolutions} />
+          {result.limitations.length > 0 && (
+            <details className="limdetails">
+              <summary className="muted small">한계 및 범위 ({result.limitations.length})</summary>
+              <ul className="limits">
+                {result.limitations.map((l, i) => (
+                  <li key={i}>{l}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
+      ) : (
+        <FindingCard d={d} source={source} onInspect={onInspect} />
+      )}
     </div>
   );
 }

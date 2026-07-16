@@ -10,6 +10,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["lib/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "components/**/*.test.tsx"],
   },
+  // App tsconfig uses jsx:"preserve" (Next compiles it); compile JSX to the
+  // automatic runtime for the vitest (rolldown/oxc) transform instead.
+  oxc: { jsx: { runtime: "automatic" } },
 });
