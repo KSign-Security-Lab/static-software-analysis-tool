@@ -94,13 +94,27 @@ class HandlerMap(BaseModel):
     Back-compat: populated only for RESOLVED actions. The authoritative
     per-action diagnostic (including AMBIGUOUS / UNRESOLVED) is
     ``F2AResult.handler_resolutions``.
+
+    CONFIDENCE — the two values are NOT interchangeable:
+
+    * ``HandlerMap.confidence`` is the *selected evidence weight* — the raw prior
+      of the single strongest piece of evidence that backs the mapping (e.g. 0.90
+      for a string dispatch). It is a backward-compatibility value with the
+      historical meaning; it is NOT the aggregated resolution score.
+    * ``HandlerResolution.candidates[*].confidence`` (see below) is the
+      authoritative Phase-2 *aggregated* score (per-evidence scoring, provenance
+      grouping, noisy-OR, caps). Downstream consumers that want the resolution
+      confidence must read that field, not this one.
+
+    Longer term ``HandlerMap.confidence`` should be deprecated or renamed to
+    ``selected_evidence_weight`` to remove the ambiguity.
     """
 
     handler_map_id: str
     action: str
     handler: HandlerRef
     mapping_evidence: List[MappingEvidence] = Field(default_factory=list)
-    confidence: float = 0.0
+    confidence: float = 0.0  # selected evidence weight (back-compat); NOT the aggregated score
 
 
 # --- Public handler-resolution view (serializable projection of the internal
@@ -113,7 +127,7 @@ class HandlerResolutionCandidate(BaseModel):
     function: str = ""
     file: str = ""
     line: Union[int, str] = ""
-    confidence: float = 0.0
+    confidence: float = 0.0  # authoritative Phase-2 aggregated score (NOT HandlerMap.confidence)
     evidence_kinds: List[str] = Field(default_factory=list)
     action_id_consistency: str = "PARTIAL"  # CONSISTENT | CONFLICTING | PARTIAL
 

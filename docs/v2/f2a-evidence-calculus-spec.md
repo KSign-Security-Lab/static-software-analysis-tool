@@ -251,27 +251,39 @@ then ×0.5 → **0.28**. Sole candidate `z`: 0.28 < MIN_CONFIDENCE →
 
 ---
 
-## Expected test impact when `select_corroborate` is enabled (not now)
+## Implementation impact (applied)
 
-The multiplier + policy change alters some asserted numbers; these update at flip
-time (they are correct under the new policy, not regressions):
+`select_corroborate` is now the default policy (commit `4132c1d`). The
+multiplier + policy change altered exactly these asserted numbers — correct under
+the policy, not regressions:
 
 - `test_handler_resolutions::test_competing_registration_vs_switch…`: margin
   `0.05 → 0.1625`; candidate confidences `0.85/0.80 → 0.7225/0.56`.
-- `test_resolution` integration asserts (`0.9`, `0.85`) → recomputed under
-  multipliers. Pure `select_cascade`/`consistency` unit tests are unaffected.
+- The two `test_resolution` integration asserts (`0.9`, `0.85`) were pinned to
+  `selection="cascade"` (they document cascade); a new corroborate integration
+  assert covers the default path. Pure `select_cascade`/`consistency` unit tests
+  are unaffected.
 - New reason `LOW_CONFIDENCE` added to `UnresolvedReason`.
 
-Selection remains a policy parameter: `select_cascade` (Phase 1, unchanged) vs
-`select_corroborate` (this spec). The flip is one switch, reviewable in isolation.
+Selection is a policy parameter: `select_cascade` (Phase 1) vs `select_corroborate`
+(default). `F2AAnalyzer(selection="cascade")` reverts per-run.
 
 ---
 
-## Open items for review sign-off
+## Closed decisions (review sign-off)
 
-1. `WEAK_ONLY_CAP = 0.85` and the CONFLICTING penalty (`cap 0.70`, `×0.5`) — values
-   are proposals; confirm or retune.
-2. Whether to adopt the optional strong-competitor ambiguity hardening (§4).
-3. `MIN_CONFIDENCE → UNRESOLVED(LOW_CONFIDENCE)` vs RESOLVED-flagged-low.
-4. Whether duplicate registrations in one table should ever corroborate (spec says
-   no — same `site_key`).
+All resolved at review; values live in `CalculusConfig`:
+
+1. `WEAK_ONLY_CAP = 0.85` — **approved** (configurable).
+2. CONFLICTING penalty `cap 0.70` then `×0.5` — **approved provisionally**;
+   pre/post contribution exposed via `score_pre_penalty` / `score` for later
+   retuning without manual reconstruction.
+3. Optional strong-competitor ambiguity hardening — **not adopted**; kept as a
+   disabled hook (`CalculusConfig.strong_competitor_hardening=False`).
+4. Below `MIN_CONFIDENCE` → **UNRESOLVED(LOW_CONFIDENCE)** with candidates
+   retained (not RESOLVED-flagged-low).
+5. Duplicate registrations in one table — **no corroboration**; they share one
+   `("site", table)` group and contribute only their max.
+6. Weak provenance key — **global `("token", normalized_name)` collapse**
+   (conservative); independent weak sites do not corroborate.
+7. Dedup survivor — explicit `MATCH_STRENGTH_RANK` table, tested directly.
