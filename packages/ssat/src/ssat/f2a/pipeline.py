@@ -796,14 +796,43 @@ class F2AAnalyzer:
             self._registration_cache = self._extract_registrations_ast()
         return self._registration_cache
 
-    def _extract_registrations_ast(self) -> List["HandlerRegistration"]:
-        """AST extractor: a ``METHOD_REF`` whose enclosing node is a single
-        aggregate initializer or assignment, with the action id spelled in the
-        *same* node (a sibling — initializer element or assignment LHS index).
+    def _store_receiver(self, lhs: int) -> str:
+        """Slot identity of an assignment LHS: the receiver sub-expression of a
+        field access (`t[i].fn` -> `t[i]`), else the LHS code itself
+        (`handlers[id]`). Probe 1 confirmed this is a stable correlation key."""
+        cpg = self.cpg
+        if cpg.label(lhs) == "CALL" and cpg.name(lhs) in (
+            "<operator>.fieldAccess",
+            "<operator>.indirectFieldAccess",
+        ):
+            kids = cpg.out_ids(lhs, "AST")
+            if kids:
+                return cpg.code(kids[0])
+        return cpg.code(lhs)
 
-        Covers ``{ id, fn }`` tables and ``handlers[id] = fn`` arrays. It does
-        NOT cover ids split across statements (needs DFG slot correlation) or
-        ids passed to a registrar call (needs the call graph).
+    def _collect_ids(self, node: int, symbols: Set[str], literals: Set[str]) -> None:
+        cpg = self.cpg
+        for d in [node, *cpg.ast_descendants(node)]:
+            code_u = str(cpg.code(d) or "").upper()
+            name_u = str(cpg.name(d) or "").upper()
+            if code_u:
+                symbols.add(code_u)
+            if name_u:
+                symbols.add(name_u)
+            if cpg.label(d) == "LITERAL":
+                literals.add(_strip_quotes(cpg.code(d)))
+
+    def _extract_registrations_ast(self) -> List["HandlerRegistration"]:
+        """AST + symbol-resolution extractor for handler registrations:
+
+        * ``{ id, fn }`` aggregate initializers (Producer 0);
+        * ``handlers[id] = fn`` indexed assignments (id in the LHS);
+        * ``t[i].action = id; t[i].fn = fn`` correlated field stores (Producer 1)
+          — the id is recovered from a *sibling* assignment writing the same slot,
+          keyed by receiver identity (probe 1).
+
+        Purely AST + symbol resolution; DFG is an escalation (variable-index
+        soundness / alias→slot) handled elsewhere, not part of this baseline.
         """
         cpg = self.cpg
         by_name: Dict[str, int] = {}
@@ -819,41 +848,42 @@ class F2AAnalyzer:
             if entry is None or cpg.label(entry) != "CALL":
                 continue
             op = cpg.name(entry)
-            if op == "<operator>.arrayInitializer":
-                mechanism = "AGGREGATE_INIT"
-                # All entries of one table literal `{ {..}, {..} }` share the
-                # outer initializer, so duplicate registrations collapse into one
-                # provenance group (spec §2, no noisy-OR inflation).
-                table = self._ast_parent(entry)
-                site_key = str(table if table is not None else entry)
-            elif op == "<operator>.assignment":
-                mechanism = "INDEXED_ASSIGN"
-                # Group by the assigned array/struct base (e.g. `g_handlers`), so
-                # repeated `g_handlers[id] = fn` writes share one group.
-                args = cpg.call_args(entry)
-                lhs = args[0][1] if args else entry
-                base = cpg.out_ids(lhs, "AST")
-                site_key = cpg.code(base[0]) if base else cpg.code(lhs)
-            else:
+            if op not in ("<operator>.arrayInitializer", "<operator>.assignment"):
                 continue
             callback = by_name.get(_strip_quotes(cpg.code(ref)))
             if callback is None:
                 continue
 
+            # ids spelled in the entry node itself (aggregate element / indexed LHS).
             symbols: Set[str] = set()
             literals: Set[str] = set()
             for child in cpg.out_ids(entry, "AST"):
                 if child == ref:
                     continue
-                for d in [child, *cpg.ast_descendants(child)]:
-                    code_u = str(cpg.code(d) or "").upper()
-                    name_u = str(cpg.name(d) or "").upper()
-                    if code_u:
-                        symbols.add(code_u)
-                    if name_u:
-                        symbols.add(name_u)
-                    if cpg.label(d) == "LITERAL":
-                        literals.add(_strip_quotes(cpg.code(d)))
+                self._collect_ids(child, symbols, literals)
+
+            if op == "<operator>.arrayInitializer":
+                mechanism = "AGGREGATE_INIT"
+                # All entries of one table literal share the outer initializer.
+                table = self._ast_parent(entry)
+                site_key = str(table if table is not None else entry)
+            else:  # <operator>.assignment
+                mechanism = "FIELD_ASSIGN"
+                args = cpg.call_args(entry)
+                lhs = args[0][1] if args else entry
+                slot = self._store_receiver(lhs)
+                method = cpg.method_of(entry)
+                site_key = f"assign:{method}:{slot}"
+                # Producer 1: pull the id from a sibling store to the SAME slot.
+                for other in cpg.calls_in_method(method) if method is not None else []:
+                    if other == entry or cpg.name(other) != "<operator>.assignment":
+                        continue
+                    oargs = cpg.call_args(other)
+                    if len(oargs) < 2:
+                        continue
+                    if self._store_receiver(oargs[0][1]) != slot:
+                        continue
+                    self._collect_ids(oargs[1][1], symbols, literals)
 
             regs.append(
                 HandlerRegistration(

@@ -22,6 +22,7 @@ A = FX / "data_transfer_reg_vs_switch.c.json"
 B = FX / "scp_dup_registration.c.json"
 C = FX / "scp_numeric_vs_name.c.json"
 D = FX / "scp_ambiguous_two_registrations.c.json"
+E = FX / "scp_field_store.c.json"
 
 
 def _need(p):
@@ -143,6 +144,18 @@ def test_ambiguous_two_registrations_no_binding():
     assert scp.conflict.margin == 0.0
     # AMBIGUOUS must not leak into the back-compat resolved-only projection
     assert "SetChargingProfile" not in {h.action for h in r.handler_maps}
+
+
+def test_producer1_correlated_field_store():
+    """Producer 1: `t[0].action = ID; t[0].fn = FN;` as separate statements. The
+    id is recovered from the sibling store to the same slot -> REGISTRATION_ASSIGN
+    resolves the handler (previously the V2 gap)."""
+    _need(E)
+    r = run_f2a_file(E)
+    scp = _res(r, "SetChargingProfile")
+    assert scp.status == "RESOLVED"
+    assert scp.chosen.function == "on_scp"
+    assert scp.candidates[0].evidence_kinds == ["REGISTRATION_ASSIGN"]
 
 
 def test_exact_numeric_registration_beats_weak_name():
