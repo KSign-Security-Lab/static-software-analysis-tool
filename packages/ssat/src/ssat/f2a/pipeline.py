@@ -1117,6 +1117,48 @@ class F2AAnalyzer:
                 return cpg.code(kids[0])
         return cpg.code(lhs)
 
+    def _enclosing_struct_init(self, assign: int) -> Optional[int]:
+        """If ``assign`` is a *designated field initializer* (``.field = value``,
+        whose LHS is a bare field-name IDENTIFIER) inside a struct aggregate,
+        return the enclosing ``<operator>.arrayInitializer``; else None.
+
+        c2cpg lowers ``{ .action = X, .fn = f }`` to an arrayInitializer whose
+        members are the designated ``.field = value`` assignments, each wrapped in
+        a synthetic BLOCK — so we climb past at most a couple of BLOCK levels. A
+        real field store (``t[i].fn = f``) or indexed assign (``h[id] = f``) has a
+        fieldAccess/indexAccess LHS, not a bare IDENTIFIER, so it returns None and
+        keeps flowing through the existing FIELD_ASSIGN path unchanged."""
+        cpg = self.cpg
+        args = cpg.call_args(assign)
+        if not args or cpg.label(args[0][1]) != "IDENTIFIER":
+            return None
+        cur = self._ast_parent(assign)
+        hops = 0
+        while cur is not None and hops < 3:
+            if cpg.label(cur) == "CALL" and cpg.name(cur) == "<operator>.arrayInitializer":
+                return cur
+            if cpg.label(cur) != "BLOCK":
+                return None
+            cur = self._ast_parent(cur)
+            hops += 1
+        return None
+
+    def _designated_fields(self, struct_init: int) -> List[int]:
+        """The ``.field = value`` assignment nodes that are direct members of one
+        struct aggregate initializer (each wrapped in a synthetic BLOCK). Used to
+        find the sibling that carries the action id, correlated purely by shared
+        enclosing initializer — order-independent, no cross-initializer leakage."""
+        cpg = self.cpg
+        out: List[int] = []
+        for child in cpg.out_ids(struct_init, "AST"):
+            candidates = cpg.out_ids(child, "AST") if cpg.label(child) == "BLOCK" else [child]
+            for n in candidates:
+                if cpg.label(n) == "CALL" and cpg.name(n) == "<operator>.assignment":
+                    a = cpg.call_args(n)
+                    if a and cpg.label(a[0][1]) == "IDENTIFIER":
+                        out.append(n)
+        return out
+
     def _collect_ids(self, node: int, symbols: Set[str], literals: Set[str]) -> None:
         cpg = self.cpg
         for d in [node, *cpg.ast_descendants(node)]:
@@ -1161,23 +1203,58 @@ class F2AAnalyzer:
             if callback is None:
                 continue
 
-            # ids spelled in the entry node itself (aggregate element / indexed LHS).
             symbols: Set[str] = set()
             literals: Set[str] = set()
-            for child in cpg.out_ids(entry, "AST"):
-                if child == ref:
-                    continue
-                self._collect_ids(child, symbols, literals)
-
             slot = ""
             id_sites: List[int] = []
+            evidence_node = entry
+
+            # A designated field initializer (`.fn = f`) reaches the METHOD_REF via
+            # an <operator>.assignment; recognize when it belongs to a struct
+            # aggregate so it is handled as an aggregate init, not a field store.
+            struct_init = (
+                self._enclosing_struct_init(entry)
+                if op == "<operator>.assignment"
+                else None
+            )
+
             if op == "<operator>.arrayInitializer":
+                # Positional aggregate `{ ID, fn }`: the id is a sibling element.
                 mechanism = "AGGREGATE_INIT"
+                for child in cpg.out_ids(entry, "AST"):
+                    if child == ref:
+                        continue
+                    self._collect_ids(child, symbols, literals)
                 # All entries of one table literal share the outer initializer.
                 table = self._ast_parent(entry)
                 site_key = str(table if table is not None else entry)
-            else:  # <operator>.assignment
+            elif struct_init is not None:
+                # Designated aggregate `{ .action = ID, .fn = fn }`: the id lives in
+                # a *sibling designated field* of the same struct initializer. Same
+                # semantic evidence as positional (REGISTRATION_INIT); correlation
+                # is by shared enclosing init only (order-independent, no field-name
+                # guessing, no cross-initializer leakage). The struct init is the
+                # evidence node so the trail shows the whole `{ ... }` entry.
+                mechanism = "AGGREGATE_INIT"
+                evidence_node = struct_init
+                site_key = f"designated:{struct_init}"
+                for fld in self._designated_fields(struct_init):
+                    if fld == entry:  # skip the callback field itself
+                        continue
+                    fargs = cpg.call_args(fld)
+                    if len(fargs) < 2:
+                        continue
+                    before = (len(symbols), len(literals))
+                    self._collect_ids(fargs[1][1], symbols, literals)
+                    if (len(symbols), len(literals)) != before:
+                        id_sites.append(fld)  # the `.action = id` field, for the trail
+            else:  # <operator>.assignment field store
                 mechanism = "FIELD_ASSIGN"
+                # ids spelled in the entry node itself (indexed LHS `handlers[id]=fn`).
+                for child in cpg.out_ids(entry, "AST"):
+                    if child == ref:
+                        continue
+                    self._collect_ids(child, symbols, literals)
                 args = cpg.call_args(entry)
                 lhs = args[0][1] if args else entry
                 slot = self._store_receiver(lhs)
@@ -1204,7 +1281,7 @@ class F2AAnalyzer:
                     action_id_literals=literals,
                     callback_method=callback,
                     mechanism=mechanism,
-                    evidence_node=entry,
+                    evidence_node=evidence_node,
                     ref_node=ref,
                     site_key=site_key,
                     id_sites=id_sites,

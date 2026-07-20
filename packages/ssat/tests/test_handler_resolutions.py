@@ -27,6 +27,9 @@ R_DIRECT = FX / "scp_registrar_direct.c.json"
 R_TWO = FX / "scp_registrar_two_level.c.json"
 R_NOSTORE = FX / "scp_registrar_no_store.c.json"
 R_SEARCH = FX / "scp_registrar_search_then_write.c.json"
+DI = FX / "designated_init.c.json"
+DI_ORDER = FX / "designated_init_order.c.json"
+DI_NEG = FX / "designated_init_negatives.c.json"
 
 
 def _need(p):
@@ -205,6 +208,50 @@ def test_producer2_registrar_search_then_write_is_named_specifically():
     assert scp.candidates == []
     assert scp.unresolved is not None
     assert scp.unresolved.reason == "REGISTRAR_SEARCH_THEN_WRITE"
+
+
+def test_designated_initializer_resolves_like_positional_aggregate():
+    """TC3: `{ .action = ACTION_REMOTE_START, .fn = remote_handler }` resolves to
+    the same result as the positional `{ ACTION_REMOTE_START, remote_handler }`
+    form — REGISTRATION_INIT, RESOLVED — and the trail preserves the source."""
+    _need(DI)
+    rs = _res(run_f2a_file(DI), "RemoteStartTransaction")
+    assert rs.status == "RESOLVED"
+    assert rs.chosen is not None and rs.chosen.function == "remote_handler"
+    assert rs.candidates[0].evidence_kinds == ["REGISTRATION_INIT"]
+    # requirement 5: the original source expressions/locations survive in the trail
+    records = rs.candidates[0].evidence[0].records
+    kinds = {r.type for r in records}
+    assert {"DISPATCH_HANDLER_TABLE", "ACTION_STORE", "HANDLER_REF"} <= kinds
+    table = next(r for r in records if r.type == "DISPATCH_HANDLER_TABLE")
+    assert ".action = ACTION_REMOTE_START" in table.value and ".fn = remote_handler" in table.value
+
+
+def test_designated_initializer_is_field_order_independent_and_multi_entry():
+    """Field order must not matter, and multiple designated entries in one array
+    each resolve: callback-before-action (RemoteStart) and action-before-callback
+    (DataTransfer) both bind, via REGISTRATION_INIT."""
+    _need(DI_ORDER)
+    result = run_f2a_file(DI_ORDER)
+    rs = _res(result, "RemoteStartTransaction")  # `.fn` before `.action`
+    dt = _res(result, "DataTransfer")            # `.action` before `.fn`
+    assert rs.status == "RESOLVED" and rs.chosen.function == "remote_handler"
+    assert dt.status == "RESOLVED" and dt.chosen.function == "data_handler"
+    assert rs.candidates[0].evidence_kinds == ["REGISTRATION_INIT"]
+    assert dt.candidates[0].evidence_kinds == ["REGISTRATION_INIT"]
+
+
+def test_designated_initializer_negatives_stay_unresolved():
+    """No guessing: an incomplete entry (callback only, no action field) and an
+    unrelated designated struct with a function-pointer field must NOT produce a
+    handler candidate — everything stays UNRESOLVED."""
+    _need(DI_NEG)
+    result = run_f2a_file(DI_NEG)
+    assert all(h.status == "UNRESOLVED" for h in result.handler_resolutions)
+    # the incomplete/unrelated callbacks must never appear as a candidate
+    fns = {c.function for h in result.handler_resolutions for c in h.candidates}
+    assert "lonely_handler" not in fns
+    assert "log_sink" not in fns
 
 
 def test_ambiguous_compat_limitation_names_competitors_not_not_found():
