@@ -566,12 +566,15 @@ class F2AAnalyzer:
 
         if registrar:
             # Producer 2 tried a resolved registrar call but did not reach the
-            # terminal store -> a more precise reason than "unsupported".
-            reason = (
-                UnresolvedReason.REGISTRAR_STORE_NOT_REACHED
-                if getattr(self, "_registrar_store_miss", False)
-                else UnresolvedReason.UNSUPPORTED_REGISTRAR_CALL
-            )
+            # terminal store -> a more precise reason than "unsupported". When the
+            # miss was classified as a runtime search-then-write registrar, name
+            # that idiom specifically (most actionable).
+            if getattr(self, "_registrar_store_miss", False):
+                reason = getattr(self, "_registrar_miss_reason", None) or (
+                    UnresolvedReason.REGISTRAR_STORE_NOT_REACHED
+                )
+            else:
+                reason = UnresolvedReason.UNSUPPORTED_REGISTRAR_CALL
             secondary = UnresolvedReason.UNRESOLVED_INDIRECT_CALL if dispatch_site else None
         elif dispatch_site is not None:
             reason = UnresolvedReason.UNRESOLVED_INDIRECT_CALL
@@ -877,6 +880,7 @@ class F2AAnalyzer:
 
         out: List[ResolutionEvidence] = []
         self._registrar_store_miss = False  # reset per action; read by _diagnose_unresolved
+        self._registrar_miss_reason: Optional[UnresolvedReason] = None  # specific miss cause
         internal_methods = set(by_name.values())
         for v in cpg.vertices:
             if v.get("label") != "CALL":
@@ -923,6 +927,13 @@ class F2AAnalyzer:
             )
             if trace is None:
                 self._registrar_store_miss = True  # for _diagnose_unresolved
+                # Refine the miss: a runtime search-then-write registrar is a
+                # distinct, more actionable cause than a generic store miss.
+                # Prefer the specific reason if any qualifying call exhibits it.
+                if self._registrar_miss_reason is None and self._registrar_uses_search(
+                    target, cpg.name(id_param), cpg.name(cb_param)
+                ):
+                    self._registrar_miss_reason = UnresolvedReason.REGISTRAR_SEARCH_THEN_WRITE
                 continue
 
             strength = MatchStrength.EXACT_IDENTIFIER if id_exact else MatchStrength.HEURISTIC_SUBSTRING
@@ -1018,6 +1029,65 @@ class F2AAnalyzer:
             if sub is not None:
                 return [rec("CHAIN_CALL", c), *sub]
         return None
+
+    _CMP_OPS = frozenset({
+        "<operator>.equals", "<operator>.notEquals",
+        "<operator>.lessThan", "<operator>.greaterThan",
+        "<operator>.lessEqualsThan", "<operator>.greaterEqualsThan",
+    })
+
+    def _registrar_uses_search(self, method: int, id_name: str, cb_name: str) -> bool:
+        """Classify a store-miss registrar as *search-then-write*: it locates the
+        slot at runtime (a loop) by *comparing* the action id (a predicate) and
+        then writes only the callback — e.g.::
+
+            for (i ...) if (table[i].action == a) { table[i].handler = cb; }
+
+        The defining trait is that the id parameter is *compared*, not co-stored
+        with the callback. That plus a loop is what puts the action->slot
+        correlation outside the paired-store baseline. Detected structurally so
+        the diagnosis names the idiom instead of the generic 'store not reached'.
+        """
+        cpg = self.cpg
+        id_compared = any(
+            cpg.name(c) in self._CMP_OPS
+            and id_name in {cpg.name(d) for d in cpg.ast_descendants(c)}
+            for c in cpg.calls_in_method(method)
+        )
+        if not id_compared:
+            return False
+        # Corroborate with a loop and a variable-indexed callback store, so a
+        # plain `if (a == X) t.handler = cb;` (no runtime slot search) is not
+        # mislabeled.
+        has_loop = any(
+            str(cpg.scalar(cs, "CONTROL_STRUCTURE_TYPE") or "").upper() in ("FOR", "WHILE", "DO")
+            for cs in cpg.control_structures_in(method)
+        )
+        var_index_store = any(
+            cpg.name(ca) == "<operator>.assignment"
+            and cb_name in {cpg.name(d) for d in cpg.ast_descendants(ca)}
+            and self._store_slot_has_variable_index(cpg.call_args(ca)[0][1])
+            for ca in cpg.calls_in_method(method)
+        )
+        return has_loop or var_index_store
+
+    def _store_slot_has_variable_index(self, lhs: int) -> bool:
+        """True if the store LHS selects its slot with a non-constant index
+        (``t[i].fn`` / ``t[i]``), i.e. the slot is chosen at runtime."""
+        cpg = self.cpg
+        target = lhs
+        if cpg.label(lhs) == "CALL" and cpg.name(lhs) in (
+            "<operator>.fieldAccess", "<operator>.indirectFieldAccess",
+        ):
+            kids = cpg.out_ids(lhs, "AST")
+            if kids:
+                target = kids[0]
+        if cpg.label(target) == "CALL" and cpg.name(target) in (
+            "<operator>.indirectIndexAccess", "<operator>.indexAccess",
+        ):
+            idx = cpg.out_ids(target, "AST")
+            return len(idx) > 1 and cpg.label(idx[1]) != "LITERAL"
+        return False
 
     # -- registration intermediate representation ------------------------
     #

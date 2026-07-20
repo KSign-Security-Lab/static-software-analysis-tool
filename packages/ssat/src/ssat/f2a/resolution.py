@@ -59,6 +59,12 @@ class UnresolvedReason(Enum):
     LOW_CONFIDENCE = "LOW_CONFIDENCE"
     UNSUPPORTED_REGISTRAR_CALL = "UNSUPPORTED_REGISTRAR_CALL"
     REGISTRAR_STORE_NOT_REACHED = "REGISTRAR_STORE_NOT_REACHED"
+    # A resolved registrar that selects the target slot at runtime (loop + a
+    # predicate comparing the action) and writes only the callback, instead of
+    # co-storing the id and callback into one statically-visible slot. The
+    # baseline extractor keys on a paired store, so the action->slot correlation
+    # cannot be established. A specialization of REGISTRAR_STORE_NOT_REACHED.
+    REGISTRAR_SEARCH_THEN_WRITE = "REGISTRAR_SEARCH_THEN_WRITE"
     UNRESOLVED_INDIRECT_CALL = "UNRESOLVED_INDIRECT_CALL"
     EXTERNAL_DEFINITION = "EXTERNAL_DEFINITION"
     DYNAMIC_ACTION_ID = "DYNAMIC_ACTION_ID"

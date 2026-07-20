@@ -102,6 +102,11 @@ def classify_outcome(hr: Any, action_referenced: bool) -> Optional[Classificatio
         return Classification(TIER_POTENTIALLY_SUPPORTABLE, "VARIABLE_INDEX_CORRELATION", "LOW",
                               ["registrar resolved but terminal store not reached within depth",
                                "alternatives: deeper traversal, ALIAS_OR_POINTS_TO"] + obs)
+    if reason == "REGISTRAR_SEARCH_THEN_WRITE":
+        return Classification(TIER_POTENTIALLY_SUPPORTABLE, "SEARCH_THEN_WRITE_REGISTRAR", "LOW",
+                              ["registrar resolved but selects the slot at runtime "
+                               "(loop + action predicate) and stores only the callback",
+                               "escalation: loop/predicate reasoning + symbolic index + alias->slot"] + obs)
     if reason == "NO_EVIDENCE":
         if action_referenced:
             return Classification(TIER_ANALYSIS_SCOPE, "CROSS_TU_REGISTRATION", "MEDIUM",

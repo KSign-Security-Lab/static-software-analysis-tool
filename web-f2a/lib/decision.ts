@@ -123,7 +123,9 @@ function koReason(s: string): string {
       NO_EVIDENCE: "근거 없음",
       LOW_CONFIDENCE: "신뢰도 부족",
       UNSUPPORTED_REGISTRAR_CALL: "지원하지 않는 등록 함수 호출",
-      REGISTRAR_STORE_NOT_REACHED: "등록 저장 지점에 도달하지 못함",
+      REGISTRAR_STORE_NOT_REACHED: "등록 함수는 인식했지만 액션→슬롯 연결을 확인하지 못함",
+      REGISTRAR_SEARCH_THEN_WRITE:
+        "등록 함수가 반복문+조건으로 슬롯을 런타임에 탐색해 콜백만 저장하는 방식(search-then-write)이라, 현재 분석 범위 밖입니다",
       UNRESOLVED_INDIRECT_CALL: "간접 호출을 해석하지 못함",
       EXTERNAL_DEFINITION: "외부에 정의된 핸들러",
       DYNAMIC_ACTION_ID: "동적으로 결정되는 액션 식별자",

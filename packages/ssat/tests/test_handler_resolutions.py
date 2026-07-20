@@ -26,6 +26,7 @@ E = FX / "scp_field_store.c.json"
 R_DIRECT = FX / "scp_registrar_direct.c.json"
 R_TWO = FX / "scp_registrar_two_level.c.json"
 R_NOSTORE = FX / "scp_registrar_no_store.c.json"
+R_SEARCH = FX / "scp_registrar_search_then_write.c.json"
 
 
 def _need(p):
@@ -190,6 +191,20 @@ def test_producer2_registrar_store_not_reached_emits_no_evidence():
     assert scp.candidates == []
     assert scp.unresolved is not None
     assert scp.unresolved.reason == "REGISTRAR_STORE_NOT_REACHED"
+
+
+def test_producer2_registrar_search_then_write_is_named_specifically():
+    """A registrar that locates the slot at runtime (loop + action predicate) and
+    stores only the callback yields NO evidence, and the miss is diagnosed as the
+    specific REGISTRAR_SEARCH_THEN_WRITE idiom — not the generic store miss — so
+    the limitation is actionable. (The plain no-store case above still reports the
+    generic REGISTRAR_STORE_NOT_REACHED, confirming this is a true specialization.)"""
+    _need(R_SEARCH)
+    scp = _res(run_f2a_file(R_SEARCH), "SetChargingProfile")
+    assert scp.status == "UNRESOLVED"
+    assert scp.candidates == []
+    assert scp.unresolved is not None
+    assert scp.unresolved.reason == "REGISTRAR_SEARCH_THEN_WRITE"
 
 
 def test_ambiguous_compat_limitation_names_competitors_not_not_found():
