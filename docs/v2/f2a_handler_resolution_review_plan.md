@@ -1,10 +1,13 @@
 # F2-A · Handler Resolution — Technical Design Review
 
-**Format:** research-conference technical review · 18 slides
+**Format:** research-conference technical review · 20 slides
 **Audience:** engineers & security researchers fluent in static analysis, AST/CPG, protocol analysis
 **Style rules:** one idea per slide · minimal text · boxes-and-arrows over prose · diagrams must be technically accurate · assume adversarial Q&A
 
 > Framing note carried through the whole deck: F2-A produces **evidence-backed candidates**, not confirmed facts. It resolves *which source function handles a protocol action*; it never claims a vulnerability. Every claim is traceable to a file/line record. Keep this honesty visible on every slide that states a result.
+
+> **Architectural backbone (recurring rail):** the whole subsystem is four layers, each producing only inputs for the next —
+> **Recognition → Evidence → Calculus → Decision.** Slides 9–13 carry a rail showing which layer is active. No layer decides above its station: extractors recognize, they never resolve.
 
 ---
 
@@ -18,7 +21,7 @@
   - F2-A = "Handler Resolution" stage of an OCPP-aware static pipeline
   - Input: protocol knowledge + a code property graph. Output: per-action resolution + evidence trail
   - Contribution: evidence model + calculus + explicit "refuse to guess" semantics
-- **Speaker notes:** State the one-sentence thesis and the honesty contract up front. Everything downstream trusts F2-A's mapping, so F2-A must either be right or *say it doesn't know*. Preview that the talk's spine is: problem → evidence → calculus → decision → limits.
+- **Speaker notes:** State the one-sentence thesis and the honesty contract up front. Everything downstream trusts F2-A's mapping, so F2-A must either be right or *say it doesn't know*. Preview that the talk's spine is the four-layer backbone: recognition → evidence → calculus → decision.
 
 ---
 
@@ -32,6 +35,7 @@
   "RemoteStartTransaction"  --?-->  remote_handler()
   "SetChargingProfile"      --?-->  ??? 
   action semantics                 functions, tables, callbacks
+                    ▲ binding is latent in data, not control flow
   ```
 - **Bullets:**
   - Security questions are phrased over *protocol actions*, not functions
@@ -45,16 +49,16 @@
 
 - **Goal:** Explain *why the mapping is hard* — the research problem.
 - **Main message:** Handlers are invoked through function pointers / dispatch tables, so the static call graph does not contain the edge we need.
-- **Suggested diagram:** Call graph with the critical edge missing:
+- **Suggested diagram:** Call graph with the critical edge missing (render the missing edge dashed/red):
   ```
-  dispatch(frame) --calls--> (*table[i].fn)()   ← indirect: NO static edge to remote_handler
-  registration:  table[k] = { ACTION, remote_handler }   ← the edge lives HERE, in data
+  dispatch(frame) ‑‑calls‑‑▶ (*table[i].fn)()   ⟵ indirect: NO static edge to remote_handler
+  registration:  table[k] = { ACTION, remote_handler }   ⟵ the edge lives HERE, in data
   ```
 - **Bullets:**
   - Dynamic dispatch ⇒ the caller→handler edge is absent from the CG
   - The real binding is expressed in *data* (registration sites), not control flow
   - So we must recover the edge from **registration structure + identifier matching**, not from calls
-- **Speaker notes:** This is the crux. A naive call-graph walk fails by construction. The binding is latent in initializer tables, assignments, and registrar calls. F2-A's job is to reconstruct that latent edge statically. Anticipate: "why not just run it?" — static, pre-deployment, whole-firmware, no harness.
+- **Speaker notes:** This is the crux — let it breathe. A naive call-graph walk fails by construction. The binding is latent in initializer tables, assignments, and registrar calls. F2-A's job is to reconstruct that latent edge statically. Anticipate: "why not just run it?" — static, pre-deployment, whole-firmware, no harness.
 
 ---
 
@@ -98,11 +102,39 @@
   - **CPG/AST** — structural shape of initializers, assignments, calls, dispatch sites
   - **Symbol info** — which references resolve to internal functions (candidate callbacks)
   - **Action identifiers** — the tokens that must match between code and protocol
-- **Speaker notes:** The KB is the ground truth of "what identifiers denote which action". The AST supplies the *shape* of registration; symbols tell us a reference is a real internal function, not an external stub. Matching happens in the overlap of KB tokens and code identifiers.
+- **Speaker notes:** The KB is the ground truth of "what identifiers denote which action". The AST supplies the *shape* of registration; symbols tell us a reference is a real internal function, not an external stub. How those identifiers actually get matched is the next slide.
 
 ---
 
-## Slide 6 — Registration Mechanisms: A Taxonomy
+## Slide 6 — Protocol Identifier Normalization
+
+- **Goal:** Explain the KB's real job — turning one protocol action's many code spellings into a single canonical identity that extractors can match against.
+- **Main message:** A protocol action has one meaning but many representations; the KB normalizes them into one canonical **ActionIdentifier**, and match strength falls directly out of *how* a code token corresponds to it.
+- **Suggested diagram (the centerpiece — a convergence + comparison, not a list):**
+  ```
+        many spellings in code                         one protocol truth
+    ┌──────────────────────────────┐
+    │ "RemoteStartTransaction"  ─ wire string ─┐
+    │  ACTION_REMOTE_START       ─ macro       ─┤
+    │  OcppAction::REMOTE_START  ─ enum        ─┼─▶ ╔══════════════════════╗
+    │  3                         ─ numeric id  ─┤   ║ canonical             ║
+    │  remote_start (alias)      ─ alias       ─┘   ║ ActionIdentifier      ║
+    └──────────────────────────────┘               ╚══════════════════════╝
+                                                              ▲
+       code-side raw identifier  ───────── compare ───────────┘
+                                             │
+                       match strength = exactness of correspondence
+       EXACT_IDENTIFIER ▷ NORMALIZED ▷ HEURISTIC_SUBSTRING ▷ NAME_ONLY
+  ```
+- **Bullets:**
+  - The KB exists so one action's scattered spellings resolve to a single identity
+  - Extractors don't compare strings ad hoc — they compare a raw id against the canonical identity
+  - The match-strength ladder is not a tuning knob; it is *which representation matched, how exactly*
+- **Speaker notes:** This is the conceptual hinge between the protocol world and the code world. Walk the ladder: a macro/enum symbol hit or numeric-id hit is EXACT; a normalized-name hit is NORMALIZED; a substring/token overlap is HEURISTIC_SUBSTRING; a function-name resemblance with no id is NAME_ONLY. Everything the calculus later does with "match strength" is grounded here. Note it's bidirectional: KB produces the canonical identity, the code site produces a raw identifier, and matching scores their correspondence.
+
+---
+
+## Slide 7 — Registration Mechanisms: A Taxonomy
 
 - **Goal:** Show the diversity of real-world registration syntax.
 - **Main message:** There is no single "registration" construct; firmware binds handlers many ways, so recognition must be plural.
@@ -123,119 +155,151 @@
 
 ---
 
-## Slide 7 — Why Multiple Extractors, Not One Matcher
+## Slide 8 — Why Multiple Extractors, Not One Matcher
 
-- **Goal:** Defend the multi-extractor architecture.
-- **Main message:** Each mechanism has its own correlation key; folding them into one rule sacrifices precision and diagnosability.
-- **Suggested diagram:** Many extractors → one shared evidence bus:
+- **Goal:** Defend the multi-extractor architecture *and* introduce the four-layer backbone.
+- **Main message:** Extractors *recognize*; they never *decide*. Recognition feeds a uniform evidence stream, and everything downstream is a separate layer.
+- **Suggested diagram (introduce the backbone here — this is the deck's spine):**
   ```
-  [aggregate] [designated] [indexed] [correlated] [registrar] [delegated] [name]
-        \        \        |        /        /         /        /
-         ▼        ▼       ▼       ▼        ▼         ▼        ▼
-                  ┌──────────────────────────────┐
-                  │   uniform Evidence stream     │
-                  └──────────────────────────────┘
+  [aggregate][designated][indexed][correlated][registrar][delegated][name]
+       \        \        |        /        /        /       /
+        ▼        ▼       ▼       ▼        ▼        ▼       ▼
+   ┌────────────┐   ┌──────────┐   ┌───────────┐   ┌──────────┐
+   │ RECOGNITION│──▶│ EVIDENCE │──▶│  CALCULUS │──▶│ DECISION │
+   └────────────┘   └──────────┘   └───────────┘   └──────────┘
+    recognizers      typed records   scoring +       resolve /
+    (this slide)     w/ provenance   combination     abstain
+        "no layer decides above its station"
   ```
 - **Bullets:**
   - Different mechanisms correlate id↔callback differently (same node / sibling field / shared slot / arg→param)
   - Independent extractors ⇒ independent evidence ⇒ *corroboration* is possible
   - A miss in one extractor is a precise diagnostic, not a silent whole-system failure
-- **Speaker notes:** Key architectural claim: extractors are **recognizers, not deciders**. They emit into a common evidence model. This is what lets two mechanisms agree on one handler and raise confidence, and lets us attribute an unresolved case to a specific mechanism's limit.
+- **Speaker notes:** Land the backbone explicitly and promise the audience the next five slides walk it left to right: Recognition (extractors) → Evidence (the record) → Calculus (scoring, then combination) → Decision (resolve/abstain). This is the mental model to hold for the rest of the talk. Extractors are recognizers, not deciders — that single constraint is what makes corroboration and honest abstention possible.
 
 ---
 
-## Slide 8 — Registration Extractors (Capability Map)
+## Slide 9 — Registration Extractors (Capability Map)
 
-- **Goal:** One-glance capability table; pattern / evidence / strength / limit per extractor.
-- **Main message:** Each extractor has a crisp recognized shape and an explicit boundary.
-- **Suggested diagram:** 4-column table:
+- **Goal:** One-glance capability table; pattern / evidence / strength / limit per extractor, split by role.
+- **Main message:** Recognition splits into *structural* extractors (high-trust, id+callback present) and *corroborative* signals (low-trust, usable only to reinforce).
+- **Rail:** `[ ●Recognition › Evidence › Calculus › Decision ]`
+- **Suggested diagram (two visually distinct bands, not one flat table):**
   ```
-  Extractor        Recognizes                 Emits            Boundary
-  aggregate init   { ID, fn }                 REGISTRATION_INIT inline id only
-  designated init  { .a=ID, .fn=fn }          REGISTRATION_INIT same struct init
-  indexed / field  h[ID]=fn ; t[k].*=…        REGISTRATION_ASSIGN shared slot key
-  registrar call   f(ID, fn) → stores fn      REGISTRAR_CALL     must reach store
-  delegated        f→g→ store (arg→param)     REGISTRAR_CALL     depth-bounded (2)
-  dispatch/name    switch(id)/name similarity ENUM_CASE/NAME_MATCH weak, corroborative
+  ── STRUCTURAL (high prior) ─────────────────────────────────────────
+   Extractor        Recognizes                 Emits              Boundary
+   aggregate init   { ID, fn }                 REGISTRATION_INIT  inline id only
+   designated init  { .a=ID, .fn=fn }          REGISTRATION_INIT  same struct init
+   indexed / field  h[ID]=fn ; t[k].*=…        REGISTRATION_ASSIGN shared slot key
+   registrar call   f(ID, fn) → stores fn      REGISTRAR_CALL     must reach store
+   delegated        f→g→ store (arg→param)     REGISTRAR_CALL     depth-bounded
+
+  ── CORROBORATIVE (low prior) ───────────────────────────────────────
+   dispatch site    switch(id) → handler       ENUM_CASE          weak alone
+   name similarity  fn name ≈ action           NAME_MATCH         weak alone
   ```
 - **Bullets:**
-  - Strong, structural extractors carry high prior weight
-  - Name/dispatch signals are weak — usable only as corroboration
+  - Structural extractors carry high prior weight; they alone can resolve
+  - Corroborative signals cannot resolve on their own — they only reinforce
   - Every extractor's boundary is a named limitation, surfaced downstream
-- **Speaker notes:** Walk one row (designated): correlation is "same enclosing initializer, order-independent, no field-name guessing". Contrast registrar: needs to follow the call into the callee and reach the terminal store, else it emits nothing and reports the miss. Boundaries are deliberate, not accidental.
+- **Speaker notes:** Walk one structural row (designated): correlation is "same enclosing initializer, order-independent, no field-name guessing". Contrast registrar: it must follow the call into the callee and reach the terminal store, else it emits nothing and reports the miss. The structural/corroborative divide is what the calculus later encodes as prior weight and the weak-only cap.
 
 ---
 
-## Slide 9 — The Evidence Model
+## Slide 10 — The Evidence Model
 
 - **Goal:** Define the currency of the system.
 - **Main message:** Extractors speak one language: a structured evidence record with provenance and a source trail.
-- **Suggested diagram:** One evidence record, exploded:
+- **Rail:** `[ Recognition › ●Evidence › Calculus › Decision ]`
+- **Suggested diagram (a conceptual schema *card*, not a struct):**
   ```
-  Evidence {
-    action id     ─ symbol / numeric / raw expr  (+ match strength)
-    callback      ─ the resolved internal function
-    kind          ─ which mechanism produced it
-    provenance    ─ site/group key (dedup + grouping)
-    confidence    ─ prior weight × match multiplier
-    dispatch site ─ where the binding is observed
-    records[]     ─ ordered file/line trail (auditable)
-  }
+  ╔══════════════════ EVIDENCE (record) ══════════════════╗
+  ║  field           meaning                                ║
+  ║ ───────────────  ────────────────────────────────────  ║
+  ║  action id       matched identifier  (+ match strength) ║
+  ║  callback        the resolved internal function         ║
+  ║  kind            which mechanism produced it             ║
+  ║  provenance      site / group key (dedup + grouping)    ║
+  ║  confidence      Prior(kind) shaped by match strength    ║
+  ║  dispatch site   where the binding is observed          ║
+  ║  records[]       ordered file/line trail (auditable)    ║
+  ╚═════════════════════════════════════════════════════════╝
   ```
 - **Bullets:**
   - Evidence is *typed by mechanism* and *scored by match quality*
   - Provenance key makes duplicates and same-site evidence identifiable
   - Records preserve the original source expressions and locations
-- **Speaker notes:** Emphasize match strength: exact identifier vs normalized vs heuristic substring vs name-only. A record trail is not decoration — it is what makes a resolution reviewable by a human who did not run the tool. Multiple extractors emit simultaneously because they observe independent facts about the same binding.
+- **Speaker notes:** The record trail is not decoration — it is what makes a resolution reviewable by a human who did not run the tool. Multiple extractors emit simultaneously because they observe independent facts about the same binding. This record is the boundary object between Recognition and Calculus: extractors fill it, the calculus consumes it.
 
 ---
 
-## Slide 10 — Evidence Calculus: Merging Independent Signals
+## Slide 11 — Evidence Scoring
 
-- **Goal:** Explain how many evidences become one confidence per candidate.
-- **Main message:** Combine *within a site* by max (no double counting) and *across independent sites* by corroboration (noisy-OR), then apply caps and penalties.
-- **Suggested diagram:** Two-stage combination:
+- **Goal:** Show how a *single* piece of evidence gets a score — before any merging.
+- **Main message:** One evidence's score is its kind's prior, shaped by how exactly its identifier matched.
+- **Rail:** `[ Recognition › Evidence › ●Calculus › Decision ]`
+- **Suggested diagram:**
   ```
-  evidences ─► group by provenance
-     within group:  confidence = MAX (same site ≠ new information)
-     across groups: noisy-OR    (independent corroboration raises belief)
-                        │
-                        ▼
-     caps (weak-only ≤ .85, global ≤ .99) · conflict penalty
-                        │
-                        ▼
-              candidate confidence
+  one piece of evidence
+     Prior(kind)      ──┐   structural kind  → high prior
+                         ├─▶  evidence score = Prior(kind) shaped by Match Strength
+     Match Strength   ──┘   exact ↦ preserved  ·  heuristic ↦ discounted
+                                              ·  name-only ↦ weak
   ```
 - **Bullets:**
-  - Priors per kind (structural > dispatch > name); exact match preserved, heuristic discounted
-  - Same-site duplicates collapse; independent sites corroborate
-  - Weak-only evidence is capped; conflicting competitors are penalized
-- **Speaker notes:** Give the intuition and the numbers the audience will ask for: representative priors (structural registration ≈ 0.80, registrar ≈ 0.70, name-match low), heuristic-substring multiplier (~0.7), ambiguity margin 0.15, acceptance floor 0.50, registrar depth 2. Stress *why noisy-OR*: two independent weak signals should exceed either alone, but never certainty (global cap < 1.0). The calculus exists so confidence is a defined function of evidence, not a hand-tuned verdict.
+  - **Prior(kind)** — structural mechanisms outrank dispatch/name signals
+  - **Match Strength** — exact identifier preserved; weaker correspondences discounted
+  - Output: a per-evidence score; no candidate merging happens yet
+- **Speaker notes:** Keep this slide strictly about *one* evidence. Give the intuition: a structural registration with an exact symbol match scores near its full prior; the same mechanism with only a substring match is discounted; a name-only signal stays weak regardless. (Concrete priors and multipliers live in Appendix A1 — don't put numbers on the slide.) This is deliberately the simpler half of the calculus; combination is next.
 
 ---
 
-## Slide 11 — Candidate Selection: Resolve, Refuse, or Abstain
+## Slide 12 — Evidence Combination
+
+- **Goal:** Explain how many scored evidences become one confidence per candidate — and *why* we combine at all.
+- **Main message:** Combine *within a site* by MAX (same site is not new information) and *across independent sites* by noisy-OR (independent corroboration raises belief), then apply caps and a conflict penalty.
+- **Rail:** `[ Recognition › Evidence › ●Calculus › Decision ]`
+- **Suggested diagram:**
+  ```
+  many scored evidences for one candidate
+        │  group by provenance
+        ├─ within a site :  MAX        (same site ≠ new information)
+        └─ across sites  :  noisy-OR   (independent corroboration ↑ belief)
+                     │
+                     ▼   Weak-only Cap · Global Cap · Conflict Penalty
+             candidate confidence
+  ```
+- **Bullets:**
+  - Same-site duplicates collapse (MAX) so one site can't inflate itself
+  - Independent sites corroborate (noisy-OR) — two weak-but-independent signals beat either alone
+  - Weak-only evidence is capped; competing candidates incur a conflict penalty
+- **Speaker notes:** This is the intellectual core — spend time. Why noisy-OR: independent corroboration should raise belief but never reach certainty (a Global Cap keeps confidence below 1.0). Why within-site MAX: two records from the *same* registration are not two witnesses. The Weak-only Cap prevents a pile of name/dispatch hints from masquerading as strong evidence. (Numeric caps, margins, penalty factors → Appendix A1.)
+
+---
+
+## Slide 13 — Candidate Selection: Resolve, Refuse, or Abstain
 
 - **Goal:** Define the three-way decision and the margin logic.
 - **Main message:** A confident, clear winner resolves; near-ties abstain on purpose; nothing credible ⇒ unresolved.
-- **Suggested diagram:** Decision gate:
+- **Rail:** `[ Recognition › Evidence › Calculus › ●Decision ]`
+- **Suggested diagram:** Decision gate (symbolic thresholds):
   ```
-                 top candidate conf ≥ 0.50 ?
+                 top candidate ≥ Acceptance Floor ?
                     /no                 \yes
-              UNRESOLVED         (top − second) ≥ margin(0.15)?
+              UNRESOLVED         (top − second) ≥ Ambiguity Margin ?
               (low confidence)     /no                 \yes
                               AMBIGUOUS             RESOLVED
                             (retain competitors)   (chosen + trail)
   ```
 - **Bullets:**
-  - RESOLVED: one candidate above floor and clear of the runner-up
-  - AMBIGUOUS: multiple credible candidates within the margin → **no choice made**
+  - RESOLVED: one candidate above the **Acceptance Floor** and clear of the runner-up
+  - AMBIGUOUS: multiple credible candidates within the **Ambiguity Margin** → **no choice made**
   - UNRESOLVED: no candidate clears the floor
-- **Speaker notes:** The deliberate-abstention point: a wrong resolution silently corrupts every downstream stage, so when evidence is genuinely split the correct engineering answer is to refuse and hand the conflict to a human/F6. AMBIGUOUS is a feature, not a failure. Competitors and the margin are retained so the caller can see *why* it abstained.
+- **Speaker notes:** The deliberate-abstention point — the most interesting design stance, so dwell here. A wrong resolution silently corrupts every downstream stage, so when evidence is genuinely split the correct engineering answer is to refuse and hand the conflict to F6/a human. AMBIGUOUS is a feature, not a failure. Competitors and the margin are retained so the caller can see *why* it abstained. (Floor and margin values → Appendix A1.)
 
 ---
 
-## Slide 12 — Diagnostics: A Taxonomy of "Why Not"
+## Slide 14 — Diagnostics: A Taxonomy of "Why Not"
 
 - **Goal:** Show unresolved outcomes are structured, actionable diagnoses.
 - **Main message:** An unresolved action names *which analysis boundary it hit*, not "failed".
@@ -256,51 +320,54 @@
 
 ---
 
-## Slide 13 — Worked Example (the detailed slide)
+## Slide 15 — Worked Example (the detailed slide)
 
 - **Goal:** End-to-end trace on one concrete case, plus the ambiguity contrast.
-- **Main message:** Watch source become evidence become a scored, auditable resolution.
-- **Suggested diagram:** Vertical pipeline with a side branch:
+- **Main message:** Watch source become evidence become a scored, auditable resolution — the backbone in motion.
+- **Suggested diagram:** Vertical pipeline with a side branch (concrete scores are illustrative and stay here):
   ```
   SOURCE
     static Reg t[] = { { ACTION_DATA_TRANSFER, foo } };     // registration
     switch (f->action){ case ACTION_DATA_TRANSFER: bar(); } // dispatch (side branch)
         │
-        ▼ extractors
+        ▼ RECOGNITION (extractors)
   Evidence A: kind=REGISTRATION_INIT, cb=foo, id=ACTION_DATA_TRANSFER (EXACT), site=reg
   Evidence B: kind=ENUM_CASE,        cb=bar, id=ACTION_DATA_TRANSFER (EXACT), site=switch
         │
-        ▼ calculus
-  candidate foo: 0.80   |   candidate bar: ~0.85(weak-capped)   ← two DIFFERENT callbacks
+        ▼ CALCULUS (score → combine)
+  candidate foo: 0.80   |   candidate bar: 0.85 (weak-capped)   ← two DIFFERENT callbacks
         │
-        ▼ selection
+        ▼ DECISION
   margin small + different callbacks → AMBIGUOUS (retain foo & bar + conflict)
   ---------------------------------------------------------------
-  Remove the switch → only Evidence A → foo 0.80 ≥ floor, no rival → RESOLVED → foo
+  Remove the switch → only Evidence A → foo clears floor, no rival → RESOLVED → foo
   ```
 - **Bullets:**
   - Two independent extractors fire on the same action id, different callbacks
-  - Calculus scores each; selection detects the conflict and abstains
+  - Scoring then combination rank each; the decision layer detects the conflict and abstains
   - Drop the competitor and the same machinery cleanly resolves
-- **Speaker notes:** This is the money slide — spend time. Show that the *same* pipeline yields AMBIGUOUS or RESOLVED purely from evidence, no special-casing. Point out the evidence trail on the resolved path (table entry → handler ref, with file/line). If asked, note the corroboration variant: two evidences for the *same* callback would noisy-OR *up*, not conflict.
+- **Speaker notes:** The money slide — spend the most time. Show that the *same* four layers yield AMBIGUOUS or RESOLVED purely from evidence, no special-casing. Numbers are kept here only because they make the trace legible. Point out the evidence trail on the resolved path (table entry → handler ref, with file/line). If asked, the corroboration variant: two evidences for the *same* callback would noisy-OR *up*, not conflict.
 
 ---
 
-## Slide 14 — Output Schema
+## Slide 16 — Output Schema
 
 - **Goal:** Define the contract handed downstream.
 - **Main message:** One authoritative per-action result set, plus a resolved-only convenience view, all evidence-linked.
-- **Suggested diagram:** Nested output shape:
+- **Suggested diagram (architectural schema — layered blocks, not JSON):**
   ```
-  result
-  ├─ handler_resolutions[]        ← authoritative, one per action
-  │    ├─ status (RESOLVED/AMBIGUOUS/UNRESOLVED)
-  │    ├─ chosen                  (only if RESOLVED)
-  │    ├─ candidates[] { fn, confidence, evidence_kinds, evidence[] { records[] } }
-  │    ├─ conflict  { competitors, margin }   (AMBIGUOUS)
-  │    └─ unresolved{ reason, attempted }     (UNRESOLVED)
-  ├─ handler_maps[]               ← resolved-only, back-compat
-  └─ limitations[]                ← global scope caveats
+  ┌──────────────────────── F2-A RESULT ────────────────────────┐
+  │                                                              │
+  │  handler_resolutions   ── authoritative · one per action     │
+  │     • status            RESOLVED / AMBIGUOUS / UNRESOLVED     │
+  │     • chosen            present only when RESOLVED           │
+  │     • candidates        each carries its evidence + records  │
+  │     • conflict          competitors + margin  (AMBIGUOUS)    │
+  │     • unresolved        reason + attempts     (UNRESOLVED)   │
+  │                                                              │
+  │  handler_maps          ── resolved-only view · back-compat    │
+  │  limitations           ── global scope caveats                │
+  └──────────────────────────────────────────────────────────────┘
   ```
 - **Bullets:**
   - `handler_resolutions` is the source of truth; `handler_maps` is a resolved-only subset
@@ -310,7 +377,7 @@
 
 ---
 
-## Slide 15 — Downstream Consumption
+## Slide 17 — Downstream Consumption
 
 - **Goal:** Show how the resolution unlocks the rest of the pipeline.
 - **Main message:** The resolved handler is the anchor from which taint sources, sinks, and checks are all located.
@@ -336,7 +403,7 @@
 
 ---
 
-## Slide 16 — Current Scope
+## Slide 18 — Current Scope
 
 - **Goal:** State precisely what is in the baseline.
 - **Main message:** The baseline covers the structural, statically-decidable registration forms and handles ambiguity explicitly.
@@ -344,7 +411,7 @@
   ```
   ✓ aggregate initialization        ✓ designated initialization
   ✓ indexed / correlated field store ✓ registrar tracing (reaches store)
-  ✓ delegated registrar (depth 2)    ✓ symbolic receiver correlation (shared slot)
+  ✓ delegated registrar (bounded)    ✓ symbolic receiver correlation (shared slot)
   ✓ ambiguity detection & abstention ✓ structured diagnostics
   ```
 - **Bullets:**
@@ -355,7 +422,7 @@
 
 ---
 
-## Slide 17 — Limitations (Intentional Exclusions)
+## Slide 19 — Limitations (Intentional Exclusions)
 
 - **Goal:** Be candid about what the baseline will not do and why.
 - **Main message:** The excluded patterns all require value/loop/alias reasoning whose cost and unsoundness risk exceed the baseline's precision budget.
@@ -375,7 +442,7 @@
 
 ---
 
-## Slide 18 — Evaluation & Conclusions
+## Slide 20 — Evaluation & Conclusions
 
 - **Goal:** Validate the approach and close with the thesis.
 - **Main message:** Behavior is pinned by capability + regression tests over synthetic patterns; the evidence-based design is what makes results trustworthy and extensible.
@@ -392,15 +459,14 @@
 - **Bullets:**
   - Each registration mechanism has a fixture asserting exact expected outcome
   - Negative & unsupported cases assert *the right refusal*, not just "no crash"
-  - Conclusion: evidence + calculus > heuristic matching; it enables protocol-aware F6 analysis and has a clear extension path (escalation extractors feeding the same evidence bus)
-- **Speaker notes:** Explain the test philosophy: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Close on the thesis: because every resolution is a scored function of traceable evidence with an explicit abstain path, downstream security reasoning can rely on it — and new extractors extend coverage without touching the calculus or the decision logic. End by inviting the hard questions (confidence tuning, soundness of noisy-OR, depth bound choice).
+  - Conclusion: evidence + calculus > heuristic matching; it enables protocol-aware F6 analysis and extends via new extractors feeding the same evidence bus
+- **Speaker notes:** Explain the test philosophy: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Close on the thesis: because every resolution is a scored function of traceable evidence with an explicit abstain path, downstream security reasoning can rely on it — and new extractors extend coverage without touching the calculus or the decision logic. The backbone (Recognition → Evidence → Calculus → Decision) is exactly what makes that extensibility safe. End by inviting the hard questions.
 
 ---
 
 ### Appendix (hold-slides for Q&A, not presented)
 
-- **A1 — Calculus parameters:** priors per kind, match-strength multipliers, weak-only cap, global cap, acceptance floor, ambiguity margin, conflict penalty, registrar depth. Present as a table if pressed.
-- **A2 — Match-strength ladder:** exact identifier ▷ normalized identifier ▷ heuristic substring ▷ name-only ▷ none — with what each is trusted for.
-- **A3 — Provenance grouping:** why within-group max and cross-group noisy-OR; the double-counting failure it prevents.
+- **A1 — Calculus parameters:** priors per kind, match-strength multipliers, weak-only cap, global cap, acceptance floor, ambiguity margin, conflict penalty, registrar depth bound. Present as a table if pressed. *(This is the sole home for concrete numeric values.)*
+- **A2 — Match-strength semantics:** exact identifier ▷ normalized identifier ▷ heuristic substring ▷ name-only ▷ none — what each is trusted for, and how it maps to Slide 6's normalization ladder.
+- **A3 — Provenance grouping:** why within-group MAX and cross-group noisy-OR; the double-counting failure it prevents.
 - **A4 — Designated-vs-positional AST:** the lowering difference (wrapped member assignments) that made them structurally distinct despite identical semantics.
-```
