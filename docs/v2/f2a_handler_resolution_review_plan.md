@@ -163,9 +163,10 @@
 - **Main message:** Extractors *recognize*; they never *decide*. Recognition feeds a uniform evidence stream, and everything downstream is a separate layer.
 - **Suggested diagram (introduce the backbone here — this is the deck's spine):**
   ```
-  [aggregate][designated][indexed][correlated][registrar][delegated][name]
-       \        \        |        /        /        /       /
-        ▼        ▼       ▼       ▼        ▼        ▼       ▼
+  [aggregate][designated][indexed][correlated][registrar][delegated][dispatch][name]
+        \           \           \        |        /          /           /
+         ───────────────────── converge ──────────────────────
+                                   ▼
    ┌────────────┐   ┌──────────┐   ┌───────────┐   ┌──────────┐
    │ RECOGNITION│──▶│ EVIDENCE │──▶│  CALCULUS │──▶│ DECISION │
    └────────────┘   └──────────┘   └───────────┘   └──────────┘
@@ -278,8 +279,8 @@
 - **Bullets:**
   - **Step 1 — collapse:** same-site duplicates reduce to their MAX, so one site can't inflate itself
   - **Step 2 — combine:** only then do *independent* sites corroborate (noisy-OR) — two weak-but-independent signals beat either alone
-  - Finally: weak-only evidence is capped; competing candidates incur a conflict penalty
-- **Speaker notes:** This is the intellectual core — spend time. Why noisy-OR: independent corroboration should raise belief but never reach certainty (a Global Cap keeps confidence below 1.0). Why within-site MAX: two records from the *same* registration are not two witnesses. The Weak-only Cap prevents a pile of name/dispatch hints from masquerading as strong evidence. (Numeric caps, margins, penalty factors → Appendix A1.)
+  - Finally: a candidate that never achieved an exact-identifier match (weak-*match*, any kind) is confidence-capped; competing candidates incur a conflict penalty
+- **Speaker notes:** This is the intellectual core — spend time. Why noisy-OR: independent corroboration should raise belief but never reach certainty (a Global Cap keeps confidence below 1.0). Why within-site MAX: two records from the *same* registration are not two witnesses. The Weak-only Cap keys on **match strength, not evidence kind**: a candidate with no exact-identifier match is capped, so a stack of weak-*match* signals (name-only or substring hits) can't masquerade as strong evidence — but a dispatch signal *with* an exact match is not capped. (Numeric caps, margins, penalty factors → Appendix A1.)
 
 ---
 
@@ -415,12 +416,13 @@
 ## Slide 18 — Current Scope
 
 - **Goal:** State precisely what is in the baseline.
-- **Main message:** The baseline covers the structural, statically-decidable registration forms and handles ambiguity explicitly.
+- **Main message:** The baseline covers the statically-decidable registration *and* dispatch forms, and handles ambiguity explicitly.
 - **Suggested diagram:** Checklist panel:
   ```
-  ✓ aggregate initialization        ✓ designated initialization
+  ✓ aggregate initialization         ✓ designated initialization
   ✓ indexed / correlated field store ✓ registrar tracing (reaches store)
   ✓ delegated registrar (bounded)    ✓ symbolic receiver correlation (shared slot)
+  ✓ enum/switch dispatch recognition ✓ name-match fallback
   ✓ ambiguity detection & abstention ✓ structured diagnostics
   ```
 - **Bullets:**
@@ -473,13 +475,13 @@
   - Each registration mechanism has a fixture asserting exact expected outcome
   - Negative & unsupported cases assert *the right refusal*, not just "no crash"
   - Final message: the backbone itself — **Recognition → Evidence → Calculus → Decision** — is the contribution
-- **Speaker notes:** Explain the test philosophy first: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Then close on the architecture, not the tests — leave the backbone on screen and deliver the takeaway verbatim: *"By separating recognition from decision through an evidence abstraction, F2-A becomes conservative, auditable, and naturally extensible."* Conservative because it abstains rather than guess; auditable because every resolution traces to evidence records; extensible because new extractors feed the same evidence bus without touching the calculus or the decision logic. End by inviting the hard questions.
+- **Speaker notes:** Explain the test philosophy first: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Then close on the architecture, not the tests — leave the backbone on screen and deliver the takeaway verbatim: *"By separating recognition from decision through an evidence abstraction, F2-A becomes conservative, auditable, and naturally extensible."* Conservative through confidence thresholds, conflict handling, provenance-aware combination, and explicit abstention — *not* through any structural-evidence gate; auditable because every resolution traces to evidence records; extensible because new extractors feed the same evidence bus without touching the calculus or the decision logic. End by inviting the hard questions.
 
 ---
 
 ### Appendix (hold-slides for Q&A, not presented)
 
-- **A1 — Calculus parameters:** priors per kind, match-strength multipliers, weak-only cap, global cap, acceptance floor, ambiguity margin, conflict penalty, registrar depth bound. Present as a table if pressed. *(This is the sole home for concrete numeric values.)*
+- **A1 — Calculus parameters:** priors per kind, match-strength multipliers, weak-only cap (triggered by match strength — a missing exact-identifier match — not by evidence kind), global cap, acceptance floor, ambiguity margin, conflict penalty, registrar depth bound. Present as a table if pressed. *(This is the sole home for concrete numeric values.)*
 - **A2 — Provenance grouping:** why within-group MAX and cross-group noisy-OR; the double-counting failure it prevents.
 - **A3 — Designated-vs-positional AST:** the lowering difference (wrapped member assignments) that made them structurally distinct despite identical semantics.
 
