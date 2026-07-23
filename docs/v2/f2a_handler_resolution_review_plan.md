@@ -129,7 +129,7 @@
       EXACT_IDENTIFIER ▷ NORMALIZED ▷ HEURISTIC_SUBSTRING ▷ NAME_ONLY
   ```
 - **Bullets:**
-  - The KB exists so one action's scattered spellings resolve to a single identity
+  - The KB provides the semantic identity that unifies multiple syntactic representations
   - Extractors don't compare strings ad hoc — they compare a raw id against the canonical identity
   - The match-strength ladder is not a tuning knob; it is *which representation matched, how exactly*
 - **Speaker notes:** This is the conceptual hinge between the protocol world and the code world. Walk the ladder: a macro/enum symbol hit or numeric-id hit is EXACT; a normalized-name hit is NORMALIZED; a substring/token overlap is HEURISTIC_SUBSTRING; a function-name resemblance with no id is NAME_ONLY. Everything the calculus later does with "match strength" is grounded here. Note it's bidirectional: KB produces the canonical identity, the code site produces a raw identifier, and matching scores their correspondence.
@@ -181,7 +181,7 @@
 
 ---
 
-## Slide 9 — Registration Extractors (Capability Map)
+## Slide 9 — Recognition Layer: Extractor Capabilities
 
 - **Goal:** One-glance capability table; pattern / evidence / strength / limit per extractor, split by role.
 - **Main message:** Recognition splits into *structural* extractors (high-trust, id+callback present) and *corroborative* signals (low-trust, usable only to reinforce).
@@ -330,17 +330,19 @@
 
 - **Goal:** End-to-end trace on one concrete case, plus the ambiguity contrast.
 - **Main message:** Watch source become evidence become a scored, auditable resolution — the backbone in motion.
-- **Suggested diagram:** Vertical pipeline with a side branch (concrete scores are illustrative and stay here):
+- **Suggested diagram:** Vertical pipeline showing all four stages, Evidence explicit as its own intermediate layer (concrete scores are illustrative and stay here):
   ```
   SOURCE
     static Reg t[] = { { ACTION_DATA_TRANSFER, foo } };     // registration
     switch (f->action){ case ACTION_DATA_TRANSFER: bar(); } // dispatch (side branch)
         │
-        ▼ RECOGNITION (extractors)
+        ▼ RECOGNITION (extractors recognize two registration shapes)
+        │
+        ▼ EVIDENCE (typed records — the intermediate abstraction)
   Evidence A: kind=REGISTRATION_INIT, cb=foo, id=ACTION_DATA_TRANSFER (EXACT), site=reg
   Evidence B: kind=ENUM_CASE,        cb=bar, id=ACTION_DATA_TRANSFER (EXACT), site=switch
         │
-        ▼ CALCULUS (score → combine)
+        ▼ CALCULUS (score each evidence → collapse → combine per candidate)
   candidate foo: 0.80   |   candidate bar: 0.85 (weak-capped)   ← two DIFFERENT callbacks
         │
         ▼ DECISION
@@ -452,21 +454,25 @@
 
 - **Goal:** Validate the approach and close with the thesis.
 - **Main message:** Behavior is pinned by capability + regression tests over synthetic patterns; the evidence-based design is what makes results trustworthy and extensible.
-- **Suggested diagram:** Validation matrix + closing arrow:
+- **Suggested diagram:** Validation matrix, then the architectural backbone as the final image on screen:
   ```
   synthetic fixtures ─┬─ supported forms   → expected RESOLVED (kind, confidence)
                       ├─ ambiguous forms   → expected AMBIGUOUS (retain, margin)
                       └─ unsupported forms → expected UNRESOLVED (named reason)
         regression tests lock each behavior (incl. positional-unchanged guards)
-                              │
-                              ▼
-     evidence-based resolution  ⇒  auditable · corroborating · honest about limits
+
+  ── final takeaway ────────────────────────────────────────────────
+     Recognition ─▶ Evidence ─▶ Calculus ─▶ Decision
+
+     "By separating recognition from decision through an evidence
+      abstraction, F2-A becomes conservative, auditable, and
+      naturally extensible."
   ```
 - **Bullets:**
   - Each registration mechanism has a fixture asserting exact expected outcome
   - Negative & unsupported cases assert *the right refusal*, not just "no crash"
-  - Conclusion: evidence + calculus > heuristic matching; it enables protocol-aware F6 analysis and extends via new extractors feeding the same evidence bus
-- **Speaker notes:** Explain the test philosophy: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Close on the thesis: because every resolution is a scored function of traceable evidence with an explicit abstain path, downstream security reasoning can rely on it — and new extractors extend coverage without touching the calculus or the decision logic. The backbone (Recognition → Evidence → Calculus → Decision) is exactly what makes that extensibility safe. End by inviting the hard questions.
+  - Final message: the backbone itself — **Recognition → Evidence → Calculus → Decision** — is the contribution
+- **Speaker notes:** Explain the test philosophy first: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Then close on the architecture, not the tests — leave the backbone on screen and deliver the takeaway verbatim: *"By separating recognition from decision through an evidence abstraction, F2-A becomes conservative, auditable, and naturally extensible."* Conservative because it abstains rather than guess; auditable because every resolution traces to evidence records; extensible because new extractors feed the same evidence bus without touching the calculus or the decision logic. End by inviting the hard questions.
 
 ---
 
