@@ -183,28 +183,28 @@
 
 ## Slide 9 — Recognition Layer: Extractor Capabilities
 
-- **Goal:** One-glance capability table; pattern / evidence / strength / limit per extractor, split by role.
-- **Main message:** Recognition splits into *structural* extractors (high-trust, id+callback present) and *corroborative* signals (low-trust, usable only to reinforce).
+- **Goal:** One-glance capability table; pattern / evidence / boundary per extractor, grouped by evidence family.
+- **Main message:** Extractors emit typed evidence of differing prior reliability. What ultimately limits a candidate is its **match strength** (exact identifier vs weaker) rather than its kind — no evidence kind is reserved out of resolving.
 - **Rail:** `[ ●Recognition › Evidence › Calculus › Decision ]`
-- **Suggested diagram (two visually distinct bands, not one flat table):**
+- **Suggested diagram (two families, distinguished by what they observe — not a prior ranking):**
   ```
-  ── STRUCTURAL (high prior) ─────────────────────────────────────────
-   Extractor        Recognizes                 Emits              Boundary
-   aggregate init   { ID, fn }                 REGISTRATION_INIT  inline id only
-   designated init  { .a=ID, .fn=fn }          REGISTRATION_INIT  same struct init
+  ── REGISTRATION evidence — explicit id ↔ callback binding ────────────
+   Extractor        Recognizes                 Emits               Boundary
+   aggregate init   { ID, fn }                 REGISTRATION_INIT   inline id only
+   designated init  { .a=ID, .fn=fn }          REGISTRATION_INIT   same struct init
    indexed / field  h[ID]=fn ; t[k].*=…        REGISTRATION_ASSIGN shared slot key
-   registrar call   f(ID, fn) → stores fn      REGISTRAR_CALL     must reach store
-   delegated        f→g→ store (arg→param)     REGISTRAR_CALL     depth-bounded
+   registrar call   f(ID, fn) → stores fn      REGISTRAR_CALL      must reach store
+   delegated        f→g→ store (arg→param)     REGISTRAR_CALL      depth-bounded
 
-  ── CORROBORATIVE (low prior) ───────────────────────────────────────
-   dispatch site    switch(id) → handler       ENUM_CASE          weak alone
-   name similarity  fn name ≈ action           NAME_MATCH         weak alone
+  ── DISPATCH & NAME evidence — observed invocation / lexical match ────
+   dispatch site    switch(id) → handler       ENUM_CASE / STRING_DISPATCH   high prior · exact-id capable
+   name similarity  fn name ≈ action           NAME_MATCH          low-signal fallback
   ```
 - **Bullets:**
-  - Structural extractors carry high prior weight; they alone can resolve
-  - Corroborative signals cannot resolve on their own — they only reinforce
+  - Per-kind prior reliability is *comparable* across dispatch and registration; name-matching is the weak fallback
+  - What limits a candidate is a missing exact-identifier match (the weak-only cap) — independent of kind — not a structural requirement
   - Every extractor's boundary is a named limitation, surfaced downstream
-- **Speaker notes:** Walk one structural row (designated): correlation is "same enclosing initializer, order-independent, no field-name guessing". Contrast registrar: it must follow the call into the callee and reach the terminal store, else it emits nothing and reports the miss. The structural/corroborative divide is what the calculus later encodes as prior weight and the weak-only cap.
+- **Speaker notes:** Walk one registration row (designated): correlation is "same enclosing initializer, order-independent, no field-name guessing". Contrast registrar: it must follow the call into the callee and reach the terminal store, else it emits nothing and reports the miss. Be precise about strength: prior weight is per kind and dispatch signals rank as high as registration — a dispatch match is *not* a weak signal; the genuinely weak kind is name-only matching. The calculus's weak-only cap keys on **match strength** (no exact-identifier match), not on evidence kind, so any high-scoring candidate — dispatch included — can resolve. There is no rule reserving resolution for structural kinds.
 
 ---
 
@@ -243,13 +243,13 @@
 - **Suggested diagram:**
   ```
   one piece of evidence
-     Prior(kind)      ──┐   structural kind  → high prior
+     Prior(kind)      ──┐   dispatch / registration → high prior
                          ├─▶  evidence score = Prior(kind) shaped by Match Strength
      Match Strength   ──┘   exact ↦ preserved  ·  heuristic ↦ discounted
                                               ·  name-only ↦ weak
   ```
 - **Bullets:**
-  - **Prior(kind)** — structural mechanisms outrank dispatch/name signals
+  - **Prior(kind)** — per-kind reliability; dispatch and registration are the high-prior kinds, name-matching the weak fallback
   - **Match Strength** — exact identifier preserved; weaker correspondences discounted
   - Output: a per-evidence score; no candidate merging happens yet
 - **Speaker notes:** Keep this slide strictly about *one* evidence. Give the intuition: a structural registration with an exact symbol match scores near its full prior; the same mechanism with only a substring match is discounted; a name-only signal stays weak regardless. (Concrete priors and multipliers live in Appendix A1 — don't put numbers on the slide.) This is deliberately the simpler half of the calculus; combination is next.
@@ -301,7 +301,8 @@
   - RESOLVED: one candidate above the **Acceptance Floor** and clear of the runner-up
   - AMBIGUOUS: multiple credible candidates within the **Ambiguity Margin** → **no choice made**
   - UNRESOLVED: no candidate clears the floor
-- **Speaker notes:** The deliberate-abstention point — the most interesting design stance, so dwell here. A wrong resolution silently corrupts every downstream stage, so when evidence is genuinely split the correct engineering answer is to refuse and hand the conflict to F6/a human. AMBIGUOUS is a feature, not a failure. Competitors and the margin are retained so the caller can see *why* it abstained. (Floor and margin values → Appendix A1.)
+  - No structural-kind gate: a weak-matched candidate is confidence-capped (Slide 12), then judged by the *same* Floor and Margin — capped, not barred
+- **Speaker notes:** The deliberate-abstention point — the most interesting design stance, so dwell here. A wrong resolution silently corrupts every downstream stage, so when evidence is genuinely split the correct engineering answer is to refuse and hand the conflict to F6/a human. AMBIGUOUS is a feature, not a failure. Competitors and the margin are retained so the caller can see *why* it abstained. Be exact about what the gate does *not* do: it is Floor + Margin only. The weak-only cap (Slide 12) lowers a non-exact-match candidate's confidence but does not by itself prevent it from resolving, and there is no requirement that the winner be a structural kind — a strongly-matched dispatch signal can and does resolve on its own. (Floor and margin values → Appendix A1.)
 
 ---
 
@@ -336,25 +337,25 @@
     static Reg t[] = { { ACTION_DATA_TRANSFER, foo } };     // registration
     switch (f->action){ case ACTION_DATA_TRANSFER: bar(); } // dispatch (side branch)
         │
-        ▼ RECOGNITION (extractors recognize two registration shapes)
+        ▼ RECOGNITION (structural registration and dispatch extractors fire)
         │
         ▼ EVIDENCE (typed records — the intermediate abstraction)
-  Evidence A: kind=REGISTRATION_INIT, cb=foo, id=ACTION_DATA_TRANSFER (EXACT), site=reg
-  Evidence B: kind=ENUM_CASE,        cb=bar, id=ACTION_DATA_TRANSFER (EXACT), site=switch
+  Evidence A: kind=REGISTRATION_INIT, cb=foo, id=ACTION_DATA_TRANSFER (substring match), site=reg
+  Evidence B: kind=ENUM_CASE,        cb=bar, id=ACTION_DATA_TRANSFER (normalized match), site=switch
         │
         ▼ CALCULUS (score each evidence → collapse → combine per candidate)
-  candidate foo: 0.80   |   candidate bar: 0.85 (weak-capped)   ← two DIFFERENT callbacks
+  candidate bar: 0.72   |   candidate foo: 0.56   ← dispatch evidence matched more strongly here
         │
         ▼ DECISION
-  margin small + different callbacks → AMBIGUOUS (retain foo & bar + conflict)
+  top = bar; (0.72 − 0.56) clears the Ambiguity Margin → RESOLVED → bar
   ---------------------------------------------------------------
-  Remove the switch → only Evidence A → foo clears floor, no rival → RESOLVED → foo
+  Remove the switch → only Evidence A → foo resolves alone (≈0.56, just clears the floor)
   ```
 - **Bullets:**
-  - Two independent extractors fire on the same action id, different callbacks
-  - Scoring then combination rank each; the decision layer detects the conflict and abstains
-  - Drop the competitor and the same machinery cleanly resolves
-- **Speaker notes:** The money slide — spend the most time. Show that the *same* four layers yield AMBIGUOUS or RESOLVED purely from evidence, no special-casing. Numbers are kept here only because they make the trace legible. Point out the evidence trail on the resolved path (table entry → handler ref, with file/line). If asked, the corroboration variant: two evidences for the *same* callback would noisy-OR *up*, not conflict.
+  - Two independent extractors fire on the same action id, different callbacks (registration vs dispatch)
+  - Here the dispatch evidence matched more strongly, so bar scores higher and clears the margin → the tool resolves to **bar**
+  - The decision is a function of evidence and match strength, not of kind — a dispatch signal can win outright
+- **Speaker notes:** The money slide — spend the most time, and be honest about what it shows. Real numbers from this fixture: bar (ENUM_CASE) has prior 0.85 and a normalized-name identifier match (×0.85) → ≈0.72; foo (REGISTRATION_INIT) has prior 0.80 but only a heuristic-substring match (×0.70) → ≈0.56. The gap ≈0.16 clears the Ambiguity Margin, so the tool RESOLVES to bar — the dispatch handler — over the structural registration. That is the key teaching point: resolution is match-strength-driven and kind-agnostic; there is no structural authorization. To demonstrate AMBIGUOUS you would need two candidates *within* the margin (e.g. two competing registrations). Point at the evidence trail on the resolved path (switch site → handler ref, with file/line).
 
 ---
 
