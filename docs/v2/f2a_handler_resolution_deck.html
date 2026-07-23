@@ -1,0 +1,352 @@
+<style>
+  /* ── F2-A Handler Resolution — technical design review deck ──
+     Deliberate single (light) theme: projection artwork with fixed
+     diagram colors. Mono is a first-class voice (the subject's world). */
+  :root{
+    --paper:#eef0f4; --slide:#ffffff;
+    --ink:#14161c; --ink-2:#3a3f4b; --muted:#697084;
+    --line:#e2e6ec; --line-2:#c7cdd8;
+    --accent:#3846c7; --accent-ink:#2a35a0; --accent-weak:#e9ebfb;
+    --danger:#cf3b3b; --danger-weak:#fbeaea;
+    /* backbone layers (established now, used from slide 8 on) */
+    --l-rec:#3f6bd6; --l-evi:#0e8a8a; --l-cal:#7b4fd0; --l-dec:#2e9e5b;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --shadow:0 1px 2px rgba(20,22,28,.04),0 8px 30px rgba(20,22,28,.06);
+  }
+
+  *{box-sizing:border-box}
+  .deck{
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; padding:40px 20px 64px; min-height:100%;
+  }
+  .deck-head{
+    max-width:1120px; margin:0 auto 30px; display:flex; align-items:baseline;
+    justify-content:space-between; gap:16px; font-family:var(--mono);
+    font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
+  }
+  .deck-head b{color:var(--accent-ink); font-weight:600}
+
+  /* ── slide frame ── */
+  .slide{
+    max-width:1120px; margin:0 auto 26px;
+  }
+  .canvas{
+    background:var(--slide); border:1px solid var(--line);
+    border-radius:14px; box-shadow:var(--shadow);
+    aspect-ratio:16/9; padding:clamp(24px,3.4vw,44px);
+    display:flex; flex-direction:column; gap:clamp(10px,1.4vw,16px);
+    overflow:hidden; position:relative;
+  }
+  .runhead{
+    display:flex; align-items:center; justify-content:space-between;
+    font-family:var(--mono); font-size:11px; color:var(--muted);
+    letter-spacing:.06em; padding-bottom:10px; border-bottom:1px solid var(--line);
+  }
+  .runhead .n{font-variant-numeric:tabular-nums}
+  .runhead .tick{color:var(--accent)}
+  .kicker{
+    font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent-ink);
+    letter-spacing:.16em; text-transform:uppercase;
+  }
+  .title{
+    font-size:clamp(26px,3.2vw,42px); font-weight:700; line-height:1.08;
+    letter-spacing:-.02em; margin:0; text-wrap:balance; color:var(--ink);
+  }
+  .slide--cover .title{font-size:clamp(34px,4.6vw,58px)}
+  .lead{
+    font-size:clamp(15px,1.7vw,20px); line-height:1.4; color:var(--ink-2);
+    margin:0; max-width:64ch; font-weight:400;
+  }
+  .lead em{color:var(--accent-ink); font-style:normal; font-weight:600}
+
+  /* diagram stage dominates the slide */
+  .stage{
+    flex:1 1 auto; min-height:0; display:flex; align-items:center;
+    justify-content:center; overflow:auto; padding:6px 0;
+  }
+  .stage-inner{width:100%; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:16px}
+
+  /* ── point row (max 3-up; wraps for 4) ── */
+  .points{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:14px 22px;
+    padding-top:14px; border-top:1px solid var(--line);
+  }
+  .points.four{grid-template-columns:repeat(2,1fr)}
+  .point{font-size:clamp(12.5px,1.15vw,14.5px); line-height:1.42; color:var(--ink-2);
+    display:flex; gap:9px; align-items:baseline}
+  .point::before{content:"▸"; color:var(--accent); font-size:.85em; flex:0 0 auto; transform:translateY(-1px)}
+  .point b{color:var(--ink); font-weight:600}
+  .point code{font-family:var(--mono); font-size:.92em; color:var(--ink)}
+
+  /* ── diagram primitives (the language under test) ── */
+  .node{
+    font-family:var(--mono); font-size:clamp(12px,1.15vw,14px); line-height:1.3;
+    color:var(--ink); background:var(--slide); border:1.5px solid var(--line-2);
+    border-radius:10px; padding:12px 15px; white-space:nowrap; text-align:center;
+  }
+  .node small{display:block; font-size:11px; color:var(--muted); margin-top:5px;
+    font-weight:400; letter-spacing:.01em}
+  .node.accent{background:var(--accent-weak); border-color:var(--accent);
+    color:var(--accent-ink); font-weight:600; box-shadow:0 0 0 4px rgba(56,70,199,.07)}
+  .node.ghost{border-style:dashed; color:var(--muted); background:transparent}
+  .node.muted{background:#f5f6f9; color:var(--ink-2); border-color:var(--line)}
+  .node.danger{border-color:var(--danger); color:var(--danger); background:var(--danger-weak)}
+
+  .flow{display:flex; align-items:center; justify-content:center; gap:0;
+    max-width:100%; overflow-x:auto; padding:4px}
+  .flow.col{flex-direction:column}
+
+  /* connector = arrow + optional caption */
+  .conn{display:flex; flex-direction:column; align-items:center; gap:6px; flex:0 0 auto; padding:0 4px}
+  .conn.col{padding:4px 0}
+  .arrow{position:relative; width:46px; height:2px; background:var(--line-2); flex:0 0 auto}
+  .arrow::after{content:""; position:absolute; right:0; top:50%; transform:translateY(-50%);
+    border:5px solid transparent; border-left-color:var(--line-2)}
+  .arrow.v{width:2px; height:34px}
+  .arrow.v::after{right:auto; left:50%; top:auto; bottom:0; transform:translateX(-50%);
+    border:5px solid transparent; border-left-color:transparent; border-top-color:var(--line-2)}
+  .arrow.bad{background:transparent; border-top:2px dashed var(--danger)}
+  .arrow.bad::after{border-left-color:var(--danger)}
+  .arrow.good{background:var(--l-dec)}
+  .arrow.good::after{border-left-color:var(--l-dec)}
+  .arrow.good.v::after{border-left-color:transparent; border-top-color:var(--l-dec)}
+  .cap{font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; color:var(--muted); white-space:nowrap}
+  .conn.bad .cap{color:var(--danger)}
+  .conn.good .cap{color:var(--l-dec)}
+
+  .lane{display:flex; flex-direction:column; gap:9px; width:100%}
+  .lane-label{font-family:var(--mono); font-size:11px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--muted)}
+  .lane-row{display:flex; align-items:center; justify-content:flex-start;
+    gap:0; overflow-x:auto; padding:2px}
+
+  /* two-worlds grid (slide 2) */
+  .worlds{display:grid; grid-template-columns:1fr auto 1fr; gap:14px 10px; align-items:center; width:100%; max-width:860px}
+  .worlds .whead{font-family:var(--mono); font-size:11px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--muted); text-align:center; padding-bottom:2px}
+  .worlds .whead.r{text-align:center}
+
+  /* fan-in (slide 5) */
+  .fanin{display:grid; grid-template-columns:auto auto auto; align-items:center; gap:12px 0; width:100%; max-width:820px}
+  .fanin .sources{display:flex; flex-direction:column; gap:14px}
+  .fanin .bracket{display:flex; flex-direction:column; align-items:center; justify-content:center}
+
+  .caption-note{font-family:var(--mono); font-size:11.5px; color:var(--muted);
+    text-align:center; letter-spacing:.02em}
+
+  /* ── speaker notes: outside the canvas, muted ── */
+  .notes{
+    max-width:1120px; margin:0 auto 40px; padding:14px 18px;
+    border-left:2px solid var(--line-2); background:transparent;
+  }
+  .notes .lbl{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--muted); display:block; margin-bottom:6px}
+  .notes p{margin:0; font-size:13.5px; line-height:1.55; color:var(--muted); max-width:80ch}
+
+  .batch-note{max-width:1120px; margin:0 auto; padding-top:10px;
+    font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.04em; text-align:center}
+
+  @media (max-width:720px){
+    .canvas{aspect-ratio:auto; min-height:78vw}
+    .points,.points.four{grid-template-columns:1fr}
+    .worlds{grid-template-columns:1fr}
+  }
+</style>
+
+<main class="deck">
+  <div class="deck-head">
+    <span><b>F2-A</b> · Handler Resolution — Technical Design Review</span>
+    <span>Slides 01–05 · draft</span>
+  </div>
+
+  <!-- ══════════ SLIDE 1 ══════════ -->
+  <section class="slide slide--cover">
+    <div class="canvas">
+      <div class="runhead"><span class="tick">F2-A · HANDLER RESOLUTION</span><span class="n">01 / 20</span></div>
+      <div class="kicker">Technical Design Review</div>
+      <h1 class="title">Recovering the handler an action maps to</h1>
+      <p class="lead">F2-A recovers the protocol-action → source-handler mapping that dynamic dispatch erases — and does it with an <em>auditable evidence calculus</em>.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="flow">
+            <div class="node">KB</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node accent">F2-A<small>action ↦ handler</small></div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">field binding</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">dataflow</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">sinks</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">findings</div>
+          </div>
+          <div class="caption-note">one stage of an OCPP-aware static pipeline</div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>F2-A is the <b>Handler Resolution</b> stage of an OCPP-aware static pipeline</span></div>
+        <div class="point"><span>In: protocol knowledge + a code property graph · Out: per-action resolution + evidence trail</span></div>
+        <div class="point"><span>Contribution: evidence model + calculus + explicit <b>“refuse to guess”</b> semantics</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>State the one-sentence thesis and the honesty contract up front. Everything downstream trusts F2-A’s mapping, so F2-A must either be right or <em>say it doesn’t know</em>. Preview that the talk’s spine is the four-layer backbone: recognition → evidence → calculus → decision.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 2 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>MOTIVATION</span><span class="n">02 / 20</span></div>
+      <div class="kicker">Why Handler Resolution Exists</div>
+      <h1 class="title">Protocol meaning and enforcing code are not connected</h1>
+      <p class="lead">Protocol semantics live in a spec; the code that enforces them is reached only through indirection — someone has to connect the two.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="worlds">
+            <div class="whead">Protocol world</div><div></div><div class="whead r">Code world</div>
+
+            <div class="node">"RemoteStartTransaction"</div>
+            <div class="conn"><div class="arrow bad" style="border-top-style:dotted"></div><span class="cap">?</span></div>
+            <div class="node">remote_handler()</div>
+
+            <div class="node">"SetChargingProfile"</div>
+            <div class="conn"><div class="arrow bad" style="border-top-style:dotted"></div><span class="cap">?</span></div>
+            <div class="node ghost">??? </div>
+          </div>
+          <div class="caption-note">the binding is latent in data, not control flow</div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Security questions are phrased over <b>protocol actions</b>, not functions</span></div>
+        <div class="point"><span>The handler is where untrusted payload first becomes program state</span></div>
+        <div class="point"><span>Without the mapping, every later analysis has <b>no anchor</b> to start from</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Concrete stakes: to ask “is the charging-profile limit validated?”, you must first know <em>which function</em> processes SetChargingProfile. That function is the taint source root. The mapping is the precondition for asking any protocol-aware question.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 3 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>THE CORE DIFFICULTY</span><span class="n">03 / 20</span></div>
+      <div class="kicker">Dispatch Breaks the Call Graph</div>
+      <h1 class="title">The edge we need is not in the call graph</h1>
+      <p class="lead">Handlers are invoked through function pointers / dispatch tables, so the static call graph does not contain the caller→handler edge.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="lane">
+            <span class="lane-label">Control flow — the call graph</span>
+            <div class="lane-row">
+              <div class="node">dispatch(frame)</div>
+              <div class="conn"><div class="arrow"></div></div>
+              <div class="node">(*table[i].fn)()</div>
+              <div class="conn bad"><div class="arrow bad"></div><span class="cap">✕ no static edge</span></div>
+              <div class="node danger">remote_handler()</div>
+            </div>
+          </div>
+          <div class="lane">
+            <span class="lane-label">Data — the registration site</span>
+            <div class="lane-row">
+              <div class="node">table[k] = { ACTION, remote_handler }</div>
+              <div class="conn good"><div class="arrow good"></div><span class="cap">edge lives here</span></div>
+              <div class="node">remote_handler()</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Dynamic dispatch ⇒ the caller→handler edge is <b>absent</b> from the call graph</span></div>
+        <div class="point"><span>The real binding is expressed in <b>data</b> (registration sites), not control flow</span></div>
+        <div class="point"><span>Recover it from <b>registration structure + identifier matching</b>, not from calls</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>This is the crux — let it breathe. A naive call-graph walk fails by construction. The binding is latent in initializer tables, assignments, and registrar calls. F2-A’s job is to reconstruct that latent edge statically. Anticipate “why not just run it?” — static, pre-deployment, whole-firmware, no harness.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 4 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>PIPELINE PLACEMENT</span><span class="n">04 / 20</span></div>
+      <div class="kicker">F2-A in the Larger Pipeline</div>
+      <h1 class="title">A gate the rest of the pipeline waits on</h1>
+      <p class="lead">Nothing protocol-aware downstream can start until F2-A resolves the action → handler anchor.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="flow col">
+            <div class="node muted">Protocol Knowledge Base</div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node muted">Action Definitions</div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node accent">Handler Resolution — F2-A<small>this talk</small></div>
+            <div class="conn col"><div class="arrow v"></div><span class="cap">resolved action ↦ handler</span></div>
+          </div>
+          <div class="flow">
+            <div class="node muted">Field Binding</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">Flow Candidates</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">Sink Mapping</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">Expected-Check Matching</div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node muted">Vulnerability Analysis (F6)</div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Upstream: KB + action definitions describe <b>what to look for</b></span></div>
+        <div class="point"><span>F2-A turns actions into <b>concrete code anchors</b></span></div>
+        <div class="point"><span>Downstream consumes the anchor; <b>F6</b> makes the final judgment</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Emphasize separation of concerns: F2-A does not do taint, sinks, or checks. It deliberately stops at “here is the handler and why.” A wrong resolution poisons everything after it — hence the conservative bias introduced later.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 5 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>INPUTS</span><span class="n">05 / 20</span></div>
+      <div class="kicker">Inputs</div>
+      <h1 class="title">Protocol truth meets code structure</h1>
+      <p class="lead">Two knowledge sources meet: protocol truth (the KB) and code structure (CPG / AST / symbols).</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="fanin">
+            <div class="sources">
+              <div class="node">Protocol KB<small>names · symbols · numeric ids · aliases</small></div>
+              <div class="node">CPG / AST<small>initializers · assignments · calls · dispatch</small></div>
+              <div class="node">Symbols<small>internal vs external functions</small></div>
+            </div>
+            <div class="bracket">
+              <div class="conn"><div class="arrow"></div></div>
+              <div class="conn"><div class="arrow"></div></div>
+              <div class="conn"><div class="arrow"></div></div>
+            </div>
+            <div class="node accent" style="justify-self:start">F2-A</div>
+          </div>
+        </div>
+      </div>
+      <div class="points four">
+        <div class="point"><span><b>Protocol KB</b> — wire name, macro/enum symbols, numeric ids, aliases</span></div>
+        <div class="point"><span><b>CPG / AST</b> — shape of initializers, assignments, calls, dispatch sites</span></div>
+        <div class="point"><span><b>Symbols</b> — which references resolve to internal functions</span></div>
+        <div class="point"><span><b>Action identifiers</b> — the tokens that must match code ↔ protocol</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>The KB is the ground truth of “what identifiers denote which action.” The AST supplies the <em>shape</em> of registration; symbols tell us a reference is a real internal function, not an external stub. How those identifiers actually get matched is the next slide.</p>
+  </div>
+
+  <div class="batch-note">— end of batch (Slides 01–05) · visual system draft for review —</div>
+</main>
