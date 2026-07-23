@@ -16,6 +16,7 @@
   }
 
   *{box-sizing:border-box}
+  html,body{margin:0; padding:0}
   .deck{
     background:var(--paper); color:var(--ink); font-family:var(--sans);
     -webkit-font-smoothing:antialiased; padding:40px 20px 64px; min-height:100%;
@@ -133,6 +134,11 @@
   .group-label{position:absolute; top:-10px; left:20px; background:var(--slide); padding:0 9px;
     font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.1em;
     text-transform:uppercase; color:var(--muted)}
+  /* downstream group: compact nodes (padding only) + wrap so it fits with no scroll */
+  .group .flow{overflow-x:visible}
+  .group .node{padding:11px 13px; white-space:normal; max-width:132px; line-height:1.2}
+  .group .conn{padding:0 3px}
+  .group .arrow{width:34px}
 
   /* fan-in / convergence (slide 5) */
   .converge{display:grid; grid-template-columns:minmax(0,1fr) 180px auto; align-items:center;
@@ -159,7 +165,114 @@
   .batch-note{max-width:1160px; margin:0 auto; padding-top:10px;
     font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.04em; text-align:center}
 
-  @media (max-width:760px){
+  /* ── backbone rail + layer tints (only where a layer actually appears) ── */
+  .rail{display:flex; align-items:center; gap:7px; font-family:var(--mono);
+    font-size:11px; color:var(--muted); letter-spacing:.05em; flex-wrap:wrap}
+  .rail .sep{color:var(--line-2)}
+  .rail .on{font-weight:700}
+  .rail .r-rec.on{color:var(--l-rec)} .rail .r-evi.on{color:var(--l-evi)}
+  .rail .r-cal.on{color:var(--l-cal)} .rail .r-dec.on{color:var(--l-dec)}
+  .node.rec{border-color:var(--l-rec); color:#274a97; background:#eef3fc}
+  .node.evi{border-color:var(--l-evi); color:#0a6a6a; background:#e7f5f5}
+  .node.cal{border-color:var(--l-cal); color:#573596; background:#f2ecfb}
+  .node.dec{border-color:var(--l-dec); color:#1f7a45; background:#e9f6ee}
+
+  .chip{font-family:var(--mono); font-size:12px; padding:7px 12px; border:1.5px solid var(--line-2);
+    border-radius:9px; background:var(--slide); white-space:nowrap; color:var(--ink-2)}
+  .chip.k{color:var(--accent-ink); border-color:var(--accent); background:var(--accent-weak); font-size:11.5px}
+  .chip.small{font-size:11px; padding:5px 9px}
+  .sep-tri{color:var(--muted); font-family:var(--mono); padding:0 3px; align-self:center}
+  .chiprow{display:flex; align-items:center; flex-wrap:wrap; gap:8px; justify-content:center}
+
+  /* diagram table (capability / schema-ish) */
+  .dtable{border-collapse:separate; border-spacing:0; font-family:var(--mono);
+    font-size:clamp(11px,1.05vw,13px); width:100%; max-width:1000px}
+  .dtable th{font-weight:600; text-align:left; color:var(--muted); font-size:10.5px;
+    letter-spacing:.06em; text-transform:uppercase; padding:6px 12px; border-bottom:2px solid var(--line-2)}
+  .dtable td{padding:7px 12px; border-bottom:1px solid var(--line); color:var(--ink); vertical-align:middle; white-space:nowrap}
+  .dtable .band td{background:#f4f6f9; color:var(--muted); font-size:10px; letter-spacing:.12em;
+    text-transform:uppercase; font-weight:600; border-bottom:1px solid var(--line-2)}
+  .dtable .bd{color:var(--muted)}
+
+  /* schema card (evidence model / output schema) */
+  .schema{border:2px solid var(--line-2); border-radius:14px; overflow:hidden; width:100%; max-width:780px; background:var(--slide)}
+  .schema .shead{font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:.08em;
+    padding:11px 16px; border-bottom:2px solid var(--line-2); color:var(--ink)}
+  .schema.evi .shead{background:#e7f5f5; color:#0a6a6a; border-bottom-color:var(--l-evi)}
+  .schema.res .shead{background:var(--accent-weak); color:var(--accent-ink); border-bottom-color:var(--accent)}
+  .schema .row{display:grid; grid-template-columns:200px 1fr; gap:14px; padding:9px 16px;
+    border-bottom:1px solid var(--line); font-family:var(--mono); font-size:13px}
+  .schema .row:last-child{border-bottom:0}
+  .schema .row .k{color:var(--ink); font-weight:600}
+  .schema .row .v{color:var(--muted)}
+  .schema .row.sub{background:#fafbfc; padding-left:30px}
+
+  /* taxonomy shape cards (slide 7) */
+  .shapegrid{display:grid; grid-template-columns:repeat(2,1fr); gap:12px 20px; width:100%; max-width:920px}
+  .shape{border:2px solid var(--line-2); border-radius:12px; padding:12px 15px; background:var(--slide)}
+  .shape .lbl{font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:6px}
+  .shape .code{font-family:var(--mono); font-size:clamp(12px,1.15vw,14px); color:var(--ink); white-space:nowrap; overflow-x:auto}
+
+  /* check grid (scope) */
+  .checkgrid{display:grid; grid-template-columns:1fr 1fr; gap:12px 30px; width:100%; max-width:860px}
+  .checkitem{display:flex; gap:11px; align-items:baseline; font-size:clamp(13px,1.2vw,15px); color:var(--ink-2)}
+  .checkitem::before{content:"✓"; color:var(--l-dec); font-weight:800; flex:0 0 auto}
+
+  /* mapping rows (limitations) */
+  .maprows{display:flex; flex-direction:column; gap:9px; width:100%; max-width:900px}
+  .maphead{display:grid; grid-template-columns:1fr auto 1fr; gap:14px; font-family:var(--mono);
+    font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
+  .maphead span:last-child{text-align:left}
+  .maprow{display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:center}
+
+  /* small tree (selection / diagnostics) */
+  .branch{display:flex; align-items:center; gap:0; flex-wrap:nowrap}
+  .qbox{border:2px solid var(--line-2); border-radius:12px; padding:13px 18px; background:var(--slide);
+    font-family:var(--mono); font-size:clamp(12px,1.2vw,15px); color:var(--ink); text-align:center; white-space:nowrap}
+  .yn{font-family:var(--mono); font-size:11px; color:var(--muted); padding:0 6px; letter-spacing:.06em}
+  .treecol{display:flex; flex-direction:column; gap:14px; align-items:flex-start}
+  .branch{gap:12px}
+
+  .codeblock2{font-family:var(--mono); font-size:clamp(11px,1.05vw,13px); text-align:left; white-space:pre;
+    background:#f4f6f9; border:2px solid var(--line-2); border-radius:12px; padding:12px 16px; color:var(--ink);
+    overflow-x:auto; max-width:680px; line-height:1.5}
+  .stagetag{font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:700; color:var(--muted)}
+  .stagetag.rec{color:var(--l-rec)} .stagetag.evi{color:var(--l-evi)} .stagetag.cal{color:var(--l-cal)} .stagetag.dec{color:var(--l-dec)}
+  .evbox{border:2px solid var(--l-evi); background:#e7f5f5; border-radius:12px; padding:11px 16px; font-family:var(--mono);
+    font-size:clamp(10.5px,1vw,12.5px); color:#0a6a6a; text-align:left; max-width:780px; line-height:1.7; overflow-x:auto}
+  .matrix{display:flex; flex-direction:column; gap:9px; width:100%; max-width:740px}
+  .matrix .mrow{display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:center;
+    font-family:var(--mono); font-size:clamp(11px,1.1vw,13px)}
+
+  @media print{
+    @page{size:1280px 720px; margin:0}
+    .deck{background:#fff; padding:0}
+    .deck-head,.batch-note,.notes{display:none}
+    .slide{max-width:none; margin:0; width:1280px; height:720px; overflow:hidden; break-after:page; break-inside:avoid}
+    .slide:last-of-type{break-after:auto}
+    .canvas{border:0; border-radius:0; box-shadow:none; aspect-ratio:auto; width:1280px; height:720px; padding:30px 48px; gap:8px; overflow:hidden}
+    .slide--cover .title{font-size:42px}
+    /* paged media has no scroll: compact vertical rhythm (spacing only, not type)
+       so multi-node vertical chains (slides 4, 12, 17) fit one 720px page */
+    .stage-inner{gap:10px}
+    .arrow.v{height:20px}
+    .conn.col{padding:0}
+    .node{padding:12px 20px}
+    .node small{margin-top:3px}
+    .node.big{padding:15px 26px}
+    .group{padding:16px 16px 12px}
+    .group .node{padding:9px 12px}
+    /* tall vertical-chain slides: top-align (no centering waste) + extra compaction */
+    .tall .stage{align-items:flex-start; flex:0 1 auto}
+    .tall .stage-inner{gap:6px}
+    .tall .arrow.v{height:15px}
+    .tall .node{padding:9px 16px}
+    .tall .node small{margin-top:2px}
+    .tall .group{padding:13px 14px 10px}
+  }
+
+  @media screen and (max-width:760px){
     .canvas{aspect-ratio:auto; min-height:82vw}
     .points,.points.four{grid-template-columns:1fr}
     .worlds{grid-template-columns:1fr}
@@ -285,7 +398,7 @@
   </div>
 
   <!-- ══════════ SLIDE 4 ══════════ -->
-  <section class="slide">
+  <section class="slide tall">
     <div class="canvas">
       <div class="runhead"><span>PIPELINE PLACEMENT</span><span class="n">04 / 20</span></div>
       <div class="kicker">F2-A in the Larger Pipeline</div>
@@ -310,9 +423,9 @@
               <div class="conn"><div class="arrow"></div></div>
               <div class="node muted">Sink Mapping</div>
               <div class="conn"><div class="arrow"></div></div>
-              <div class="node muted">Expected-Check Matching</div>
+              <div class="node muted">Check Matching</div>
               <div class="conn"><div class="arrow"></div></div>
-              <div class="node muted">Vulnerability Analysis (F6)</div>
+              <div class="node muted">F6 · Vulnerability Analysis</div>
             </div>
           </div>
         </div>
@@ -350,9 +463,11 @@
                     <path d="M0,0 L8,4 L0,8 Z" fill="#c2c8d4"></path>
                   </marker>
                 </defs>
-                <path d="M2,30 C70,30 96,115 168,115" stroke="#c2c8d4" stroke-width="3.5" marker-end="url(#ah)"></path>
-                <path d="M2,115 L168,115" stroke="#c2c8d4" stroke-width="3.5" marker-end="url(#ah)"></path>
-                <path d="M2,200 C70,200 96,115 168,115" stroke="#c2c8d4" stroke-width="3.5" marker-end="url(#ah)"></path>
+                <path d="M2,30 C74,30 100,115 120,115" stroke="#c2c8d4" stroke-width="3.5"></path>
+                <path d="M2,115 L120,115" stroke="#c2c8d4" stroke-width="3.5"></path>
+                <path d="M2,200 C74,200 100,115 120,115" stroke="#c2c8d4" stroke-width="3.5"></path>
+                <circle cx="120" cy="115" r="4" fill="#c2c8d4"></circle>
+                <path d="M120,115 L168,115" stroke="#c2c8d4" stroke-width="3.5" marker-end="url(#ah)"></path>
               </svg>
             </div>
             <div class="node accent big" style="justify-self:start">F2-A<small>handler resolution</small></div>
@@ -371,5 +486,537 @@
     <p>The KB is the ground truth of “what identifiers denote which action.” The AST supplies the <em>shape</em> of registration; symbols tell us a reference is a real internal function, not an external stub. How those identifiers actually get matched is the next slide.</p>
   </div>
 
-  <div class="batch-note">— end of batch (Slides 01–05) · refined visual system for final review —</div>
+  <!-- ══════════ SLIDE 6 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>PROTOCOL IDENTIFIER NORMALIZATION</span><span class="n">06 / 20</span></div>
+      <div class="kicker">Protocol Identifier Normalization</div>
+      <h1 class="title">One action identity unifies many code spellings</h1>
+      <p class="lead">The KB folds every spelling of an action into one canonical identity.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="worlds">
+            <div class="whead">KB side</div><div></div><div class="whead">Code side</div>
+            <div class="node big">canonical Action Identity<small>macro · enum · numeric id · aliases</small></div>
+            <div class="conn"><div class="arrow"></div><span class="cap">compare ⇔</span></div>
+            <div class="node big">ActionIdentifier<small>raw id at a code site</small></div>
+          </div>
+          <div class="caption-note">match strength = exactness of correspondence</div>
+          <div class="chiprow">
+            <span class="chip k">EXACT_IDENTIFIER</span><span class="sep-tri">▷</span>
+            <span class="chip">NORMALIZED</span><span class="sep-tri">▷</span>
+            <span class="chip">HEURISTIC_SUBSTRING</span><span class="sep-tri">▷</span>
+            <span class="chip">NAME_ONLY</span>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>The KB provides the <b>semantic identity</b> that unifies many syntactic representations</span></div>
+        <div class="point"><span>Extractors compare a <b>raw id against the canonical identity</b>, not strings ad hoc</span></div>
+        <div class="point"><span>The match-strength ladder is <b>which representation matched, how exactly</b></span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>The conceptual hinge between protocol world and code world. Walk the ladder: a macro/enum symbol or numeric-id hit is EXACT; a normalized-name hit is NORMALIZED; a substring/token overlap is HEURISTIC_SUBSTRING; a function-name resemblance with no id is NAME_ONLY. Everything the calculus later does with “match strength” is grounded here. It’s bidirectional: the KB produces the canonical identity, the code site produces a raw identifier, and matching scores their correspondence.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 7 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>REGISTRATION MECHANISMS</span><span class="n">07 / 20</span></div>
+      <div class="kicker">Registration Mechanisms: A Taxonomy</div>
+      <h1 class="title">Firmware binds handlers in many different shapes</h1>
+      <p class="lead">One semantic — bind action ↦ handler — expressed in many syntactic forms.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="shapegrid">
+            <div class="shape"><div class="lbl">aggregate init</div><div class="code">{ ACTION, fn }</div></div>
+            <div class="shape"><div class="lbl">designated init</div><div class="code">{ .action = ACTION, .fn = fn }</div></div>
+            <div class="shape"><div class="lbl">indexed assign</div><div class="code">handlers[ACTION] = fn</div></div>
+            <div class="shape"><div class="lbl">correlated stores</div><div class="code">t[k].action = ACTION;  t[k].fn = fn</div></div>
+            <div class="shape"><div class="lbl">registrar call</div><div class="code">register(ACTION, fn)  → callee stores it</div></div>
+            <div class="shape"><div class="lbl">delegated registrar</div><div class="code">register(…) → store_handler(…) → t[.] = fn</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Same semantic (<b>bind action ↦ handler</b>), many syntactic forms</span></div>
+        <div class="point"><span>Forms differ in <b>where the id and callback are</b>, and how they correlate</span></div>
+        <div class="point"><span>Some resolve at initialization; some require <b>following a call</b> into a callee</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Stress semantic equivalence vs syntactic divergence. The designated and positional aggregate forms are semantically identical but structurally different in the AST (designated members are wrapped assignments). This diversity is exactly why one universal matcher would be brittle.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 8 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>WHY MULTIPLE EXTRACTORS</span><span class="n">08 / 20</span></div>
+      <div class="kicker">Why Multiple Extractors, Not One Matcher</div>
+      <h1 class="title">Extractors recognize; they never decide</h1>
+      <p class="lead">A uniform evidence stream separates recognition from every downstream layer.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="chiprow">
+            <span class="chip small">aggregate</span><span class="chip small">designated</span><span class="chip small">indexed</span>
+            <span class="chip small">correlated</span><span class="chip small">registrar</span><span class="chip small">delegated</span>
+            <span class="chip small">dispatch</span><span class="chip small">name</span>
+          </div>
+          <span class="cap">converge into one evidence stream ▼</span>
+          <div class="flow">
+            <div class="node rec">RECOGNITION<small>recognizers</small></div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node evi">EVIDENCE<small>typed records</small></div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node cal">CALCULUS<small>score + combine</small></div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node dec">DECISION<small>resolve / abstain</small></div>
+          </div>
+          <div class="caption-note">no layer decides above its station</div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Mechanisms correlate id↔callback differently (same node / sibling field / shared slot / arg→param)</span></div>
+        <div class="point"><span>Independent extractors ⇒ independent evidence ⇒ <b>corroboration</b> is possible</span></div>
+        <div class="point"><span>A miss in one extractor is a <b>precise diagnostic</b>, not a whole-system failure</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Land the backbone explicitly and promise the audience the next five slides walk it left to right: Recognition (extractors) → Evidence (the record) → Calculus (scoring, then combination) → Decision (resolve/abstain). Extractors are recognizers, not deciders — that single constraint is what makes corroboration and honest abstention possible.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 9 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>RECOGNITION LAYER</span><span class="n">09 / 20</span></div>
+      <div class="kicker">Recognition Layer: Extractor Capabilities</div>
+      <h1 class="title">Match strength, not kind, limits a candidate</h1>
+      <p class="lead">Extractors emit typed evidence; no kind is reserved out of resolving.</p>
+      <div class="rail"><span class="r-rec on">Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span>Calculus</span><span class="sep">›</span><span>Decision</span></div>
+      <div class="stage">
+        <div class="stage-inner">
+          <table class="dtable">
+            <thead><tr><th>Extractor</th><th>Recognizes</th><th>Emits</th><th>Boundary</th></tr></thead>
+            <tbody>
+              <tr class="band"><td colspan="4">Registration evidence · explicit id ↔ callback binding</td></tr>
+              <tr><td>aggregate init</td><td>{ ID, fn }</td><td>REGISTRATION_INIT</td><td class="bd">inline id only</td></tr>
+              <tr><td>designated init</td><td>{ .a=ID, .fn=fn }</td><td>REGISTRATION_INIT</td><td class="bd">same struct init</td></tr>
+              <tr><td>indexed / field</td><td>h[ID]=fn ; t[k].*=…</td><td>REGISTRATION_ASSIGN</td><td class="bd">shared slot key</td></tr>
+              <tr><td>registrar call</td><td>f(ID, fn) → stores fn</td><td>REGISTRAR_CALL</td><td class="bd">must reach store</td></tr>
+              <tr><td>delegated</td><td>f→g→ store (arg→param)</td><td>REGISTRAR_CALL</td><td class="bd">depth-bounded</td></tr>
+              <tr class="band"><td colspan="4">Dispatch &amp; name evidence · observed invocation / lexical match</td></tr>
+              <tr><td>dispatch site</td><td>switch(id) → handler</td><td>ENUM_CASE / STRING_DISPATCH</td><td class="bd">high prior · exact-id capable</td></tr>
+              <tr><td>name similarity</td><td>fn name ≈ action</td><td>NAME_MATCH</td><td class="bd">low-signal fallback</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Per-kind prior is <b>comparable</b> across dispatch and registration; name-matching is the weak fallback</span></div>
+        <div class="point"><span>A missing exact-identifier match (the <b>weak-only cap</b>) limits a candidate — independent of kind</span></div>
+        <div class="point"><span>Every extractor's boundary is a <b>named limitation</b>, surfaced downstream</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Prior weight is per kind and dispatch signals rank as high as registration — a dispatch match is <em>not</em> a weak signal; the genuinely weak kind is name-only matching. The weak-only cap keys on <b>match strength</b> (no exact-identifier match), not on evidence kind, so any high-scoring candidate — dispatch included — can resolve. There is no rule reserving resolution for structural kinds.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 10 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>THE EVIDENCE MODEL</span><span class="n">10 / 20</span></div>
+      <div class="kicker">The Evidence Model</div>
+      <h1 class="title">Every extractor speaks one evidence record</h1>
+      <p class="lead">A typed record with provenance and an auditable source trail.</p>
+      <div class="rail"><span>Recognition</span><span class="sep">›</span><span class="r-evi on">Evidence</span><span class="sep">›</span><span>Calculus</span><span class="sep">›</span><span>Decision</span></div>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="schema evi">
+            <div class="shead">EVIDENCE · record</div>
+            <div class="row"><span class="k">action id</span><span class="v">matched identifier (+ match strength)</span></div>
+            <div class="row"><span class="k">callback</span><span class="v">the resolved internal function</span></div>
+            <div class="row"><span class="k">kind</span><span class="v">which mechanism produced it</span></div>
+            <div class="row"><span class="k">provenance</span><span class="v">site / group key (dedup + grouping)</span></div>
+            <div class="row"><span class="k">confidence</span><span class="v">Prior(kind) shaped by match strength</span></div>
+            <div class="row"><span class="k">dispatch site</span><span class="v">where the binding is observed</span></div>
+            <div class="row"><span class="k">records[]</span><span class="v">ordered file/line trail (auditable)</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Evidence is <b>typed by mechanism</b> and <b>scored by match quality</b></span></div>
+        <div class="point"><span>Provenance key makes duplicates and same-site evidence identifiable</span></div>
+        <div class="point"><span>Records preserve the original <b>source expressions and locations</b></span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>The record trail is not decoration — it is what makes a resolution reviewable by a human who did not run the tool. Multiple extractors emit simultaneously because they observe independent facts about the same binding. This record is the boundary object between Recognition and Calculus: extractors fill it, the calculus consumes it.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 11 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>EVIDENCE SCORING</span><span class="n">11 / 20</span></div>
+      <div class="kicker">Evidence Scoring</div>
+      <h1 class="title">One evidence's score = prior shaped by match</h1>
+      <p class="lead">Each evidence scores on its kind's prior, shaped by identifier match strength.</p>
+      <div class="rail"><span>Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span class="r-cal on">Calculus</span><span class="sep">›</span><span>Decision</span></div>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="flow">
+            <div class="flow col" style="gap:12px">
+              <div class="node">Prior(kind)<small>dispatch / registration → high</small></div>
+              <div class="node">Match Strength<small>exact ↦ kept · weaker ↦ discounted</small></div>
+            </div>
+            <div class="conn"><div class="arrow"></div></div>
+            <div class="node cal big">evidence score</div>
+          </div>
+          <div class="caption-note">a per-evidence score — no candidate merging yet</div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span><b>Prior(kind)</b> — dispatch and registration are the high-prior kinds; name-matching the weak fallback</span></div>
+        <div class="point"><span><b>Match Strength</b> — exact identifier preserved; weaker correspondences discounted</span></div>
+        <div class="point"><span>Output: a per-evidence score; <b>no candidate merging</b> happens yet</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Keep this slide strictly about <em>one</em> evidence. A structural registration with an exact symbol match scores near its full prior; the same mechanism with only a substring match is discounted; a name-only signal stays weak regardless. (Concrete priors and multipliers live in the appendix — don’t put numbers on the slide.) This is the simpler half of the calculus; combination is next.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 12 ══════════ -->
+  <section class="slide tall">
+    <div class="canvas">
+      <div class="runhead"><span>EVIDENCE COMBINATION</span><span class="n">12 / 20</span></div>
+      <div class="kicker">Evidence Combination</div>
+      <h1 class="title">Collapse duplicates first, then combine independents</h1>
+      <p class="lead">Within-site MAX removes duplicates; cross-site noisy-OR then rewards corroboration.</p>
+      <div class="rail"><span>Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span class="r-cal on">Calculus</span><span class="sep">›</span><span>Decision</span></div>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="flow col">
+            <div class="node muted">many scored evidences for one candidate</div>
+            <div class="conn col"><div class="arrow v"></div><span class="cap">step 1 · collapse</span></div>
+            <div class="node cal">within a site : MAX<small>same site ≠ new information</small></div>
+            <div class="conn col"><div class="arrow v"></div><span class="cap">step 2 · combine</span></div>
+            <div class="node cal">across sites : noisy-OR<small>independent corroboration ↑ belief</small></div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node muted">Weak-only Cap · Global Cap · Conflict Penalty</div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node cal big">candidate confidence</div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span><b>Collapse:</b> same-site duplicates reduce to their MAX — a site can't inflate itself</span></div>
+        <div class="point"><span><b>Combine:</b> only then do independent sites corroborate (noisy-OR)</span></div>
+        <div class="point"><span>Weak-only cap keys on <b>match strength</b> (missing exact-id, any kind); competitors penalized</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>The intellectual core. Why noisy-OR: independent corroboration should raise belief but never reach certainty (a Global Cap keeps confidence below 1.0). Why within-site MAX: two records from the <em>same</em> registration are not two witnesses. The Weak-only Cap keys on <b>match strength, not evidence kind</b>: a candidate with no exact-identifier match is capped, so a stack of weak-match signals can’t masquerade as strong — but a dispatch signal <em>with</em> an exact match is not capped.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 13 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>CANDIDATE SELECTION</span><span class="n">13 / 20</span></div>
+      <div class="kicker">Candidate Selection</div>
+      <h1 class="title">Resolve, refuse, or abstain — on confidence alone</h1>
+      <p class="lead">Acceptance Floor, then Ambiguity Margin, decide — with no structural gate.</p>
+      <div class="rail"><span>Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span>Calculus</span><span class="sep">›</span><span class="r-dec on">Decision</span></div>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="branch">
+            <div class="qbox">top ≥ Acceptance&nbsp;Floor ?</div>
+            <div class="treecol">
+              <div class="branch"><span class="yn">no →</span><div class="node muted">UNRESOLVED<small>low confidence</small></div></div>
+              <div class="branch"><span class="yn">yes →</span>
+                <div class="qbox">(top − second) ≥ Ambiguity&nbsp;Margin ?</div>
+                <div class="treecol">
+                  <div class="branch"><span class="yn">no →</span><div class="node">AMBIGUOUS<small>retain competitors</small></div></div>
+                  <div class="branch"><span class="yn">yes →</span><div class="node dec">RESOLVED<small>chosen + trail</small></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span><b>RESOLVED:</b> above the Acceptance Floor and clear of the runner-up</span></div>
+        <div class="point"><span><b>AMBIGUOUS:</b> multiple credible candidates within the Ambiguity Margin → no choice</span></div>
+        <div class="point"><span><b>No structural gate:</b> weak-matched candidates are capped (Slide 12), not barred</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>The deliberate-abstention point. A wrong resolution silently corrupts every downstream stage, so when evidence is genuinely split the correct answer is to refuse and hand the conflict to F6/a human. AMBIGUOUS is a feature. The gate is Floor + Margin only: the weak-only cap lowers a non-exact-match candidate’s confidence but does not by itself prevent it from resolving, and a strongly-matched dispatch signal can and does resolve on its own.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 14 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>DIAGNOSTICS</span><span class="n">14 / 20</span></div>
+      <div class="kicker">Diagnostics: A Taxonomy of “Why Not”</div>
+      <h1 class="title">Unresolved names the boundary it hit</h1>
+      <p class="lead">Every non-resolution is a structured, actionable reason — not a failure.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="branch">
+            <div class="node danger">UNRESOLVED</div>
+            <div class="treecol">
+              <div class="branch"><span class="yn">missing evidence →</span><span class="chip">NO_EVIDENCE</span></div>
+              <div class="branch"><span class="yn">below threshold →</span><span class="chip">LOW_CONFIDENCE</span></div>
+              <div class="branch"><span class="yn">analysis limitation →</span><span class="chip">REGISTRAR_STORE_NOT_REACHED</span><span class="chip">EXTERNAL_DEFINITION</span><span class="chip">MISSING_POINTSTO</span><span class="chip">REGISTRATION_OUT_OF_TU</span></div>
+              <div class="branch"><span class="yn">unsupported pattern →</span><span class="chip">REGISTRAR_SEARCH_THEN_WRITE</span><span class="chip">DYNAMIC_ACTION_ID</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Reasons distinguish <b>“no signal”</b> from <b>“signal we intentionally don't follow”</b></span></div>
+        <div class="point"><span>Specializations exist (search-then-write ⊂ store-not-reached) for actionability</span></div>
+        <div class="point"><span>These are <b>scope statements</b>, not bugs</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>“Store not reached” is generic; “search-then-write” specifically names a loop+predicate slot search the baseline does not model. That precision lets a reader decide whether to extend the analyzer or accept the gap. Diagnostics feed evaluation-run summaries.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 15 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>WORKED EXAMPLE</span><span class="n">15 / 20</span></div>
+      <div class="kicker">Worked Example</div>
+      <h1 class="title">Match strength picks the winner, not kind</h1>
+      <p class="lead">Two extractors fire; the stronger identifier match resolves — here, dispatch.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="codeblock2">static Reg t[] = { { ACTION_DATA_TRANSFER, foo } };      // registration
+switch (f->action){ case ACTION_DATA_TRANSFER: bar(); }  // dispatch</div>
+          <div class="conn col"><div class="arrow v"></div><span class="cap"><span class="stagetag rec">recognition</span> → <span class="stagetag evi">evidence</span></span></div>
+          <div class="evbox">A · REGISTRATION_INIT → foo &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (substring match)<br>B · ENUM_CASE → bar &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (normalized match)</div>
+          <div class="conn col"><div class="arrow v"></div><span class="cap"><span class="stagetag cal">calculus</span></span></div>
+          <div class="flow">
+            <div class="node dec">bar · 0.72</div>
+            <div class="conn"><span class="cap">vs</span></div>
+            <div class="node muted">foo · 0.56</div>
+            <div class="conn"><div class="arrow"></div><span class="cap"><span class="stagetag dec">decision</span></span></div>
+            <div class="node dec big">RESOLVED → bar</div>
+          </div>
+          <div class="caption-note">remove the switch → only A → foo resolves alone (≈0.56, just clears the floor)</div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Two independent extractors, same action id, <b>different callbacks</b> (registration vs dispatch)</span></div>
+        <div class="point"><span>The dispatch evidence matched more strongly → bar clears the margin → <b>resolves to bar</b></span></div>
+        <div class="point"><span>The decision is a function of evidence and <b>match strength, not of kind</b></span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Real numbers: bar (ENUM_CASE) prior 0.85 × normalized-name match (×0.85) ≈ 0.72; foo (REGISTRATION_INIT) prior 0.80 × heuristic-substring match (×0.70) ≈ 0.56. The gap ≈0.16 clears the Ambiguity Margin, so the tool RESOLVES to bar — the dispatch handler — over the structural registration. Resolution is match-strength-driven and kind-agnostic; there is no structural authorization. To get AMBIGUOUS you'd need two candidates within the margin.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 16 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>OUTPUT SCHEMA</span><span class="n">16 / 20</span></div>
+      <div class="kicker">Output Schema</div>
+      <h1 class="title">Non-resolution is a first-class result</h1>
+      <p class="lead">One authoritative per-action result set, every candidate evidence-linked.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="schema res">
+            <div class="shead">F2-A RESULT</div>
+            <div class="row"><span class="k">handler_resolutions</span><span class="v">authoritative · one per action</span></div>
+            <div class="row sub"><span class="k">· status</span><span class="v">RESOLVED / AMBIGUOUS / UNRESOLVED</span></div>
+            <div class="row sub"><span class="k">· chosen</span><span class="v">present only when RESOLVED</span></div>
+            <div class="row sub"><span class="k">· candidates</span><span class="v">each carries its evidence + records</span></div>
+            <div class="row sub"><span class="k">· conflict</span><span class="v">competitors + margin (AMBIGUOUS)</span></div>
+            <div class="row sub"><span class="k">· unresolved</span><span class="v">reason + attempts (UNRESOLVED)</span></div>
+            <div class="row"><span class="k">handler_maps</span><span class="v">resolved-only view · back-compat</span></div>
+            <div class="row"><span class="k">limitations</span><span class="v">global scope caveats</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span><code>handler_resolutions</code> is the source of truth; <code>handler_maps</code> is a resolved-only subset</span></div>
+        <div class="point"><span>Every candidate carries its <b>evidence and record trail</b></span></div>
+        <div class="point"><span>Conflict / unresolved reports make <b>non-resolution first-class</b></span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Two-view design: legacy consumers want “just the resolved map”; auditors and F6 want the full outcome including why-not. Confidence on a resolution’s map entry reflects the <em>selected</em> evidence, distinct from the aggregated candidate score — flag this so no one conflates them.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 17 ══════════ -->
+  <section class="slide tall">
+    <div class="canvas">
+      <div class="runhead"><span>DOWNSTREAM CONSUMPTION</span><span class="n">17 / 20</span></div>
+      <div class="kicker">Downstream Consumption</div>
+      <h1 class="title">The resolved handler anchors all later analysis</h1>
+      <p class="lead">Field binding, sources, sinks, and checks all expand from the handler.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="flow col">
+            <div class="node accent">resolved handler(action)</div>
+            <div class="conn col"><div class="arrow v"></div><span class="cap">entry params = untrusted payload</span></div>
+            <div class="node muted">protocol field binding<small>which field → which variable</small></div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node muted">source identification<small>taint roots inside the handler</small></div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node muted">sink reachability<small>tainted data → dangerous API?</small></div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node muted">expected-check matching<small>spec-required validations present?</small></div>
+            <div class="conn col"><div class="arrow v"></div></div>
+            <div class="node muted">security finding candidate — F6</div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Handler = the function where payload <b>enters program semantics</b></span></div>
+        <div class="point"><span>Field binding and sink search are <b>scoped by the handler</b></span></div>
+        <div class="point"><span>A missing/ambiguous resolution ⇒ downstream <b>narrows scope or defers</b></span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>No handler ⇒ no source root ⇒ no taint ⇒ no finding for that action. This is why F2-A’s abstention discipline matters — a confident-but-wrong handler would send the taint analysis into the wrong function and manufacture false results.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 18 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>CURRENT SCOPE</span><span class="n">18 / 20</span></div>
+      <div class="kicker">Current Scope</div>
+      <h1 class="title">The baseline resolves what structure decides</h1>
+      <p class="lead">Statically-decidable registration and dispatch forms, with explicit ambiguity handling.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="checkgrid">
+            <div class="checkitem">aggregate initialization</div>
+            <div class="checkitem">designated initialization</div>
+            <div class="checkitem">indexed / correlated field store</div>
+            <div class="checkitem">registrar tracing (reaches store)</div>
+            <div class="checkitem">delegated registrar (bounded)</div>
+            <div class="checkitem">symbolic receiver correlation (shared slot)</div>
+            <div class="checkitem">enum/switch dispatch recognition</div>
+            <div class="checkitem">name-match fallback</div>
+            <div class="checkitem">ambiguity detection &amp; abstention</div>
+            <div class="checkitem">structured diagnostics</div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Everything here is <b>AST + symbol resolution + bounded call following</b></span></div>
+        <div class="point"><span>Ambiguity and non-resolution are supported <b>outcomes</b>, not gaps</span></div>
+        <div class="point"><span>Scope defined by <b>decidability</b> without heavy semantic reasoning</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>The baseline is what can be recovered soundly from structure and identifiers, plus shallow call following. Anything requiring value reasoning is deferred (next slide). This boundary is a design choice favoring precision and explainability.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 19 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>LIMITATIONS</span><span class="n">19 / 20</span></div>
+      <div class="kicker">Limitations · Intentional Exclusions</div>
+      <h1 class="title">Value-reasoning patterns are deliberately out of scope</h1>
+      <p class="lead">Loop, alias, and cross-procedure cases are detected, named, and deferred.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="maprows">
+            <div class="maphead"><span>excluded pattern</span><span></span><span>capability it would need</span></div>
+            <div class="maprow"><div class="node">search-then-write registrar</div><div class="conn"><div class="arrow"></div></div><div class="node muted">loop + predicate reasoning</div></div>
+            <div class="maprow"><div class="node">runtime slot selection</div><div class="conn"><div class="arrow"></div></div><div class="node muted">symbolic index resolution</div></div>
+            <div class="maprow"><div class="node">alias-to-slot binding</div><div class="conn"><div class="arrow"></div></div><div class="node muted">alias / points-to analysis</div></div>
+            <div class="maprow"><div class="node">cross-procedure slot rebuild</div><div class="conn"><div class="arrow"></div></div><div class="node muted">interprocedural value flow</div></div>
+            <div class="maprow"><div class="node">general dynamic action ids</div><div class="conn"><div class="arrow"></div></div><div class="node muted">DFG-based escalation</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Each is <b>detected and named</b>, not silently mishandled</span></div>
+        <div class="point"><span>Excluded because they trade <b>precision/soundness</b> for coverage</span></div>
+        <div class="point"><span>They form a concrete, <b>prioritizable escalation backlog</b></span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>When the baseline meets one of these, it emits the matching reason and abstains. A precise, explainable core plus honest gaps beats a broad, opaque heuristic that downstream cannot trust. These are candidate future work, gated on evaluation showing they matter in real firmware.</p>
+  </div>
+
+  <!-- ══════════ SLIDE 20 ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>EVALUATION &amp; CONCLUSIONS</span><span class="n">20 / 20</span></div>
+      <div class="kicker">Evaluation &amp; Conclusions</div>
+      <h1 class="title">Separating recognition from decision is the contribution</h1>
+      <p class="lead">Capability and regression tests pin behavior; the backbone makes it extensible.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="matrix">
+            <div class="mrow"><span class="chip">supported forms</span><span class="sep-tri">→</span><span class="chip k">RESOLVED (kind, confidence)</span></div>
+            <div class="mrow"><span class="chip">ambiguous forms</span><span class="sep-tri">→</span><span class="chip k">AMBIGUOUS (retain, margin)</span></div>
+            <div class="mrow"><span class="chip">unsupported forms</span><span class="sep-tri">→</span><span class="chip k">UNRESOLVED (named reason)</span></div>
+          </div>
+          <div class="flow">
+            <div class="node rec">Recognition</div><div class="conn"><div class="arrow"></div></div>
+            <div class="node evi">Evidence</div><div class="conn"><div class="arrow"></div></div>
+            <div class="node cal">Calculus</div><div class="conn"><div class="arrow"></div></div>
+            <div class="node dec">Decision</div>
+          </div>
+          <div class="caption-note" style="max-width:760px; font-style:normal">“By separating recognition from decision through an evidence abstraction, F2-A becomes conservative, auditable, and naturally extensible.”</div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Each registration mechanism has a fixture asserting its <b>exact expected outcome</b></span></div>
+        <div class="point"><span>Negative &amp; unsupported cases assert the <b>right refusal</b>, not just “no crash”</span></div>
+        <div class="point"><span>The backbone — <b>Recognition → Evidence → Calculus → Decision</b> — is the contribution</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="notes"><span class="lbl">Speaker notes</span>
+    <p>Test philosophy: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Close on the architecture: conservative through confidence thresholds, conflict handling, provenance-aware combination, and explicit abstention — <em>not</em> through any structural-evidence gate; auditable because every resolution traces to evidence records; extensible because new extractors feed the same evidence bus without touching the calculus or the decision logic.</p>
+  </div>
+
+  <!-- ══════════ APPENDIX (hold-slides, not presented) ══════════ -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="runhead"><span>APPENDIX · HOLD-SLIDES FOR Q&amp;A</span><span class="n">A</span></div>
+      <div class="kicker">Appendix · not presented</div>
+      <h1 class="title">Reference material held for questions</h1>
+      <p class="lead">Concrete parameters and mechanics, kept off the main narrative.</p>
+      <div class="stage">
+        <div class="stage-inner">
+          <div class="schema" style="max-width:900px">
+            <div class="shead">HOLD-SLIDES</div>
+            <div class="row"><span class="k">A1 · parameters</span><span class="v">priors per kind, match-strength multipliers, weak-only cap (match-strength triggered), global cap, acceptance floor, ambiguity margin, conflict penalty, registrar depth — the sole home for numbers</span></div>
+            <div class="row"><span class="k">A2 · provenance</span><span class="v">why within-group MAX and cross-group noisy-OR; the double-counting failure it prevents</span></div>
+            <div class="row"><span class="k">A3 · designated AST</span><span class="v">the lowering difference (wrapped member assignments) that makes designated distinct from positional</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="points">
+        <div class="point"><span>Numeric values live <b>only</b> here — the main deck stays symbolic</span></div>
+        <div class="point"><span>Match-strength ladder &amp; normalization are <b>core</b> (Slide 6), not appendix</span></div>
+        <div class="point"><span>Pull these up only if the room asks for the mechanics</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="batch-note">— complete deck · Slides 01–20 + appendix —</div>
 </main>
