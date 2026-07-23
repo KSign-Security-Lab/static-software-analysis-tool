@@ -110,21 +110,23 @@
 
 - **Goal:** Explain the KB's real job — turning one protocol action's many code spellings into a single canonical identity that extractors can match against.
 - **Main message:** A protocol action has one meaning but many representations; the KB normalizes them into one canonical **ActionIdentifier**, and match strength falls directly out of *how* a code token corresponds to it.
-- **Suggested diagram (the centerpiece — a convergence + comparison, not a list):**
+- **Suggested diagram (the centerpiece — two symmetric sides meeting at a comparison, not a list):**
   ```
-        many spellings in code                         one protocol truth
-    ┌──────────────────────────────┐
-    │ "RemoteStartTransaction"  ─ wire string ─┐
-    │  ACTION_REMOTE_START       ─ macro       ─┤
-    │  OcppAction::REMOTE_START  ─ enum        ─┼─▶ ╔══════════════════════╗
-    │  3                         ─ numeric id  ─┤   ║ canonical             ║
-    │  remote_start (alias)      ─ alias       ─┘   ║ ActionIdentifier      ║
-    └──────────────────────────────┘               ╚══════════════════════╝
-                                                              ▲
-       code-side raw identifier  ───────── compare ───────────┘
-                                             │
-                       match strength = exactness of correspondence
-       EXACT_IDENTIFIER ▷ NORMALIZED ▷ HEURISTIC_SUBSTRING ▷ NAME_ONLY
+        KB SIDE                                        CODE SIDE
+   "RemoteStartTransaction"  (wire string)      raw identifier found in source
+            │                                             │
+            ▼                                             ▼
+   ╔════════════════════╗                        ┌────────────────────┐
+   ║ canonical           ║                        │ ActionIdentifier    │
+   ║ Action Identity     ║                        │ extracted from code │
+   ╚════════════════════╝                        └────────────────────┘
+    subsumes many spellings:                              │
+    macro · enum · numeric id · aliases                   │
+            │                                             │
+            └──────────────── compare  ⇔ ─────────────────┘
+                                   │
+                 match strength = exactness of correspondence
+      EXACT_IDENTIFIER ▷ NORMALIZED ▷ HEURISTIC_SUBSTRING ▷ NAME_ONLY
   ```
 - **Bullets:**
   - The KB exists so one action's scattered spellings resolve to a single identity
@@ -257,22 +259,26 @@
 ## Slide 12 — Evidence Combination
 
 - **Goal:** Explain how many scored evidences become one confidence per candidate — and *why* we combine at all.
-- **Main message:** Combine *within a site* by MAX (same site is not new information) and *across independent sites* by noisy-OR (independent corroboration raises belief), then apply caps and a conflict penalty.
+- **Main message:** Two ordered steps: first *collapse* duplicate evidence within a site (MAX), then *combine* the surviving independent sites (noisy-OR) — corroboration is counted only after duplicates are gone. Caps and a conflict penalty follow.
 - **Rail:** `[ Recognition › Evidence › ●Calculus › Decision ]`
-- **Suggested diagram:**
+- **Suggested diagram (a two-step order, collapse → combine):**
   ```
   many scored evidences for one candidate
-        │  group by provenance
-        ├─ within a site :  MAX        (same site ≠ new information)
-        └─ across sites  :  noisy-OR   (independent corroboration ↑ belief)
-                     │
-                     ▼   Weak-only Cap · Global Cap · Conflict Penalty
+        │
+   step 1 · COLLAPSE   group by provenance → within a site : MAX
+        │              (same site ≠ new information; duplicates removed)
+        ▼
+   step 2 · COMBINE    across independent sites : noisy-OR
+        │              (independent corroboration ↑ belief)
+        ▼
+                       Weak-only Cap · Global Cap · Conflict Penalty
+        ▼
              candidate confidence
   ```
 - **Bullets:**
-  - Same-site duplicates collapse (MAX) so one site can't inflate itself
-  - Independent sites corroborate (noisy-OR) — two weak-but-independent signals beat either alone
-  - Weak-only evidence is capped; competing candidates incur a conflict penalty
+  - **Step 1 — collapse:** same-site duplicates reduce to their MAX, so one site can't inflate itself
+  - **Step 2 — combine:** only then do *independent* sites corroborate (noisy-OR) — two weak-but-independent signals beat either alone
+  - Finally: weak-only evidence is capped; competing candidates incur a conflict penalty
 - **Speaker notes:** This is the intellectual core — spend time. Why noisy-OR: independent corroboration should raise belief but never reach certainty (a Global Cap keeps confidence below 1.0). Why within-site MAX: two records from the *same* registration are not two witnesses. The Weak-only Cap prevents a pile of name/dispatch hints from masquerading as strong evidence. (Numeric caps, margins, penalty factors → Appendix A1.)
 
 ---
@@ -467,6 +473,7 @@
 ### Appendix (hold-slides for Q&A, not presented)
 
 - **A1 — Calculus parameters:** priors per kind, match-strength multipliers, weak-only cap, global cap, acceptance floor, ambiguity margin, conflict penalty, registrar depth bound. Present as a table if pressed. *(This is the sole home for concrete numeric values.)*
-- **A2 — Match-strength semantics:** exact identifier ▷ normalized identifier ▷ heuristic substring ▷ name-only ▷ none — what each is trusted for, and how it maps to Slide 6's normalization ladder.
-- **A3 — Provenance grouping:** why within-group MAX and cross-group noisy-OR; the double-counting failure it prevents.
-- **A4 — Designated-vs-positional AST:** the lowering difference (wrapped member assignments) that made them structurally distinct despite identical semantics.
+- **A2 — Provenance grouping:** why within-group MAX and cross-group noisy-OR; the double-counting failure it prevents.
+- **A3 — Designated-vs-positional AST:** the lowering difference (wrapped member assignments) that made them structurally distinct despite identical semantics.
+
+> Note: the match-strength ladder and identifier normalization are now core material (Slide 6), not an appendix hold-slide — they are part of the architecture, not a Q&A detail.
