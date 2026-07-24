@@ -134,11 +134,16 @@
   .group-label{position:absolute; top:-10px; left:20px; background:var(--slide); padding:0 9px;
     font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.1em;
     text-transform:uppercase; color:var(--muted)}
-  /* downstream group: compact nodes (padding only) + wrap so it fits with no scroll */
-  .group .flow{overflow-x:visible}
-  .group .node{padding:11px 13px; white-space:normal; max-width:132px; line-height:1.2}
+  /* downstream group: compact nodes (padding only) + explicit 3+2 serpentine so
+     the whole sequence is visible with no horizontal scroll or clipping */
+  .group .node{padding:11px 13px; white-space:normal; max-width:150px; line-height:1.2}
   .group .conn{padding:0 3px}
   .group .arrow{width:34px}
+  .serp{display:flex; flex-direction:column; gap:6px; width:max-content; max-width:100%; margin:0 auto}
+  .dsrow{display:flex; align-items:center; justify-content:center; gap:0}
+  .dsrow.rev{justify-content:flex-end}
+  .dsdown{display:flex; justify-content:flex-end; padding-right:56px}
+  .arrow.left::after{right:auto; left:-1px; border-left-color:transparent; border-right-color:var(--line-2)}
 
   /* fan-in / convergence (slide 5) */
   .converge{display:grid; grid-template-columns:minmax(0,1fr) 180px auto; align-items:center;
@@ -416,16 +421,20 @@
           </div>
           <div class="group">
             <span class="group-label">Downstream · consumes the anchor → F6</span>
-            <div class="flow">
-              <div class="node muted">Field Binding</div>
-              <div class="conn"><div class="arrow"></div></div>
-              <div class="node muted">Flow Candidates</div>
-              <div class="conn"><div class="arrow"></div></div>
-              <div class="node muted">Sink Mapping</div>
-              <div class="conn"><div class="arrow"></div></div>
-              <div class="node muted">Check Matching</div>
-              <div class="conn"><div class="arrow"></div></div>
-              <div class="node muted">F6 · Vulnerability Analysis</div>
+            <div class="serp">
+              <div class="dsrow">
+                <div class="node muted">Field Binding</div>
+                <div class="conn"><div class="arrow"></div></div>
+                <div class="node muted">Flow Candidates</div>
+                <div class="conn"><div class="arrow"></div></div>
+                <div class="node muted">Sink Mapping</div>
+              </div>
+              <div class="dsdown"><div class="conn col"><div class="arrow v"></div></div></div>
+              <div class="dsrow rev">
+                <div class="node muted">F6 · Vulnerability Analysis</div>
+                <div class="conn"><div class="arrow left"></div></div>
+                <div class="node muted">Check Matching</div>
+              </div>
             </div>
           </div>
         </div>
