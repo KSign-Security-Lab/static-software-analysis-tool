@@ -1,1031 +1,769 @@
 <style>
-  /* ── F2-A Handler Resolution — technical design review deck ──
-     Deliberate single (light) theme: projection artwork. Mono is a
-     first-class voice; diagrams dominate; one reserved accent (F2-A),
-     one reserved danger red (the missing edge). */
+  /* ─────────────────────────────────────────────────────────────
+     F2-A · 핸들러 해석 (Handler Resolution) — 기술 설계 리뷰
+     Korean research-conference deck. Deliberate single light theme
+     (projection artwork). Diagram-led, minimal text.
+     ───────────────────────────────────────────────────────────── */
   :root{
-    --paper:#eef0f4; --slide:#ffffff;
-    --ink:#14161c; --ink-2:#3a3f4b; --muted:#697084;
-    --line:#e2e6ec; --line-2:#c2c8d4;
-    --accent:#3846c7; --accent-ink:#2a35a0; --accent-weak:#e9ebfb;
-    --danger:#cf3b3b; --danger-weak:#fbeaea;
-    --l-rec:#3f6bd6; --l-evi:#0e8a8a; --l-cal:#7b4fd0; --l-dec:#2e9e5b;
-    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --bg:#eceef2; --surface:#ffffff;
+    --ink:#0e1116; --ink-2:#3d434e; --muted:#8b909c; --faint:#b8bdc7;
+    --hair:#e7eaef; --hair-2:#d3d8e0;
+    --accent:#2846d6; --accent-ink:#1f37ad; --accent-soft:#eaedfc;
+    --danger:#d83b34; --danger-soft:#fbe9e8;
+    --rec:#2f66e0; --rec-soft:#e9f0fe; --rec-ink:#214a9e;
+    --evi:#0c8f83; --evi-soft:#e3f4f2; --evi-ink:#0a6b62;
+    --cal:#7a44d6; --cal-soft:#f0e9fb; --cal-ink:#5a33a0;
+    --dec:#1c9b57; --dec-soft:#e6f5ec; --dec-ink:#177544;
+    --ko:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
-    --shadow:0 1px 2px rgba(20,22,28,.04),0 10px 34px rgba(20,22,28,.07);
+    --shadow:0 1px 3px rgba(14,17,22,.05),0 24px 60px -20px rgba(14,17,22,.18);
   }
-
   *{box-sizing:border-box}
-  html,body{margin:0; padding:0}
-  .deck{
-    background:var(--paper); color:var(--ink); font-family:var(--sans);
-    -webkit-font-smoothing:antialiased; padding:40px 20px 64px; min-height:100%;
-  }
-  .deck-head{
-    max-width:1160px; margin:0 auto 30px; display:flex; align-items:baseline;
-    justify-content:space-between; gap:16px; font-family:var(--mono);
-    font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted);
-  }
-  .deck-head b{color:var(--accent-ink); font-weight:600}
+  html,body{margin:0;padding:0}
+  .deck{background:var(--bg);color:var(--ink);font-family:var(--ko);
+    -webkit-font-smoothing:antialiased;padding:44px 22px 72px;min-height:100%}
+  .deckhead{max-width:1200px;margin:0 auto 34px;display:flex;justify-content:space-between;
+    align-items:baseline;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted)}
+  .deckhead b{color:var(--accent-ink);font-weight:700}
+  .batch{max-width:1200px;margin:8px auto 0;text-align:center;font-family:var(--mono);
+    font-size:11px;color:var(--muted);letter-spacing:.05em}
 
   /* ── slide frame ── */
-  .slide{max-width:1160px; margin:0 auto 26px}
-  .canvas{
-    background:var(--slide); border:1px solid var(--line);
-    border-radius:14px; box-shadow:var(--shadow);
-    aspect-ratio:16/9; padding:clamp(22px,2.6vw,34px);
-    display:flex; flex-direction:column; gap:clamp(7px,0.9vw,11px);
-    overflow:hidden; position:relative;
-  }
-  .runhead{
-    display:flex; align-items:center; justify-content:space-between;
-    font-family:var(--mono); font-size:11px; color:var(--muted);
-    letter-spacing:.06em; padding-bottom:8px; border-bottom:1px solid var(--line);
-  }
-  .runhead .n{font-variant-numeric:tabular-nums}
-  .runhead .tick{color:var(--accent)}
-  .kicker{
-    font-family:var(--mono); font-size:12px; font-weight:600; color:var(--accent-ink);
-    letter-spacing:.16em; text-transform:uppercase;
-  }
-  .title{
-    font-size:clamp(24px,2.9vw,38px); font-weight:700; line-height:1.05;
-    letter-spacing:-.02em; margin:0; text-wrap:balance; color:var(--ink);
-  }
-  .slide--cover .title{font-size:clamp(30px,4vw,52px)}
-  .lead{
-    font-size:clamp(14px,1.55vw,19px); line-height:1.35; color:var(--ink-2);
-    margin:0; max-width:70ch; font-weight:400;
-  }
-  .lead em{color:var(--accent-ink); font-style:normal; font-weight:600}
+  .slide{max-width:1200px;margin:0 auto 30px}
+  .canvas{position:relative;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);
+    aspect-ratio:16/9;padding:clamp(30px,3.6vw,58px);display:flex;flex-direction:column;overflow:hidden}
+  .eyebrow{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-size:12px;
+    letter-spacing:.08em;color:var(--muted);margin-bottom:clamp(14px,2vw,26px)}
+  .eyebrow .dot{width:9px;height:9px;border-radius:2px;background:var(--accent);flex:0 0 auto}
+  .eyebrow .sec{color:var(--ink-2);font-weight:600;text-transform:uppercase}
+  .eyebrow .pg{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--faint)}
+  .title{font-size:clamp(27px,3.5vw,45px);font-weight:800;line-height:1.22;letter-spacing:-.01em;
+    margin:0;color:var(--ink);word-break:keep-all;max-width:20em}
+  .sub{font-size:clamp(15px,1.65vw,20px);font-weight:400;line-height:1.45;color:var(--muted);
+    margin:14px 0 0;word-break:keep-all;max-width:44em}
+  .sub b{color:var(--accent-ink);font-weight:700}
+  .stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;
+    padding:clamp(14px,2vw,26px) 0 4px;overflow:hidden}
+  .stage-in{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:clamp(14px,2vw,24px)}
+  .foot{position:absolute;left:clamp(30px,3.6vw,58px);bottom:clamp(18px,2vw,26px);
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--faint)}
+  .cap{font-family:var(--ko);font-size:clamp(12.5px,1.25vw,15px);color:var(--muted);
+    text-align:center;word-break:keep-all;max-width:40em;line-height:1.5}
+  .cap b{color:var(--ink-2);font-weight:700}
 
-  /* diagram stage dominates (~60–65% of the slide) */
-  .stage{
-    flex:1 1 auto; min-height:0; display:flex; align-items:center;
-    justify-content:center; overflow:auto; padding:2px 0;
-  }
-  .stage-inner{width:100%; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:clamp(14px,1.8vw,22px)}
+  /* ── cover ── */
+  .cover .canvas{justify-content:center}
+  .cover .kick{font-family:var(--mono);font-size:13px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:20px}
+  .cover .title{font-size:clamp(34px,5.2vw,66px);line-height:1.16;max-width:16em}
+  .cover .sub{font-size:clamp(16px,1.9vw,23px);margin-top:22px}
+  .cover .strip{display:flex;align-items:center;gap:12px;margin-top:clamp(30px,5vw,64px);
+    flex-wrap:wrap;font-family:var(--mono);font-size:13px;color:var(--faint)}
+  .cover .strip .s{color:var(--muted)}
+  .cover .strip .me{color:var(--accent-ink);font-weight:700;background:var(--accent-soft);
+    padding:6px 12px;border-radius:8px}
 
-  /* ── point row ── */
-  .points{
-    display:grid; grid-template-columns:repeat(3,1fr); gap:10px 22px;
-    padding-top:10px; border-top:1px solid var(--line);
-  }
-  .points.four{grid-template-columns:repeat(2,1fr)}
-  .point{font-size:clamp(12px,1.05vw,14px); line-height:1.38; color:var(--ink-2);
-    display:flex; gap:9px; align-items:baseline}
-  .point::before{content:"▸"; color:var(--accent); font-size:.85em; flex:0 0 auto}
-  .point b{color:var(--ink); font-weight:600}
-  .point code{font-family:var(--mono); font-size:.92em; color:var(--ink)}
+  /* ── generic blocks (filled, borderless — Keynote-like) ── */
+  .blk{background:#f1f3f8;color:var(--ink);border-radius:14px;padding:16px 22px;font-weight:600;
+    font-size:clamp(14px,1.4vw,18px);text-align:center;word-break:keep-all;line-height:1.35}
+  .blk .en{display:block;font-family:var(--mono);font-size:11.5px;color:var(--muted);
+    font-weight:400;margin-top:5px}
+  .blk.accent{background:var(--accent-soft);color:var(--accent-ink)}
+  .blk.ghost{background:transparent;border:2px dashed var(--hair-2);color:var(--muted)}
+  .blk.danger{background:var(--danger-soft);color:var(--danger)}
+  .blk.lg{font-size:clamp(16px,1.7vw,22px);padding:22px 30px}
+  .code{font-family:var(--mono);font-size:clamp(12px,1.2vw,14.5px);color:var(--ink);white-space:nowrap}
 
-  /* ── diagram primitives — heavier for back-of-room legibility ── */
-  .node{
-    font-family:var(--mono); font-size:clamp(13px,1.35vw,16px); line-height:1.28;
-    color:var(--ink); background:var(--slide); border:2px solid var(--line-2);
-    border-radius:13px; padding:16px 22px; white-space:nowrap; text-align:center;
-  }
-  .node small{display:block; font-size:12px; color:var(--muted); margin-top:5px; font-weight:400}
-  .node.accent{background:var(--accent-weak); border-color:var(--accent);
-    color:var(--accent-ink); font-weight:700; box-shadow:0 0 0 5px rgba(56,70,199,.08)}
-  .node.big{font-size:clamp(15px,1.7vw,20px); padding:20px 30px}
-  .node.ghost{border-style:dashed; color:var(--muted); background:transparent}
-  .node.muted{background:#f4f6f9; color:var(--ink-2); border-color:var(--line)}
-  .node.danger{border-color:var(--danger); color:var(--danger); background:var(--danger-weak)}
+  /* chevrons (clean, no connector line) */
+  .chev{width:0;height:0;flex:0 0 auto;border-left:13px solid var(--faint);
+    border-top:9px solid transparent;border-bottom:9px solid transparent}
+  .chev.d{border-left:9px solid transparent;border-right:9px solid transparent;
+    border-top:13px solid var(--faint);border-left-width:9px}
+  .chev.dec{border-left-color:var(--dec)}
+  .chev.red{border-left-color:var(--danger)}
+  .row{display:flex;align-items:center;justify-content:center;gap:clamp(10px,1.4vw,18px);flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;align-items:center;gap:clamp(9px,1.2vw,15px)}
 
-  .flow{display:flex; align-items:center; justify-content:center; gap:0;
-    max-width:100%; overflow-x:auto; padding:2px}
-  .flow.col{flex-direction:column}
+  /* backbone (hero) */
+  .backbone{display:flex;align-items:center;justify-content:center;gap:clamp(8px,1.2vw,16px);flex-wrap:wrap}
+  .lb{display:flex;flex-direction:column;align-items:center;gap:3px;border-radius:16px;
+    padding:clamp(16px,1.8vw,24px) clamp(18px,2vw,30px);min-width:132px}
+  .lb .ko{font-size:clamp(18px,1.9vw,25px);font-weight:800;letter-spacing:-.01em}
+  .lb .en{font-family:var(--mono);font-size:11.5px;opacity:.72}
+  .lb .d{font-size:12px;margin-top:2px;opacity:.8}
+  .lb.rec{background:var(--rec-soft);color:var(--rec-ink)}
+  .lb.evi{background:var(--evi-soft);color:var(--evi-ink)}
+  .lb.cal{background:var(--cal-soft);color:var(--cal-ink)}
+  .lb.dec{background:var(--dec-soft);color:var(--dec-ink)}
 
-  /* connector = arrow (+ optional caption) */
-  .conn{display:flex; flex-direction:column; align-items:center; gap:6px; flex:0 0 auto; padding:0 6px}
-  .conn.col{padding:6px 0}
-  .arrow{position:relative; width:58px; height:3px; background:var(--line-2); flex:0 0 auto}
-  .arrow::after{content:""; position:absolute; right:-1px; top:50%; transform:translateY(-50%);
-    border:7px solid transparent; border-left-color:var(--line-2)}
-  .arrow.v{width:3px; height:44px}
-  .arrow.v::after{right:auto; left:50%; top:auto; bottom:-1px; transform:translateX(-50%);
-    border:7px solid transparent; border-left-color:transparent; border-top-color:var(--line-2)}
-  .arrow.q{background:transparent; border-top:3px dashed var(--muted); height:0}
-  .arrow.q::after{border-left-color:var(--muted)}
-  .arrow.bad{background:transparent; border-top:3px dashed var(--danger); height:0}
-  .arrow.bad::after{border-left-color:var(--danger)}
-  .arrow.good{background:var(--l-dec)}
-  .arrow.good::after{border-left-color:var(--l-dec)}
-  .arrow.good.v::after{border-left-color:transparent; border-top-color:var(--l-dec)}
-  .cap{font-family:var(--mono); font-size:11.5px; letter-spacing:.03em; color:var(--muted); white-space:nowrap}
-  .cap.big{font-size:20px; font-weight:700; color:var(--accent-ink); letter-spacing:0}
-  .conn.bad .cap{color:var(--danger)}
-  .conn.good .cap{color:var(--l-dec)}
+  /* soft grouped panel */
+  .panel{background:#f5f6fa;border-radius:18px;padding:clamp(16px,1.8vw,24px);display:flex;
+    flex-direction:column;gap:12px;min-width:0}
+  .panel .ph{font-size:13px;font-weight:700;color:var(--ink-2);letter-spacing:.02em}
+  .panel .ph .en{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:400;margin-left:6px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-family:var(--mono);font-size:12.5px;background:var(--surface);color:var(--ink-2);
+    border-radius:9px;padding:8px 12px;white-space:nowrap}
+  .chip.k{background:var(--accent-soft);color:var(--accent-ink)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(14px,1.8vw,24px);width:100%;max-width:960px}
 
-  .lane{display:flex; flex-direction:column; gap:11px; width:100%}
-  .lane-label{font-family:var(--mono); font-size:12px; font-weight:600; letter-spacing:.1em;
-    text-transform:uppercase; color:var(--muted)}
-  .lane-row{display:flex; align-items:center; justify-content:flex-start; gap:0; overflow-x:auto; padding:2px}
+  /* two-worlds (slide 2) */
+  .worlds{display:grid;grid-template-columns:1fr auto 1fr;gap:clamp(14px,2vw,26px) clamp(12px,2vw,28px);
+    align-items:center;width:100%;max-width:900px}
+  .worlds .wh{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);text-align:center}
+  .qmark{font-size:26px;font-weight:800;color:var(--accent);text-align:center}
+  .dashed{border-top:2.5px dashed var(--hair-2);width:100%;min-width:40px}
 
-  /* two-worlds grid (slide 2) */
-  .worlds{display:grid; grid-template-columns:1fr auto 1fr; gap:20px 12px; align-items:center; width:100%; max-width:940px}
-  .worlds .whead{font-family:var(--mono); font-size:12px; font-weight:600; letter-spacing:.12em;
-    text-transform:uppercase; color:var(--muted); text-align:center}
+  /* ladder (slide 6) */
+  .ladder{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+  .ladder .step{font-family:var(--mono);font-size:12.5px;padding:9px 14px;border-radius:10px;
+    background:#f1f3f8;color:var(--ink-2);white-space:nowrap}
+  .ladder .step.top{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+  .ladder .gt{color:var(--faint);font-size:13px}
 
-  /* grouped downstream (slide 4) */
-  .group{border:2px dashed var(--line-2); border-radius:16px; padding:20px 18px 16px;
-    position:relative; width:100%; display:flex; justify-content:center}
-  .group-label{position:absolute; top:-10px; left:20px; background:var(--slide); padding:0 9px;
-    font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.1em;
-    text-transform:uppercase; color:var(--muted)}
-  /* downstream group: compact nodes (padding only) + explicit 3+2 serpentine so
-     the whole sequence is visible with no horizontal scroll or clipping */
-  .group .node{padding:11px 13px; white-space:normal; max-width:150px; line-height:1.2}
-  .group .conn{padding:0 3px}
-  .group .arrow{width:34px}
-  .serp{display:flex; flex-direction:column; gap:6px; width:max-content; max-width:100%; margin:0 auto}
-  .dsrow{display:flex; align-items:center; justify-content:center; gap:0}
-  .dsrow.rev{justify-content:flex-end}
-  .dsdown{display:flex; justify-content:flex-end; padding-right:56px}
-  .arrow.left::after{right:auto; left:-1px; border-left-color:transparent; border-right-color:var(--line-2)}
+  /* taxonomy cards (slide 7) */
+  .taxo{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.4vw,16px);width:100%;max-width:940px}
+  .tcard{background:#f5f6fa;border-radius:14px;padding:14px 18px}
+  .tcard .tl{font-size:12px;color:var(--muted);margin-bottom:7px;font-weight:600}
 
-  /* fan-in / convergence (slide 5) */
-  .converge{display:grid; grid-template-columns:minmax(0,1fr) 180px auto; align-items:center;
-    gap:0 4px; width:100%; max-width:940px}
-  .converge .sources{display:flex; flex-direction:column; gap:18px}
-  .converge .funnel{display:flex; align-items:center; justify-content:center}
-  .converge svg{width:180px; height:230px; display:block}
-  .domain{border-left-width:5px; text-align:left; white-space:normal}
-  .domain.p{border-left-color:var(--l-rec)}
-  .domain.s{border-left-color:var(--l-evi)}
-  .domain.y{border-left-color:var(--l-cal)}
-  .domain .tag{display:block; font-family:var(--mono); font-size:10.5px; font-weight:600;
-    letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:5px}
+  /* evidence record card (slide 10) */
+  .rec-card{width:100%;max-width:760px;border-radius:18px;overflow:hidden;background:var(--surface);
+    box-shadow:0 0 0 1px var(--hair) inset}
+  .rec-card .rh{background:var(--evi-soft);color:var(--evi-ink);font-weight:700;font-size:14px;
+    padding:14px 22px}
+  .rec-card .rr{display:grid;grid-template-columns:190px 1fr;gap:14px;padding:12px 22px;font-size:14px}
+  .rec-card .rr + .rr{border-top:1px solid var(--hair)}
+  .rec-card .rk{font-family:var(--mono);font-weight:600;color:var(--ink)}
+  .rec-card .rv{color:var(--muted);word-break:keep-all}
 
-  .caption-note{font-family:var(--mono); font-size:12px; color:var(--muted);
-    text-align:center; letter-spacing:.02em}
+  /* result schema (slide 16) */
+  .res{display:flex;flex-direction:column;gap:12px;width:100%;max-width:820px}
+  .res .big{background:var(--accent-soft);border-radius:16px;padding:16px 22px}
+  .res .big .rt{font-family:var(--mono);font-weight:700;color:var(--accent-ink);font-size:15px}
+  .res .big .rd{font-size:13px;color:var(--ink-2);margin-top:3px}
+  .res .subchips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
+  .res .subchips .chip{background:var(--surface)}
+  .res .minor{display:flex;gap:12px}
+  .res .minor .m{flex:1;background:#f5f6fa;border-radius:14px;padding:13px 18px}
+  .res .minor .mt{font-family:var(--mono);font-weight:600;color:var(--ink);font-size:13.5px}
+  .res .minor .md{font-size:12.5px;color:var(--muted);margin-top:3px}
 
-  /* ── speaker notes: outside the canvas, muted ── */
-  .notes{max-width:1160px; margin:0 auto 40px; padding:14px 18px; border-left:2px solid var(--line-2)}
-  .notes .lbl{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
-    text-transform:uppercase; color:var(--muted); display:block; margin-bottom:6px}
-  .notes p{margin:0; font-size:13.5px; line-height:1.55; color:var(--muted); max-width:80ch}
+  /* decision gate (slide 13) */
+  .gate{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:860px}
+  .gate .q{background:#f1f3f8;border-radius:13px;padding:14px 26px;font-weight:700;font-size:clamp(14px,1.4vw,18px)}
+  .gate .lvl{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap}
+  .gate .yn{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .out{border-radius:13px;padding:13px 22px;font-weight:700;text-align:center;font-size:clamp(14px,1.35vw,17px)}
+  .out .en{display:block;font-family:var(--mono);font-size:11px;font-weight:400;opacity:.75;margin-top:3px}
+  .out.res{background:var(--dec-soft);color:var(--dec-ink)}
+  .out.amb{background:#fbf0dd;color:#9a6a12}
+  .out.unr{background:#eef0f4;color:var(--muted)}
 
-  .batch-note{max-width:1160px; margin:0 auto; padding-top:10px;
-    font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.04em; text-align:center}
+  /* reason taxonomy (slide 14) */
+  .reasons{display:flex;flex-direction:column;gap:11px;width:100%;max-width:940px}
+  .rrow{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center}
+  .rrow .rc{font-size:13.5px;color:var(--ink-2);font-weight:600;text-align:right}
+  .rrow .rchips{display:flex;flex-wrap:wrap;gap:7px}
 
-  /* ── backbone rail + layer tints (only where a layer actually appears) ── */
-  .rail{display:flex; align-items:center; gap:7px; font-family:var(--mono);
-    font-size:11px; color:var(--muted); letter-spacing:.05em; flex-wrap:wrap}
-  .rail .sep{color:var(--line-2)}
-  .rail .on{font-weight:700}
-  .rail .r-rec.on{color:var(--l-rec)} .rail .r-evi.on{color:var(--l-evi)}
-  .rail .r-cal.on{color:var(--l-cal)} .rail .r-dec.on{color:var(--l-dec)}
-  .node.rec{border-color:var(--l-rec); color:#274a97; background:#eef3fc}
-  .node.evi{border-color:var(--l-evi); color:#0a6a6a; background:#e7f5f5}
-  .node.cal{border-color:var(--l-cal); color:#573596; background:#f2ecfb}
-  .node.dec{border-color:var(--l-dec); color:#1f7a45; background:#e9f6ee}
+  /* mapping (slide 19) */
+  .maps{display:flex;flex-direction:column;gap:10px;width:100%;max-width:900px}
+  .mrow{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center}
+  .mrow .ex{background:#f5f6fa;border-radius:12px;padding:12px 18px;font-weight:600;font-size:14px;text-align:center;word-break:keep-all}
+  .mrow .need{background:var(--surface);box-shadow:0 0 0 1px var(--hair) inset;border-radius:12px;
+    padding:12px 18px;color:var(--muted);font-size:13.5px;text-align:center;word-break:keep-all}
+  .mhead{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;font-family:var(--mono);font-size:11px;
+    letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
 
-  .chip{font-family:var(--mono); font-size:12px; padding:7px 12px; border:1.5px solid var(--line-2);
-    border-radius:9px; background:var(--slide); white-space:nowrap; color:var(--ink-2)}
-  .chip.k{color:var(--accent-ink); border-color:var(--accent); background:var(--accent-weak); font-size:11.5px}
-  .chip.small{font-size:11px; padding:5px 9px}
-  .sep-tri{color:var(--muted); font-family:var(--mono); padding:0 3px; align-self:center}
-  .chiprow{display:flex; align-items:center; flex-wrap:wrap; gap:8px; justify-content:center}
+  /* checklist (slide 18) */
+  .checks{display:grid;grid-template-columns:1fr 1fr;gap:12px clamp(24px,4vw,60px);width:100%;max-width:880px}
+  .ck{display:flex;gap:12px;align-items:baseline;font-size:clamp(14px,1.35vw,17px);color:var(--ink-2);word-break:keep-all}
+  .ck::before{content:"✓";color:var(--dec);font-weight:800;flex:0 0 auto}
 
-  /* diagram table (capability / schema-ish) */
-  .dtable{border-collapse:separate; border-spacing:0; font-family:var(--mono);
-    font-size:clamp(11px,1.05vw,13px); width:100%; max-width:1000px}
-  .dtable th{font-weight:600; text-align:left; color:var(--muted); font-size:10.5px;
-    letter-spacing:.06em; text-transform:uppercase; padding:6px 12px; border-bottom:2px solid var(--line-2)}
-  .dtable td{padding:7px 12px; border-bottom:1px solid var(--line); color:var(--ink); vertical-align:middle; white-space:nowrap}
-  .dtable .band td{background:#f4f6f9; color:var(--muted); font-size:10px; letter-spacing:.12em;
-    text-transform:uppercase; font-weight:600; border-bottom:1px solid var(--line-2)}
-  .dtable .bd{color:var(--muted)}
+  /* worked example (slide 15) */
+  .we{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;max-width:820px}
+  .we .src{font-family:var(--mono);font-size:clamp(11px,1.05vw,13px);background:#f1f3f8;border-radius:12px;
+    padding:13px 20px;white-space:pre;text-align:left;line-height:1.55;overflow-x:auto;max-width:100%}
+  .we .stag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+  .we .ev{background:var(--evi-soft);color:var(--evi-ink);border-radius:12px;padding:11px 18px;
+    font-family:var(--mono);font-size:clamp(10.5px,1vw,12.5px);line-height:1.7;text-align:left}
+  .we .verdict{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center}
+  .scorepill{font-family:var(--mono);font-size:14px;border-radius:11px;padding:11px 18px;font-weight:600}
+  .scorepill.win{background:var(--dec-soft);color:var(--dec-ink)}
+  .scorepill.lose{background:#eef0f4;color:var(--muted)}
 
-  /* schema card (evidence model / output schema) */
-  .schema{border:2px solid var(--line-2); border-radius:14px; overflow:hidden; width:100%; max-width:780px; background:var(--slide)}
-  .schema .shead{font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:.08em;
-    padding:11px 16px; border-bottom:2px solid var(--line-2); color:var(--ink)}
-  .schema.evi .shead{background:#e7f5f5; color:#0a6a6a; border-bottom-color:var(--l-evi)}
-  .schema.res .shead{background:var(--accent-weak); color:var(--accent-ink); border-bottom-color:var(--accent)}
-  .schema .row{display:grid; grid-template-columns:200px 1fr; gap:14px; padding:9px 16px;
-    border-bottom:1px solid var(--line); font-family:var(--mono); font-size:13px}
-  .schema .row:last-child{border-bottom:0}
-  .schema .row .k{color:var(--ink); font-weight:600}
-  .schema .row .v{color:var(--muted)}
-  .schema .row.sub{background:#fafbfc; padding-left:30px}
+  /* fan-in convergence (slide 5) */
+  .converge{display:grid;grid-template-columns:minmax(0,1fr) 168px auto;align-items:center;
+    gap:0 6px;width:100%;max-width:960px}
+  .converge .srcs{display:flex;flex-direction:column;gap:16px}
+  .dcard{background:#f5f6fa;border-radius:14px;padding:14px 18px;border-left:5px solid var(--rec)}
+  .dcard.s{border-left-color:var(--evi)} .dcard.y{border-left-color:var(--cal)}
+  .dcard .dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:4px}
+  .dcard .dn{font-weight:700;font-size:15px}
+  .dcard .dd{font-size:12px;color:var(--muted);margin-top:3px;word-break:keep-all}
+  .converge svg{width:168px;height:220px;display:block}
 
-  /* taxonomy shape cards (slide 7) */
-  .shapegrid{display:grid; grid-template-columns:repeat(2,1fr); gap:12px 20px; width:100%; max-width:920px}
-  .shape{border:2px solid var(--line-2); border-radius:12px; padding:12px 15px; background:var(--slide)}
-  .shape .lbl{font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
-    color:var(--muted); margin-bottom:6px}
-  .shape .code{font-family:var(--mono); font-size:clamp(12px,1.15vw,14px); color:var(--ink); white-space:nowrap; overflow-x:auto}
-
-  /* check grid (scope) */
-  .checkgrid{display:grid; grid-template-columns:1fr 1fr; gap:12px 30px; width:100%; max-width:860px}
-  .checkitem{display:flex; gap:11px; align-items:baseline; font-size:clamp(13px,1.2vw,15px); color:var(--ink-2)}
-  .checkitem::before{content:"✓"; color:var(--l-dec); font-weight:800; flex:0 0 auto}
-
-  /* mapping rows (limitations) */
-  .maprows{display:flex; flex-direction:column; gap:9px; width:100%; max-width:900px}
-  .maphead{display:grid; grid-template-columns:1fr auto 1fr; gap:14px; font-family:var(--mono);
-    font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted)}
-  .maphead span:last-child{text-align:left}
-  .maprow{display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:center}
-
-  /* small tree (selection / diagnostics) */
-  .branch{display:flex; align-items:center; gap:0; flex-wrap:nowrap}
-  .qbox{border:2px solid var(--line-2); border-radius:12px; padding:13px 18px; background:var(--slide);
-    font-family:var(--mono); font-size:clamp(12px,1.2vw,15px); color:var(--ink); text-align:center; white-space:nowrap}
-  .yn{font-family:var(--mono); font-size:11px; color:var(--muted); padding:0 6px; letter-spacing:.06em}
-  .treecol{display:flex; flex-direction:column; gap:14px; align-items:flex-start}
-  .branch{gap:12px}
-
-  .codeblock2{font-family:var(--mono); font-size:clamp(11px,1.05vw,13px); text-align:left; white-space:pre;
-    background:#f4f6f9; border:2px solid var(--line-2); border-radius:12px; padding:12px 16px; color:var(--ink);
-    overflow-x:auto; max-width:680px; line-height:1.5}
-  .stagetag{font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; font-weight:700; color:var(--muted)}
-  .stagetag.rec{color:var(--l-rec)} .stagetag.evi{color:var(--l-evi)} .stagetag.cal{color:var(--l-cal)} .stagetag.dec{color:var(--l-dec)}
-  .evbox{border:2px solid var(--l-evi); background:#e7f5f5; border-radius:12px; padding:11px 16px; font-family:var(--mono);
-    font-size:clamp(10.5px,1vw,12.5px); color:#0a6a6a; text-align:left; max-width:780px; line-height:1.7; overflow-x:auto}
-  .matrix{display:flex; flex-direction:column; gap:9px; width:100%; max-width:740px}
-  .matrix .mrow{display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:center;
-    font-family:var(--mono); font-size:clamp(11px,1.1vw,13px)}
+  /* speaker notes (off-slide) */
+  .notes{max-width:1200px;margin:0 auto 42px;padding:13px 18px;border-left:2px solid var(--hair-2)}
+  .notes b{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);display:block;margin-bottom:6px;font-weight:700}
+  .notes p{margin:0;font-size:13.5px;line-height:1.6;color:var(--muted);word-break:keep-all}
 
   @media print{
-    @page{size:1280px 720px; margin:0}
-    .deck{background:#fff; padding:0}
-    .deck-head,.batch-note,.notes{display:none}
-    .slide{max-width:none; margin:0; width:1280px; height:720px; overflow:hidden; break-after:page; break-inside:avoid}
+    @page{size:1280px 720px;margin:0}
+    .deck{background:#fff;padding:0}
+    .deckhead,.batch,.notes{display:none}
+    .slide{max-width:none;margin:0;width:1280px;height:720px;overflow:hidden;break-after:page;break-inside:avoid}
     .slide:last-of-type{break-after:auto}
-    .canvas{border:0; border-radius:0; box-shadow:none; aspect-ratio:auto; width:1280px; height:720px; padding:30px 48px; gap:8px; overflow:hidden}
-    .slide--cover .title{font-size:42px}
-    /* paged media has no scroll: compact vertical rhythm (spacing only, not type)
-       so multi-node vertical chains (slides 4, 12, 17) fit one 720px page */
-    .stage-inner{gap:10px}
-    .arrow.v{height:20px}
-    .conn.col{padding:0}
-    .node{padding:12px 20px}
-    .node small{margin-top:3px}
-    .node.big{padding:15px 26px}
-    .group{padding:16px 16px 12px}
-    .group .node{padding:9px 12px}
-    /* tall vertical-chain slides: top-align (no centering waste) + extra compaction */
-    .tall .stage{align-items:flex-start; flex:0 1 auto}
-    .tall .stage-inner{gap:6px}
-    .tall .arrow.v{height:15px}
-    .tall .node{padding:9px 16px}
-    .tall .node small{margin-top:2px}
-    .tall .group{padding:13px 14px 10px}
+    .canvas{border-radius:0;box-shadow:none;aspect-ratio:auto;width:1280px;height:720px;padding:52px 68px}
+    .tall .stage{align-items:flex-start;flex:0 1 auto}
+    .tall .stage-in{gap:10px}
   }
-
-  @media screen and (max-width:760px){
-    .canvas{aspect-ratio:auto; min-height:82vw}
-    .points,.points.four{grid-template-columns:1fr}
-    .worlds{grid-template-columns:1fr}
-    .converge{grid-template-columns:1fr}
+  @media screen and (max-width:820px){
+    .canvas{aspect-ratio:auto;min-height:86vw}
+    .grid2,.worlds,.taxo,.checks,.converge{grid-template-columns:1fr}
     .converge .funnel{transform:rotate(90deg)}
   }
 </style>
 
 <main class="deck">
-  <div class="deck-head">
-    <span><b>F2-A</b> · Handler Resolution — Technical Design Review</span>
-    <span>Slides 01–05 · draft</span>
+  <div class="deckhead">
+    <span><b>F2-A</b> · 핸들러 해석 (Handler Resolution)</span>
+    <span>기술 설계 리뷰 · 20 slides</span>
   </div>
 
-  <!-- ══════════ SLIDE 1 ══════════ -->
-  <section class="slide slide--cover">
+  <!-- 01 COVER -->
+  <section class="slide cover">
     <div class="canvas">
-      <div class="runhead"><span class="tick">F2-A · HANDLER RESOLUTION</span><span class="n">01 / 20</span></div>
-      <div class="kicker">Technical Design Review</div>
-      <h1 class="title">Dynamic dispatch hides the protocol handler</h1>
-      <p class="lead">F2-A recovers the action → handler mapping, backed by an <em>auditable evidence calculus</em>.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="flow">
-            <div class="node">KB</div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node accent big">F2-A<small>action ↦ handler</small></div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node muted">field binding</div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node muted">dataflow</div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node muted">sinks</div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node muted">findings</div>
-          </div>
-          <div class="caption-note">one stage of an OCPP-aware static pipeline</div>
-        </div>
+      <div class="kick">기술 설계 리뷰 · Technical Design Review</div>
+      <h1 class="title">동적 디스패치가 감춘 핸들러를,<br>증거로 되찾다</h1>
+      <p class="sub">F2-A — 프로토콜 액션을 소스 코드의 핸들러로 잇는 정적 분석 단계.<br>추측하지 않고, <b>증거로 판정</b>한다.</p>
+      <div class="strip">
+        <span>KB</span><span class="s">›</span><span class="me">F2-A</span><span class="s">›</span>
+        <span>필드 바인딩</span><span class="s">›</span><span>데이터 흐름</span><span class="s">›</span>
+        <span>싱크</span><span class="s">›</span><span>취약점 후보</span>
       </div>
-      <div class="points">
-        <div class="point"><span>F2-A is the <b>Handler Resolution</b> stage of an OCPP-aware static pipeline</span></div>
-        <div class="point"><span>In: protocol knowledge + a code property graph · Out: per-action resolution + evidence trail</span></div>
-        <div class="point"><span>Contribution: evidence model + calculus + explicit <b>“refuse to guess”</b> semantics</span></div>
-      </div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>State the one-sentence thesis and the honesty contract up front. Everything downstream trusts F2-A’s mapping, so F2-A must either be right or <em>say it doesn’t know</em>. Preview that the talk’s spine is the four-layer backbone: recognition → evidence → calculus → decision.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>한 문장 논지와 “정직성 계약”을 먼저 못 박는다. 후속 단계는 모두 F2-A의 매핑을 신뢰하므로, F2-A는 맞히거나 아니면 “모른다”고 말해야 한다. 이 발표의 척추: 인식 → 증거 → 계산 → 판정.</p></aside>
 
-  <!-- ══════════ SLIDE 2 ══════════ -->
+  <!-- 02 MOTIVATION -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>MOTIVATION</span><span class="n">02 / 20</span></div>
-      <div class="kicker">Why Handler Resolution Exists</div>
-      <h1 class="title">Protocol semantics and code structure are disconnected</h1>
-      <p class="lead">Spec-level actions and the code that enforces them are linked only by indirection.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="worlds">
-            <div class="whead">Protocol world</div><div></div><div class="whead">Code world</div>
-
-            <div class="node big">"RemoteStartTransaction"</div>
-            <div class="conn q"><div class="arrow q"></div><span class="cap big">?</span></div>
-            <div class="node big">remote_handler()</div>
-
-            <div class="node big">"SetChargingProfile"</div>
-            <div class="conn q"><div class="arrow q"></div><span class="cap big">?</span></div>
-            <div class="node big ghost">???</div>
-          </div>
-          <div class="caption-note">the binding is latent in data, not control flow</div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">02 · 동기</span><span class="pg">02 / 20</span></div>
+      <h1 class="title">프로토콜의 의미와 코드는 끊겨 있다</h1>
+      <p class="sub">액션은 명세에, 이를 처리하는 코드는 간접 호출 너머에 있다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="worlds">
+          <div class="wh">프로토콜 세계</div><div></div><div class="wh">코드 세계</div>
+          <div class="blk lg">"RemoteStartTransaction"</div>
+          <div class="col" style="gap:4px"><div class="dashed"></div><span class="qmark">?</span></div>
+          <div class="blk lg">remote_handler()</div>
+          <div class="blk lg">"SetChargingProfile"</div>
+          <div class="col" style="gap:4px"><div class="dashed"></div><span class="qmark">?</span></div>
+          <div class="blk lg ghost">???</div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Security questions are phrased over <b>protocol actions</b>, not functions</span></div>
-        <div class="point"><span>The handler is where untrusted payload first becomes program state</span></div>
-        <div class="point"><span>Without the mapping, every later analysis has <b>no anchor</b> to start from</span></div>
-      </div>
+        <div class="cap">연결은 제어 흐름이 아니라 <b>데이터 속에 숨어</b> 있다</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Concrete stakes: to ask “is the charging-profile limit validated?”, you must first know <em>which function</em> processes SetChargingProfile. That function is the taint source root. The mapping is the precondition for asking any protocol-aware question.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>“충전 프로파일 한계값이 검증되는가?”를 물으려면 먼저 SetChargingProfile을 <em>어느 함수</em>가 처리하는지 알아야 한다. 그 함수가 오염(taint)의 출발점이다. 이 매핑은 프로토콜 인지 분석의 전제 조건이다.</p></aside>
 
-  <!-- ══════════ SLIDE 3 ══════════ -->
+  <!-- 03 CORE DIFFICULTY -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>THE CORE DIFFICULTY</span><span class="n">03 / 20</span></div>
-      <div class="kicker">Dispatch Breaks the Call Graph</div>
-      <h1 class="title">Dispatch leaves no handler edge in the call graph</h1>
-      <p class="lead">Function-pointer dispatch drops the caller→handler edge; the binding survives only in data.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="lane">
-            <span class="lane-label">Control flow — the call graph</span>
-            <div class="lane-row">
-              <div class="node">dispatch(frame)</div>
-              <div class="conn"><div class="arrow"></div></div>
-              <div class="node">(*table[i].fn)()</div>
-              <div class="conn bad"><div class="arrow bad"></div><span class="cap">✕ no static edge</span></div>
-              <div class="node danger">remote_handler()</div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">03 · 핵심 난제</span><span class="pg">03 / 20</span></div>
+      <h1 class="title">콜그래프에는 핸들러로 가는 간선이 없다</h1>
+      <p class="sub">함수 포인터·디스패치 테이블이 <b>caller→handler</b> 간선을 지운다. 연결은 데이터에만 남는다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="col" style="align-items:stretch;gap:22px;width:100%;max-width:920px">
+          <div>
+            <div class="eyebrow" style="margin:0 0 9px"><span class="sec" style="color:var(--muted)">제어 흐름 · 콜그래프</span></div>
+            <div class="row" style="justify-content:flex-start">
+              <div class="blk">dispatch(frame)</div><span class="chev"></span>
+              <div class="blk">(*table[i].fn)()</div>
+              <span class="chev red" title="no edge"></span>
+              <span class="cap" style="color:var(--danger);font-family:var(--mono);font-size:12px">✕ 정적 간선 없음</span>
+              <div class="blk danger">remote_handler()</div>
             </div>
           </div>
-          <div class="lane">
-            <span class="lane-label">Data — the registration site</span>
-            <div class="lane-row">
-              <div class="node">table[k] = { ACTION, remote_handler }</div>
-              <div class="conn good"><div class="arrow good"></div><span class="cap">edge lives here</span></div>
-              <div class="node">remote_handler()</div>
+          <div>
+            <div class="eyebrow" style="margin:0 0 9px"><span class="sec" style="color:var(--muted)">데이터 · 등록 지점</span></div>
+            <div class="row" style="justify-content:flex-start">
+              <div class="blk">table[k] = &#123; ACTION, remote_handler &#125;</div>
+              <span class="chev dec"></span>
+              <span class="cap" style="color:var(--dec-ink);font-family:var(--mono);font-size:12px">여기에 간선이 있다</span>
+              <div class="blk">remote_handler()</div>
             </div>
           </div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Dynamic dispatch ⇒ the caller→handler edge is <b>absent</b> from the call graph</span></div>
-        <div class="point"><span>The real binding is expressed in <b>data</b> (registration sites), not control flow</span></div>
-        <div class="point"><span>Recover it from <b>registration structure + identifier matching</b>, not from calls</span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>This is the crux — let it breathe. A naive call-graph walk fails by construction. The binding is latent in initializer tables, assignments, and registrar calls. F2-A’s job is to reconstruct that latent edge statically. Anticipate “why not just run it?” — static, pre-deployment, whole-firmware, no harness.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>핵심 지점 — 천천히. 단순한 콜그래프 순회는 구조적으로 실패한다. 연결은 초기화 테이블·대입·등록 함수 안에 잠재해 있다. F2-A는 그 잠재 간선을 정적으로 복원한다. “그냥 실행하면?” — 정적·배포 전·전체 펌웨어·하네스 없음.</p></aside>
 
-  <!-- ══════════ SLIDE 4 ══════════ -->
+  <!-- 04 PIPELINE -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="runhead"><span>PIPELINE PLACEMENT</span><span class="n">04 / 20</span></div>
-      <div class="kicker">F2-A in the Larger Pipeline</div>
-      <h1 class="title">F2-A gates every downstream analysis stage</h1>
-      <p class="lead">No protocol-aware stage can start until F2-A resolves the action → handler anchor.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="flow col">
-            <div class="node muted">Protocol Knowledge Base</div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node muted">Action Definitions</div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node accent big">Handler Resolution — F2-A</div>
-            <div class="conn col"><div class="arrow v"></div><span class="cap">resolved action ↦ handler</span></div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">04 · 파이프라인 위치</span><span class="pg">04 / 20</span></div>
+      <h1 class="title">F2-A가 풀려야 후속 분석이 시작된다</h1>
+      <p class="sub">액션→핸들러 앵커를 만드는 관문 단계. 이후 모든 프로토콜 인지 분석이 이걸 소비한다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="col">
+          <div class="blk">프로토콜 지식 베이스 (KB)</div>
+          <span class="chev d"></span>
+          <div class="blk">액션 정의</div>
+          <span class="chev d"></span>
+          <div class="blk accent lg" style="font-weight:800">F2-A · 핸들러 해석<span class="en">action ↦ handler</span></div>
+          <span class="chev d"></span>
+          <div class="blk" style="background:var(--surface);box-shadow:0 0 0 1.5px var(--hair) inset;color:var(--ink-2);font-weight:500;font-size:14px">
+            후속 분석 &nbsp;·&nbsp; 필드 바인딩 → 흐름 후보 → 싱크 매핑 → 검사 매칭 → <b style="color:var(--accent-ink)">F6 취약점 분석</b>
           </div>
-          <div class="group">
-            <span class="group-label">Downstream · consumes the anchor → F6</span>
-            <div class="serp">
-              <div class="dsrow">
-                <div class="node muted">Field Binding</div>
-                <div class="conn"><div class="arrow"></div></div>
-                <div class="node muted">Flow Candidates</div>
-                <div class="conn"><div class="arrow"></div></div>
-                <div class="node muted">Sink Mapping</div>
-              </div>
-              <div class="dsdown"><div class="conn col"><div class="arrow v"></div></div></div>
-              <div class="dsrow rev">
-                <div class="node muted">F6 · Vulnerability Analysis</div>
-                <div class="conn"><div class="arrow left"></div></div>
-                <div class="node muted">Check Matching</div>
-              </div>
+        </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>관심사 분리: F2-A는 오염·싱크·검사를 하지 않는다. “핸들러는 여기, 근거는 이것”에서 멈춘다. 잘못된 해석은 이후 전부를 오염시키므로 보수적으로 설계했다.</p></aside>
+
+  <!-- 05 INPUTS -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot"></span><span class="sec">05 · 입력</span><span class="pg">05 / 20</span></div>
+      <h1 class="title">프로토콜 진실과 코드 구조가 만나는 곳</h1>
+      <p class="sub">독립된 세 도메인 — 프로토콜·구조·심볼 — 이 하나의 해석기로 모인다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="converge">
+          <div class="srcs">
+            <div class="dcard"><div class="dt">프로토콜</div><div class="dn">지식 베이스 (KB)</div><div class="dd">이름 · 심볼 · 숫자 ID · 별칭</div></div>
+            <div class="dcard s"><div class="dt">코드 구조</div><div class="dn">CPG / AST</div><div class="dd">초기화 · 대입 · 호출 · 디스패치</div></div>
+            <div class="dcard y"><div class="dt">심볼</div><div class="dn">해석된 참조</div><div class="dd">내부 함수 vs 외부 스텁</div></div>
+          </div>
+          <div class="funnel" aria-hidden="true">
+            <svg viewBox="0 0 168 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <defs><marker id="ah" markerWidth="9" markerHeight="9" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#b8bdc7"></path></marker></defs>
+              <path d="M2,30 C66,30 92,110 112,110" stroke="#b8bdc7" stroke-width="3.5"></path>
+              <path d="M2,110 L112,110" stroke="#b8bdc7" stroke-width="3.5"></path>
+              <path d="M2,190 C66,190 92,110 112,110" stroke="#b8bdc7" stroke-width="3.5"></path>
+              <circle cx="112" cy="110" r="4" fill="#b8bdc7"></circle>
+              <path d="M112,110 L160,110" stroke="#b8bdc7" stroke-width="3.5" marker-end="url(#ah)"></path>
+            </svg>
+          </div>
+          <div class="blk accent lg" style="justify-self:start;font-weight:800">F2-A<span class="en">핸들러 해석</span></div>
+        </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>KB는 “어떤 식별자가 어떤 액션을 뜻하는가”의 근거다. AST는 등록의 <em>형태</em>를, 심볼은 참조가 실제 내부 함수인지(외부 스텁이 아닌지)를 알려준다. 그 식별자들이 실제로 어떻게 대조되는지는 다음 장.</p></aside>
+
+  <!-- 06 NORMALIZATION -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot"></span><span class="sec">06 · 식별자 정규화</span><span class="pg">06 / 20</span></div>
+      <h1 class="title">하나의 액션, 여러 표기를 하나로 정규화한다</h1>
+      <p class="sub">코드의 원시 식별자를 정규 <b>ActionIdentifier</b>와 대조한다. 매치 강도는 여기서 나온다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="row" style="width:100%;max-width:900px;justify-content:space-between;gap:20px">
+          <div class="blk lg" style="flex:1">정규 Action Identity<span class="en">macro · enum · 숫자 ID · 별칭</span></div>
+          <div class="col" style="gap:4px"><span class="cap" style="font-family:var(--mono);font-size:12px">대조 ⇔</span></div>
+          <div class="blk lg" style="flex:1">ActionIdentifier<span class="en">코드 지점의 원시 식별자</span></div>
+        </div>
+        <div class="cap">매치 강도 = 대응의 정확도</div>
+        <div class="ladder">
+          <span class="step top">EXACT_IDENTIFIER</span><span class="gt">▷</span>
+          <span class="step">NORMALIZED</span><span class="gt">▷</span>
+          <span class="step">HEURISTIC_SUBSTRING</span><span class="gt">▷</span>
+          <span class="step">NAME_ONLY</span>
+        </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>프로토콜 세계와 코드 세계를 잇는 경첩. 사다리: macro/enum·숫자 ID 일치는 EXACT, 정규화 이름 일치는 NORMALIZED, 부분 문자열은 HEURISTIC_SUBSTRING, ID 없는 이름 유사는 NAME_ONLY. 이후 계산의 “매치 강도”는 전부 여기서 유래. 양방향: KB가 정규 정체성을, 코드가 원시 식별자를 내고 매칭이 대응도를 채점.</p></aside>
+
+  <!-- 07 MECHANISMS -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot"></span><span class="sec">07 · 등록 방식</span><span class="pg">07 / 20</span></div>
+      <h1 class="title">핸들러 등록은 형태가 제각각이다</h1>
+      <p class="sub">의미는 하나(action ↦ handler), 문법은 여러 가지. 그래서 인식기도 여럿이어야 한다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="taxo">
+          <div class="tcard"><div class="tl">집합 초기화 · aggregate</div><div class="code">{ ACTION, fn }</div></div>
+          <div class="tcard"><div class="tl">지정 초기화 · designated</div><div class="code">{ .action = ACTION, .fn = fn }</div></div>
+          <div class="tcard"><div class="tl">인덱스 대입 · indexed</div><div class="code">handlers[ACTION] = fn</div></div>
+          <div class="tcard"><div class="tl">상관 저장 · correlated</div><div class="code">t[k].action = ACTION; t[k].fn = fn</div></div>
+          <div class="tcard"><div class="tl">등록 함수 · registrar</div><div class="code">register(ACTION, fn) → 콜리가 저장</div></div>
+          <div class="tcard"><div class="tl">위임 등록 · delegated</div><div class="code">register(…) → store_handler(…) → t[.]=fn</div></div>
+        </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>의미적 동치 vs 문법적 다양성. 지정 초기화와 집합 초기화는 의미는 같지만 AST에서 구조가 다르다(지정 멤버는 대입으로 감싸짐). 이 다양성 때문에 단일 매처는 취약하다.</p></aside>
+
+  <!-- 08 BACKBONE -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--rec)"></span><span class="sec">08 · 아키텍처</span><span class="pg">08 / 20</span></div>
+      <h1 class="title">추출기는 인식할 뿐, 판정하지 않는다</h1>
+      <p class="sub">여러 인식기가 하나의 증거 스트림으로 모이고, 그 뒤는 모두 별개의 계층이다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="chips" style="justify-content:center;max-width:820px">
+          <span class="chip">aggregate</span><span class="chip">designated</span><span class="chip">indexed</span>
+          <span class="chip">correlated</span><span class="chip">registrar</span><span class="chip">delegated</span>
+          <span class="chip">dispatch</span><span class="chip">name</span>
+        </div>
+        <span class="cap">하나의 증거 스트림으로 수렴 ▾</span>
+        <div class="backbone">
+          <div class="lb rec"><span class="ko">인식</span><span class="en">Recognition</span><span class="d">추출기</span></div>
+          <span class="chev"></span>
+          <div class="lb evi"><span class="ko">증거</span><span class="en">Evidence</span><span class="d">타입 레코드</span></div>
+          <span class="chev"></span>
+          <div class="lb cal"><span class="ko">계산</span><span class="en">Calculus</span><span class="d">점수·결합</span></div>
+          <span class="chev"></span>
+          <div class="lb dec"><span class="ko">판정</span><span class="en">Decision</span><span class="d">확정·보류</span></div>
+        </div>
+        <div class="cap"><b>어떤 계층도 자기 위 계층의 결정을 대신하지 않는다</b></div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>백본을 명시적으로 세운다: 다음 다섯 장이 이 척추를 왼쪽에서 오른쪽으로 걷는다 — 인식(추출기) → 증거(레코드) → 계산(점수→결합) → 판정(확정/보류). 추출기는 인식기일 뿐 판정자가 아니다. 이 제약이 교차 확증과 정직한 보류를 가능케 한다.</p></aside>
+
+  <!-- 09 RECOGNITION LAYER -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--rec)"></span><span class="sec">09 · 인식 계층</span><span class="pg">09 / 20</span></div>
+      <h1 class="title">후보를 가르는 건 종류가 아니라 매치 강도다</h1>
+      <p class="sub">디스패치와 등록의 사전확률은 대등하다 — 어떤 종류도 해석에서 배제되지 않는다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="grid2">
+          <div class="panel">
+            <div class="ph">등록 증거 <span class="en">explicit id ↔ callback</span></div>
+            <div class="chips">
+              <span class="chip">aggregate → REGISTRATION_INIT</span>
+              <span class="chip">designated → REGISTRATION_INIT</span>
+              <span class="chip">indexed/field → REGISTRATION_ASSIGN</span>
+              <span class="chip">registrar → REGISTRAR_CALL</span>
+              <span class="chip">delegated → REGISTRAR_CALL</span>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Upstream: KB + action definitions describe <b>what to look for</b></span></div>
-        <div class="point"><span>F2-A turns actions into <b>concrete code anchors</b></span></div>
-        <div class="point"><span>Downstream consumes the anchor; <b>F6</b> makes the final judgment</span></div>
-      </div>
-    </div>
-  </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Emphasize separation of concerns: F2-A does not do taint, sinks, or checks. It deliberately stops at “here is the handler and why.” A wrong resolution poisons everything after it — hence the conservative bias introduced later.</p>
-  </div>
-
-  <!-- ══════════ SLIDE 5 ══════════ -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="runhead"><span>INPUTS</span><span class="n">05 / 20</span></div>
-      <div class="kicker">Inputs</div>
-      <h1 class="title">Resolution fuses protocol truth with code structure</h1>
-      <p class="lead">Three independent domains — protocol, structure, symbols — converge into one resolver.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="converge">
-            <div class="sources">
-              <div class="node domain p"><span class="tag">Protocol</span>Knowledge Base<small>names · symbols · numeric ids · aliases</small></div>
-              <div class="node domain s"><span class="tag">Code structure</span>CPG / AST<small>initializers · assignments · calls · dispatch</small></div>
-              <div class="node domain y"><span class="tag">Symbols</span>Resolved references<small>internal vs external functions</small></div>
+          <div class="panel">
+            <div class="ph">디스패치 · 이름 증거 <span class="en">invocation / lexical</span></div>
+            <div class="chips">
+              <span class="chip">dispatch → ENUM_CASE</span>
+              <span class="chip">dispatch → STRING_DISPATCH</span>
+              <span class="chip">name → NAME_MATCH</span>
             </div>
-            <div class="funnel" aria-hidden="true">
-              <svg viewBox="0 0 180 230" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <marker id="ah" markerWidth="9" markerHeight="9" refX="6.5" refY="4" orient="auto">
-                    <path d="M0,0 L8,4 L0,8 Z" fill="#c2c8d4"></path>
-                  </marker>
-                </defs>
-                <path d="M2,30 C74,30 100,115 120,115" stroke="#c2c8d4" stroke-width="3.5"></path>
-                <path d="M2,115 L120,115" stroke="#c2c8d4" stroke-width="3.5"></path>
-                <path d="M2,200 C74,200 100,115 120,115" stroke="#c2c8d4" stroke-width="3.5"></path>
-                <circle cx="120" cy="115" r="4" fill="#c2c8d4"></circle>
-                <path d="M120,115 L168,115" stroke="#c2c8d4" stroke-width="3.5" marker-end="url(#ah)"></path>
-              </svg>
-            </div>
-            <div class="node accent big" style="justify-self:start">F2-A<small>handler resolution</small></div>
+            <div class="cap" style="text-align:left;margin-top:2px">디스패치는 <b>높은 사전확률·정확 매치 가능</b>, 이름은 약한 폴백</div>
           </div>
         </div>
-      </div>
-      <div class="points four">
-        <div class="point"><span><b>Protocol KB</b> — wire name, macro/enum symbols, numeric ids, aliases</span></div>
-        <div class="point"><span><b>CPG / AST</b> — shape of initializers, assignments, calls, dispatch sites</span></div>
-        <div class="point"><span><b>Symbols</b> — which references resolve to internal functions</span></div>
-        <div class="point"><span><b>Action identifiers</b> — the tokens that must match code ↔ protocol</span></div>
-      </div>
+        <div class="cap">제한 요인 = <b>정확 식별자 매치의 부재</b> (weak-only cap) — 종류와 무관</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>The KB is the ground truth of “what identifiers denote which action.” The AST supplies the <em>shape</em> of registration; symbols tell us a reference is a real internal function, not an external stub. How those identifiers actually get matched is the next slide.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>사전확률은 종류별이며 디스패치는 등록만큼 높다 — 디스패치 매치는 약한 신호가 아니다. 진짜 약한 종류는 이름 전용. weak-only cap은 <b>매치 강도</b>(정확 식별자 없음)에 걸리며 종류가 아니다. 따라서 높은 점수의 후보는 디스패치라도 해석될 수 있다. 구조 종류에만 해석을 예약하는 규칙은 없다. (전체 표는 부록.)</p></aside>
 
-  <!-- ══════════ SLIDE 6 ══════════ -->
+  <!-- 10 EVIDENCE MODEL -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>PROTOCOL IDENTIFIER NORMALIZATION</span><span class="n">06 / 20</span></div>
-      <div class="kicker">Protocol Identifier Normalization</div>
-      <h1 class="title">One action identity unifies many code spellings</h1>
-      <p class="lead">The KB folds every spelling of an action into one canonical identity.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="worlds">
-            <div class="whead">KB side</div><div></div><div class="whead">Code side</div>
-            <div class="node big">canonical Action Identity<small>macro · enum · numeric id · aliases</small></div>
-            <div class="conn"><div class="arrow"></div><span class="cap">compare ⇔</span></div>
-            <div class="node big">ActionIdentifier<small>raw id at a code site</small></div>
-          </div>
-          <div class="caption-note">match strength = exactness of correspondence</div>
-          <div class="chiprow">
-            <span class="chip k">EXACT_IDENTIFIER</span><span class="sep-tri">▷</span>
-            <span class="chip">NORMALIZED</span><span class="sep-tri">▷</span>
-            <span class="chip">HEURISTIC_SUBSTRING</span><span class="sep-tri">▷</span>
-            <span class="chip">NAME_ONLY</span>
-          </div>
+      <div class="eyebrow"><span class="dot" style="background:var(--evi)"></span><span class="sec">10 · 증거 모델</span><span class="pg">10 / 20</span></div>
+      <h1 class="title">모든 추출기는 하나의 증거로 말한다</h1>
+      <p class="sub">출처와 파일·라인 추적이 담긴, 타입화된 증거 레코드.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="rec-card">
+          <div class="rh">EVIDENCE · 레코드</div>
+          <div class="rr"><span class="rk">action id</span><span class="rv">대조된 식별자 (+ 매치 강도)</span></div>
+          <div class="rr"><span class="rk">callback</span><span class="rv">해석된 내부 함수</span></div>
+          <div class="rr"><span class="rk">kind</span><span class="rv">어떤 방식이 만들었는가</span></div>
+          <div class="rr"><span class="rk">provenance</span><span class="rv">사이트/그룹 키 (중복 제거·그룹화)</span></div>
+          <div class="rr"><span class="rk">confidence</span><span class="rv">Prior(kind) × 매치 강도</span></div>
+          <div class="rr"><span class="rk">records[]</span><span class="rv">파일·라인 추적 (감사 가능)</span></div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>The KB provides the <b>semantic identity</b> that unifies many syntactic representations</span></div>
-        <div class="point"><span>Extractors compare a <b>raw id against the canonical identity</b>, not strings ad hoc</span></div>
-        <div class="point"><span>The match-strength ladder is <b>which representation matched, how exactly</b></span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>The conceptual hinge between protocol world and code world. Walk the ladder: a macro/enum symbol or numeric-id hit is EXACT; a normalized-name hit is NORMALIZED; a substring/token overlap is HEURISTIC_SUBSTRING; a function-name resemblance with no id is NAME_ONLY. Everything the calculus later does with “match strength” is grounded here. It’s bidirectional: the KB produces the canonical identity, the code site produces a raw identifier, and matching scores their correspondence.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>추적 기록은 장식이 아니라, 도구를 돌리지 않은 사람이 해석을 검토할 수 있게 하는 핵심. 여러 추출기가 동시에 방출하는 이유는 같은 바인딩에 대한 독립적 사실을 관찰하기 때문. 이 레코드가 인식과 계산 사이의 경계 객체다.</p></aside>
 
-  <!-- ══════════ SLIDE 7 ══════════ -->
+  <!-- 11 SCORING -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>REGISTRATION MECHANISMS</span><span class="n">07 / 20</span></div>
-      <div class="kicker">Registration Mechanisms: A Taxonomy</div>
-      <h1 class="title">Firmware binds handlers in many different shapes</h1>
-      <p class="lead">One semantic — bind action ↦ handler — expressed in many syntactic forms.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="shapegrid">
-            <div class="shape"><div class="lbl">aggregate init</div><div class="code">{ ACTION, fn }</div></div>
-            <div class="shape"><div class="lbl">designated init</div><div class="code">{ .action = ACTION, .fn = fn }</div></div>
-            <div class="shape"><div class="lbl">indexed assign</div><div class="code">handlers[ACTION] = fn</div></div>
-            <div class="shape"><div class="lbl">correlated stores</div><div class="code">t[k].action = ACTION;  t[k].fn = fn</div></div>
-            <div class="shape"><div class="lbl">registrar call</div><div class="code">register(ACTION, fn)  → callee stores it</div></div>
-            <div class="shape"><div class="lbl">delegated registrar</div><div class="code">register(…) → store_handler(…) → t[.] = fn</div></div>
+      <div class="eyebrow"><span class="dot" style="background:var(--cal)"></span><span class="sec">11 · 증거 점수화</span><span class="pg">11 / 20</span></div>
+      <h1 class="title">증거 점수 = 사전확률 × 매치 강도</h1>
+      <p class="sub">개별 증거 하나의 점수. 아직 후보를 합치지 않는다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="row" style="gap:clamp(14px,2vw,28px)">
+          <div class="col" style="gap:12px">
+            <div class="blk">Prior(kind)<span class="en">디스패치 · 등록 = 높음</span></div>
+            <div class="blk">매치 강도<span class="en">정확=유지 · 약함=감쇠</span></div>
           </div>
+          <span class="chev"></span>
+          <div class="blk lg" style="background:var(--cal-soft);color:var(--cal-ink);font-weight:800">증거 점수<span class="en">evidence score</span></div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Same semantic (<b>bind action ↦ handler</b>), many syntactic forms</span></div>
-        <div class="point"><span>Forms differ in <b>where the id and callback are</b>, and how they correlate</span></div>
-        <div class="point"><span>Some resolve at initialization; some require <b>following a call</b> into a callee</span></div>
-      </div>
+        <div class="cap">개별 점수일 뿐 — <b>후보 병합은 다음 단계</b></div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Stress semantic equivalence vs syntactic divergence. The designated and positional aggregate forms are semantically identical but structurally different in the AST (designated members are wrapped assignments). This diversity is exactly why one universal matcher would be brittle.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>이 장은 오직 <em>하나</em>의 증거에 관한 것. 정확 심볼 매치의 구조적 등록은 사전확률에 가깝게, 부분 문자열 매치는 감쇠, 이름 전용은 여전히 약함. (구체 수치는 부록.) 계산의 쉬운 절반이고, 결합이 다음.</p></aside>
 
-  <!-- ══════════ SLIDE 8 ══════════ -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="runhead"><span>WHY MULTIPLE EXTRACTORS</span><span class="n">08 / 20</span></div>
-      <div class="kicker">Why Multiple Extractors, Not One Matcher</div>
-      <h1 class="title">Extractors recognize; they never decide</h1>
-      <p class="lead">A uniform evidence stream separates recognition from every downstream layer.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="chiprow">
-            <span class="chip small">aggregate</span><span class="chip small">designated</span><span class="chip small">indexed</span>
-            <span class="chip small">correlated</span><span class="chip small">registrar</span><span class="chip small">delegated</span>
-            <span class="chip small">dispatch</span><span class="chip small">name</span>
-          </div>
-          <span class="cap">converge into one evidence stream ▼</span>
-          <div class="flow">
-            <div class="node rec">RECOGNITION<small>recognizers</small></div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node evi">EVIDENCE<small>typed records</small></div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node cal">CALCULUS<small>score + combine</small></div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node dec">DECISION<small>resolve / abstain</small></div>
-          </div>
-          <div class="caption-note">no layer decides above its station</div>
-        </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Mechanisms correlate id↔callback differently (same node / sibling field / shared slot / arg→param)</span></div>
-        <div class="point"><span>Independent extractors ⇒ independent evidence ⇒ <b>corroboration</b> is possible</span></div>
-        <div class="point"><span>A miss in one extractor is a <b>precise diagnostic</b>, not a whole-system failure</span></div>
-      </div>
-    </div>
-  </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Land the backbone explicitly and promise the audience the next five slides walk it left to right: Recognition (extractors) → Evidence (the record) → Calculus (scoring, then combination) → Decision (resolve/abstain). Extractors are recognizers, not deciders — that single constraint is what makes corroboration and honest abstention possible.</p>
-  </div>
-
-  <!-- ══════════ SLIDE 9 ══════════ -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="runhead"><span>RECOGNITION LAYER</span><span class="n">09 / 20</span></div>
-      <div class="kicker">Recognition Layer: Extractor Capabilities</div>
-      <h1 class="title">Match strength, not kind, limits a candidate</h1>
-      <p class="lead">Extractors emit typed evidence; no kind is reserved out of resolving.</p>
-      <div class="rail"><span class="r-rec on">Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span>Calculus</span><span class="sep">›</span><span>Decision</span></div>
-      <div class="stage">
-        <div class="stage-inner">
-          <table class="dtable">
-            <thead><tr><th>Extractor</th><th>Recognizes</th><th>Emits</th><th>Boundary</th></tr></thead>
-            <tbody>
-              <tr class="band"><td colspan="4">Registration evidence · explicit id ↔ callback binding</td></tr>
-              <tr><td>aggregate init</td><td>{ ID, fn }</td><td>REGISTRATION_INIT</td><td class="bd">inline id only</td></tr>
-              <tr><td>designated init</td><td>{ .a=ID, .fn=fn }</td><td>REGISTRATION_INIT</td><td class="bd">same struct init</td></tr>
-              <tr><td>indexed / field</td><td>h[ID]=fn ; t[k].*=…</td><td>REGISTRATION_ASSIGN</td><td class="bd">shared slot key</td></tr>
-              <tr><td>registrar call</td><td>f(ID, fn) → stores fn</td><td>REGISTRAR_CALL</td><td class="bd">must reach store</td></tr>
-              <tr><td>delegated</td><td>f→g→ store (arg→param)</td><td>REGISTRAR_CALL</td><td class="bd">depth-bounded</td></tr>
-              <tr class="band"><td colspan="4">Dispatch &amp; name evidence · observed invocation / lexical match</td></tr>
-              <tr><td>dispatch site</td><td>switch(id) → handler</td><td>ENUM_CASE / STRING_DISPATCH</td><td class="bd">high prior · exact-id capable</td></tr>
-              <tr><td>name similarity</td><td>fn name ≈ action</td><td>NAME_MATCH</td><td class="bd">low-signal fallback</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Per-kind prior is <b>comparable</b> across dispatch and registration; name-matching is the weak fallback</span></div>
-        <div class="point"><span>A missing exact-identifier match (the <b>weak-only cap</b>) limits a candidate — independent of kind</span></div>
-        <div class="point"><span>Every extractor's boundary is a <b>named limitation</b>, surfaced downstream</span></div>
-      </div>
-    </div>
-  </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Prior weight is per kind and dispatch signals rank as high as registration — a dispatch match is <em>not</em> a weak signal; the genuinely weak kind is name-only matching. The weak-only cap keys on <b>match strength</b> (no exact-identifier match), not on evidence kind, so any high-scoring candidate — dispatch included — can resolve. There is no rule reserving resolution for structural kinds.</p>
-  </div>
-
-  <!-- ══════════ SLIDE 10 ══════════ -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="runhead"><span>THE EVIDENCE MODEL</span><span class="n">10 / 20</span></div>
-      <div class="kicker">The Evidence Model</div>
-      <h1 class="title">Every extractor speaks one evidence record</h1>
-      <p class="lead">A typed record with provenance and an auditable source trail.</p>
-      <div class="rail"><span>Recognition</span><span class="sep">›</span><span class="r-evi on">Evidence</span><span class="sep">›</span><span>Calculus</span><span class="sep">›</span><span>Decision</span></div>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="schema evi">
-            <div class="shead">EVIDENCE · record</div>
-            <div class="row"><span class="k">action id</span><span class="v">matched identifier (+ match strength)</span></div>
-            <div class="row"><span class="k">callback</span><span class="v">the resolved internal function</span></div>
-            <div class="row"><span class="k">kind</span><span class="v">which mechanism produced it</span></div>
-            <div class="row"><span class="k">provenance</span><span class="v">site / group key (dedup + grouping)</span></div>
-            <div class="row"><span class="k">confidence</span><span class="v">Prior(kind) shaped by match strength</span></div>
-            <div class="row"><span class="k">dispatch site</span><span class="v">where the binding is observed</span></div>
-            <div class="row"><span class="k">records[]</span><span class="v">ordered file/line trail (auditable)</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Evidence is <b>typed by mechanism</b> and <b>scored by match quality</b></span></div>
-        <div class="point"><span>Provenance key makes duplicates and same-site evidence identifiable</span></div>
-        <div class="point"><span>Records preserve the original <b>source expressions and locations</b></span></div>
-      </div>
-    </div>
-  </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>The record trail is not decoration — it is what makes a resolution reviewable by a human who did not run the tool. Multiple extractors emit simultaneously because they observe independent facts about the same binding. This record is the boundary object between Recognition and Calculus: extractors fill it, the calculus consumes it.</p>
-  </div>
-
-  <!-- ══════════ SLIDE 11 ══════════ -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="runhead"><span>EVIDENCE SCORING</span><span class="n">11 / 20</span></div>
-      <div class="kicker">Evidence Scoring</div>
-      <h1 class="title">One evidence's score = prior shaped by match</h1>
-      <p class="lead">Each evidence scores on its kind's prior, shaped by identifier match strength.</p>
-      <div class="rail"><span>Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span class="r-cal on">Calculus</span><span class="sep">›</span><span>Decision</span></div>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="flow">
-            <div class="flow col" style="gap:12px">
-              <div class="node">Prior(kind)<small>dispatch / registration → high</small></div>
-              <div class="node">Match Strength<small>exact ↦ kept · weaker ↦ discounted</small></div>
-            </div>
-            <div class="conn"><div class="arrow"></div></div>
-            <div class="node cal big">evidence score</div>
-          </div>
-          <div class="caption-note">a per-evidence score — no candidate merging yet</div>
-        </div>
-      </div>
-      <div class="points">
-        <div class="point"><span><b>Prior(kind)</b> — dispatch and registration are the high-prior kinds; name-matching the weak fallback</span></div>
-        <div class="point"><span><b>Match Strength</b> — exact identifier preserved; weaker correspondences discounted</span></div>
-        <div class="point"><span>Output: a per-evidence score; <b>no candidate merging</b> happens yet</span></div>
-      </div>
-    </div>
-  </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Keep this slide strictly about <em>one</em> evidence. A structural registration with an exact symbol match scores near its full prior; the same mechanism with only a substring match is discounted; a name-only signal stays weak regardless. (Concrete priors and multipliers live in the appendix — don’t put numbers on the slide.) This is the simpler half of the calculus; combination is next.</p>
-  </div>
-
-  <!-- ══════════ SLIDE 12 ══════════ -->
+  <!-- 12 COMBINATION -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="runhead"><span>EVIDENCE COMBINATION</span><span class="n">12 / 20</span></div>
-      <div class="kicker">Evidence Combination</div>
-      <h1 class="title">Collapse duplicates first, then combine independents</h1>
-      <p class="lead">Within-site MAX removes duplicates; cross-site noisy-OR then rewards corroboration.</p>
-      <div class="rail"><span>Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span class="r-cal on">Calculus</span><span class="sep">›</span><span>Decision</span></div>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="flow col">
-            <div class="node muted">many scored evidences for one candidate</div>
-            <div class="conn col"><div class="arrow v"></div><span class="cap">step 1 · collapse</span></div>
-            <div class="node cal">within a site : MAX<small>same site ≠ new information</small></div>
-            <div class="conn col"><div class="arrow v"></div><span class="cap">step 2 · combine</span></div>
-            <div class="node cal">across sites : noisy-OR<small>independent corroboration ↑ belief</small></div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node muted">Weak-only Cap · Global Cap · Conflict Penalty</div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node cal big">candidate confidence</div>
-          </div>
+      <div class="eyebrow"><span class="dot" style="background:var(--cal)"></span><span class="sec">12 · 증거 결합</span><span class="pg">12 / 20</span></div>
+      <h1 class="title">중복을 접고, 독립 근거만 합친다</h1>
+      <p class="sub">사이트 내 MAX로 중복 제거 → 사이트 간 noisy-OR로 확증 → 상한·감점.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="col">
+          <div class="blk">한 후보의 여러 증거 점수</div>
+          <span class="chev d"></span>
+          <div class="blk lg" style="background:var(--cal-soft);color:var(--cal-ink)"><b>1단계 · 접기</b> — 사이트 내 MAX<span class="en">같은 사이트 = 새 정보 아님</span></div>
+          <span class="chev d"></span>
+          <div class="blk lg" style="background:var(--cal-soft);color:var(--cal-ink)"><b>2단계 · 결합</b> — 사이트 간 noisy-OR<span class="en">독립 확증 → 신뢰 ↑</span></div>
+          <span class="chev d"></span>
+          <div class="blk" style="font-size:14px">Weak-only Cap · Global Cap · Conflict Penalty</div>
+          <span class="chev d"></span>
+          <div class="blk accent" style="font-weight:800">후보 신뢰도</div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span><b>Collapse:</b> same-site duplicates reduce to their MAX — a site can't inflate itself</span></div>
-        <div class="point"><span><b>Combine:</b> only then do independent sites corroborate (noisy-OR)</span></div>
-        <div class="point"><span>Weak-only cap keys on <b>match strength</b> (missing exact-id, any kind); competitors penalized</span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>The intellectual core. Why noisy-OR: independent corroboration should raise belief but never reach certainty (a Global Cap keeps confidence below 1.0). Why within-site MAX: two records from the <em>same</em> registration are not two witnesses. The Weak-only Cap keys on <b>match strength, not evidence kind</b>: a candidate with no exact-identifier match is capped, so a stack of weak-match signals can’t masquerade as strong — but a dispatch signal <em>with</em> an exact match is not capped.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>핵심. noisy-OR인 이유: 독립 확증은 신뢰를 올리되 확실성엔 못 미친다(Global Cap이 1.0 미만 유지). 사이트 내 MAX인 이유: 같은 등록의 두 레코드는 두 증인이 아니다. Weak-only Cap은 <b>매치 강도</b>(종류 아님)에 걸린다 — 정확 매치 없는 후보는 상한, 그러나 정확 매치가 있는 디스패치는 상한 없음.</p></aside>
 
-  <!-- ══════════ SLIDE 13 ══════════ -->
+  <!-- 13 SELECTION -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>CANDIDATE SELECTION</span><span class="n">13 / 20</span></div>
-      <div class="kicker">Candidate Selection</div>
-      <h1 class="title">Resolve, refuse, or abstain — on confidence alone</h1>
-      <p class="lead">Acceptance Floor, then Ambiguity Margin, decide — with no structural gate.</p>
-      <div class="rail"><span>Recognition</span><span class="sep">›</span><span>Evidence</span><span class="sep">›</span><span>Calculus</span><span class="sep">›</span><span class="r-dec on">Decision</span></div>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="branch">
-            <div class="qbox">top ≥ Acceptance&nbsp;Floor ?</div>
-            <div class="treecol">
-              <div class="branch"><span class="yn">no →</span><div class="node muted">UNRESOLVED<small>low confidence</small></div></div>
-              <div class="branch"><span class="yn">yes →</span>
-                <div class="qbox">(top − second) ≥ Ambiguity&nbsp;Margin ?</div>
-                <div class="treecol">
-                  <div class="branch"><span class="yn">no →</span><div class="node">AMBIGUOUS<small>retain competitors</small></div></div>
-                  <div class="branch"><span class="yn">yes →</span><div class="node dec">RESOLVED<small>chosen + trail</small></div></div>
-                </div>
-              </div>
-            </div>
+      <div class="eyebrow"><span class="dot" style="background:var(--dec)"></span><span class="sec">13 · 후보 선택</span><span class="pg">13 / 20</span></div>
+      <h1 class="title">확신만으로 확정·보류·미해결을 가른다</h1>
+      <p class="sub">수용 임계값(Acceptance Floor), 그다음 모호성 마진(Ambiguity Margin) — 구조 기반 게이트는 없다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="gate">
+          <div class="lvl">
+            <div class="q">1위 ≥ 수용 임계값?</div>
+            <span class="yn">아니오 →</span>
+            <div class="out unr">미해결<span class="en">UNRESOLVED · low confidence</span></div>
           </div>
+          <span class="chev d"></span><span class="yn">예</span>
+          <div class="lvl">
+            <div class="q">(1위 − 2위) ≥ 모호성 마진?</div>
+            <span class="yn">아니오 →</span>
+            <div class="out amb">모호<span class="en">AMBIGUOUS · 경쟁 후보 보존</span></div>
+          </div>
+          <span class="chev d dec"></span><span class="yn">예</span>
+          <div class="out res" style="font-size:clamp(15px,1.5vw,19px)">확정<span class="en">RESOLVED · 선택 + 근거 추적</span></div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span><b>RESOLVED:</b> above the Acceptance Floor and clear of the runner-up</span></div>
-        <div class="point"><span><b>AMBIGUOUS:</b> multiple credible candidates within the Ambiguity Margin → no choice</span></div>
-        <div class="point"><span><b>No structural gate:</b> weak-matched candidates are capped (Slide 12), not barred</span></div>
-      </div>
+        <div class="cap"><b>구조 종류 게이트 없음</b> — 약한 매치 후보는 감점될 뿐, 배제되지 않는다</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>The deliberate-abstention point. A wrong resolution silently corrupts every downstream stage, so when evidence is genuinely split the correct answer is to refuse and hand the conflict to F6/a human. AMBIGUOUS is a feature. The gate is Floor + Margin only: the weak-only cap lowers a non-exact-match candidate’s confidence but does not by itself prevent it from resolving, and a strongly-matched dispatch signal can and does resolve on its own.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>의도적 보류가 가장 흥미로운 지점. 잘못된 해석은 후속 전부를 오염시키므로, 근거가 진짜 갈리면 보류하고 F6/사람에게 넘기는 게 옳다. 모호는 결함이 아니라 기능. 게이트는 임계값+마진뿐 — weak-only cap은 신뢰도를 낮출 뿐 해석을 막지 않으며, 정확 매치의 디스패치는 단독으로도 확정된다.</p></aside>
 
-  <!-- ══════════ SLIDE 14 ══════════ -->
+  <!-- 14 DIAGNOSTICS -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>DIAGNOSTICS</span><span class="n">14 / 20</span></div>
-      <div class="kicker">Diagnostics: A Taxonomy of “Why Not”</div>
-      <h1 class="title">Unresolved names the boundary it hit</h1>
-      <p class="lead">Every non-resolution is a structured, actionable reason — not a failure.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="branch">
-            <div class="node danger">UNRESOLVED</div>
-            <div class="treecol">
-              <div class="branch"><span class="yn">missing evidence →</span><span class="chip">NO_EVIDENCE</span></div>
-              <div class="branch"><span class="yn">below threshold →</span><span class="chip">LOW_CONFIDENCE</span></div>
-              <div class="branch"><span class="yn">analysis limitation →</span><span class="chip">REGISTRAR_STORE_NOT_REACHED</span><span class="chip">EXTERNAL_DEFINITION</span><span class="chip">MISSING_POINTSTO</span><span class="chip">REGISTRATION_OUT_OF_TU</span></div>
-              <div class="branch"><span class="yn">unsupported pattern →</span><span class="chip">REGISTRAR_SEARCH_THEN_WRITE</span><span class="chip">DYNAMIC_ACTION_ID</span></div>
-            </div>
-          </div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">14 · 진단</span><span class="pg">14 / 20</span></div>
+      <h1 class="title">미해결은 실패가 아니라 ‘막힌 지점’이다</h1>
+      <p class="sub">모든 미해결에는 구조화된, 실행 가능한 사유가 붙는다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="reasons">
+          <div class="rrow"><div class="rc">증거 없음</div><div class="rchips"><span class="chip">NO_EVIDENCE</span></div></div>
+          <div class="rrow"><div class="rc">임계값 미달</div><div class="rchips"><span class="chip">LOW_CONFIDENCE</span></div></div>
+          <div class="rrow"><div class="rc">분석 한계</div><div class="rchips"><span class="chip">REGISTRAR_STORE_NOT_REACHED</span><span class="chip">EXTERNAL_DEFINITION</span><span class="chip">MISSING_POINTSTO</span><span class="chip">REGISTRATION_OUT_OF_TU</span></div></div>
+          <div class="rrow"><div class="rc">미지원 패턴</div><div class="rchips"><span class="chip">REGISTRAR_SEARCH_THEN_WRITE</span><span class="chip">DYNAMIC_ACTION_ID</span></div></div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Reasons distinguish <b>“no signal”</b> from <b>“signal we intentionally don't follow”</b></span></div>
-        <div class="point"><span>Specializations exist (search-then-write ⊂ store-not-reached) for actionability</span></div>
-        <div class="point"><span>These are <b>scope statements</b>, not bugs</span></div>
-      </div>
+        <div class="cap">‘신호 없음’과 ‘의도적으로 따라가지 않는 신호’를 구분 — 버그가 아니라 <b>범위 선언</b></div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>“Store not reached” is generic; “search-then-write” specifically names a loop+predicate slot search the baseline does not model. That precision lets a reader decide whether to extend the analyzer or accept the gap. Diagnostics feed evaluation-run summaries.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>“store not reached”는 일반적, “search-then-write”는 루프+술어 슬롯 탐색을 특정한다. 이 정밀함이 독자에게 “확장할지 / 수용할지”를 결정하게 해준다. 진단은 평가 실행 요약에 사용된다.</p></aside>
 
-  <!-- ══════════ SLIDE 15 ══════════ -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="runhead"><span>WORKED EXAMPLE</span><span class="n">15 / 20</span></div>
-      <div class="kicker">Worked Example</div>
-      <h1 class="title">Match strength picks the winner, not kind</h1>
-      <p class="lead">Two extractors fire; the stronger identifier match resolves — here, dispatch.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="codeblock2">static Reg t[] = { { ACTION_DATA_TRANSFER, foo } };      // registration
-switch (f->action){ case ACTION_DATA_TRANSFER: bar(); }  // dispatch</div>
-          <div class="conn col"><div class="arrow v"></div><span class="cap"><span class="stagetag rec">recognition</span> → <span class="stagetag evi">evidence</span></span></div>
-          <div class="evbox">A · REGISTRATION_INIT → foo &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (substring match)<br>B · ENUM_CASE → bar &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (normalized match)</div>
-          <div class="conn col"><div class="arrow v"></div><span class="cap"><span class="stagetag cal">calculus</span></span></div>
-          <div class="flow">
-            <div class="node dec">bar · 0.72</div>
-            <div class="conn"><span class="cap">vs</span></div>
-            <div class="node muted">foo · 0.56</div>
-            <div class="conn"><div class="arrow"></div><span class="cap"><span class="stagetag dec">decision</span></span></div>
-            <div class="node dec big">RESOLVED → bar</div>
-          </div>
-          <div class="caption-note">remove the switch → only A → foo resolves alone (≈0.56, just clears the floor)</div>
-        </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Two independent extractors, same action id, <b>different callbacks</b> (registration vs dispatch)</span></div>
-        <div class="point"><span>The dispatch evidence matched more strongly → bar clears the margin → <b>resolves to bar</b></span></div>
-        <div class="point"><span>The decision is a function of evidence and <b>match strength, not of kind</b></span></div>
-      </div>
-    </div>
-  </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Real numbers: bar (ENUM_CASE) prior 0.85 × normalized-name match (×0.85) ≈ 0.72; foo (REGISTRATION_INIT) prior 0.80 × heuristic-substring match (×0.70) ≈ 0.56. The gap ≈0.16 clears the Ambiguity Margin, so the tool RESOLVES to bar — the dispatch handler — over the structural registration. Resolution is match-strength-driven and kind-agnostic; there is no structural authorization. To get AMBIGUOUS you'd need two candidates within the margin.</p>
-  </div>
-
-  <!-- ══════════ SLIDE 16 ══════════ -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="runhead"><span>OUTPUT SCHEMA</span><span class="n">16 / 20</span></div>
-      <div class="kicker">Output Schema</div>
-      <h1 class="title">Non-resolution is a first-class result</h1>
-      <p class="lead">One authoritative per-action result set, every candidate evidence-linked.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="schema res">
-            <div class="shead">F2-A RESULT</div>
-            <div class="row"><span class="k">handler_resolutions</span><span class="v">authoritative · one per action</span></div>
-            <div class="row sub"><span class="k">· status</span><span class="v">RESOLVED / AMBIGUOUS / UNRESOLVED</span></div>
-            <div class="row sub"><span class="k">· chosen</span><span class="v">present only when RESOLVED</span></div>
-            <div class="row sub"><span class="k">· candidates</span><span class="v">each carries its evidence + records</span></div>
-            <div class="row sub"><span class="k">· conflict</span><span class="v">competitors + margin (AMBIGUOUS)</span></div>
-            <div class="row sub"><span class="k">· unresolved</span><span class="v">reason + attempts (UNRESOLVED)</span></div>
-            <div class="row"><span class="k">handler_maps</span><span class="v">resolved-only view · back-compat</span></div>
-            <div class="row"><span class="k">limitations</span><span class="v">global scope caveats</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="points">
-        <div class="point"><span><code>handler_resolutions</code> is the source of truth; <code>handler_maps</code> is a resolved-only subset</span></div>
-        <div class="point"><span>Every candidate carries its <b>evidence and record trail</b></span></div>
-        <div class="point"><span>Conflict / unresolved reports make <b>non-resolution first-class</b></span></div>
-      </div>
-    </div>
-  </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Two-view design: legacy consumers want “just the resolved map”; auditors and F6 want the full outcome including why-not. Confidence on a resolution’s map entry reflects the <em>selected</em> evidence, distinct from the aggregated candidate score — flag this so no one conflates them.</p>
-  </div>
-
-  <!-- ══════════ SLIDE 17 ══════════ -->
+  <!-- 15 WORKED EXAMPLE -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="runhead"><span>DOWNSTREAM CONSUMPTION</span><span class="n">17 / 20</span></div>
-      <div class="kicker">Downstream Consumption</div>
-      <h1 class="title">The resolved handler anchors all later analysis</h1>
-      <p class="lead">Field binding, sources, sinks, and checks all expand from the handler.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="flow col">
-            <div class="node accent">resolved handler(action)</div>
-            <div class="conn col"><div class="arrow v"></div><span class="cap">entry params = untrusted payload</span></div>
-            <div class="node muted">protocol field binding<small>which field → which variable</small></div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node muted">source identification<small>taint roots inside the handler</small></div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node muted">sink reachability<small>tainted data → dangerous API?</small></div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node muted">expected-check matching<small>spec-required validations present?</small></div>
-            <div class="conn col"><div class="arrow v"></div></div>
-            <div class="node muted">security finding candidate — F6</div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">15 · 사례 분석</span><span class="pg">15 / 20</span></div>
+      <h1 class="title">이 사례에선 디스패치 증거가 이긴다</h1>
+      <p class="sub">두 추출기가 발화 — 더 강한 식별자 매치가 확정을 가져간다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="we">
+          <div class="src">static Reg t[] = { { ACTION_DATA_TRANSFER, foo } };      // 등록
+switch (f->action){ case ACTION_DATA_TRANSFER: bar(); }  // 디스패치</div>
+          <span class="chev d"></span>
+          <span class="we stag" style="color:var(--evi-ink)">증거 · EVIDENCE</span>
+          <div class="ev">A · REGISTRATION_INIT → foo &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (부분 문자열)<br>B · ENUM_CASE → bar &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (정규화 일치)</div>
+          <span class="chev d"></span>
+          <div class="verdict">
+            <span class="scorepill win">bar · 0.72</span>
+            <span class="cap" style="font-family:var(--mono);font-size:12px">vs</span>
+            <span class="scorepill lose">foo · 0.56</span>
+            <span class="chev dec"></span>
+            <span class="out res" style="font-size:16px">확정 → bar</span>
           </div>
+          <div class="cap">switch 제거 시 → 증거 A만 → foo 단독 확정 (≈0.56, 임계값 턱걸이)</div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Handler = the function where payload <b>enters program semantics</b></span></div>
-        <div class="point"><span>Field binding and sink search are <b>scoped by the handler</b></span></div>
-        <div class="point"><span>A missing/ambiguous resolution ⇒ downstream <b>narrows scope or defers</b></span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>No handler ⇒ no source root ⇒ no taint ⇒ no finding for that action. This is why F2-A’s abstention discipline matters — a confident-but-wrong handler would send the taint analysis into the wrong function and manufacture false results.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>실제 수치: bar(ENUM_CASE) 사전확률 0.85 × 정규화 매치(×0.85) ≈ 0.72; foo(REGISTRATION_INIT) 0.80 × 부분 문자열(×0.70) ≈ 0.56. 차이 ≈0.16이 모호성 마진을 넘어 디스패치 핸들러 bar로 확정. 해석은 매치 강도 기반이며 종류 무관 — 구조 권한 부여는 없다. 모호를 보이려면 마진 안의 두 후보가 필요.</p></aside>
 
-  <!-- ══════════ SLIDE 18 ══════════ -->
+  <!-- 16 OUTPUT SCHEMA -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>CURRENT SCOPE</span><span class="n">18 / 20</span></div>
-      <div class="kicker">Current Scope</div>
-      <h1 class="title">The baseline resolves what structure decides</h1>
-      <p class="lead">Statically-decidable registration and dispatch forms, with explicit ambiguity handling.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="checkgrid">
-            <div class="checkitem">aggregate initialization</div>
-            <div class="checkitem">designated initialization</div>
-            <div class="checkitem">indexed / correlated field store</div>
-            <div class="checkitem">registrar tracing (reaches store)</div>
-            <div class="checkitem">delegated registrar (bounded)</div>
-            <div class="checkitem">symbolic receiver correlation (shared slot)</div>
-            <div class="checkitem">enum/switch dispatch recognition</div>
-            <div class="checkitem">name-match fallback</div>
-            <div class="checkitem">ambiguity detection &amp; abstention</div>
-            <div class="checkitem">structured diagnostics</div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">16 · 출력 스키마</span><span class="pg">16 / 20</span></div>
+      <h1 class="title">미해결도 하나의 정식 결과다</h1>
+      <p class="sub">액션별 권위 있는 결과 집합 — 모든 후보가 근거로 연결된다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="res">
+          <div class="big">
+            <div class="rt">handler_resolutions</div>
+            <div class="rd">권위 있는 결과 · 액션당 하나</div>
+            <div class="subchips">
+              <span class="chip">status · RESOLVED/AMBIGUOUS/UNRESOLVED</span>
+              <span class="chip">chosen · 확정 시에만</span>
+              <span class="chip">candidates · 증거+추적 포함</span>
+              <span class="chip">conflict · 경쟁+마진</span>
+              <span class="chip">unresolved · 사유+시도</span>
+            </div>
+          </div>
+          <div class="minor">
+            <div class="m"><div class="mt">handler_maps</div><div class="md">확정 전용 뷰 · 하위 호환</div></div>
+            <div class="m"><div class="mt">limitations</div><div class="md">전역 범위 한계</div></div>
           </div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Everything here is <b>AST + symbol resolution + bounded call following</b></span></div>
-        <div class="point"><span>Ambiguity and non-resolution are supported <b>outcomes</b>, not gaps</span></div>
-        <div class="point"><span>Scope defined by <b>decidability</b> without heavy semantic reasoning</span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>The baseline is what can be recovered soundly from structure and identifiers, plus shallow call following. Anything requiring value reasoning is deferred (next slide). This boundary is a design choice favoring precision and explainability.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>두 뷰 설계: 레거시 소비자는 “확정된 맵”만 원하고, 감사자·F6는 미해결 이유까지 포함한 전체 결과를 원한다. 확정 항목의 신뢰도는 <em>선택된</em> 증거를 반영하며, 집계된 후보 점수와 구분됨.</p></aside>
 
-  <!-- ══════════ SLIDE 19 ══════════ -->
+  <!-- 17 DOWNSTREAM -->
+  <section class="slide tall">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot"></span><span class="sec">17 · 하위 소비</span><span class="pg">17 / 20</span></div>
+      <h1 class="title">확정된 핸들러가 모든 후속 분석의 기준점</h1>
+      <p class="sub">필드 바인딩·소스·싱크·검사가 전부 핸들러에서 확장된다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="col">
+          <div class="blk accent lg" style="font-weight:800">확정 핸들러(action)<span class="en">진입 파라미터 = 신뢰 불가 페이로드</span></div>
+          <span class="chev d"></span>
+          <div class="blk">프로토콜 필드 바인딩 <span class="en">필드 → 변수</span></div>
+          <span class="chev d"></span>
+          <div class="blk">소스 식별 <span class="en">핸들러 내부 오염 루트</span></div>
+          <span class="chev d"></span>
+          <div class="blk">싱크 도달성 <span class="en">오염 데이터 → 위험 API?</span></div>
+          <span class="chev d"></span>
+          <div class="blk">검사 매칭 <span class="en">명세 요구 검증 존재?</span></div>
+          <span class="chev d"></span>
+          <div class="blk" style="background:var(--surface);box-shadow:0 0 0 1.5px var(--hair) inset;color:var(--ink-2)">보안 결과 후보 — F6</div>
+        </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>핸들러가 없으면 → 소스 루트 없음 → 오염 없음 → 그 액션엔 결과 없음. 그래서 F2-A의 보류 규율이 중요하다 — 확신에 찬 오답 핸들러는 오염 분석을 엉뚱한 함수로 보내 거짓 결과를 만든다.</p></aside>
+
+  <!-- 18 SCOPE -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>LIMITATIONS</span><span class="n">19 / 20</span></div>
-      <div class="kicker">Limitations · Intentional Exclusions</div>
-      <h1 class="title">Value-reasoning patterns are deliberately out of scope</h1>
-      <p class="lead">Loop, alias, and cross-procedure cases are detected, named, and deferred.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="maprows">
-            <div class="maphead"><span>excluded pattern</span><span></span><span>capability it would need</span></div>
-            <div class="maprow"><div class="node">search-then-write registrar</div><div class="conn"><div class="arrow"></div></div><div class="node muted">loop + predicate reasoning</div></div>
-            <div class="maprow"><div class="node">runtime slot selection</div><div class="conn"><div class="arrow"></div></div><div class="node muted">symbolic index resolution</div></div>
-            <div class="maprow"><div class="node">alias-to-slot binding</div><div class="conn"><div class="arrow"></div></div><div class="node muted">alias / points-to analysis</div></div>
-            <div class="maprow"><div class="node">cross-procedure slot rebuild</div><div class="conn"><div class="arrow"></div></div><div class="node muted">interprocedural value flow</div></div>
-            <div class="maprow"><div class="node">general dynamic action ids</div><div class="conn"><div class="arrow"></div></div><div class="node muted">DFG-based escalation</div></div>
-          </div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">18 · 현재 범위</span><span class="pg">18 / 20</span></div>
+      <h1 class="title">구조로 결정되는 범위까지가 기준선</h1>
+      <p class="sub">정적으로 판정 가능한 등록·디스패치 형태 + 명시적 모호성 처리.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="checks">
+          <div class="ck">집합 초기화</div>
+          <div class="ck">지정 초기화</div>
+          <div class="ck">인덱스 · 상관 필드 저장</div>
+          <div class="ck">등록 함수 추적 (저장 도달)</div>
+          <div class="ck">위임 등록 (깊이 제한)</div>
+          <div class="ck">심볼릭 리시버 상관 (공유 슬롯)</div>
+          <div class="ck">enum/switch 디스패치 인식</div>
+          <div class="ck">이름 매치 폴백</div>
+          <div class="ck">모호성 탐지 · 보류</div>
+          <div class="ck">구조화된 진단</div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Each is <b>detected and named</b>, not silently mishandled</span></div>
-        <div class="point"><span>Excluded because they trade <b>precision/soundness</b> for coverage</span></div>
-        <div class="point"><span>They form a concrete, <b>prioritizable escalation backlog</b></span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>When the baseline meets one of these, it emits the matching reason and abstains. A precise, explainable core plus honest gaps beats a broad, opaque heuristic that downstream cannot trust. These are candidate future work, gated on evaluation showing they matter in real firmware.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>경계를 명시: 기준선은 구조·식별자로 건전하게 복원 가능한 것 + 얕은 호출 추적. 값 추론이 필요한 건 다음 장에서 보류. 정밀성과 설명 가능성을 우선한 설계 선택.</p></aside>
 
-  <!-- ══════════ SLIDE 20 ══════════ -->
+  <!-- 19 LIMITATIONS -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>EVALUATION &amp; CONCLUSIONS</span><span class="n">20 / 20</span></div>
-      <div class="kicker">Evaluation &amp; Conclusions</div>
-      <h1 class="title">Separating recognition from decision is the contribution</h1>
-      <p class="lead">Capability and regression tests pin behavior; the backbone makes it extensible.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="matrix">
-            <div class="mrow"><span class="chip">supported forms</span><span class="sep-tri">→</span><span class="chip k">RESOLVED (kind, confidence)</span></div>
-            <div class="mrow"><span class="chip">ambiguous forms</span><span class="sep-tri">→</span><span class="chip k">AMBIGUOUS (retain, margin)</span></div>
-            <div class="mrow"><span class="chip">unsupported forms</span><span class="sep-tri">→</span><span class="chip k">UNRESOLVED (named reason)</span></div>
-          </div>
-          <div class="flow">
-            <div class="node rec">Recognition</div><div class="conn"><div class="arrow"></div></div>
-            <div class="node evi">Evidence</div><div class="conn"><div class="arrow"></div></div>
-            <div class="node cal">Calculus</div><div class="conn"><div class="arrow"></div></div>
-            <div class="node dec">Decision</div>
-          </div>
-          <div class="caption-note" style="max-width:760px; font-style:normal">“By separating recognition from decision through an evidence abstraction, F2-A becomes conservative, auditable, and naturally extensible.”</div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">19 · 한계</span><span class="pg">19 / 20</span></div>
+      <h1 class="title">값 추론이 필요한 패턴은 범위 밖으로 둔다</h1>
+      <p class="sub">루프·별칭·프로시저 간 사례는 탐지·명명 후 보류한다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="maps">
+          <div class="mhead"><span>제외 패턴</span><span></span><span>필요 역량</span></div>
+          <div class="mrow"><div class="ex">search-then-write 등록 함수</div><span class="chev"></span><div class="need">루프 + 술어 추론</div></div>
+          <div class="mrow"><div class="ex">런타임 슬롯 선택</div><span class="chev"></span><div class="need">심볼릭 인덱스 해석</div></div>
+          <div class="mrow"><div class="ex">별칭→슬롯 바인딩</div><span class="chev"></span><div class="need">별칭 / points-to 분석</div></div>
+          <div class="mrow"><div class="ex">프로시저 간 슬롯 재구성</div><span class="chev"></span><div class="need">프로시저 간 값 흐름</div></div>
+          <div class="mrow"><div class="ex">일반 동적 액션 ID</div><span class="chev"></span><div class="need">DFG 기반 에스컬레이션</div></div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Each registration mechanism has a fixture asserting its <b>exact expected outcome</b></span></div>
-        <div class="point"><span>Negative &amp; unsupported cases assert the <b>right refusal</b>, not just “no crash”</span></div>
-        <div class="point"><span>The backbone — <b>Recognition → Evidence → Calculus → Decision</b> — is the contribution</span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <div class="notes"><span class="lbl">Speaker notes</span>
-    <p>Test philosophy: capability tests prove a mechanism works; regression tests prevent silent drift; unsupported-pattern tests assert the diagnosis. Close on the architecture: conservative through confidence thresholds, conflict handling, provenance-aware combination, and explicit abstention — <em>not</em> through any structural-evidence gate; auditable because every resolution traces to evidence records; extensible because new extractors feed the same evidence bus without touching the calculus or the decision logic.</p>
-  </div>
+  <aside class="notes"><b>발표 노트</b><p>기준선이 이런 패턴을 만나면 해당 사유를 방출하고 보류한다. 정밀하고 설명 가능한 코어 + 정직한 공백이, 넓지만 불투명한 휴리스틱보다 낫다. 실제 펌웨어에서 중요함이 확인되면 착수할 후보 과제.</p></aside>
 
-  <!-- ══════════ APPENDIX (hold-slides, not presented) ══════════ -->
+  <!-- 20 CONCLUSION -->
   <section class="slide">
     <div class="canvas">
-      <div class="runhead"><span>APPENDIX · HOLD-SLIDES FOR Q&amp;A</span><span class="n">A</span></div>
-      <div class="kicker">Appendix · not presented</div>
-      <h1 class="title">Reference material held for questions</h1>
-      <p class="lead">Concrete parameters and mechanics, kept off the main narrative.</p>
-      <div class="stage">
-        <div class="stage-inner">
-          <div class="schema" style="max-width:900px">
-            <div class="shead">HOLD-SLIDES</div>
-            <div class="row"><span class="k">A1 · parameters</span><span class="v">priors per kind, match-strength multipliers, weak-only cap (match-strength triggered), global cap, acceptance floor, ambiguity margin, conflict penalty, registrar depth — the sole home for numbers</span></div>
-            <div class="row"><span class="k">A2 · provenance</span><span class="v">why within-group MAX and cross-group noisy-OR; the double-counting failure it prevents</span></div>
-            <div class="row"><span class="k">A3 · designated AST</span><span class="v">the lowering difference (wrapped member assignments) that makes designated distinct from positional</span></div>
+      <div class="eyebrow"><span class="dot" style="background:var(--dec)"></span><span class="sec">20 · 평가 · 결론</span><span class="pg">20 / 20</span></div>
+      <h1 class="title">인식과 판정의 분리, 그것이 기여다</h1>
+      <p class="sub">테스트가 동작을 고정하고, 백본이 확장을 가능케 한다.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="col" style="gap:6px;margin-bottom:6px">
+          <div class="row"><span class="chip">지원 형태</span><span class="cap" style="font-family:var(--mono)">→</span><span class="chip k">RESOLVED (kind, confidence)</span></div>
+          <div class="row"><span class="chip">모호 형태</span><span class="cap" style="font-family:var(--mono)">→</span><span class="chip k">AMBIGUOUS (retain, margin)</span></div>
+          <div class="row"><span class="chip">미지원 형태</span><span class="cap" style="font-family:var(--mono)">→</span><span class="chip k">UNRESOLVED (named reason)</span></div>
+        </div>
+        <div class="backbone" style="gap:8px">
+          <div class="lb rec"><span class="ko">인식</span></div><span class="chev"></span>
+          <div class="lb evi"><span class="ko">증거</span></div><span class="chev"></span>
+          <div class="lb cal"><span class="ko">계산</span></div><span class="chev"></span>
+          <div class="lb dec"><span class="ko">판정</span></div>
+        </div>
+        <div class="cap" style="font-size:clamp(13px,1.35vw,16px);color:var(--ink-2)">“인식과 판정을 증거 추상으로 분리함으로써, F2-A는 <b>보수적이고 · 감사 가능하며 · 자연스럽게 확장</b>된다.”</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>테스트 철학: 역량 테스트는 방식이 동작함을, 회귀 테스트는 조용한 드리프트 방지를, 미지원 테스트는 진단을 단언한다. 마무리는 테스트가 아니라 아키텍처로 — 보수성은 임계값·충돌 처리·출처 인지 결합·명시적 보류에서 오며 구조 게이트에서 오지 않는다. 감사 가능성은 모든 해석이 증거 레코드로 추적되기 때문. 확장성은 새 추출기가 계산·판정을 건드리지 않고 같은 증거 버스에 붙기 때문.</p></aside>
+
+  <!-- APPENDIX -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--faint)"></span><span class="sec">부록 · Q&amp;A 예비</span><span class="pg">A</span></div>
+      <h1 class="title">질의응답용 참고 자료</h1>
+      <p class="sub">본 서사에서 뺀 구체 파라미터와 메커니즘.</p>
+      <div class="stage"><div class="stage-in">
+        <div class="res" style="max-width:900px">
+          <div class="minor" style="flex-direction:column;gap:10px">
+            <div class="m"><div class="mt">A1 · 파라미터</div><div class="md">종류별 사전확률, 매치 강도 배수, weak-only cap(매치 강도 기준), global cap, 수용 임계값, 모호성 마진, 충돌 감점, 등록 추적 깊이 — 수치는 오직 여기에만</div></div>
+            <div class="m"><div class="mt">A2 · 출처 그룹화</div><div class="md">사이트 내 MAX·사이트 간 noisy-OR인 이유와, 그것이 막는 이중 계산 오류</div></div>
+            <div class="m"><div class="mt">A3 · 지정 vs 집합 AST</div><div class="md">지정 초기화를 구조적으로 구분되게 만드는 lowering 차이(멤버 대입 래핑)</div></div>
           </div>
         </div>
-      </div>
-      <div class="points">
-        <div class="point"><span>Numeric values live <b>only</b> here — the main deck stays symbolic</span></div>
-        <div class="point"><span>Match-strength ladder &amp; normalization are <b>core</b> (Slide 6), not appendix</span></div>
-        <div class="point"><span>Pull these up only if the room asks for the mechanics</span></div>
-      </div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
 
-  <div class="batch-note">— complete deck · Slides 01–20 + appendix —</div>
+  <div class="batch">— 전체 덱 · 20 슬라이드 + 부록 · 한국어 재설계 —</div>
 </main>
