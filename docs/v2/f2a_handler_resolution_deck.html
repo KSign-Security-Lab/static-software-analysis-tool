@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>F2-A 핸들러 해석 — 기술 설계 리뷰</title>
 <style>
-  /* ─────────────────────────────────────────────────────────────
-     F2-A · 핸들러 해석 (Handler Resolution) — 기술 설계 리뷰
-     Korean research-conference deck. Deliberate single light theme
-     (projection artwork). Diagram-led, minimal text.
-     ───────────────────────────────────────────────────────────── */
+  /* F2-A · 핸들러 해석 (Handler Resolution) — 알고리즘 교육용 덱.
+     시각 언어는 유지하되, 모든 알고리즘 슬라이드에 구체 사례(코드·AST·증거객체
+     ·점수·의사코드·표)를 담는다. 단일 라이트 테마(발표용). */
   :root{
     --bg:#eceef2; --surface:#ffffff;
     --ink:#0e1116; --ink-2:#3d434e; --muted:#8b909c; --faint:#b8bdc7;
     --hair:#e7eaef; --hair-2:#d3d8e0;
     --accent:#2846d6; --accent-ink:#1f37ad; --accent-soft:#eaedfc;
     --danger:#d83b34; --danger-soft:#fbe9e8;
+    --good:#1c9b57; --good-soft:#e6f5ec; --good-ink:#177544;
+    --warn:#9a6a12; --warn-soft:#fbf0dd;
     --rec:#2f66e0; --rec-soft:#e9f0fe; --rec-ink:#214a9e;
     --evi:#0c8f83; --evi-soft:#e3f4f2; --evi-ink:#0a6b62;
     --cal:#7a44d6; --cal-soft:#f0e9fb; --cal-ink:#5a33a0;
@@ -35,187 +35,94 @@
   .batch{max-width:1200px;margin:8px auto 0;text-align:center;font-family:var(--mono);
     font-size:11px;color:var(--muted);letter-spacing:.05em}
 
-  /* ── slide frame ── */
   .slide{max-width:1200px;margin:0 auto 30px}
   .canvas{position:relative;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);
-    aspect-ratio:16/9;padding:clamp(30px,3.6vw,58px);display:flex;flex-direction:column;overflow:hidden}
+    aspect-ratio:16/9;padding:clamp(26px,3vw,46px) clamp(30px,3.6vw,54px) clamp(40px,4vw,56px);
+    display:flex;flex-direction:column;overflow:hidden}
   .eyebrow{display:flex;align-items:center;gap:11px;font-family:var(--mono);font-size:12px;
-    letter-spacing:.08em;color:var(--muted);margin-bottom:clamp(14px,2vw,26px)}
+    letter-spacing:.08em;color:var(--muted);margin-bottom:10px}
   .eyebrow .dot{width:9px;height:9px;border-radius:2px;background:var(--accent);flex:0 0 auto}
   .eyebrow .sec{color:var(--ink-2);font-weight:600;text-transform:uppercase}
   .eyebrow .pg{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--faint)}
-  .title{font-size:clamp(27px,3.5vw,45px);font-weight:800;line-height:1.22;letter-spacing:-.01em;
-    margin:0;color:var(--ink);word-break:keep-all;max-width:20em}
-  .sub{font-size:clamp(15px,1.65vw,20px);font-weight:400;line-height:1.45;color:var(--muted);
-    margin:14px 0 0;word-break:keep-all;max-width:44em}
-  .sub b{color:var(--accent-ink);font-weight:700}
+  .title{font-size:clamp(23px,2.7vw,35px);font-weight:800;line-height:1.2;letter-spacing:-.01em;
+    margin:0;color:var(--ink);word-break:keep-all;max-width:24em}
+  .ask{margin:9px 0 0;font-size:clamp(13px,1.35vw,16px);color:var(--accent-ink);font-weight:700;word-break:keep-all}
+  .ask .q{color:var(--muted);font-weight:600}
   .stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;
-    padding:clamp(14px,2vw,26px) 0 4px;overflow:hidden}
-  .stage-in{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:clamp(14px,2vw,24px)}
-  .foot{position:absolute;left:clamp(30px,3.6vw,58px);bottom:clamp(18px,2vw,26px);
-    font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--faint)}
-  .cap{font-family:var(--ko);font-size:clamp(12.5px,1.25vw,15px);color:var(--muted);
-    text-align:center;word-break:keep-all;max-width:40em;line-height:1.5}
-  .cap b{color:var(--ink-2);font-weight:700}
+    padding:clamp(12px,1.6vw,20px) 0 2px;overflow:hidden}
+  .stage-in{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(10px,1.4vw,18px)}
+  .foot{position:absolute;left:clamp(30px,3.6vw,54px);bottom:clamp(14px,1.6vw,20px);
+    font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--faint)}
+  .next{position:absolute;right:clamp(30px,3.6vw,54px);bottom:clamp(14px,1.6vw,20px);
+    font-family:var(--ko);font-size:11.5px;color:var(--muted);word-break:keep-all;max-width:52%;text-align:right}
+  .next b{color:var(--accent-ink)}
+  .cap{font-family:var(--ko);font-size:clamp(12px,1.2vw,14.5px);color:var(--muted);text-align:center;word-break:keep-all;max-width:52em;line-height:1.5}
+  .cap b{color:var(--ink-2)}
 
-  /* ── cover ── */
   .cover .canvas{justify-content:center}
-  .cover .kick{font-family:var(--mono);font-size:13px;letter-spacing:.22em;text-transform:uppercase;
-    color:var(--accent);margin-bottom:20px}
-  .cover .title{font-size:clamp(34px,5.2vw,66px);line-height:1.16;max-width:16em}
-  .cover .sub{font-size:clamp(16px,1.9vw,23px);margin-top:22px}
-  .cover .strip{display:flex;align-items:center;gap:12px;margin-top:clamp(30px,5vw,64px);
-    flex-wrap:wrap;font-family:var(--mono);font-size:13px;color:var(--faint)}
-  .cover .strip .s{color:var(--muted)}
-  .cover .strip .me{color:var(--accent-ink);font-weight:700;background:var(--accent-soft);
-    padding:6px 12px;border-radius:8px}
+  .cover .kick{font-family:var(--mono);font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin-bottom:18px}
+  .cover .title{font-size:clamp(32px,4.6vw,58px);line-height:1.16;max-width:17em}
+  .cover .sub{font-size:clamp(15px,1.7vw,21px);color:var(--muted);margin:20px 0 0;word-break:keep-all;line-height:1.5}
+  .cover .sub b{color:var(--accent-ink)}
+  .cover .strip{display:flex;align-items:center;gap:11px;margin-top:clamp(26px,4vw,52px);flex-wrap:wrap;font-family:var(--mono);font-size:13px;color:var(--faint)}
+  .cover .strip .me{color:var(--accent-ink);font-weight:700;background:var(--accent-soft);padding:6px 12px;border-radius:8px}
 
-  /* ── generic blocks (filled, borderless — Keynote-like) ── */
-  .blk{background:#f1f3f8;color:var(--ink);border-radius:14px;padding:16px 22px;font-weight:600;
-    font-size:clamp(14px,1.4vw,18px);text-align:center;word-break:keep-all;line-height:1.35}
-  .blk .en{display:block;font-family:var(--mono);font-size:11.5px;color:var(--muted);
-    font-weight:400;margin-top:5px}
-  .blk.accent{background:var(--accent-soft);color:var(--accent-ink)}
-  .blk.ghost{background:transparent;border:2px dashed var(--hair-2);color:var(--muted)}
-  .blk.danger{background:var(--danger-soft);color:var(--danger)}
-  .blk.lg{font-size:clamp(16px,1.7vw,22px);padding:22px 30px}
-  .code{font-family:var(--mono);font-size:clamp(12px,1.2vw,14.5px);color:var(--ink);white-space:nowrap}
-
-  /* chevrons (clean, no connector line) */
-  .chev{width:0;height:0;flex:0 0 auto;border-left:13px solid var(--faint);
-    border-top:9px solid transparent;border-bottom:9px solid transparent}
-  .chev.d{border-left:9px solid transparent;border-right:9px solid transparent;
-    border-top:13px solid var(--faint);border-left-width:9px}
-  .chev.dec{border-left-color:var(--dec)}
-  .chev.red{border-left-color:var(--danger)}
-  .row{display:flex;align-items:center;justify-content:center;gap:clamp(10px,1.4vw,18px);flex-wrap:wrap}
-  .col{display:flex;flex-direction:column;align-items:center;gap:clamp(9px,1.2vw,15px)}
-
-  /* backbone (hero) */
-  .backbone{display:flex;align-items:center;justify-content:center;gap:clamp(8px,1.2vw,16px);flex-wrap:wrap}
-  .lb{display:flex;flex-direction:column;align-items:center;gap:3px;border-radius:16px;
-    padding:clamp(16px,1.8vw,24px) clamp(18px,2vw,30px);min-width:132px}
-  .lb .ko{font-size:clamp(18px,1.9vw,25px);font-weight:800;letter-spacing:-.01em}
-  .lb .en{font-family:var(--mono);font-size:11.5px;opacity:.72}
-  .lb .d{font-size:12px;margin-top:2px;opacity:.8}
-  .lb.rec{background:var(--rec-soft);color:var(--rec-ink)}
-  .lb.evi{background:var(--evi-soft);color:var(--evi-ink)}
-  .lb.cal{background:var(--cal-soft);color:var(--cal-ink)}
-  .lb.dec{background:var(--dec-soft);color:var(--dec-ink)}
-
-  /* soft grouped panel */
-  .panel{background:#f5f6fa;border-radius:18px;padding:clamp(16px,1.8vw,24px);display:flex;
-    flex-direction:column;gap:12px;min-width:0}
-  .panel .ph{font-size:13px;font-weight:700;color:var(--ink-2);letter-spacing:.02em}
-  .panel .ph .en{font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:400;margin-left:6px}
-  .chips{display:flex;flex-wrap:wrap;gap:8px}
-  .chip{font-family:var(--mono);font-size:12.5px;background:var(--surface);color:var(--ink-2);
-    border-radius:9px;padding:8px 12px;white-space:nowrap}
-  .chip.k{background:var(--accent-soft);color:var(--accent-ink)}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(14px,1.8vw,24px);width:100%;max-width:960px}
-
-  /* two-worlds (slide 2) */
-  .worlds{display:grid;grid-template-columns:1fr auto 1fr;gap:clamp(14px,2vw,26px) clamp(12px,2vw,28px);
-    align-items:center;width:100%;max-width:900px}
-  .worlds .wh{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--muted);text-align:center}
-  .qmark{font-size:26px;font-weight:800;color:var(--accent);text-align:center}
-  .dashed{border-top:2.5px dashed var(--hair-2);width:100%;min-width:40px}
-
-  /* ladder (slide 6) */
-  .ladder{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
-  .ladder .step{font-family:var(--mono);font-size:12.5px;padding:9px 14px;border-radius:10px;
-    background:#f1f3f8;color:var(--ink-2);white-space:nowrap}
-  .ladder .step.top{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
-  .ladder .gt{color:var(--faint);font-size:13px}
-
-  /* taxonomy cards (slide 7) */
-  .taxo{display:grid;grid-template-columns:1fr 1fr;gap:clamp(10px,1.4vw,16px);width:100%;max-width:940px}
-  .tcard{background:#f5f6fa;border-radius:14px;padding:14px 18px}
-  .tcard .tl{font-size:12px;color:var(--muted);margin-bottom:7px;font-weight:600}
-
-  /* evidence record card (slide 10) */
-  .rec-card{width:100%;max-width:760px;border-radius:18px;overflow:hidden;background:var(--surface);
+  /* teaching primitives */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(14px,1.8vw,22px);width:100%;max-width:1040px;align-items:stretch}
+  .two.l{grid-template-columns:1.15fr .85fr}
+  .two.r{grid-template-columns:.85fr 1.15fr}
+  .colhead{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:7px;font-weight:600}
+  .codeblk{font-family:var(--mono);font-size:clamp(10.5px,1.02vw,13px);line-height:1.6;background:#f4f6f9;
+    border-radius:12px;padding:14px 16px;white-space:pre;overflow-x:auto;text-align:left;color:var(--ink);
     box-shadow:0 0 0 1px var(--hair) inset}
-  .rec-card .rh{background:var(--evi-soft);color:var(--evi-ink);font-weight:700;font-size:14px;
-    padding:14px 22px}
-  .rec-card .rr{display:grid;grid-template-columns:190px 1fr;gap:14px;padding:12px 22px;font-size:14px}
-  .rec-card .rr + .rr{border-top:1px solid var(--hair)}
-  .rec-card .rk{font-family:var(--mono);font-weight:600;color:var(--ink)}
-  .rec-card .rv{color:var(--muted);word-break:keep-all}
+  .codeblk .cm{color:#8b909c}
+  .codeblk .kw{color:var(--accent-ink);font-weight:600}
+  .codeblk .hl{background:var(--accent-soft);border-radius:3px;padding:0 2px}
+  .codeblk .bad{background:var(--danger-soft);color:var(--danger);border-radius:3px;padding:0 2px}
+  .codeblk .ok{color:var(--good-ink);font-weight:600}
+  .codeblk.dk{background:#111726;color:#e7ebf5;box-shadow:none}
+  .codeblk.dk .cm{color:#8a93ad} .codeblk.dk .kw{color:#9db4ff} .codeblk.dk .ok{color:#7ee0a6}
+  .codeblk .lbl{color:var(--muted)}
 
-  /* result schema (slide 16) */
-  .res{display:flex;flex-direction:column;gap:12px;width:100%;max-width:820px}
-  .res .big{background:var(--accent-soft);border-radius:16px;padding:16px 22px}
-  .res .big .rt{font-family:var(--mono);font-weight:700;color:var(--accent-ink);font-size:15px}
-  .res .big .rd{font-size:13px;color:var(--ink-2);margin-top:3px}
-  .res .subchips{display:flex;flex-wrap:wrap;gap:7px;margin-top:11px}
-  .res .subchips .chip{background:var(--surface)}
-  .res .minor{display:flex;gap:12px}
-  .res .minor .m{flex:1;background:#f5f6fa;border-radius:14px;padding:13px 18px}
-  .res .minor .mt{font-family:var(--mono);font-weight:600;color:var(--ink);font-size:13.5px}
-  .res .minor .md{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl th{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+    text-align:left;padding:6px 12px;border-bottom:2px solid var(--hair-2);font-weight:600}
+  .tbl td{padding:8px 12px;border-bottom:1px solid var(--hair);font-family:var(--mono);
+    font-size:clamp(11px,1.08vw,13.5px);font-variant-numeric:tabular-nums;color:var(--ink)}
+  .tbl td.ko,.tbl th.ko{font-family:var(--ko)}
+  .tbl td .mut{color:var(--muted)}
+  .tbl tr.hl td{background:var(--accent-soft)}
+  .tbl tr.good td{background:var(--good-soft)}
+  .tbl tr.warn td{background:var(--warn-soft)}
+  .tbl .r{text-align:right}
+  .tbl .win{color:var(--good-ink);font-weight:700}
 
-  /* decision gate (slide 13) */
-  .gate{display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:860px}
-  .gate .q{background:#f1f3f8;border-radius:13px;padding:14px 26px;font-weight:700;font-size:clamp(14px,1.4vw,18px)}
-  .gate .lvl{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap}
-  .gate .yn{font-family:var(--mono);font-size:12px;color:var(--muted)}
-  .out{border-radius:13px;padding:13px 22px;font-weight:700;text-align:center;font-size:clamp(14px,1.35vw,17px)}
-  .out .en{display:block;font-family:var(--mono);font-size:11px;font-weight:400;opacity:.75;margin-top:3px}
-  .out.res{background:var(--dec-soft);color:var(--dec-ink)}
-  .out.amb{background:#fbf0dd;color:#9a6a12}
-  .out.unr{background:#eef0f4;color:var(--muted)}
+  .math{font-family:var(--mono);font-size:clamp(13px,1.5vw,19px);text-align:center;color:var(--ink);line-height:1.7;word-break:break-word}
+  .math .op{color:var(--muted)} .math .res{color:var(--good-ink);font-weight:700} .math .k{color:var(--accent-ink)}
 
-  /* reason taxonomy (slide 14) */
-  .reasons{display:flex;flex-direction:column;gap:11px;width:100%;max-width:940px}
-  .rrow{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center}
-  .rrow .rc{font-size:13.5px;color:var(--ink-2);font-weight:600;text-align:right}
-  .rrow .rchips{display:flex;flex-wrap:wrap;gap:7px}
+  .card{background:#f5f6fa;border-radius:14px;padding:14px 18px;text-align:left}
+  .note{background:var(--accent-soft);border-radius:12px;padding:11px 16px;font-size:clamp(12.5px,1.25vw,15px);
+    color:var(--accent-ink);word-break:keep-all;line-height:1.5;max-width:1000px}
+  .note.g{background:var(--good-soft);color:var(--good-ink)}
+  .note.d{background:var(--danger-soft);color:var(--danger)}
+  .note b{font-weight:800}
 
-  /* mapping (slide 19) */
-  .maps{display:flex;flex-direction:column;gap:10px;width:100%;max-width:900px}
-  .mrow{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center}
-  .mrow .ex{background:#f5f6fa;border-radius:12px;padding:12px 18px;font-weight:600;font-size:14px;text-align:center;word-break:keep-all}
-  .mrow .need{background:var(--surface);box-shadow:0 0 0 1px var(--hair) inset;border-radius:12px;
-    padding:12px 18px;color:var(--muted);font-size:13.5px;text-align:center;word-break:keep-all}
-  .mhead{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;font-family:var(--mono);font-size:11px;
-    letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .pill{font-family:var(--mono);font-size:12px;background:#eef1f6;color:var(--ink-2);border-radius:8px;padding:6px 11px;white-space:nowrap}
+  .pill.k{background:var(--accent-soft);color:var(--accent-ink)}
+  .pill.g{background:var(--good-soft);color:var(--good-ink)}
+  .row{display:flex;align-items:center;justify-content:center;gap:clamp(8px,1.2vw,16px);flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;align-items:center;gap:clamp(8px,1.1vw,14px)}
+  .chev{width:0;height:0;flex:0 0 auto;border-left:12px solid var(--faint);border-top:8px solid transparent;border-bottom:8px solid transparent}
+  .chev.d{border-left:8px solid transparent;border-right:8px solid transparent;border-top:12px solid var(--faint)}
+  .chev.g{border-left-color:var(--good)} .chev.dg{border-top-color:var(--good)}
 
-  /* checklist (slide 18) */
-  .checks{display:grid;grid-template-columns:1fr 1fr;gap:12px clamp(24px,4vw,60px);width:100%;max-width:880px}
-  .ck{display:flex;gap:12px;align-items:baseline;font-size:clamp(14px,1.35vw,17px);color:var(--ink-2);word-break:keep-all}
-  .ck::before{content:"✓";color:var(--dec);font-weight:800;flex:0 0 auto}
+  .lb{display:flex;flex-direction:column;align-items:center;gap:2px;border-radius:14px;padding:12px 18px;min-width:104px}
+  .lb .ko{font-size:clamp(15px,1.6vw,20px);font-weight:800} .lb .en{font-family:var(--mono);font-size:10.5px;opacity:.72}
+  .lb.rec{background:var(--rec-soft);color:var(--rec-ink)} .lb.evi{background:var(--evi-soft);color:var(--evi-ink)}
+  .lb.cal{background:var(--cal-soft);color:var(--cal-ink)} .lb.dec{background:var(--dec-soft);color:var(--dec-ink)}
 
-  /* worked example (slide 15) */
-  .we{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;max-width:820px}
-  .we .src{font-family:var(--mono);font-size:clamp(11px,1.05vw,13px);background:#f1f3f8;border-radius:12px;
-    padding:13px 20px;white-space:pre;text-align:left;line-height:1.55;overflow-x:auto;max-width:100%}
-  .we .stag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
-  .we .ev{background:var(--evi-soft);color:var(--evi-ink);border-radius:12px;padding:11px 18px;
-    font-family:var(--mono);font-size:clamp(10.5px,1vw,12.5px);line-height:1.7;text-align:left}
-  .we .verdict{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center}
-  .scorepill{font-family:var(--mono);font-size:14px;border-radius:11px;padding:11px 18px;font-weight:600}
-  .scorepill.win{background:var(--dec-soft);color:var(--dec-ink)}
-  .scorepill.lose{background:#eef0f4;color:var(--muted)}
-
-  /* fan-in convergence (slide 5) */
-  .converge{display:grid;grid-template-columns:minmax(0,1fr) 168px auto;align-items:center;
-    gap:0 6px;width:100%;max-width:960px}
-  .converge .srcs{display:flex;flex-direction:column;gap:16px}
-  .dcard{background:#f5f6fa;border-radius:14px;padding:14px 18px;border-left:5px solid var(--rec)}
-  .dcard.s{border-left-color:var(--evi)} .dcard.y{border-left-color:var(--cal)}
-  .dcard .dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--muted);margin-bottom:4px}
-  .dcard .dn{font-weight:700;font-size:15px}
-  .dcard .dd{font-size:12px;color:var(--muted);margin-top:3px;word-break:keep-all}
-  .converge svg{width:168px;height:220px;display:block}
-
-  /* speaker notes (off-slide) */
   .notes{max-width:1200px;margin:0 auto 42px;padding:13px 18px;border-left:2px solid var(--hair-2)}
-  .notes b{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--muted);display:block;margin-bottom:6px;font-weight:700}
+  .notes b{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:6px;font-weight:700}
   .notes p{margin:0;font-size:13.5px;line-height:1.6;color:var(--muted);word-break:keep-all}
 
   @media print{
@@ -224,556 +131,566 @@
     .deckhead,.batch,.notes{display:none}
     .slide{max-width:none;margin:0;width:1280px;height:720px;overflow:hidden;break-after:page;break-inside:avoid}
     .slide:last-of-type{break-after:auto}
-    .canvas{border-radius:0;box-shadow:none;aspect-ratio:auto;width:1280px;height:720px;padding:52px 68px}
+    .canvas{border-radius:0;box-shadow:none;aspect-ratio:auto;width:1280px;height:720px;padding:44px 60px 56px}
     .tall .stage{align-items:flex-start;flex:0 1 auto}
-    .tall .stage-in{gap:10px}
+    .tall .stage-in{gap:12px}
   }
-  @media screen and (max-width:820px){
-    .canvas{aspect-ratio:auto;min-height:86vw}
-    .grid2,.worlds,.taxo,.checks,.converge{grid-template-columns:1fr}
-    .converge .funnel{transform:rotate(90deg)}
+  @media screen and (max-width:860px){
+    .canvas{aspect-ratio:auto;min-height:96vw}
+    .two,.two.l,.two.r{grid-template-columns:1fr}
   }
 </style>
 </head>
 <body>
 
 <main class="deck">
-  <div class="deckhead">
-    <span><b>F2-A</b> · 핸들러 해석 (Handler Resolution)</span>
-    <span>기술 설계 리뷰 · 20 slides</span>
-  </div>
+  <div class="deckhead"><span><b>F2-A</b> · 핸들러 해석 (Handler Resolution)</span><span>알고리즘 설명 · 기술 설계 리뷰</span></div>
 
   <!-- 01 COVER -->
   <section class="slide cover">
     <div class="canvas">
-      <div class="kick">기술 설계 리뷰 · Technical Design Review</div>
-      <h1 class="title">동적 디스패치가 감춘 핸들러를,<br>증거로 되찾다</h1>
-      <p class="sub">F2-A — 프로토콜 액션을 소스 코드의 핸들러로 잇는 정적 분석 단계.<br>추측하지 않고, <b>증거로 판정</b>한다.</p>
-      <div class="strip">
-        <span>KB</span><span class="s">›</span><span class="me">F2-A</span><span class="s">›</span>
-        <span>필드 바인딩</span><span class="s">›</span><span>데이터 흐름</span><span class="s">›</span>
-        <span>싱크</span><span class="s">›</span><span>취약점 후보</span>
-      </div>
+      <div class="kick">기술 설계 리뷰 · 알고리즘 해설</div>
+      <h1 class="title">프로토콜 액션 → 소스 핸들러,<br>어떻게 정적으로 복원하는가</h1>
+      <p class="sub">F2-A는 동적 디스패치가 지운 매핑을 <b>증거 기반 계산</b>으로 복원한다.<br>이 발표가 끝나면 알고리즘을 직접 재구성할 수 있어야 한다.</p>
+      <div class="strip"><span>인식</span><span>›</span><span>증거</span><span>›</span><span class="me">점수·결합</span><span>›</span><span>판정</span></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>한 문장 논지와 “정직성 계약”을 먼저 못 박는다. 후속 단계는 모두 F2-A의 매핑을 신뢰하므로, F2-A는 맞히거나 아니면 “모른다”고 말해야 한다. 이 발표의 척추: 인식 → 증거 → 계산 → 판정.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>목표를 명확히: 아키텍처 자랑이 아니라 알고리즘 교육. 각 장은 앞 장이 남긴 기술적 질문에 답하고, 구체 사례(코드·AST·증거·점수·표·의사코드)로 메커니즘을 보인다.</p></aside>
 
-  <!-- 02 MOTIVATION -->
+  <!-- 02 PROBLEM -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">02 · 동기</span><span class="pg">02 / 20</span></div>
-      <h1 class="title">프로토콜의 의미와 코드는 끊겨 있다</h1>
-      <p class="sub">액션은 명세에, 이를 처리하는 코드는 간접 호출 너머에 있다.</p>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">02 · 문제</span><span class="pg">02 / 19</span></div>
+      <h1 class="title">“이 액션을 처리하는 함수”를 정적으로 못 찾는다</h1>
+      <p class="ask"><span class="q">질문 —</span> RemoteStartTransaction은 어느 C 함수가 처리하는가?</p>
       <div class="stage"><div class="stage-in">
-        <div class="worlds">
-          <div class="wh">프로토콜 세계</div><div></div><div class="wh">코드 세계</div>
-          <div class="blk lg">"RemoteStartTransaction"</div>
-          <div class="col" style="gap:4px"><div class="dashed"></div><span class="qmark">?</span></div>
-          <div class="blk lg">remote_handler()</div>
-          <div class="blk lg">"SetChargingProfile"</div>
-          <div class="col" style="gap:4px"><div class="dashed"></div><span class="qmark">?</span></div>
-          <div class="blk lg ghost">???</div>
+        <div class="two l">
+          <div><div class="colhead">디스패치 코드</div>
+            <div class="codeblk">void on_message(Frame *f) {
+    Entry e = g_table[ f-&gt;action ];   <span class="cm">// 테이블 조회</span>
+    <span class="hl">e.fn(f-&gt;payload);</span>                <span class="cm">// 간접 호출 — 대상이 코드에 없음</span>
+}</div></div>
+          <div><div class="colhead">시도 → 실패</div>
+            <div class="card" style="font-size:13.5px;line-height:1.7;color:var(--ink-2)">
+              <div><span class="pill">grep remote</span> → 함수 정의만, 매핑 없음</div>
+              <div style="margin-top:8px"><span class="pill">call graph</span> → <span style="color:var(--danger)">e.fn(...) 간선 없음</span></div>
+              <div style="margin-top:8px"><span class="pill">실행</span> → 정적·펌웨어 전체·하네스 없음 ✗</div>
+            </div>
+          </div>
         </div>
-        <div class="cap">연결은 제어 흐름이 아니라 <b>데이터 속에 숨어</b> 있다</div>
+        <div class="note d"><b>보안 질문은 액션 단위</b>다: “충전 프로파일 한계값이 검증되나?” → 먼저 <b>어느 함수</b>가 그 액션을 처리하는지 알아야 오염 분석이 시작된다.</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → <b>왜</b> 콜그래프엔 그 간선이 없나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>“충전 프로파일 한계값이 검증되는가?”를 물으려면 먼저 SetChargingProfile을 <em>어느 함수</em>가 처리하는지 알아야 한다. 그 함수가 오염(taint)의 출발점이다. 이 매핑은 프로토콜 인지 분석의 전제 조건이다.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>핸들러는 신뢰 불가 페이로드가 프로그램 상태로 처음 들어오는 지점 = 오염의 출발점. 이 매핑 없이는 어떤 프로토콜 인지 분석도 시작할 수 없다.</p></aside>
 
   <!-- 03 CORE DIFFICULTY -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">03 · 핵심 난제</span><span class="pg">03 / 20</span></div>
-      <h1 class="title">콜그래프에는 핸들러로 가는 간선이 없다</h1>
-      <p class="sub">함수 포인터·디스패치 테이블이 <b>caller→handler</b> 간선을 지운다. 연결은 데이터에만 남는다.</p>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">03 · 핵심 난제</span><span class="pg">03 / 19</span></div>
+      <h1 class="title">간선은 제어 흐름이 아니라 데이터에 있다</h1>
+      <p class="ask"><span class="q">질문 —</span> 왜 콜그래프 순회가 실패하나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="col" style="align-items:stretch;gap:22px;width:100%;max-width:920px">
-          <div>
-            <div class="eyebrow" style="margin:0 0 9px"><span class="sec" style="color:var(--muted)">제어 흐름 · 콜그래프</span></div>
-            <div class="row" style="justify-content:flex-start">
-              <div class="blk">dispatch(frame)</div><span class="chev"></span>
-              <div class="blk">(*table[i].fn)()</div>
-              <span class="chev red" title="no edge"></span>
-              <span class="cap" style="color:var(--danger);font-family:var(--mono);font-size:12px">✕ 정적 간선 없음</span>
-              <div class="blk danger">remote_handler()</div>
-            </div>
-          </div>
-          <div>
-            <div class="eyebrow" style="margin:0 0 9px"><span class="sec" style="color:var(--muted)">데이터 · 등록 지점</span></div>
-            <div class="row" style="justify-content:flex-start">
-              <div class="blk">table[k] = &#123; ACTION, remote_handler &#125;</div>
-              <span class="chev dec"></span>
-              <span class="cap" style="color:var(--dec-ink);font-family:var(--mono);font-size:12px">여기에 간선이 있다</span>
-              <div class="blk">remote_handler()</div>
-            </div>
-          </div>
+        <div class="two">
+          <div><div class="colhead">CPG — 간접 호출 노드</div>
+            <div class="codeblk">CALL  <span class="hl">e.fn(...)</span>
+  ├─ receiver: e.fn        <span class="cm">// 함수 포인터</span>
+  └─ CALL edge → <span class="bad">∅ 대상 없음</span>   <span class="cm">// 정적으로 미해결</span></div></div>
+          <div><div class="colhead">연결이 실제로 있는 곳 (데이터)</div>
+            <div class="codeblk">g_table[<span class="kw">ACTION_REMOTE_START</span>] =
+      (Entry){ .fn = <span class="ok">remote_handler</span> };
+<span class="cm">// 등록: 액션 ID ↔ 콜백이 여기서 묶임</span></div></div>
         </div>
+        <div class="note"><b>전략</b> — 호출(제어 흐름)이 아니라 <b>등록 구조 + 식별자 매칭</b>으로 <span class="cm" style="font-family:var(--mono)">ACTION_REMOTE_START → remote_handler</span> 간선을 복원한다.</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 그 복원을 <b>어떤 단계 구조</b>로 하나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>핵심 지점 — 천천히. 단순한 콜그래프 순회는 구조적으로 실패한다. 연결은 초기화 테이블·대입·등록 함수 안에 잠재해 있다. F2-A는 그 잠재 간선을 정적으로 복원한다. “그냥 실행하면?” — 정적·배포 전·전체 펌웨어·하네스 없음.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>간접 호출의 CALL 노드에는 CALL(콜그래프) 간선이 없다. 바인딩은 초기화 테이블·대입·등록 함수 안에 데이터로 잠재. F2-A는 그 잠재 간선을 정적으로 복원한다.</p></aside>
 
-  <!-- 04 PIPELINE -->
-  <section class="slide tall">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">04 · 파이프라인 위치</span><span class="pg">04 / 20</span></div>
-      <h1 class="title">F2-A가 풀려야 후속 분석이 시작된다</h1>
-      <p class="sub">액션→핸들러 앵커를 만드는 관문 단계. 이후 모든 프로토콜 인지 분석이 이걸 소비한다.</p>
-      <div class="stage"><div class="stage-in">
-        <div class="col">
-          <div class="blk">프로토콜 지식 베이스 (KB)</div>
-          <span class="chev d"></span>
-          <div class="blk">액션 정의</div>
-          <span class="chev d"></span>
-          <div class="blk accent lg" style="font-weight:800">F2-A · 핸들러 해석<span class="en">action ↦ handler</span></div>
-          <span class="chev d"></span>
-          <div class="blk" style="background:var(--surface);box-shadow:0 0 0 1.5px var(--hair) inset;color:var(--ink-2);font-weight:500;font-size:14px">
-            후속 분석 &nbsp;·&nbsp; 필드 바인딩 → 흐름 후보 → 싱크 매핑 → 검사 매칭 → <b style="color:var(--accent-ink)">F6 취약점 분석</b>
-          </div>
-        </div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>발표 노트</b><p>관심사 분리: F2-A는 오염·싱크·검사를 하지 않는다. “핸들러는 여기, 근거는 이것”에서 멈춘다. 잘못된 해석은 이후 전부를 오염시키므로 보수적으로 설계했다.</p></aside>
-
-  <!-- 05 INPUTS -->
+  <!-- 04 ARCHITECTURE -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">05 · 입력</span><span class="pg">05 / 20</span></div>
-      <h1 class="title">프로토콜 진실과 코드 구조가 만나는 곳</h1>
-      <p class="sub">독립된 세 도메인 — 프로토콜·구조·심볼 — 이 하나의 해석기로 모인다.</p>
+      <div class="eyebrow"><span class="dot" style="background:var(--rec)"></span><span class="sec">04 · 4계층 구조</span><span class="pg">04 / 19</span></div>
+      <h1 class="title">인식은 근거만 만들고, 판정은 뒤에서 한 번만</h1>
+      <p class="ask"><span class="q">질문 —</span> 왜 추출기가 직접 결정하지 않나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="converge">
-          <div class="srcs">
-            <div class="dcard"><div class="dt">프로토콜</div><div class="dn">지식 베이스 (KB)</div><div class="dd">이름 · 심볼 · 숫자 ID · 별칭</div></div>
-            <div class="dcard s"><div class="dt">코드 구조</div><div class="dn">CPG / AST</div><div class="dd">초기화 · 대입 · 호출 · 디스패치</div></div>
-            <div class="dcard y"><div class="dt">심볼</div><div class="dn">해석된 참조</div><div class="dd">내부 함수 vs 외부 스텁</div></div>
-          </div>
-          <div class="funnel" aria-hidden="true">
-            <svg viewBox="0 0 168 220" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs><marker id="ah" markerWidth="9" markerHeight="9" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#b8bdc7"></path></marker></defs>
-              <path d="M2,30 C66,30 92,110 112,110" stroke="#b8bdc7" stroke-width="3.5"></path>
-              <path d="M2,110 L112,110" stroke="#b8bdc7" stroke-width="3.5"></path>
-              <path d="M2,190 C66,190 92,110 112,110" stroke="#b8bdc7" stroke-width="3.5"></path>
-              <circle cx="112" cy="110" r="4" fill="#b8bdc7"></circle>
-              <path d="M112,110 L160,110" stroke="#b8bdc7" stroke-width="3.5" marker-end="url(#ah)"></path>
-            </svg>
-          </div>
-          <div class="blk accent lg" style="justify-self:start;font-weight:800">F2-A<span class="en">핸들러 해석</span></div>
+        <div class="row">
+          <div class="lb rec"><span class="ko">인식</span><span class="en">추출기 → 증거</span></div><span class="chev"></span>
+          <div class="lb evi"><span class="ko">증거</span><span class="en">타입 레코드</span></div><span class="chev"></span>
+          <div class="lb cal"><span class="ko">계산</span><span class="en">점수 → 결합</span></div><span class="chev"></span>
+          <div class="lb dec"><span class="ko">판정</span><span class="en">확정·보류·미해결</span></div>
+        </div>
+        <div class="two" style="max-width:1000px">
+          <div class="card"><div class="colhead">이렇게 나누면 얻는 것</div>
+            <div style="font-size:13px;line-height:1.7;color:var(--ink-2)">· 독립 추출기 → 독립 증거 → <b>교차 확증</b> 가능<br>· 한 추출기의 실패 = <b>정밀 진단</b>, 전체 실패 아님<br>· 판정 정책을 추출기와 분리해 재튜닝</div></div>
+          <div class="card"><div class="colhead">이번 발표가 걷는 길</div>
+            <div style="font-size:13px;line-height:1.7;color:var(--ink-2)">05–07 인식 · 08–09 증거<br>10–12 계산(점수·결합·판정)<br>13 워크드 예제 · 14–19 진단·출력·평가</div></div>
         </div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 인식은 <b>무엇을 입력</b>으로 받나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>KB는 “어떤 식별자가 어떤 액션을 뜻하는가”의 근거다. AST는 등록의 <em>형태</em>를, 심볼은 참조가 실제 내부 함수인지(외부 스텁이 아닌지)를 알려준다. 그 식별자들이 실제로 어떻게 대조되는지는 다음 장.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>추출기는 인식기일 뿐 판정자가 아니다 — 이 제약이 교차 확증과 정직한 보류를 가능케 한다. 다음 다섯 장이 이 척추를 왼→오로 걷는다.</p></aside>
+
+  <!-- 05 INPUTS / KB -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot"></span><span class="sec">05 · 입력 · KB</span><span class="pg">05 / 19</span></div>
+      <h1 class="title">KB는 “한 액션의 모든 코드 표기”를 안다</h1>
+      <p class="ask"><span class="q">질문 —</span> 무엇과 무엇을 대조해서 매칭하나?</p>
+      <div class="stage"><div class="stage-in">
+        <div class="two">
+          <div><div class="colhead">KB 프로파일 (프로토콜 진실)</div>
+            <div class="codeblk">RemoteStartTransaction:
+  protocol_string: <span class="ok">"RemoteStartTransaction"</span>
+  symbols:      [<span class="kw">ACTION_REMOTE_START</span>]
+  numeric_ids:  [3]
+  aliases:      [remote_start]</div></div>
+          <div><div class="colhead">CPG/AST + 심볼 (코드 구조)</div>
+            <div class="card" style="font-size:13px;line-height:1.7;color:var(--ink-2)">
+              · <b>CPG/AST</b> — 초기화·대입·호출·switch 형태<br>
+              · <b>심볼</b> — 참조가 <b>내부 함수</b>인지(외부 스텁 아님)<br>
+              · <b>원시 식별자</b> — 코드 지점에 등장한 그대로</div></div>
+        </div>
+        <div class="cap">KB의 여러 표기(symbol·numeric·alias)와 코드의 원시 식별자를 대조 → <b>매치 강도</b>가 나온다</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 여러 표기를 <b>어떻게 하나로</b> 대조하나?</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>KB는 “어떤 식별자가 어떤 액션을 뜻하는가”의 근거. AST는 등록의 형태, 심볼은 내부 함수 여부를 준다. 대조 결과가 매치 강도.</p></aside>
 
   <!-- 06 NORMALIZATION -->
-  <section class="slide">
+  <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">06 · 식별자 정규화</span><span class="pg">06 / 20</span></div>
-      <h1 class="title">하나의 액션, 여러 표기를 하나로 정규화한다</h1>
-      <p class="sub">코드의 원시 식별자를 정규 <b>ActionIdentifier</b>와 대조한다. 매치 강도는 여기서 나온다.</p>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">06 · 정규화 · 매치 강도</span><span class="pg">06 / 19</span></div>
+      <h1 class="title">코드 표기가 정규 ID와 얼마나 정확히 맞는가</h1>
+      <p class="ask"><span class="q">질문 —</span> “매치 강도”는 구체적으로 어떻게 정해지나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="row" style="width:100%;max-width:900px;justify-content:space-between;gap:20px">
-          <div class="blk lg" style="flex:1">정규 Action Identity<span class="en">macro · enum · 숫자 ID · 별칭</span></div>
-          <div class="col" style="gap:4px"><span class="cap" style="font-family:var(--mono);font-size:12px">대조 ⇔</span></div>
-          <div class="blk lg" style="flex:1">ActionIdentifier<span class="en">코드 지점의 원시 식별자</span></div>
-        </div>
-        <div class="cap">매치 강도 = 대응의 정확도</div>
-        <div class="ladder">
-          <span class="step top">EXACT_IDENTIFIER</span><span class="gt">▷</span>
-          <span class="step">NORMALIZED</span><span class="gt">▷</span>
-          <span class="step">HEURISTIC_SUBSTRING</span><span class="gt">▷</span>
-          <span class="step">NAME_ONLY</span>
-        </div>
+        <table class="tbl" style="max-width:960px">
+          <thead><tr><th class="ko">코드에 나타난 원시 식별자</th><th class="ko">정규 ID와의 관계</th><th>MatchStrength</th><th class="r">×배수</th></tr></thead>
+          <tbody>
+            <tr class="good"><td>ACTION_REMOTE_START</td><td class="ko">KB symbol과 완전 일치</td><td>EXACT_IDENTIFIER</td><td class="r win">1.00</td></tr>
+            <tr><td>3</td><td class="ko">숫자 ID가 상수로 해석·일치</td><td>RESOLVED_VALUE</td><td class="r">0.95</td></tr>
+            <tr><td>remote_start</td><td class="ko">정규화 이름 일치(별칭)</td><td>NORMALIZED_NAME</td><td class="r">0.85</td></tr>
+            <tr><td>handle_remote_x</td><td class="ko">부분 문자열/토큰 겹침</td><td>HEURISTIC_SUBSTRING</td><td class="r">0.70</td></tr>
+            <tr><td class="mut">— 없음 —</td><td class="ko">대응 없음</td><td>NONE</td><td class="r">0.00</td></tr>
+          </tbody>
+        </table>
+        <div class="note">이 배수가 뒤의 모든 점수에 곱해진다. <b>정규화는 종류가 아니라 “대응의 정확도”를 수치화</b>한다.</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 등록은 코드에서 <b>어떤 형태</b>로 나타나나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>프로토콜 세계와 코드 세계를 잇는 경첩. 사다리: macro/enum·숫자 ID 일치는 EXACT, 정규화 이름 일치는 NORMALIZED, 부분 문자열은 HEURISTIC_SUBSTRING, ID 없는 이름 유사는 NAME_ONLY. 이후 계산의 “매치 강도”는 전부 여기서 유래. 양방향: KB가 정규 정체성을, 코드가 원시 식별자를 내고 매칭이 대응도를 채점.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>양방향: KB가 정규 정체성을, 코드가 원시 식별자를 내고 매칭이 대응도를 채점. EXACT/RESOLVED_VALUE는 뒤에서 “강한 근거(strong basis)”로 취급되어 weak-only cap을 면제한다.</p></aside>
 
   <!-- 07 MECHANISMS -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">07 · 등록 방식</span><span class="pg">07 / 20</span></div>
-      <h1 class="title">핸들러 등록은 형태가 제각각이다</h1>
-      <p class="sub">의미는 하나(action ↦ handler), 문법은 여러 가지. 그래서 인식기도 여럿이어야 한다.</p>
+      <div class="eyebrow"><span class="dot" style="background:var(--rec)"></span><span class="sec">07 · 등록 형태</span><span class="pg">07 / 19</span></div>
+      <h1 class="title">같은 의미, 다른 문법 — 그래서 추출기도 여럿</h1>
+      <p class="ask"><span class="q">질문 —</span> 인식기는 코드에서 무엇을 알아보나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="taxo">
-          <div class="tcard"><div class="tl">집합 초기화 · aggregate</div><div class="code">{ ACTION, fn }</div></div>
-          <div class="tcard"><div class="tl">지정 초기화 · designated</div><div class="code">{ .action = ACTION, .fn = fn }</div></div>
-          <div class="tcard"><div class="tl">인덱스 대입 · indexed</div><div class="code">handlers[ACTION] = fn</div></div>
-          <div class="tcard"><div class="tl">상관 저장 · correlated</div><div class="code">t[k].action = ACTION; t[k].fn = fn</div></div>
-          <div class="tcard"><div class="tl">등록 함수 · registrar</div><div class="code">register(ACTION, fn) → 콜리가 저장</div></div>
-          <div class="tcard"><div class="tl">위임 등록 · delegated</div><div class="code">register(…) → store_handler(…) → t[.]=fn</div></div>
-        </div>
+        <table class="tbl" style="max-width:1000px">
+          <thead><tr><th class="ko">형태</th><th class="ko">코드</th><th>방출 증거</th></tr></thead>
+          <tbody>
+            <tr><td class="ko">집합 초기화</td><td>{ ACTION, fn }</td><td>REGISTRATION_INIT</td></tr>
+            <tr><td class="ko">지정 초기화</td><td>{ .action = ACTION, .fn = fn }</td><td>REGISTRATION_INIT</td></tr>
+            <tr><td class="ko">인덱스 대입</td><td>handlers[ACTION] = fn</td><td>REGISTRATION_ASSIGN</td></tr>
+            <tr><td class="ko">상관 저장</td><td>t[k].action = ACTION; t[k].fn = fn</td><td>REGISTRATION_ASSIGN</td></tr>
+            <tr><td class="ko">등록 함수</td><td>register(ACTION, fn) <span class="mut">→ 콜리가 저장</span></td><td>REGISTRAR_CALL</td></tr>
+            <tr><td class="ko">디스패치</td><td>switch(action){ case ACTION: fn(); }</td><td>ENUM_CASE / STRING_DISPATCH</td></tr>
+          </tbody>
+        </table>
+        <div class="cap">의미는 하나(<b>action ↦ handler</b>)지만 AST 형태가 달라, 단일 매처는 취약하다</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 인식기는 이 형태를 <b>어떻게</b> 알아보나? (AST)</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>의미적 동치 vs 문법적 다양성. 지정 초기화와 집합 초기화는 의미는 같지만 AST에서 구조가 다르다(지정 멤버는 대입으로 감싸짐). 이 다양성 때문에 단일 매처는 취약하다.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>지정·집합 초기화는 의미는 같지만 AST가 다르다(지정 멤버는 대입으로 감싸짐). 다음 장에서 그 차이를 AST로 보인다.</p></aside>
 
-  <!-- 08 BACKBONE -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--rec)"></span><span class="sec">08 · 아키텍처</span><span class="pg">08 / 20</span></div>
-      <h1 class="title">추출기는 인식할 뿐, 판정하지 않는다</h1>
-      <p class="sub">여러 인식기가 하나의 증거 스트림으로 모이고, 그 뒤는 모두 별개의 계층이다.</p>
-      <div class="stage"><div class="stage-in">
-        <div class="chips" style="justify-content:center;max-width:820px">
-          <span class="chip">aggregate</span><span class="chip">designated</span><span class="chip">indexed</span>
-          <span class="chip">correlated</span><span class="chip">registrar</span><span class="chip">delegated</span>
-          <span class="chip">dispatch</span><span class="chip">name</span>
-        </div>
-        <span class="cap">하나의 증거 스트림으로 수렴 ▾</span>
-        <div class="backbone">
-          <div class="lb rec"><span class="ko">인식</span><span class="en">Recognition</span><span class="d">추출기</span></div>
-          <span class="chev"></span>
-          <div class="lb evi"><span class="ko">증거</span><span class="en">Evidence</span><span class="d">타입 레코드</span></div>
-          <span class="chev"></span>
-          <div class="lb cal"><span class="ko">계산</span><span class="en">Calculus</span><span class="d">점수·결합</span></div>
-          <span class="chev"></span>
-          <div class="lb dec"><span class="ko">판정</span><span class="en">Decision</span><span class="d">확정·보류</span></div>
-        </div>
-        <div class="cap"><b>어떤 계층도 자기 위 계층의 결정을 대신하지 않는다</b></div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>발표 노트</b><p>백본을 명시적으로 세운다: 다음 다섯 장이 이 척추를 왼쪽에서 오른쪽으로 걷는다 — 인식(추출기) → 증거(레코드) → 계산(점수→결합) → 판정(확정/보류). 추출기는 인식기일 뿐 판정자가 아니다. 이 제약이 교차 확증과 정직한 보류를 가능케 한다.</p></aside>
-
-  <!-- 09 RECOGNITION LAYER -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--rec)"></span><span class="sec">09 · 인식 계층</span><span class="pg">09 / 20</span></div>
-      <h1 class="title">후보를 가르는 건 종류가 아니라 매치 강도다</h1>
-      <p class="sub">디스패치와 등록의 사전확률은 대등하다 — 어떤 종류도 해석에서 배제되지 않는다.</p>
-      <div class="stage"><div class="stage-in">
-        <div class="grid2">
-          <div class="panel">
-            <div class="ph">등록 증거 <span class="en">explicit id ↔ callback</span></div>
-            <div class="chips">
-              <span class="chip">aggregate → REGISTRATION_INIT</span>
-              <span class="chip">designated → REGISTRATION_INIT</span>
-              <span class="chip">indexed/field → REGISTRATION_ASSIGN</span>
-              <span class="chip">registrar → REGISTRAR_CALL</span>
-              <span class="chip">delegated → REGISTRAR_CALL</span>
-            </div>
-          </div>
-          <div class="panel">
-            <div class="ph">디스패치 · 이름 증거 <span class="en">invocation / lexical</span></div>
-            <div class="chips">
-              <span class="chip">dispatch → ENUM_CASE</span>
-              <span class="chip">dispatch → STRING_DISPATCH</span>
-              <span class="chip">name → NAME_MATCH</span>
-            </div>
-            <div class="cap" style="text-align:left;margin-top:2px">디스패치는 <b>높은 사전확률·정확 매치 가능</b>, 이름은 약한 폴백</div>
-          </div>
-        </div>
-        <div class="cap">제한 요인 = <b>정확 식별자 매치의 부재</b> (weak-only cap) — 종류와 무관</div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>발표 노트</b><p>사전확률은 종류별이며 디스패치는 등록만큼 높다 — 디스패치 매치는 약한 신호가 아니다. 진짜 약한 종류는 이름 전용. weak-only cap은 <b>매치 강도</b>(정확 식별자 없음)에 걸리며 종류가 아니다. 따라서 높은 점수의 후보는 디스패치라도 해석될 수 있다. 구조 종류에만 해석을 예약하는 규칙은 없다. (전체 표는 부록.)</p></aside>
-
-  <!-- 10 EVIDENCE MODEL -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--evi)"></span><span class="sec">10 · 증거 모델</span><span class="pg">10 / 20</span></div>
-      <h1 class="title">모든 추출기는 하나의 증거로 말한다</h1>
-      <p class="sub">출처와 파일·라인 추적이 담긴, 타입화된 증거 레코드.</p>
-      <div class="stage"><div class="stage-in">
-        <div class="rec-card">
-          <div class="rh">EVIDENCE · 레코드</div>
-          <div class="rr"><span class="rk">action id</span><span class="rv">대조된 식별자 (+ 매치 강도)</span></div>
-          <div class="rr"><span class="rk">callback</span><span class="rv">해석된 내부 함수</span></div>
-          <div class="rr"><span class="rk">kind</span><span class="rv">어떤 방식이 만들었는가</span></div>
-          <div class="rr"><span class="rk">provenance</span><span class="rv">사이트/그룹 키 (중복 제거·그룹화)</span></div>
-          <div class="rr"><span class="rk">confidence</span><span class="rv">Prior(kind) × 매치 강도</span></div>
-          <div class="rr"><span class="rk">records[]</span><span class="rv">파일·라인 추적 (감사 가능)</span></div>
-        </div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>발표 노트</b><p>추적 기록은 장식이 아니라, 도구를 돌리지 않은 사람이 해석을 검토할 수 있게 하는 핵심. 여러 추출기가 동시에 방출하는 이유는 같은 바인딩에 대한 독립적 사실을 관찰하기 때문. 이 레코드가 인식과 계산 사이의 경계 객체다.</p></aside>
-
-  <!-- 11 SCORING -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--cal)"></span><span class="sec">11 · 증거 점수화</span><span class="pg">11 / 20</span></div>
-      <h1 class="title">증거 점수 = 사전확률 × 매치 강도</h1>
-      <p class="sub">개별 증거 하나의 점수. 아직 후보를 합치지 않는다.</p>
-      <div class="stage"><div class="stage-in">
-        <div class="row" style="gap:clamp(14px,2vw,28px)">
-          <div class="col" style="gap:12px">
-            <div class="blk">Prior(kind)<span class="en">디스패치 · 등록 = 높음</span></div>
-            <div class="blk">매치 강도<span class="en">정확=유지 · 약함=감쇠</span></div>
-          </div>
-          <span class="chev"></span>
-          <div class="blk lg" style="background:var(--cal-soft);color:var(--cal-ink);font-weight:800">증거 점수<span class="en">evidence score</span></div>
-        </div>
-        <div class="cap">개별 점수일 뿐 — <b>후보 병합은 다음 단계</b></div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>발표 노트</b><p>이 장은 오직 <em>하나</em>의 증거에 관한 것. 정확 심볼 매치의 구조적 등록은 사전확률에 가깝게, 부분 문자열 매치는 감쇠, 이름 전용은 여전히 약함. (구체 수치는 부록.) 계산의 쉬운 절반이고, 결합이 다음.</p></aside>
-
-  <!-- 12 COMBINATION -->
+  <!-- 08 RECOGNITION / AST before-after -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--cal)"></span><span class="sec">12 · 증거 결합</span><span class="pg">12 / 20</span></div>
-      <h1 class="title">중복을 접고, 독립 근거만 합친다</h1>
-      <p class="sub">사이트 내 MAX로 중복 제거 → 사이트 간 noisy-OR로 확증 → 상한·감점.</p>
+      <div class="eyebrow"><span class="dot" style="background:var(--rec)"></span><span class="sec">08 · 인식 메커니즘</span><span class="pg">08 / 19</span></div>
+      <h1 class="title">인식기는 AST 형태로 id·콜백을 상관시킨다</h1>
+      <p class="ask"><span class="q">질문 —</span> 지정 초기화는 왜 따로 다뤄야 하나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="col">
-          <div class="blk">한 후보의 여러 증거 점수</div>
-          <span class="chev d"></span>
-          <div class="blk lg" style="background:var(--cal-soft);color:var(--cal-ink)"><b>1단계 · 접기</b> — 사이트 내 MAX<span class="en">같은 사이트 = 새 정보 아님</span></div>
-          <span class="chev d"></span>
-          <div class="blk lg" style="background:var(--cal-soft);color:var(--cal-ink)"><b>2단계 · 결합</b> — 사이트 간 noisy-OR<span class="en">독립 확증 → 신뢰 ↑</span></div>
-          <span class="chev d"></span>
-          <div class="blk" style="font-size:14px">Weak-only Cap · Global Cap · Conflict Penalty</div>
-          <span class="chev d"></span>
-          <div class="blk accent" style="font-weight:800">후보 신뢰도</div>
+        <div class="two">
+          <div><div class="colhead">집합 초기화 — id가 형제 노드</div>
+            <div class="codeblk">arrayInitializer  "{ ACTION_REMOTE_START, remote_handler }"
+├─ ACTION_REMOTE_START        <span class="cm">// id (형제)</span>
+└─ METHOD_REF  remote_handler <span class="cm">// 콜백</span></div></div>
+          <div><div class="colhead">지정 초기화 — id가 형제 <b>필드</b></div>
+            <div class="codeblk">arrayInitializer  "{ .action=…, .fn=… }"
+├─ BLOCK └ <span class="hl">.action = ACTION_REMOTE_START</span>  <span class="cm">// id 필드</span>
+└─ BLOCK └ .fn = <span class="ok">remote_handler</span>          <span class="cm">// 콜백 필드</span></div></div>
         </div>
+        <div class="note">지정 멤버는 <b>대입으로 감싸진다</b>. 인식기는 “같은 struct 초기화에 속한 형제 필드”로 id↔콜백을 상관시킨다 — 순서 무관, 필드명 추측 없음.</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 인식기의 <b>출력물</b>은 정확히 무엇인가?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>핵심. noisy-OR인 이유: 독립 확증은 신뢰를 올리되 확실성엔 못 미친다(Global Cap이 1.0 미만 유지). 사이트 내 MAX인 이유: 같은 등록의 두 레코드는 두 증인이 아니다. Weak-only Cap은 <b>매치 강도</b>(종류 아님)에 걸린다 — 정확 매치 없는 후보는 상한, 그러나 정확 매치가 있는 디스패치는 상한 없음.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>지정 초기화 멤버가 <operator>.assignment로 감싸지고 BLOCK 아래 들어가는 것이 실제 c2cpg lowering. 인식기는 콜백을 든 필드를 찾고, 같은 초기화 안 형제 필드에서 id를 회수한다.</p></aside>
 
-  <!-- 13 SELECTION -->
+  <!-- 09 EVIDENCE OBJECT -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--dec)"></span><span class="sec">13 · 후보 선택</span><span class="pg">13 / 20</span></div>
-      <h1 class="title">확신만으로 확정·보류·미해결을 가른다</h1>
-      <p class="sub">수용 임계값(Acceptance Floor), 그다음 모호성 마진(Ambiguity Margin) — 구조 기반 게이트는 없다.</p>
+      <div class="eyebrow"><span class="dot" style="background:var(--evi)"></span><span class="sec">09 · 증거 객체</span><span class="pg">09 / 19</span></div>
+      <h1 class="title">모든 추출기의 출력 = 하나의 증거 레코드</h1>
+      <p class="ask"><span class="q">질문 —</span> 인식기는 정확히 무엇을 방출하나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="gate">
-          <div class="lvl">
-            <div class="q">1위 ≥ 수용 임계값?</div>
-            <span class="yn">아니오 →</span>
-            <div class="out unr">미해결<span class="en">UNRESOLVED · low confidence</span></div>
-          </div>
-          <span class="chev d"></span><span class="yn">예</span>
-          <div class="lvl">
-            <div class="q">(1위 − 2위) ≥ 모호성 마진?</div>
-            <span class="yn">아니오 →</span>
-            <div class="out amb">모호<span class="en">AMBIGUOUS · 경쟁 후보 보존</span></div>
-          </div>
-          <span class="chev d dec"></span><span class="yn">예</span>
-          <div class="out res" style="font-size:clamp(15px,1.5vw,19px)">확정<span class="en">RESOLVED · 선택 + 근거 추적</span></div>
+        <div class="two l">
+          <div><div class="colhead">Evidence (실제 객체)</div>
+            <div class="codeblk">Evidence {
+  kind       : <span class="kw">REGISTRATION_INIT</span>
+  callback   : remote_handler          <span class="cm">// u.c:15</span>
+  action_id  : { symbol: "ACTION_REMOTE_START",
+                 match : <span class="ok">EXACT_IDENTIFIER</span> }
+  provenance : "site:reg:g_table"        <span class="cm">// 그룹 키</span>
+  score      : 0.80                      <span class="cm">// = 0.80 × 1.00</span>
+  records    : [
+    DISPATCH_HANDLER_TABLE
+      "{ ACTION_REMOTE_START, remote_handler }"  u.c:12
+    HANDLER_REF  "remote_handler"                u.c:15
+  ]
+}</div></div>
+          <div><div class="colhead">필드가 하는 일</div>
+            <div class="card" style="font-size:12.5px;line-height:1.85;color:var(--ink-2)">
+              <b>kind</b> — 어떤 방식이 만들었나 (사전확률)<br>
+              <b>action_id.match</b> — 매치 강도 (배수)<br>
+              <b>provenance</b> — 중복 제거·그룹화 키<br>
+              <b>score</b> — prior × 배수<br>
+              <b>records</b> — 파일·라인 추적 = <b>감사 가능</b></div></div>
         </div>
-        <div class="cap"><b>구조 종류 게이트 없음</b> — 약한 매치 후보는 감점될 뿐, 배제되지 않는다</div>
+        <div class="cap">여러 추출기가 동시에 방출 → 같은 바인딩에 대한 <b>독립 관찰</b>들이 계산 계층으로 넘어간다</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 이 증거 하나에 <b>점수</b>는 어떻게 매기나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>의도적 보류가 가장 흥미로운 지점. 잘못된 해석은 후속 전부를 오염시키므로, 근거가 진짜 갈리면 보류하고 F6/사람에게 넘기는 게 옳다. 모호는 결함이 아니라 기능. 게이트는 임계값+마진뿐 — weak-only cap은 신뢰도를 낮출 뿐 해석을 막지 않으며, 정확 매치의 디스패치는 단독으로도 확정된다.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>records 추적이 핵심 — 도구를 안 돌린 사람도 해석을 검토할 수 있게 한다. 이 레코드가 인식과 계산 사이의 경계 객체.</p></aside>
+
+  <!-- 10 SCORING -->
+  <section class="slide tall">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--cal)"></span><span class="sec">10 · 점수화</span><span class="pg">10 / 19</span></div>
+      <h1 class="title">한 증거의 점수 = 사전확률 × 매치 배수</h1>
+      <p class="ask"><span class="q">질문 —</span> 종류와 매치 강도가 점수로 어떻게 합쳐지나?</p>
+      <div class="stage"><div class="stage-in">
+        <div class="math"><span class="k">score</span> <span class="op">=</span> Prior(kind) <span class="op">×</span> MatchMult(strength)
+          <span class="op">&nbsp;&nbsp;·&nbsp;&nbsp;식별자 상충 시:</span> Prior <span class="op">×</span> min(Mult, 0.70) <span class="op">×</span> 0.5</div>
+        <div class="two">
+          <div><div class="colhead">사전확률 Prior(kind)</div>
+            <table class="tbl"><tbody>
+              <tr><td>STRING_DISPATCH</td><td class="r">0.90</td></tr>
+              <tr><td>ENUM_CASE</td><td class="r">0.85</td></tr>
+              <tr><td>REGISTRATION_INIT / ASSIGN</td><td class="r">0.80</td></tr>
+              <tr><td>REGISTRAR_CALL · NAME_MATCH</td><td class="r">0.70</td></tr>
+            </tbody></table></div>
+          <div><div class="colhead">계산 예시</div>
+            <table class="tbl"><thead><tr><th>증거</th><th class="r">prior</th><th class="r">×배수</th><th class="r">score</th></tr></thead><tbody>
+              <tr class="good"><td>REG_INIT · EXACT</td><td class="r">0.80</td><td class="r">1.00</td><td class="r win">0.80</td></tr>
+              <tr><td>ENUM_CASE · NORMALIZED</td><td class="r">0.85</td><td class="r">0.85</td><td class="r">0.72</td></tr>
+              <tr><td>REG_INIT · SUBSTRING</td><td class="r">0.80</td><td class="r">0.70</td><td class="r">0.56</td></tr>
+              <tr><td>NAME_MATCH · SUBSTRING</td><td class="r">0.70</td><td class="r">0.70</td><td class="r">0.49</td></tr>
+            </tbody></table></div>
+        </div>
+        <div class="cap"><b>디스패치(0.85)가 등록(0.80)보다 사전확률이 높다</b> — 종류가 아니라 점수가 승부를 가른다. 아직 후보 병합 없음.</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 한 후보의 <b>여러 증거</b>는 어떻게 합치나?</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>score = weight(prior) × MATCH_MULTIPLIER. 식별자 상충(CONFLICTING) 시 배수를 0.70으로 캡한 뒤 ×0.5 감점. 여기까진 증거 하나에 대한 이야기.</p></aside>
+
+  <!-- 11 COMBINATION -->
+  <section class="slide tall">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--cal)"></span><span class="sec">11 · 결합</span><span class="pg">11 / 19</span></div>
+      <h1 class="title">중복은 MAX로 접고, 독립 근거는 noisy-OR로</h1>
+      <p class="ask"><span class="q">질문 —</span> 여러 증거 → 후보 신뢰도 하나, 어떻게?</p>
+      <div class="stage"><div class="stage-in">
+        <div class="two l">
+          <div><div class="colhead">의사코드 (후보당)</div>
+            <div class="codeblk">for g <span class="kw">in</span> provenance_groups(evidence):
+    group[g] = <span class="hl">max</span>(score(e) for e in g)   <span class="cm"># 같은 사이트=한 번</span>
+conf = 1 − ∏(1 − group[g])            <span class="cm"># noisy-OR: 독립 확증</span>
+<span class="kw">if</span> 강한매치_없음: conf = min(conf, 0.85) <span class="cm"># weak-only cap</span>
+conf = min(conf, 0.99)                <span class="cm"># global cap</span></div></div>
+          <div><div class="colhead">수치 예시</div>
+            <div class="card" style="font-size:12.5px;line-height:1.9;color:var(--ink-2)">
+              <b>MAX</b> 같은 등록 두 관찰 0.80, 0.80<br>→ 그룹 <b>0.80</b> <span class="mut">(합 아님 — 증인 하나)</span><br>
+              <b>noisy-OR</b> 독립 그룹 0.80, 0.49<br>→ 1−(0.20×0.51)=<b class="win">0.898</b><br>
+              <span class="mut">두 약한 독립 근거가 각자보다 커짐</span></div></div>
+        </div>
+        <div class="note">왜 noisy-OR? 독립 확증은 신뢰를 올리되 <b>확실성엔 못 미친다</b>(global cap 0.99). 왜 MAX? 같은 사이트의 두 레코드는 두 증인이 아니다.</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 이 신뢰도로 <b>어떻게 결정</b>하나?</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>집계 순서 고정: per-evidence 점수 → 그룹 MAX → noisy-OR → 캡. weak-only cap은 매치 강도 기준(정확 식별자 없음)이며 종류가 아니다.</p></aside>
+
+  <!-- 12 SELECTION -->
+  <section class="slide tall">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--dec)"></span><span class="sec">12 · 판정</span><span class="pg">12 / 19</span></div>
+      <h1 class="title">임계값 + 마진 — 구조 게이트는 없다</h1>
+      <p class="ask"><span class="q">질문 —</span> 확정/모호/미해결은 정확히 무슨 조건인가?</p>
+      <div class="stage"><div class="stage-in">
+        <div class="two">
+          <div><div class="colhead">의사코드</div>
+            <div class="codeblk">후보 = sort_desc(by conf)
+top = 후보[0]
+<span class="kw">if</span> top.conf &lt; <span class="hl">0.50</span>:                <span class="cm"># Acceptance Floor</span>
+    <span class="kw">return</span> UNRESOLVED(LOW_CONFIDENCE)
+<span class="kw">if</span> top.conf − 후보[1].conf &lt; <span class="hl">0.15</span>: <span class="cm"># Ambiguity Margin</span>
+    <span class="kw">return</span> AMBIGUOUS(경쟁 보존)
+<span class="kw">return</span> <span class="ok">RESOLVED(top)</span></div></div>
+          <div><div class="colhead">결정 표</div>
+            <table class="tbl"><thead><tr><th class="r">1위</th><th class="r">2위</th><th class="ko">결과</th></tr></thead><tbody>
+              <tr class="good"><td class="r">0.80</td><td class="r">0.40</td><td class="ko win">확정</td></tr>
+              <tr class="good"><td class="r">0.72</td><td class="r">0.56</td><td class="ko win">확정 <span class="mut">(마진 0.16)</span></td></tr>
+              <tr class="warn"><td class="r">0.66</td><td class="r">0.56</td><td class="ko">모호 <span class="mut">(마진 0.10)</span></td></tr>
+              <tr><td class="r">0.42</td><td class="r">—</td><td class="ko mut">미해결 (&lt;0.50)</td></tr>
+            </tbody></table></div>
+        </div>
+        <div class="note">잘못된 확정은 후속 전체를 오염시킨다 → 근거가 갈리면 <b>의도적으로 보류</b>. 강한 매치의 디스패치는 <b>단독으로도 확정</b>된다(구조 종류 무관).</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 실제 코드 하나로 <b>전 과정</b>을 밟아보자</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>게이트는 Floor+Margin뿐. weak-only cap은 신뢰도를 낮출 뿐 해석을 막지 않는다. 구조 종류에 해석을 예약하는 규칙 없음.</p></aside>
+
+  <!-- 13 WORKED EXAMPLE -->
+  <section class="slide tall">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot"></span><span class="sec">13 · 워크드 예제</span><span class="pg">13 / 19</span></div>
+      <h1 class="title">등록 vs switch — 전 과정을 수치로 따라가기</h1>
+      <p class="ask"><span class="q">질문 —</span> 같은 액션에 후보가 둘이면 누가 이기나?</p>
+      <div class="stage"><div class="stage-in">
+        <div class="codeblk" style="max-width:900px;width:100%">static Reg t[] = { { <span class="kw">ACTION_DATA_TRANSFER</span>, foo } };        <span class="cm">// 등록</span>
+switch (f-&gt;action){ case <span class="kw">ACTION_DATA_TRANSFER</span>: bar(); }  <span class="cm">// 디스패치</span></div>
+        <table class="tbl" style="max-width:900px">
+          <thead><tr><th class="ko">후보</th><th>kind</th><th class="ko">매치</th><th class="r">prior×배수</th><th class="r">conf</th></tr></thead>
+          <tbody>
+            <tr class="good"><td class="ko">bar</td><td>ENUM_CASE</td><td class="ko">NORMALIZED</td><td class="r">0.85 × 0.85</td><td class="r win">0.72</td></tr>
+            <tr><td class="ko">foo</td><td>REGISTRATION_INIT</td><td class="ko">SUBSTRING</td><td class="r">0.80 × 0.70</td><td class="r">0.56</td></tr>
+          </tbody>
+        </table>
+        <div class="math" style="font-size:clamp(12px,1.35vw,16px)">1위 0.72 ≥ 0.50 <span class="op">·</span> 마진 0.72−0.56 = <span class="k">0.16</span> ≥ 0.15 <span class="op">→</span> <span class="res">RESOLVED → bar</span></div>
+        <div class="note g">반사실: switch를 지우면 증거는 foo 하나 → 0.56 ≥ 0.50, 경쟁 없음 → <b>RESOLVED → foo</b>. 승부는 종류가 아니라 <b>매치 강도</b>가 갈랐다.</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 아무도 못 이기면(증거 부족) 무슨 일이?</div>
+    </div>
+  </section>
+  <aside class="notes"><b>발표 노트</b><p>실측: bar(ENUM_CASE) 0.85×0.85≈0.72, foo(REGISTRATION_INIT) 0.80×0.70=0.56. 마진 0.16≥0.15 → 디스패치 핸들러 bar로 확정. 종류 무관, 매치 강도 기반. 모호를 보려면 마진 안 두 후보 필요.</p></aside>
 
   <!-- 14 DIAGNOSTICS -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">14 · 진단</span><span class="pg">14 / 20</span></div>
-      <h1 class="title">미해결은 실패가 아니라 ‘막힌 지점’이다</h1>
-      <p class="sub">모든 미해결에는 구조화된, 실행 가능한 사유가 붙는다.</p>
-      <div class="stage"><div class="stage-in">
-        <div class="reasons">
-          <div class="rrow"><div class="rc">증거 없음</div><div class="rchips"><span class="chip">NO_EVIDENCE</span></div></div>
-          <div class="rrow"><div class="rc">임계값 미달</div><div class="rchips"><span class="chip">LOW_CONFIDENCE</span></div></div>
-          <div class="rrow"><div class="rc">분석 한계</div><div class="rchips"><span class="chip">REGISTRAR_STORE_NOT_REACHED</span><span class="chip">EXTERNAL_DEFINITION</span><span class="chip">MISSING_POINTSTO</span><span class="chip">REGISTRATION_OUT_OF_TU</span></div></div>
-          <div class="rrow"><div class="rc">미지원 패턴</div><div class="rchips"><span class="chip">REGISTRAR_SEARCH_THEN_WRITE</span><span class="chip">DYNAMIC_ACTION_ID</span></div></div>
-        </div>
-        <div class="cap">‘신호 없음’과 ‘의도적으로 따라가지 않는 신호’를 구분 — 버그가 아니라 <b>범위 선언</b></div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>발표 노트</b><p>“store not reached”는 일반적, “search-then-write”는 루프+술어 슬롯 탐색을 특정한다. 이 정밀함이 독자에게 “확장할지 / 수용할지”를 결정하게 해준다. 진단은 평가 실행 요약에 사용된다.</p></aside>
-
-  <!-- 15 WORKED EXAMPLE -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">15 · 사례 분석</span><span class="pg">15 / 20</span></div>
-      <h1 class="title">이 사례에선 디스패치 증거가 이긴다</h1>
-      <p class="sub">두 추출기가 발화 — 더 강한 식별자 매치가 확정을 가져간다.</p>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">14 · 진단</span><span class="pg">14 / 19</span></div>
+      <h1 class="title">미해결엔 “왜 막혔는지”가 코드로 붙는다</h1>
+      <p class="ask"><span class="q">질문 —</span> 못 풀었을 때 무엇을, 왜 보고하나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="we">
-          <div class="src">static Reg t[] = { { ACTION_DATA_TRANSFER, foo } };      // 등록
-switch (f->action){ case ACTION_DATA_TRANSFER: bar(); }  // 디스패치</div>
-          <span class="chev d"></span>
-          <span class="we stag" style="color:var(--evi-ink)">증거 · EVIDENCE</span>
-          <div class="ev">A · REGISTRATION_INIT → foo &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (부분 문자열)<br>B · ENUM_CASE → bar &nbsp;·&nbsp; id=ACTION_DATA_TRANSFER (정규화 일치)</div>
-          <span class="chev d"></span>
-          <div class="verdict">
-            <span class="scorepill win">bar · 0.72</span>
-            <span class="cap" style="font-family:var(--mono);font-size:12px">vs</span>
-            <span class="scorepill lose">foo · 0.56</span>
-            <span class="chev dec"></span>
-            <span class="out res" style="font-size:16px">확정 → bar</span>
-          </div>
-          <div class="cap">switch 제거 시 → 증거 A만 → foo 단독 확정 (≈0.56, 임계값 턱걸이)</div>
+        <div class="two">
+          <div><div class="colhead">지원됨 — 슬롯이 정적으로 보임</div>
+            <div class="codeblk">t[k].action = ACTION;   <span class="cm">// id 저장</span>
+t[k].fn     = fn;       <span class="ok">// 같은 슬롯 k</span></div>
+            <div class="colhead" style="margin-top:12px">미지원 — 런타임 탐색 후 저장</div>
+            <div class="codeblk">for (i..) <span class="kw">if</span> (t[i].action == a)   <span class="bad">// 비교(술어)</span>
+     { t[i].fn = fn; return; }  <span class="bad">// 심볼릭 i</span></div></div>
+          <div><div class="colhead">미해결 사유 (구조화)</div>
+            <table class="tbl"><tbody>
+              <tr><td class="ko">증거 없음</td><td>NO_EVIDENCE</td></tr>
+              <tr><td class="ko">임계값 미달</td><td>LOW_CONFIDENCE</td></tr>
+              <tr><td class="ko">저장 미도달</td><td>REGISTRAR_STORE_NOT_REACHED</td></tr>
+              <tr class="warn"><td class="ko">탐색-후-저장</td><td>REGISTRAR_SEARCH_THEN_WRITE</td></tr>
+              <tr><td class="ko">외부 정의</td><td>EXTERNAL_DEFINITION</td></tr>
+              <tr><td class="ko">동적 액션 ID</td><td>DYNAMIC_ACTION_ID</td></tr>
+            </tbody></table></div>
         </div>
+        <div class="cap">id가 <b>저장이 아니라 비교</b>만 되고 슬롯이 심볼릭 i라, 정적 쌍-저장 추출기가 닿지 못함 → 버그가 아니라 <b>명명된 범위 밖</b></div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 이 결과들을 <b>어떤 형태</b>로 내보내나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>실제 수치: bar(ENUM_CASE) 사전확률 0.85 × 정규화 매치(×0.85) ≈ 0.72; foo(REGISTRATION_INIT) 0.80 × 부분 문자열(×0.70) ≈ 0.56. 차이 ≈0.16이 모호성 마진을 넘어 디스패치 핸들러 bar로 확정. 해석은 매치 강도 기반이며 종류 무관 — 구조 권한 부여는 없다. 모호를 보이려면 마진 안의 두 후보가 필요.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>“store not reached”는 일반, “search-then-write”는 루프+술어 슬롯 탐색을 특정. 정밀한 사유가 “확장할지/수용할지”를 결정하게 해준다.</p></aside>
 
-  <!-- 16 OUTPUT SCHEMA -->
+  <!-- 15 OUTPUT -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">16 · 출력 스키마</span><span class="pg">16 / 20</span></div>
-      <h1 class="title">미해결도 하나의 정식 결과다</h1>
-      <p class="sub">액션별 권위 있는 결과 집합 — 모든 후보가 근거로 연결된다.</p>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">15 · 출력 스키마</span><span class="pg">15 / 19</span></div>
+      <h1 class="title">미해결도 근거와 함께 실려 나가는 정식 결과</h1>
+      <p class="ask"><span class="q">질문 —</span> 후속 단계는 무엇을 받나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="res">
-          <div class="big">
-            <div class="rt">handler_resolutions</div>
-            <div class="rd">권위 있는 결과 · 액션당 하나</div>
-            <div class="subchips">
-              <span class="chip">status · RESOLVED/AMBIGUOUS/UNRESOLVED</span>
-              <span class="chip">chosen · 확정 시에만</span>
-              <span class="chip">candidates · 증거+추적 포함</span>
-              <span class="chip">conflict · 경쟁+마진</span>
-              <span class="chip">unresolved · 사유+시도</span>
-            </div>
-          </div>
-          <div class="minor">
-            <div class="m"><div class="mt">handler_maps</div><div class="md">확정 전용 뷰 · 하위 호환</div></div>
-            <div class="m"><div class="mt">limitations</div><div class="md">전역 범위 한계</div></div>
-          </div>
-        </div>
+        <div class="codeblk" style="max-width:940px;width:100%">"RemoteStartTransaction": {
+  "status": <span class="ok">"RESOLVED"</span>,
+  "chosen": { "function": "remote_handler", "file": "u.c", "line": 15 },
+  "candidates": [ { "function":"remote_handler", "confidence":0.80,
+                    "evidence_kinds":["REGISTRATION_INIT"], "evidence":[ … records … ] } ],
+  "conflict": null, "unresolved": null
+},
+"UpdateFirmware": {
+  "status": <span class="bad">"UNRESOLVED"</span>,
+  "unresolved": { "reason":"NO_EVIDENCE", "attempted":["registration_ast","name_match"] }
+}</div>
+        <div class="cap"><b>handler_resolutions</b>(권위·액션당 하나) + <b>handler_maps</b>(확정 전용·하위 호환) + <b>limitations</b>. 모든 후보가 증거·추적으로 연결된다.</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 확정 핸들러를 F6는 <b>어떻게</b> 쓰나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>두 뷰 설계: 레거시 소비자는 “확정된 맵”만 원하고, 감사자·F6는 미해결 이유까지 포함한 전체 결과를 원한다. 확정 항목의 신뢰도는 <em>선택된</em> 증거를 반영하며, 집계된 후보 점수와 구분됨.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>두 뷰: 레거시는 확정 맵만, 감사자·F6는 미해결 사유까지 전체. 확정 항목 신뢰도는 선택된 증거를 반영(집계 점수와 구분).</p></aside>
 
-  <!-- 17 DOWNSTREAM -->
+  <!-- 16 DOWNSTREAM -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">17 · 하위 소비</span><span class="pg">17 / 20</span></div>
-      <h1 class="title">확정된 핸들러가 모든 후속 분석의 기준점</h1>
-      <p class="sub">필드 바인딩·소스·싱크·검사가 전부 핸들러에서 확장된다.</p>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">16 · 하위 소비</span><span class="pg">16 / 19</span></div>
+      <h1 class="title">확정 핸들러 = 오염 분석의 출발 함수</h1>
+      <p class="ask"><span class="q">질문 —</span> 이 매핑이 실제로 무엇을 열어주나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="col">
-          <div class="blk accent lg" style="font-weight:800">확정 핸들러(action)<span class="en">진입 파라미터 = 신뢰 불가 페이로드</span></div>
-          <span class="chev d"></span>
-          <div class="blk">프로토콜 필드 바인딩 <span class="en">필드 → 변수</span></div>
-          <span class="chev d"></span>
-          <div class="blk">소스 식별 <span class="en">핸들러 내부 오염 루트</span></div>
-          <span class="chev d"></span>
-          <div class="blk">싱크 도달성 <span class="en">오염 데이터 → 위험 API?</span></div>
-          <span class="chev d"></span>
-          <div class="blk">검사 매칭 <span class="en">명세 요구 검증 존재?</span></div>
-          <span class="chev d"></span>
-          <div class="blk" style="background:var(--surface);box-shadow:0 0 0 1.5px var(--hair) inset;color:var(--ink-2)">보안 결과 후보 — F6</div>
+        <div class="two l">
+          <div><div class="colhead">F6가 핸들러에서 확장</div>
+            <div class="codeblk">int <span class="ok">remote_handler</span>(Payload *p) {   <span class="cm">// 소스 루트</span>
+    int lim = p-&gt;<span class="hl">chargingLimit</span>;    <span class="cm">// 필드 바인딩</span>
+    set_current_limit(lim);          <span class="bad">// 싱크 — 검증 없음?</span>
+}</div></div>
+          <div><div class="colhead">확장 경로</div>
+            <div class="card" style="font-size:12.5px;line-height:1.9;color:var(--ink-2)">
+              확정 핸들러<br>→ 필드 바인딩 <span class="mut">(필드→변수)</span><br>→ 소스 식별 <span class="mut">(오염 루트)</span><br>→ 싱크 도달성<br>→ 기대 검사 매칭 → <b>F6 결과</b></div></div>
         </div>
+        <div class="note d">핸들러가 없으면 소스 루트도 없다 → 그 액션엔 결과가 없다. 그래서 <b>확신에 찬 오답보다 정직한 보류</b>가 낫다.</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 무엇까지 되고, 무엇이 안 되나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>핸들러가 없으면 → 소스 루트 없음 → 오염 없음 → 그 액션엔 결과 없음. 그래서 F2-A의 보류 규율이 중요하다 — 확신에 찬 오답 핸들러는 오염 분석을 엉뚱한 함수로 보내 거짓 결과를 만든다.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>확신에 찬 오답 핸들러는 오염 분석을 엉뚱한 함수로 보내 거짓 결과를 만든다 — 보류 규율의 이유.</p></aside>
 
-  <!-- 18 SCOPE -->
-  <section class="slide">
+  <!-- 17 SCOPE vs LIMITS -->
+  <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">18 · 현재 범위</span><span class="pg">18 / 20</span></div>
-      <h1 class="title">구조로 결정되는 범위까지가 기준선</h1>
-      <p class="sub">정적으로 판정 가능한 등록·디스패치 형태 + 명시적 모호성 처리.</p>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">17 · 범위 vs 한계</span><span class="pg">17 / 19</span></div>
+      <h1 class="title">구조로 결정 가능하면 지원, 값 추론이면 보류</h1>
+      <p class="ask"><span class="q">질문 —</span> 경계는 정확히 어디인가?</p>
       <div class="stage"><div class="stage-in">
-        <div class="checks">
-          <div class="ck">집합 초기화</div>
-          <div class="ck">지정 초기화</div>
-          <div class="ck">인덱스 · 상관 필드 저장</div>
-          <div class="ck">등록 함수 추적 (저장 도달)</div>
-          <div class="ck">위임 등록 (깊이 제한)</div>
-          <div class="ck">심볼릭 리시버 상관 (공유 슬롯)</div>
-          <div class="ck">enum/switch 디스패치 인식</div>
-          <div class="ck">이름 매치 폴백</div>
-          <div class="ck">모호성 탐지 · 보류</div>
-          <div class="ck">구조화된 진단</div>
+        <div class="two">
+          <div><div class="colhead" style="color:var(--good-ink)">지원 (AST + 심볼 + 얕은 호출)</div>
+            <table class="tbl"><tbody>
+              <tr class="good"><td class="ko">집합·지정·인덱스·상관 등록</td></tr>
+              <tr class="good"><td class="ko">등록 함수 추적 (저장 도달)</td></tr>
+              <tr class="good"><td class="ko">위임 등록 (깊이 ≤ 2)</td></tr>
+              <tr class="good"><td class="ko">enum/switch 디스패치 · 이름 폴백</td></tr>
+              <tr class="good"><td class="ko">모호성 보류 · 구조화 진단</td></tr>
+            </tbody></table></div>
+          <div><div class="colhead">미지원 → 필요 역량</div>
+            <table class="tbl"><tbody>
+              <tr><td class="ko">탐색-후-저장</td><td class="ko mut">루프+술어 추론</td></tr>
+              <tr><td class="ko">런타임 슬롯 선택</td><td class="ko mut">심볼릭 인덱스</td></tr>
+              <tr><td class="ko">별칭→슬롯</td><td class="ko mut">points-to 분석</td></tr>
+              <tr><td class="ko">프로시저 간 슬롯</td><td class="ko mut">프로시저 간 값 흐름</td></tr>
+              <tr><td class="ko">동적 액션 ID</td><td class="ko mut">DFG 에스컬레이션</td></tr>
+            </tbody></table></div>
         </div>
+        <div class="cap">미지원도 <b>탐지·명명 후 보류</b> — 정밀·설명 가능한 코어 + 정직한 공백</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 이 동작을 <b>어떻게 고정</b>(검증)하나?</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>경계를 명시: 기준선은 구조·식별자로 건전하게 복원 가능한 것 + 얕은 호출 추적. 값 추론이 필요한 건 다음 장에서 보류. 정밀성과 설명 가능성을 우선한 설계 선택.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>기준선 = 구조·식별자로 건전 복원 + 얕은 호출 추적. 값 추론은 보류. 정밀성·설명 가능성 우선의 설계 선택.</p></aside>
 
-  <!-- 19 LIMITATIONS -->
-  <section class="slide">
+  <!-- 18 EVALUATION -->
+  <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">19 · 한계</span><span class="pg">19 / 20</span></div>
-      <h1 class="title">값 추론이 필요한 패턴은 범위 밖으로 둔다</h1>
-      <p class="sub">루프·별칭·프로시저 간 사례는 탐지·명명 후 보류한다.</p>
+      <div class="eyebrow"><span class="dot" style="background:var(--dec)"></span><span class="sec">18 · 평가</span><span class="pg">18 / 19</span></div>
+      <h1 class="title">픽스처마다 기대 결과를 못박아 회귀를 막는다</h1>
+      <p class="ask"><span class="q">질문 —</span> 이 동작이 맞다는 걸 어떻게 아나?</p>
       <div class="stage"><div class="stage-in">
-        <div class="maps">
-          <div class="mhead"><span>제외 패턴</span><span></span><span>필요 역량</span></div>
-          <div class="mrow"><div class="ex">search-then-write 등록 함수</div><span class="chev"></span><div class="need">루프 + 술어 추론</div></div>
-          <div class="mrow"><div class="ex">런타임 슬롯 선택</div><span class="chev"></span><div class="need">심볼릭 인덱스 해석</div></div>
-          <div class="mrow"><div class="ex">별칭→슬롯 바인딩</div><span class="chev"></span><div class="need">별칭 / points-to 분석</div></div>
-          <div class="mrow"><div class="ex">프로시저 간 슬롯 재구성</div><span class="chev"></span><div class="need">프로시저 간 값 흐름</div></div>
-          <div class="mrow"><div class="ex">일반 동적 액션 ID</div><span class="chev"></span><div class="need">DFG 기반 에스컬레이션</div></div>
-        </div>
+        <table class="tbl" style="max-width:1000px">
+          <thead><tr><th class="ko">픽스처 (코드 형태)</th><th class="ko">기대 상태</th><th>kind / 사유</th></tr></thead>
+          <tbody>
+            <tr class="good"><td>{ ACTION, fn }</td><td class="ko win">RESOLVED</td><td>REGISTRATION_INIT</td></tr>
+            <tr class="good"><td>{ .action=ACTION, .fn=fn }</td><td class="ko win">RESOLVED</td><td>REGISTRATION_INIT</td></tr>
+            <tr class="good"><td class="ko">등록 vs switch</td><td class="ko win">RESOLVED</td><td>bar · ENUM_CASE</td></tr>
+            <tr class="warn"><td class="ko">두 등록 경쟁</td><td class="ko">AMBIGUOUS</td><td class="mut">margin &lt; 0.15</td></tr>
+            <tr><td class="ko">탐색-후-저장</td><td class="ko mut">UNRESOLVED</td><td>REGISTRAR_SEARCH_THEN_WRITE</td></tr>
+            <tr><td class="ko">저장 없는 등록 함수</td><td class="ko mut">UNRESOLVED</td><td>REGISTRAR_STORE_NOT_REACHED</td></tr>
+          </tbody>
+        </table>
+        <div class="cap">역량 테스트(된다) · 회귀 테스트(드리프트 방지) · 미지원 테스트(<b>올바른 거절</b>을 단언) — “크래시 없음”이 아니라 정확한 결과를 못박음</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next">다음 → 전체 알고리즘을 한 장으로 재구성</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>기준선이 이런 패턴을 만나면 해당 사유를 방출하고 보류한다. 정밀하고 설명 가능한 코어 + 정직한 공백이, 넓지만 불투명한 휴리스틱보다 낫다. 실제 펌웨어에서 중요함이 확인되면 착수할 후보 과제.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>각 등록 방식은 정확한 기대 결과를 단언하는 픽스처를 가진다. 부정·미지원 사례는 “올바른 거절”을 단언한다.</p></aside>
 
-  <!-- 20 CONCLUSION -->
-  <section class="slide">
+  <!-- 19 RECAP / RECONSTRUCT -->
+  <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--dec)"></span><span class="sec">20 · 평가 · 결론</span><span class="pg">20 / 20</span></div>
-      <h1 class="title">인식과 판정의 분리, 그것이 기여다</h1>
-      <p class="sub">테스트가 동작을 고정하고, 백본이 확장을 가능케 한다.</p>
+      <div class="eyebrow"><span class="dot" style="background:var(--dec)"></span><span class="sec">19 · 결론 · 알고리즘 재구성</span><span class="pg">19 / 19</span></div>
+      <h1 class="title">알고리즘 한 장 요약 — 이제 재구성할 수 있다</h1>
+      <p class="ask"><span class="q">핵심 —</span> 인식과 판정의 분리가 이 설계의 기여다.</p>
       <div class="stage"><div class="stage-in">
-        <div class="col" style="gap:6px;margin-bottom:6px">
-          <div class="row"><span class="chip">지원 형태</span><span class="cap" style="font-family:var(--mono)">→</span><span class="chip k">RESOLVED (kind, confidence)</span></div>
-          <div class="row"><span class="chip">모호 형태</span><span class="cap" style="font-family:var(--mono)">→</span><span class="chip k">AMBIGUOUS (retain, margin)</span></div>
-          <div class="row"><span class="chip">미지원 형태</span><span class="cap" style="font-family:var(--mono)">→</span><span class="chip k">UNRESOLVED (named reason)</span></div>
-        </div>
-        <div class="backbone" style="gap:8px">
-          <div class="lb rec"><span class="ko">인식</span></div><span class="chev"></span>
-          <div class="lb evi"><span class="ko">증거</span></div><span class="chev"></span>
-          <div class="lb cal"><span class="ko">계산</span></div><span class="chev"></span>
-          <div class="lb dec"><span class="ko">판정</span></div>
-        </div>
-        <div class="cap" style="font-size:clamp(13px,1.35vw,16px);color:var(--ink-2)">“인식과 판정을 증거 추상으로 분리함으로써, F2-A는 <b>보수적이고 · 감사 가능하며 · 자연스럽게 확장</b>된다.”</div>
+        <div class="codeblk dk" style="max-width:960px;width:100%"><span class="cm"># 액션 a 에 대해</span>
+ev = ⋃ extractor(a) for extractor in EXTRACTORS   <span class="cm"># 인식 → 증거</span>
+ev = dedupe(ev)
+<span class="kw">for</span> e in ev: e.score = Prior(e.kind) × MatchMult(e.match)  <span class="cm"># 점수</span>
+<span class="kw">for</span> cand in group_by_callback(ev):               <span class="cm"># 결합</span>
+    g   = { grp: max(score) per provenance group }
+    conf = 1 − ∏(1 − g[grp])                       <span class="cm"># noisy-OR</span>
+    <span class="kw">if</span> no strong match: conf = min(conf, 0.85)
+top, second = rank_desc(cands)                     <span class="cm"># 판정</span>
+<span class="kw">return</span>  UNRESOLVED  <span class="kw">if</span> top&lt;0.50
+   <span class="kw">else</span> AMBIGUOUS  <span class="kw">if</span> top−second&lt;0.15
+   <span class="kw">else</span> <span class="ok">RESOLVED(top)</span></div>
+        <div class="note">보수성은 <b>임계값·충돌 처리·출처 인지 결합·명시적 보류</b>에서 온다 — 구조 게이트가 아니라. 감사 가능성은 모든 해석이 증거 레코드로 추적되기 때문. 확장성은 새 추출기가 계산·판정을 건드리지 않기 때문.</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
+      <div class="next"><b>질문 환영</b> — 파라미터·출처 그룹화는 부록에</div>
     </div>
   </section>
-  <aside class="notes"><b>발표 노트</b><p>테스트 철학: 역량 테스트는 방식이 동작함을, 회귀 테스트는 조용한 드리프트 방지를, 미지원 테스트는 진단을 단언한다. 마무리는 테스트가 아니라 아키텍처로 — 보수성은 임계값·충돌 처리·출처 인지 결합·명시적 보류에서 오며 구조 게이트에서 오지 않는다. 감사 가능성은 모든 해석이 증거 레코드로 추적되기 때문. 확장성은 새 추출기가 계산·판정을 건드리지 않고 같은 증거 버스에 붙기 때문.</p></aside>
+  <aside class="notes"><b>발표 노트</b><p>이 한 장이 전체 알고리즘. 인식→증거→(점수→결합)→판정. 각 계층은 아래 계층의 입력만 만든다. 수치 파라미터는 부록.</p></aside>
 
   <!-- APPENDIX -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--faint)"></span><span class="sec">부록 · Q&amp;A 예비</span><span class="pg">A</span></div>
-      <h1 class="title">질의응답용 참고 자료</h1>
-      <p class="sub">본 서사에서 뺀 구체 파라미터와 메커니즘.</p>
+      <div class="eyebrow"><span class="dot" style="background:var(--faint)"></span><span class="sec">부록 · Q&amp;A</span><span class="pg">A</span></div>
+      <h1 class="title">파라미터 · 메커니즘 (질의응답 예비)</h1>
       <div class="stage"><div class="stage-in">
-        <div class="res" style="max-width:900px">
-          <div class="minor" style="flex-direction:column;gap:10px">
-            <div class="m"><div class="mt">A1 · 파라미터</div><div class="md">종류별 사전확률, 매치 강도 배수, weak-only cap(매치 강도 기준), global cap, 수용 임계값, 모호성 마진, 충돌 감점, 등록 추적 깊이 — 수치는 오직 여기에만</div></div>
-            <div class="m"><div class="mt">A2 · 출처 그룹화</div><div class="md">사이트 내 MAX·사이트 간 noisy-OR인 이유와, 그것이 막는 이중 계산 오류</div></div>
-            <div class="m"><div class="mt">A3 · 지정 vs 집합 AST</div><div class="md">지정 초기화를 구조적으로 구분되게 만드는 lowering 차이(멤버 대입 래핑)</div></div>
-          </div>
-        </div>
+        <table class="tbl" style="max-width:960px">
+          <thead><tr><th class="ko">상수</th><th class="r">값</th><th class="ko">역할</th></tr></thead>
+          <tbody>
+            <tr><td>Acceptance Floor</td><td class="r">0.50</td><td class="ko">이하면 UNRESOLVED</td></tr>
+            <tr><td>Ambiguity Margin</td><td class="r">0.15</td><td class="ko">1·2위 차 이하면 AMBIGUOUS</td></tr>
+            <tr><td>weak-only cap</td><td class="r">0.85</td><td class="ko">정확 식별자 매치 없을 때 상한</td></tr>
+            <tr><td>global cap</td><td class="r">0.99</td><td class="ko">확실성 방지 상한</td></tr>
+            <tr><td>conflict penalty</td><td class="r">×0.5</td><td class="ko">식별자 상충(배수 cap 0.70)</td></tr>
+            <tr><td>registrar depth</td><td class="r">2</td><td class="ko">등록 함수 추적 최대 홉</td></tr>
+          </tbody>
+        </table>
+        <div class="cap">A2 출처 그룹화(그룹 내 MAX·그룹 간 noisy-OR, 이중 계산 방지) · A3 지정 vs 집합 AST lowering 차이</div>
       </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+      <div class="foot">F2-A · 핸들러 해석</div>
     </div>
   </section>
 
-  <div class="batch">— 전체 덱 · 20 슬라이드 + 부록 · 한국어 재설계 —</div>
+  <div class="batch">— 알고리즘 교육용 덱 · 19 슬라이드 + 부록 · 구체 사례 중심 —</div>
 </main>
 </body>
 </html>
