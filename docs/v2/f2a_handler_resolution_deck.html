@@ -16,7 +16,7 @@
     --amb:#c07e10; --amb-soft:#fbf1db; --amb-ink:#8f5d08;
     --bad:#d83b34; --bad-soft:#fbe9e8; --bad-ink:#a82a24;
     --dim:#a2a8b4;
-    --sA:#2846d6; --sB:#0f8a4d; --sC:#7a44d6; --sD:#c07e10;
+    --sB:#0f8a4d; --sC:#7a44d6; --sD:#c07e10;
     --ko:"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
     --shadow:0 1px 3px rgba(14,17,22,.05),0 24px 60px -20px rgba(14,17,22,.18);
@@ -29,42 +29,51 @@
     align-items:baseline;font-family:var(--mono);font-size:11px;letter-spacing:.12em;
     text-transform:uppercase;color:var(--muted)}
   .deckhead b{color:var(--accent-ink);font-weight:700}
-  .batch{max-width:1220px;margin:8px auto 0;text-align:center;font-family:var(--mono);
-    font-size:11px;color:var(--muted)}
+  .batch{max-width:1220px;margin:8px auto 0;text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted)}
 
   .slide{max-width:1220px;margin:0 auto 26px}
   .canvas{position:relative;background:var(--surface);border-radius:20px;box-shadow:var(--shadow);
-    aspect-ratio:16/9;padding:clamp(26px,3vw,46px) clamp(30px,3.4vw,54px);display:flex;
+    aspect-ratio:16/9;padding:clamp(24px,2.8vw,42px) clamp(30px,3.4vw,54px);display:flex;
     flex-direction:column;overflow:hidden}
   .eyebrow{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;
-    letter-spacing:.06em;color:var(--muted);margin-bottom:clamp(8px,1.2vw,16px)}
+    letter-spacing:.06em;color:var(--muted);margin-bottom:clamp(6px,1vw,12px)}
   .eyebrow .dot{width:8px;height:8px;border-radius:2px;background:var(--accent);flex:0 0 auto}
   .eyebrow .sec{color:var(--ink-2);font-weight:600;text-transform:uppercase}
   .eyebrow .pg{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--faint)}
-  .title{font-size:clamp(22px,2.8vw,36px);font-weight:800;line-height:1.2;letter-spacing:-.01em;
-    margin:0;word-break:keep-all;max-width:25em}
-  .sub{font-size:clamp(13px,1.4vw,17.5px);font-weight:400;line-height:1.4;color:var(--muted);
-    margin:9px 0 0;word-break:keep-all;max-width:54em}
+  .title{font-size:clamp(21px,2.7vw,35px);font-weight:800;line-height:1.18;letter-spacing:-.01em;
+    margin:0;word-break:keep-all;max-width:26em}
+  .step-k{color:var(--accent);font-family:var(--mono);font-weight:800;margin-right:8px}
+  .sub{font-size:clamp(13px,1.4vw,17px);font-weight:400;line-height:1.4;color:var(--muted);margin:8px 0 0;word-break:keep-all;max-width:54em}
   .sub b{color:var(--accent-ink);font-weight:700}
-  .stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;
-    padding:clamp(10px,1.6vw,20px) 0 2px;overflow:hidden}
-  .stage-in{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:clamp(10px,1.4vw,18px)}
-  .foot{position:absolute;left:clamp(30px,3.4vw,54px);bottom:clamp(14px,1.6vw,22px);
-    font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--faint)}
-  .cap{font-family:var(--ko);font-size:clamp(12.5px,1.25vw,15.5px);color:var(--ink-2);
-    text-align:center;word-break:keep-all;max-width:48em;line-height:1.5}
+  .stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;padding:clamp(8px,1.4vw,16px) 0 2px;overflow:hidden}
+  .stage-in{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(9px,1.3vw,16px)}
+  .foot{position:absolute;left:clamp(30px,3.4vw,54px);bottom:clamp(13px,1.5vw,20px);font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--faint)}
+  .cap{font-family:var(--ko);font-size:clamp(12.5px,1.25vw,15.5px);color:var(--ink-2);text-align:center;word-break:keep-all;max-width:48em;line-height:1.5}
   .cap .term{color:var(--muted);font-family:var(--mono);font-size:.86em}
   .cap b{color:var(--accent-ink)}
 
+  /* persistent debugger state bar */
+  .statebar{display:flex;align-items:center;gap:9px;background:#f3f4f8;border-radius:12px;
+    padding:8px 14px;font-family:var(--mono);font-size:12.5px;flex-wrap:wrap;align-self:center}
+  .statebar .sl{color:var(--muted);font-weight:700;letter-spacing:.04em}
+  .cchip{display:inline-flex;align-items:center;gap:7px;background:var(--surface);border-radius:8px;
+    padding:5px 11px;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--hair)}
+  .cchip.cb{color:var(--cb-ink)}
+  .cchip.new{box-shadow:inset 0 0 0 2px var(--act);background:var(--act-soft);color:var(--act-ink)}
+  .cchip.win{background:var(--cb-soft);color:var(--cb-ink);box-shadow:inset 0 0 0 2px var(--cb)}
+  .cchip .s{font-weight:800}
+  .cchip.mut{color:var(--faint)}
+  /* forward-pull next question */
+  .nexthint{font-family:var(--ko);font-size:clamp(12.5px,1.3vw,15.5px);color:var(--accent-ink);
+    text-align:center;word-break:keep-all;font-weight:700;line-height:1.5;max-width:44em}
+  .nexthint::before{content:"다음 → ";color:var(--muted);font-family:var(--mono);font-weight:400;font-size:.82em}
+
   .cover .canvas{justify-content:center}
-  .cover .kick{font-family:var(--mono);font-size:13px;letter-spacing:.2em;text-transform:uppercase;
-    color:var(--accent);margin-bottom:18px}
+  .cover .kick{font-family:var(--mono);font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:18px}
   .cover .title{font-size:clamp(28px,4vw,52px);line-height:1.16;max-width:19em}
 
-  .code{font-family:var(--mono);font-size:clamp(12px,1.15vw,15px);line-height:1.62;
-    background:#f6f7fa;border-radius:13px;padding:16px 20px;white-space:pre;text-align:left;
-    color:#333844;overflow:hidden;max-width:100%}
+  .code{font-family:var(--mono);font-size:clamp(12px,1.15vw,15px);line-height:1.6;background:#f6f7fa;
+    border-radius:13px;padding:15px 19px;white-space:pre;text-align:left;color:#333844;overflow:hidden;max-width:100%}
   .code.sm{font-size:clamp(11px,1.02vw,13px);padding:12px 15px;line-height:1.55}
   .code .a{color:var(--act);font-weight:700}
   .code .cb{color:var(--cb);font-weight:700}
@@ -73,50 +82,47 @@
   .code .dim{color:var(--dim)}
   .code .cm{color:#9aa0ac}
   .code .box{background:#fff3cf;border-radius:4px;padding:0 3px;box-shadow:inset 0 0 0 1px #e6c86a}
+  .code .hlfoo{background:var(--cb-soft);border-radius:4px;padding:0 2px}
+  .code .hlbar{background:var(--amb-soft);border-radius:4px;padding:0 2px}
 
   .sc{display:flex;flex-direction:column;gap:8px;min-width:0}
-  .sc .h{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
-    color:var(--muted);font-weight:600}
-  .sc .b{background:#f5f6fa;border-radius:12px;padding:13px 17px;font-size:clamp(13px,1.3vw,16px);
-    line-height:1.4;word-break:keep-all}
+  .sc .h{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .sc .b{background:#f5f6fa;border-radius:12px;padding:12px 16px;font-size:clamp(13px,1.3vw,16px);line-height:1.4;word-break:keep-all}
 
   .dn{display:flex;flex-direction:column;align-items:center;gap:3px;margin:1px 0}
-  .dn .tri{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;
-    border-top:14px solid var(--faint)}
+  .dn .tri{width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-top:14px solid var(--faint)}
   .dn .lb{font-family:var(--mono);font-size:11px;color:var(--muted)}
   .dn.dec .tri{border-top-color:var(--cb)} .dn.bad .tri{border-top-color:var(--bad)} .dn.ev .tri{border-top-color:var(--ev)}
   .rt{display:flex;flex-direction:column;align-items:center;gap:3px;flex:0 0 auto;padding:0 4px}
-  .rt .tri{width:0;height:0;border-top:9px solid transparent;border-bottom:9px solid transparent;
-    border-left:14px solid var(--faint)}
+  .rt .tri{width:0;height:0;border-top:9px solid transparent;border-bottom:9px solid transparent;border-left:14px solid var(--faint)}
   .rt .lb{font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap}
   .rt.dec .tri{border-left-color:var(--cb)} .rt.bad .tri{border-left-color:var(--bad)} .rt.ev .tri{border-left-color:var(--ev)}
 
   .xrow{display:flex;align-items:center;justify-content:center;gap:clamp(8px,1.2vw,16px);width:100%;flex-wrap:nowrap}
   .col{display:flex;flex-direction:column;align-items:center;gap:clamp(6px,1vw,12px)}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(14px,2vw,28px);width:100%;max-width:1040px;align-items:start}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(14px,2vw,26px);width:100%;max-width:1040px;align-items:start}
   .grid2.tight{gap:clamp(12px,1.6vw,20px)}
 
-  .evobj{border:2px solid var(--ev);border-radius:14px;overflow:hidden;min-width:250px;background:var(--surface)}
+  .evobj{border:2px solid var(--ev);border-radius:14px;overflow:hidden;min-width:230px;background:var(--surface)}
   .evobj.plain{border-color:var(--hair-2)}
-  .evobj .eh{background:var(--ev-soft);color:var(--ev-ink);font-family:var(--mono);font-weight:700;font-size:12.5px;padding:9px 15px}
+  .evobj .eh{background:var(--ev-soft);color:var(--ev-ink);font-family:var(--mono);font-weight:700;font-size:12.5px;padding:8px 14px}
   .evobj.plain .eh{background:#f1f3f8;color:var(--ink-2)}
-  .evobj .er{display:grid;grid-template-columns:112px 1fr;gap:10px;padding:6px 15px;font-family:var(--mono);font-size:12px}
+  .evobj .er{display:grid;grid-template-columns:104px 1fr;gap:10px;padding:6px 14px;font-family:var(--mono);font-size:12px}
   .evobj .er + .er{border-top:1px solid var(--hair)}
   .evobj .ek{color:var(--muted)}
   .evobj .evv{color:var(--ink)}
 
-  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:13px;
-    padding:8px 13px;border-radius:10px;background:#f1f3f8;color:var(--ink-2);white-space:nowrap}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:13px;padding:8px 13px;border-radius:10px;background:#f1f3f8;color:var(--ink-2);white-space:nowrap}
   .pill.a{background:var(--act-soft);color:var(--act-ink);font-weight:700}
   .pill.cb{background:var(--cb-soft);color:var(--cb-ink);font-weight:700}
   .pill.ev{background:var(--ev-soft);color:var(--ev-ink);font-weight:700}
   .pill.bad{background:var(--bad-soft);color:var(--bad-ink);font-weight:700}
   .pill.lg{font-size:15px;padding:11px 18px}
-  .qbig{font-size:clamp(26px,3.4vw,46px);font-weight:800;color:var(--accent)}
+  .qbig{font-size:clamp(24px,3.2vw,42px);font-weight:800;color:var(--accent)}
 
   .gauge{display:flex;align-items:center;gap:11px;width:100%}
   .gauge .lab{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);min-width:52px}
-  .gauge .track{height:16px;border-radius:9px;background:#e9ebf0;flex:1;overflow:hidden;min-width:120px}
+  .gauge .track{height:16px;border-radius:9px;background:#e9ebf0;flex:1;overflow:hidden;min-width:110px}
   .gauge .fill{height:100%;border-radius:9px;background:var(--ev)}
   .gauge .fill.cb{background:var(--cb)} .gauge .fill.amb{background:var(--amb)} .gauge .fill.bad{background:var(--bad)} .gauge .fill.dim{background:var(--dim)}
   .gauge .v{font-family:var(--mono);font-size:13.5px;font-weight:700;min-width:44px;text-align:right}
@@ -126,7 +132,7 @@
   .legend .sw{width:11px;height:11px;border-radius:3px}
 
   .panels{display:grid;grid-template-columns:1fr 1fr;gap:clamp(11px,1.5vw,18px);width:100%;max-width:1000px}
-  .mp{background:#f5f6fa;border-radius:14px;padding:13px 17px;display:flex;flex-direction:column;gap:8px}
+  .mp{background:#f5f6fa;border-radius:14px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}
   .mp .mh{font-weight:700;font-size:13.5px;color:var(--ink);word-break:keep-all}
   .mp .md{font-size:12.5px;color:var(--muted);word-break:keep-all;line-height:1.45}
   .mp.good{box-shadow:inset 0 0 0 2px var(--cb-soft)}
@@ -137,24 +143,23 @@
   .tag.unr{background:#eef0f4;color:var(--muted)}
   .tag.bad{background:var(--bad-soft);color:var(--bad-ink)}
 
-  .hub{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px 22px;width:100%;max-width:900px}
-  .hub .center{background:var(--accent-soft);color:var(--accent-ink);border-radius:16px;padding:18px;
-    text-align:center;font-weight:800;font-size:clamp(15px,1.6vw,20px)}
+  .hub{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px 20px;width:100%;max-width:880px}
+  .hub .center{background:var(--accent-soft);color:var(--accent-ink);border-radius:16px;padding:16px;text-align:center;font-weight:800;font-size:clamp(15px,1.6vw,20px)}
   .hub .center .en{display:block;font-family:var(--mono);font-size:11px;font-weight:400;margin-top:3px;opacity:.7}
 
   .chain{display:flex;flex-direction:column;gap:6px;align-items:stretch}
-  .cnode{border-radius:11px;padding:10px 16px;font-size:13.5px;text-align:center;word-break:keep-all}
+  .cnode{border-radius:11px;padding:10px 15px;font-size:13.5px;text-align:center;word-break:keep-all}
   .cnode.bad{background:var(--bad-soft);color:var(--bad-ink)}
   .cnode.neu{background:#f1f3f8;color:var(--ink-2)}
   .cnode.good{background:var(--cb-soft);color:var(--cb-ink)}
 
-  .io{display:grid;grid-template-columns:1fr auto 1fr;gap:14px 20px;align-items:center;width:100%;max-width:1060px}
-  .iobox{background:#f5f6fa;border-radius:14px;padding:14px 18px}
-  .iobox .ih{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}
+  .io{display:grid;grid-template-columns:1fr auto 1fr;gap:12px 18px;align-items:center;width:100%;max-width:1060px}
+  .iobox{background:#f5f6fa;border-radius:14px;padding:13px 17px}
+  .iobox .ih{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:7px}
   .iobox .il{font-size:13px;color:var(--ink-2);line-height:1.6;word-break:keep-all}
   .iobox .il b{color:var(--ink)}
 
-  .steps{display:grid;grid-template-columns:1fr 1fr;gap:11px 22px;width:100%;max-width:1000px}
+  .steps{display:grid;grid-template-columns:1fr 1fr;gap:10px 22px;width:100%;max-width:1000px}
   .step{display:flex;gap:12px;align-items:baseline}
   .step .n{font-family:var(--mono);font-weight:800;color:var(--accent);font-size:16px;min-width:20px}
   .step .t{font-size:clamp(13px,1.3vw,16px);color:var(--ink-2);word-break:keep-all;line-height:1.4}
@@ -170,7 +175,7 @@
     .deckhead,.batch,.notes{display:none}
     .slide{max-width:none;margin:0;width:1280px;height:720px;overflow:hidden;break-after:page;break-inside:avoid}
     .slide:last-of-type{break-after:auto}
-    .canvas{border-radius:0;box-shadow:none;aspect-ratio:auto;width:1280px;height:720px;padding:40px 60px}
+    .canvas{border-radius:0;box-shadow:none;aspect-ratio:auto;width:1280px;height:720px;padding:38px 60px}
     .tall .stage{align-items:flex-start;flex:0 1 auto}
     .tall .stage-in{gap:9px}
   }
@@ -184,14 +189,14 @@
 <body>
 
 <main class="deck">
-  <div class="deckhead"><span><b>F2-A</b> · 핸들러 해석 (Handler Resolution)</span><span>계약 우선 재구성 · 31 slides</span></div>
+  <div class="deckhead"><span><b>F2-A</b> · 핸들러 해석 (Handler Resolution)</span><span>실행 트레이스 · 28 slides</span></div>
 
-  <!-- ════════ SECTION A — F2-A가 하는 일 ════════ -->
+  <!-- ════════ A · 무엇을 하는가 (계약) ════════ -->
 
-  <!-- A1 -->
+  <!-- 1 -->
   <section class="slide cover">
     <div class="canvas">
-      <div class="kick">A · 계약 — F2-A가 하는 일</div>
+      <div class="kick">A · 무엇을 하는가</div>
       <h1 class="title">F2-A는 하나의 질문에 답한다</h1>
       <div class="stage"><div class="stage-in">
         <div class="col" style="gap:8px">
@@ -204,18 +209,18 @@
         <div class="xrow" style="gap:12px;flex-wrap:wrap;margin-top:6px">
           <span class="tag res" style="font-size:13px;padding:6px 12px">RESOLVED → bar</span>
           <span class="tag amb" style="font-size:13px;padding:6px 12px">AMBIGUOUS → { foo, bar }</span>
-          <span class="tag unr" style="font-size:13px;padding:6px 12px">UNRESOLVED → 신뢰할 매핑 없음</span>
+          <span class="tag unr" style="font-size:13px;padding:6px 12px">UNRESOLVED → 매핑 없음</span>
         </div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>구현을 논하기 전에 “일”을 먼저 정의. 액션 하나를 받아, 그 핸들러가 무엇인지 답한다 — 확정/모호/미해결 셋 중 하나로.</p></aside>
+  <aside class="notes"><b>note</b><p>액션 하나를 받아, 그 핸들러가 무엇인지 셋 중 하나로 답한다. 이 발표는 이 예제(ACTION_DATA_TRANSFER)를 실제로 실행해 본다.</p></aside>
 
-  <!-- A2 -->
+  <!-- 2 -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 02</span><span class="pg">02 / 31</span></div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 무엇을 하는가 · 02</span><span class="pg">02 / 28</span></div>
       <h1 class="title">이 질문이 왜 중요한가</h1>
       <div class="stage"><div class="stage-in">
         <div class="col" style="width:100%;max-width:560px">
@@ -223,671 +228,535 @@
           <span class="dn"><span class="tri"></span><span class="lb">필요로 함</span></span>
           <div class="cnode good" style="align-self:stretch;font-weight:700">핸들러 진입 함수</div>
           <span class="dn dec"><span class="tri"></span><span class="lb">가능케 함</span></span>
-          <div class="xrow" style="gap:8px;flex-wrap:wrap">
-            <span class="pill">필드 바인딩</span><span class="pill">오염 소스</span><span class="pill">데이터 흐름</span><span class="pill">싱크·검사</span>
-          </div>
+          <div class="xrow" style="gap:8px;flex-wrap:wrap"><span class="pill">필드 바인딩</span><span class="pill">오염 소스</span><span class="pill">데이터 흐름</span><span class="pill">싱크·검사</span></div>
         </div>
-        <div class="cap">핸들러가 없으면 하위 프로토콜 인지 분석에 <b>신뢰할 출발점이 없다</b></div>
+        <div class="cap">핸들러가 없으면 하위 프로토콜 분석에 <b>신뢰할 출발점이 없다</b></div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>F2-A가 존재하는 이유. 핸들러 = 이후 모든 프로토콜 인지 분석의 신뢰 시작점.</p></aside>
+  <aside class="notes"><b>note</b><p>핸들러 = 이후 모든 분석의 시작점.</p></aside>
 
-  <!-- A3 -->
+  <!-- 3 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 03</span><span class="pg">03 / 31</span></div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 무엇을 하는가 · 03 · 인터페이스</span><span class="pg">03 / 28</span></div>
       <h1 class="title">입력과 출력 — 인터페이스부터</h1>
       <div class="stage"><div class="stage-in">
         <div class="io">
-          <div class="col" style="gap:10px;align-items:stretch">
+          <div class="col" style="gap:9px;align-items:stretch">
             <div class="iobox"><div class="ih">입력 1 · KB 액션 정의</div><div class="il"><b>canonical name</b> · symbols · numeric IDs · aliases</div></div>
             <div class="iobox"><div class="ih">입력 2 · 프로그램 모델</div><div class="il"><b>AST / CPG</b> · 호출 · 대입 · 초기화 · 심볼 해석</div></div>
           </div>
           <span class="rt"><span class="tri"></span><span class="lb">F2-A</span></span>
-          <div class="iobox" style="background:var(--accent-soft)"><div class="ih" style="color:var(--accent-ink)">출력 · 액션당</div>
-            <div class="il"><b>status</b> · <b>chosen</b>(확정 시) · ranked candidates · evidence · conflict · unresolved reason</div></div>
+          <div class="iobox" style="background:var(--accent-soft)"><div class="ih" style="color:var(--accent-ink)">출력 · 액션당</div><div class="il"><b>status</b> · <b>chosen</b>(확정 시) · ranked candidates · evidence · conflict · unresolved reason</div></div>
         </div>
         <div class="cap">아직 아키텍처가 아니라 <b>인터페이스</b>를 정의한다</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>입출력 계약. 무엇이 들어가고 무엇이 나오는지. 액션당 status·chosen·candidates·evidence·conflict·reason.</p></aside>
+  <aside class="notes"><b>note</b><p>무엇이 들어가고 무엇이 나오는지.</p></aside>
 
-  <!-- A4 -->
+  <!-- 4 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 04</span><span class="pg">04 / 31</span></div>
-      <h1 class="title">F2-A가 발견해야 하는 것 — 소스 구조에서 의미 관계</h1>
-      <div class="stage"><div class="stage-in">
-        <div class="xrow" style="gap:clamp(14px,2vw,30px);align-items:center">
-          <div class="code sm">static Entry table[] = {
-    { <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }
-};
-void dispatch(Frame *f) {
-    <span class="box">table[f-&gt;action].fn(f-&gt;payload);</span>
-}</div>
-          <span class="rt"><span class="tri"></span></span>
-          <div class="evobj plain">
-            <div class="eh">F2-A가 발견</div>
-            <div class="er"><span class="ek">action</span><span class="evv" style="color:var(--act)">ACTION_DATA_TRANSFER</span></div>
-            <div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">foo</span></div>
-            <div class="er"><span class="ek">relation</span><span class="evv">같은 등록 항목에 속함</span></div>
-            <div class="er"><span class="ek">meaning</span><span class="evv">action → handler 후보</span></div>
-          </div>
-        </div>
-        <div class="cap">F2-A는 소스 구조로부터 <b>의미 관계(action→handler)를 재구성</b>한다</div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>표준 예제 도입. F2-A는 함수 이름을 검색하는 게 아니라, 구조에서 액션↔핸들러 관계를 복원한다.</p></aside>
-
-  <!-- A5 -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 05 · 경계</span><span class="pg">05 / 31</span></div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 무엇을 하는가 · 04 · 경계</span><span class="pg">04 / 28</span></div>
       <h1 class="title">F2-A가 하지 않는 것</h1>
       <div class="stage"><div class="stage-in">
         <div class="grid2">
-          <div class="mp good"><div class="mh" style="color:var(--cb-ink)">F2-A 한다</div>
-            <div class="md" style="line-height:1.7">· 액션 → 핸들러 해석<br>· 후보 수집<br>· 증거 보존<br>· 신뢰도 · 순위<br>· 모호 · 실패 보고</div></div>
-          <div class="mp bad"><div class="mh" style="color:var(--bad-ink)">F2-A 안 한다</div>
-            <div class="md" style="line-height:1.7">· 페이로드 필드 → 변수 추적<br>· 오염 경로 계산<br>· 싱크 분류<br>· 프로토콜 검사 검증<br>· 최종 취약점 판정</div></div>
+          <div class="mp good"><div class="mh" style="color:var(--cb-ink)">F2-A 한다</div><div class="md" style="line-height:1.7">· 액션 → 핸들러 해석<br>· 후보 수집 · 증거 보존<br>· 신뢰도 · 순위<br>· 모호 · 실패 보고</div></div>
+          <div class="mp bad"><div class="mh" style="color:var(--bad-ink)">F2-A 안 한다</div><div class="md" style="line-height:1.7">· 페이로드 필드 추적<br>· 오염 경로 계산<br>· 싱크 분류 · 검사 검증<br>· 최종 취약점 판정</div></div>
         </div>
-        <div class="xrow" style="gap:12px"><span class="pill" style="background:var(--accent-soft);color:var(--accent-ink)">F2-A 출력</span><span class="rt"><span class="tri"></span></span><span class="pill">하위 F3 · F4 · F5 · F6 분석</span></div>
+        <div class="xrow" style="gap:12px"><span class="pill" style="background:var(--accent-soft);color:var(--accent-ink)">F2-A 출력</span><span class="rt"><span class="tri"></span></span><span class="pill">하위 F3 · F4 · F5 · F6</span></div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>F2-A와 전체 파이프라인을 구분. F2-A는 “핸들러와 근거”에서 멈추고, 오염·싱크·검사·최종 판정은 하위 단계.</p></aside>
+  <aside class="notes"><b>note</b><p>F2-A는 “핸들러와 근거”에서 멈춘다.</p></aside>
 
-  <!-- A6 -->
+  <!-- 5 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 06 · 알고리즘</span><span class="pg">06 / 31</span></div>
-      <h1 class="title">전체 알고리즘 — 여섯 문장</h1>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 무엇을 하는가 · 05 · 절차</span><span class="pg">05 / 28</span></div>
+      <h1 class="title">이제 실행할 여섯 단계</h1>
       <div class="stage"><div class="stage-in">
         <div class="steps">
-          <div class="step"><span class="n">1</span><span class="t"><b>프로토콜 액션 하나</b>를 잡는다.</span></div>
-          <div class="step"><span class="n">2</span><span class="t">그 액션을 <b>언급·인코딩하는 코드 위치</b>를 찾는다.</span></div>
+          <div class="step"><span class="n">1</span><span class="t"><b>액션 하나</b>를 잡는다.</span></div>
+          <div class="step"><span class="n">2</span><span class="t">그 액션을 <b>인코딩한 코드 위치</b>를 찾는다.</span></div>
           <div class="step"><span class="n">3</span><span class="t">그 위치들의 <b>콜백을 모두</b> 뽑는다.</span></div>
           <div class="step"><span class="n">4</span><span class="t">관찰을 <b>증거</b>로 바꾼다.</span></div>
-          <div class="step"><span class="n">5</span><span class="t">콜백별로 증거를 모아 <b>후보를 비교</b>한다.</span></div>
-          <div class="step"><span class="n">6</span><span class="t"><b>확정</b>하거나, <b>모호</b>를 남기거나, <b>실패 사유</b>를 보고한다.</span></div>
+          <div class="step"><span class="n">5</span><span class="t">콜백별로 <b>점수 매겨 비교</b>한다.</span></div>
+          <div class="step"><span class="n">6</span><span class="t"><b>확정</b>·<b>모호</b>·<b>실패</b> 중 하나를 낸다.</span></div>
         </div>
-        <div class="cap">사전확률·noisy-OR·provenance는 아직 언급하지 않는다 — <b>먼저 알고리즘</b>, 점수 정책은 나중</div>
+        <div class="nexthint">이 여섯 단계를 <b>ACTION_DATA_TRANSFER</b> 하나로 끝까지 따라간다</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>여섯 단계로 전체 흐름. 점수 정책 이전에 알고리즘을 먼저 이해시킨다.</p></aside>
+  <aside class="notes"><b>note</b><p>여기서부터는 설명이 아니라 실행. 이 여섯 단계를 한 예제로 밟는다.</p></aside>
 
-  <!-- A7 -->
+  <!-- ════════ 실행 트레이스 ════════ -->
+
+  <!-- 6 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 07 · 후보 문제</span><span class="pg">07 / 31</span></div>
-      <h1 class="title">한 액션에 후보가 여럿일 수 있다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">실행 · 대상 프로그램</span><span class="pg">06 / 28</span></div>
+      <h1 class="title">우리가 실행할 프로그램</h1>
       <div class="stage"><div class="stage-in">
-        <div class="grid2" style="max-width:900px">
-          <div class="sc"><div class="h">등록</div><div class="code sm">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }</div></div>
-          <div class="sc"><div class="h">switch</div><div class="code sm">case <span class="a">ACTION_DATA_TRANSFER</span>:
-    <span class="cb">bar</span>(f-&gt;payload);</div></div>
-        </div>
-        <div class="grid2" style="max-width:900px">
-          <div class="mp bad"><div class="md"><b>✗ “첫 콜백을 찾는다”</b>가 아니다</div></div>
-          <div class="mp good"><div class="md"><b>✓ foo·bar를 모두 모으고</b>, 출처를 보존하고, 비교하고, 충분히 신뢰되는지 판단한다</div></div>
-        </div>
-        <div class="cap">그래서 <b>후보 해석(candidate resolution)</b>이라는 문제가 생긴다</div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip mut">후보 없음</span></div>
+        <div class="code">static Reg table[] = {
+    { <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }        <span class="cm">// 등록</span>
+};
+void dispatch(Frame *f) {
+    switch (f-&gt;action) {
+        case <span class="a">ACTION_DATA_TRANSFER</span>:
+            <span class="cb">bar</span>(f-&gt;payload);              <span class="cm">// 디스패치</span>
+    }
+}</div>
+        <div class="nexthint">이 액션의 핸들러는? 먼저 코드에서 <b>후보를 찾자.</b></div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>후보 해석이 왜 존재하는지. 첫 콜백을 집는 게 아니라, 경쟁 후보를 모아 비교·판단.</p></aside>
+  <aside class="notes"><b>note</b><p>대상 프로그램. 아직 후보 없음. 여기서부터 상태를 계속 추적한다.</p></aside>
 
-  <!-- A8 -->
-  <section class="slide tall">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 08 · 객체 흐름</span><span class="pg">08 / 31</span></div>
-      <h1 class="title">F2-A가 실제로 만드는 객체들</h1>
-      <div class="stage"><div class="stage-in">
-        <div class="col" style="gap:5px;width:100%;max-width:900px">
-          <div class="evobj plain" style="align-self:center;min-width:340px"><div class="eh">ActionDefinition</div>
-            <div class="er"><span class="ek">canonical</span><span class="evv">DataTransfer</span></div>
-            <div class="er"><span class="ek">symbols</span><span class="evv" style="color:var(--act)">[ ACTION_DATA_TRANSFER ]</span></div></div>
-          <span class="dn ev"><span class="tri"></span><span class="lb">인식</span></span>
-          <div class="xrow" style="gap:16px;align-items:stretch">
-            <div class="evobj" style="min-width:250px"><div class="eh">Evidence A</div>
-              <div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">foo</span></div>
-              <div class="er"><span class="ek">origin</span><span class="evv">등록 지점</span></div></div>
-            <div class="evobj" style="min-width:250px"><div class="eh">Evidence B</div>
-              <div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">bar</span></div>
-              <div class="er"><span class="ek">origin</span><span class="evv">switch 분기</span></div></div>
-          </div>
-          <span class="dn"><span class="tri"></span><span class="lb">그룹화</span></span>
-          <div class="xrow" style="gap:16px">
-            <span class="pill cb">Candidate foo · evidence=[A]</span>
-            <span class="pill cb">Candidate bar · evidence=[B]</span>
-          </div>
-          <span class="dn dec"><span class="tri"></span><span class="lb">판정</span></span>
-          <div class="xrow" style="gap:10px"><span class="tag res">RESOLVED</span><span class="tag amb">AMBIGUOUS</span><span class="tag unr">UNRESOLVED</span></div>
-        </div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>가장 중요한 그림. F2-A가 만드는 실제 엔티티: ActionDefinition → Evidence → Candidate → 판정. 이 객체들을 뒤에서 하나씩 확대한다.</p></aside>
-
-  <!-- A9 -->
+  <!-- 7 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 09 · 증거의 이유</span><span class="pg">09 / 31</span></div>
-      <h1 class="title">증거가 필요한 이유</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">실행 · 1단계 인식</span><span class="pg">07 / 28</span></div>
+      <h1 class="title"><span class="step-k">1단계</span>등록부에서 첫 후보 foo 를 찾는다</h1>
       <div class="stage"><div class="stage-in">
-        <div class="grid2 tight" style="max-width:1040px">
-          <div class="mp bad"><div class="mh">증거 없이</div>
-            <div class="md" style="line-height:1.7">등록 추출기 → foo<br>switch 추출기 → bar<br><b>공통 비교 모델이 없는 충돌</b></div></div>
-          <div class="mp good"><div class="mh">증거로</div>
-            <div class="md" style="line-height:1.7">둘 다 같은 스키마<br>출처·방식을 보존<br>하나의 계산이 비교<br>하나의 판정 계층이 결정</div></div>
-        </div>
-        <div class="cap"><b>증거는 인식과 판정 사이의 공통 언어</b>다 — 충돌하는 관찰을 풀기 위한 필수 장치</div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>모듈 설계가 아니라, 충돌하는 관찰을 풀기 위해 증거가 필요함을 강조.</p></aside>
-
-  <!-- A10 -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot"></span><span class="sec">A · 계약 · 10 · 동작 계약</span><span class="pg">10 / 31</span></div>
-      <h1 class="title">F2-A가 성공·주저·중단하는 때</h1>
-      <div class="stage"><div class="stage-in">
-        <div class="grid2" style="max-width:1060px;grid-template-columns:1fr 1fr 1fr">
-          <div class="mp good"><div class="mh"><span class="tag res">RESOLVED</span></div><div class="md">강한 후보 하나 · 또는 나머지보다 <b>뚜렷이 강한</b> 하나</div></div>
-          <div class="mp"><div class="mh"><span class="tag amb">AMBIGUOUS</span></div><div class="md">그럴듯한 후보 둘 · <b>어느 것도 뚜렷이 우세하지 않음</b></div></div>
-          <div class="mp bad"><div class="mh"><span class="tag unr">UNRESOLVED</span></div><div class="md">후보 없음 · 약한 증거뿐 · 미지원 구조 · 외부/누락 정의</div></div>
-        </div>
-        <div class="cap">수치 규칙 이전에 <b>동작 계약</b>부터 — 언제 확정하고, 언제 멈추는가</div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>수치 이전에 행동 계약. 세 결과의 조건을 소스 관점에서.</p></aside>
-
-  <!-- ════════ SECTION B — 후보 관계를 어떻게 찾는가 ════════ -->
-
-  <!-- B1 (11) aggregate -->
-  <section class="slide tall">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">B · 인식 · 집합 초기화</span><span class="pg">11 / 31</span></div>
-      <h1 class="title">집합 초기화 — 같은 항목의 두 자식을 한 쌍으로</h1>
-      <div class="stage"><div class="stage-in">
-        <div class="col" style="gap:6px;width:100%;max-width:600px">
-          <div class="code sm" style="align-self:stretch">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }</div>
-          <span class="dn"><span class="tri"></span><span class="lb">AST로 관찰</span></span>
-          <div class="code sm" style="align-self:stretch">initializer
-├── element[0]:  <span class="a">ACTION_DATA_TRANSFER</span>
-└── element[1]:  <span class="cb">foo</span></div>
-          <span class="dn"><span class="tri"></span><span class="lb">추출</span></span>
-          <div class="evobj plain" style="align-self:stretch"><div class="eh">RawRegistration</div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb new">foo</span></div>
+        <div class="xrow" style="gap:clamp(12px,2vw,26px)">
+          <div class="code sm">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }</div>
+          <span class="rt"><span class="tri"></span><span class="lb">추출</span></span>
+          <div class="evobj plain"><div class="eh">관찰 → 후보</div>
             <div class="er"><span class="ek">action</span><span class="evv" style="color:var(--act)">ACTION_DATA_TRANSFER</span></div>
             <div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">foo</span></div>
-            <div class="er"><span class="ek">site</span><span class="evv">table 초기화 항목</span></div></div>
+            <div class="er"><span class="ek">근거</span><span class="evv">같은 등록 항목의 두 자식</span></div></div>
         </div>
-        <div class="cap">두 값이 <b>같은 초기화 항목의 자식</b>이므로 하나의 등록 쌍으로 해석한다</div>
+        <div class="nexthint">그런데 등록은 <b>한 가지 형태로만</b> 쓰이지 않는다.</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>이제부터 인식 방식을 하나씩. 표준 예제(DataTransfer→foo)로 통일.</p></aside>
+  <aside class="notes"><b>note</b><p>첫 후보 foo 등장. 상태에 foo 추가.</p></aside>
 
-  <!-- B2 (12) designated -->
+  <!-- 8 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">B · 인식 · 지정 초기화</span><span class="pg">12 / 31</span></div>
-      <h1 class="title">지정 초기화 — 같은 객체 안에서만 짝짓는다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">실행 · 인식 견고성</span><span class="pg">08 / 28</span></div>
+      <h1 class="title">같은 등록, 여러 표기 — 모두 같은 foo 로</h1>
       <div class="stage"><div class="stage-in">
-        <div class="grid2">
-          <div class="sc"><div class="h">허용 — 같은 객체</div>
-            <div class="code sm">{
-    .action = <span class="a">ACTION_DATA_TRANSFER</span>,
-    .fn     = <span class="cb">foo</span>
-}</div>
-            <div class="xrow" style="justify-content:flex-start;gap:8px"><span class="rt dec"><span class="tri"></span></span><span class="pill" style="font-size:12px"><span style="color:var(--act)">ACTION_DATA_TRANSFER</span> → <span style="color:var(--cb-ink)">foo</span></span></div></div>
-          <div class="sc"><div class="h">거부 — 서로 다른 항목</div>
-            <div class="code sm">table[<span class="bad">i</span>].action = <span class="a">ACTION_DATA_TRANSFER</span>;
-table[<span class="bad">j</span>].fn     = <span class="cb">foo</span>;</div>
-            <div class="xrow" style="justify-content:flex-start;gap:8px"><span class="rt bad"><span class="tri"></span></span><span class="pill bad" style="font-size:12px">i == j 증명 불가 → 연결 안 함</span></div></div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo</span></div>
+        <div class="grid2 tight" style="max-width:960px">
+          <div class="sc"><div class="h">집합 초기화</div><div class="code sm">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }</div></div>
+          <div class="sc"><div class="h">지정 초기화</div><div class="code sm">{ .action=<span class="a">ACTION_DATA_TRANSFER</span>, .fn=<span class="cb">foo</span> }</div></div>
+          <div class="sc"><div class="h">상관 대입</div><div class="code sm">t[k].action=<span class="a">ACTION…</span>; t[k].fn=<span class="cb">foo</span>;</div></div>
+          <div class="sc"><div class="h">등록 함수</div><div class="code sm">register(<span class="a">ACTION…</span>, <span class="cb">foo</span>) <span class="cm">// 저장까지 추적</span></div></div>
         </div>
-        <div class="cap">부모가 같다고 <b>증명되지 않으면</b> 쌍으로 묶지 않는다</div>
+        <div class="cap">네 가지 문법 모두 같은 결론 → <span class="pill cb" style="font-size:12px;padding:5px 10px"><span style="color:var(--act)">ACTION_DATA_TRANSFER</span> → foo</span></div>
+        <div class="nexthint">그러면 <b>아무 액션·핸들러나</b> 같이 있으면 묶어도 될까?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>같은 객체면 안전, 다른 인덱스면 거부.</p></aside>
+  <aside class="notes"><b>note</b><p>인식기는 같은 등록의 여러 표기를 모두 foo로. 예제의 foo는 그대로 유지.</p></aside>
 
-  <!-- B3 (13) correlated -->
+  <!-- 9 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">B · 인식 · 상관 대입</span><span class="pg">13 / 31</span></div>
-      <h1 class="title">상관 대입 — 같은 수신자·같은 인덱스면 같은 슬롯</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">실행 · 짝짓기 규칙</span><span class="pg">09 / 28</span></div>
+      <h1 class="title">묶는 조건 — 같은 슬롯일 때만</h1>
       <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo</span></div>
         <div class="grid2">
           <div class="sc"><div class="h">허용 — 같은 슬롯 k</div>
-            <div class="code sm">table[<span class="ev">k</span>].action = <span class="a">ACTION_DATA_TRANSFER</span>;
-table[<span class="ev">k</span>].fn     = <span class="cb">foo</span>;</div>
-            <div class="xrow" style="justify-content:flex-start;gap:8px"><span class="rt dec"><span class="tri"></span></span><span class="pill" style="font-size:12px"><span style="color:var(--act)">ACTION_DATA_TRANSFER</span> → <span style="color:var(--cb-ink)">foo</span></span></div></div>
+            <div class="code sm">t[<span class="ev">k</span>].action = <span class="a">ACTION_DATA_TRANSFER</span>;
+t[<span class="ev">k</span>].fn     = <span class="cb">foo</span>;</div>
+            <div class="xrow" style="justify-content:flex-start;gap:8px"><span class="rt dec"><span class="tri"></span></span><span class="pill" style="font-size:12px"><span style="color:var(--act)">ACTION…</span> → <span style="color:var(--cb-ink)">foo</span></span></div></div>
           <div class="sc"><div class="h">거부 — 다른 인덱스</div>
-            <div class="code sm">table[<span class="bad">k</span>].action = <span class="a">ACTION_DATA_TRANSFER</span>;
-table[<span class="bad">m</span>].fn     = <span class="cb">foo</span>;</div>
-            <div class="xrow" style="justify-content:flex-start;gap:8px"><span class="rt bad"><span class="tri"></span></span><span class="tag unr">UNRESOLVED · 증거 없음</span></div></div>
+            <div class="code sm">t[<span class="bad">k</span>].action = <span class="a">ACTION_DATA_TRANSFER</span>;
+t[<span class="bad">m</span>].fn     = <span class="cb">foo</span>;</div>
+            <div class="xrow" style="justify-content:flex-start;gap:8px"><span class="rt bad"><span class="tri"></span></span><span class="tag unr">k==m 증명 불가 → 묶지 않음</span></div></div>
         </div>
+        <div class="nexthint">등록 말고 <b>다른 곳</b>에도 이 액션의 후보가 있을 수 있다.</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>같은 인덱스면 묶고, 다르면 안 묶는다.</p></aside>
+  <aside class="notes"><b>note</b><p>같은 슬롯만 묶는다. 증명 안 되면 보류.</p></aside>
 
-  <!-- B4 (14) registrar -->
+  <!-- 10 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">B · 인식 · 등록 함수</span><span class="pg">14 / 31</span></div>
-      <h1 class="title">등록 함수 — 이름이 아니라 저장까지 따라간다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">실행 · 2단계 인식</span><span class="pg">10 / 28</span></div>
+      <h1 class="title"><span class="step-k">2단계</span>switch 에서 둘째 후보 bar 를 찾는다</h1>
       <div class="stage"><div class="stage-in">
-        <div class="grid2">
-          <div class="sc"><div class="h">호출부</div>
-            <div class="code sm">register_handler(
-    <span class="a">ACTION_DATA_TRANSFER</span>,
-    <span class="cb">foo</span>
-);</div>
-            <div class="h" style="margin-top:6px">피호출부 — 인자를 따라간다</div>
-            <div class="code sm">void register_handler(int <span class="a">action</span>, Handler <span class="cb">fn</span>) {
-    table[next].action = <span class="a">action</span>;   <span class="cm">// 최종 저장</span>
-    table[next].fn     = <span class="cb">fn</span>;
-}</div></div>
-          <div class="col" style="gap:10px;align-items:stretch">
-            <div class="sc"><div class="h">인자 흐름</div>
-              <div class="b" style="font-family:var(--mono);font-size:11.5px;line-height:1.9">
-                <span style="color:var(--act)">ACTION_DATA_TRANSFER</span> → 파라미터 <span style="color:var(--act)">action</span> → 저장 <span class="term">table[next].action</span><br>
-                <span style="color:var(--cb-ink)">foo</span> → 파라미터 <span style="color:var(--cb-ink)">fn</span> → 저장 <span class="term">table[next].fn</span></div></div>
-            <div class="xrow" style="justify-content:center;gap:8px"><span class="rt dec"><span class="tri"></span></span><span class="pill" style="font-size:12px"><span style="color:var(--act)">ACTION_DATA_TRANSFER</span> → <span style="color:var(--cb-ink)">foo</span></span></div>
-            <div class="mp bad" style="padding:10px 14px"><div class="md">최종 <b>쌍 저장</b>을 못 찾으면 → <span class="tag bad" style="margin-top:4px">REGISTRAR_STORE_NOT_REACHED</span></div></div>
-          </div>
-        </div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>이름이 register라고 충분치 않다. 인자→파라미터→슬롯 저장까지 도달해야.</p></aside>
-
-  <!-- B5 (15) dispatch -->
-  <section class="slide tall">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">B · 인식 · switch 디스패치</span><span class="pg">15 / 31</span></div>
-      <h1 class="title">디스패치 — 분기 안에서 액션과 호출이 바로 붙는다</h1>
-      <div class="stage"><div class="stage-in">
-        <div class="col" style="gap:6px;width:100%;max-width:640px">
-          <div class="code sm" style="align-self:stretch">switch (frame-&gt;action) {
-    case <span class="a">ACTION_DATA_TRANSFER</span>:
-        <span class="cb">bar</span>(frame-&gt;payload);
-        break;
-}</div>
-          <span class="dn"><span class="tri"></span><span class="lb">같은 분기</span></span>
-          <div class="xrow" style="gap:10px"><span class="pill a">case ACTION_DATA_TRANSFER</span><span class="rt dec"><span class="tri"></span></span><span class="pill cb">call bar()</span></div>
-          <span class="dn dec"><span class="tri"></span></span>
-          <span class="pill" style="font-size:13px"><span style="color:var(--act)">ACTION_DATA_TRANSFER</span> → <span style="color:var(--cb-ink)">bar</span></span>
-        </div>
-        <div class="cap">동일한 <span class="term">case</span> 분기 안에서 <b>액션 선택과 호출이 직접 결합</b>되어 있다</div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>표준 예제의 두 번째 사이트: switch→bar.</p></aside>
-
-  <!-- B6 (16) normalization -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">B · 인식 · 식별자 정규화</span><span class="pg">16 / 31</span></div>
-      <h1 class="title">식별자 정규화 — 여러 표기를 하나의 정체성으로</h1>
-      <div class="stage"><div class="stage-in">
-        <div class="hub">
-          <div class="col" style="gap:9px;align-items:stretch">
-            <span class="pill">"DataTransfer" <span class="term">문자열</span></span>
-            <span class="pill">ACTION_DATA_TRANSFER <span class="term">매크로</span></span>
-          </div>
-          <div class="center">DataTransfer<span class="en">정규 액션 정체성 · KB</span></div>
-          <div class="col" style="gap:9px;align-items:stretch">
-            <span class="pill">6 <span class="term">숫자값</span></span>
-            <span class="pill">data_transfer <span class="term">별칭</span></span>
-          </div>
-        </div>
-        <div class="xrow" style="gap:12px;margin-top:2px;flex-wrap:wrap">
-          <span class="cap" style="font-size:12.5px">대응 강도 →</span>
-          <span class="pill a" style="font-size:12px">정확 심볼</span><span class="rt"><span class="tri"></span></span>
-          <span class="pill" style="font-size:12px">숫자값</span><span class="rt"><span class="tri"></span></span>
-          <span class="pill" style="font-size:12px">정규화 별칭</span><span class="rt"><span class="tri"></span></span>
-          <span class="pill bad" style="font-size:12px">handle_dt_x · 부분 문자열만</span>
-        </div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>같은 액션의 여러 표기 → 하나의 정체성. 배수는 부록.</p></aside>
-
-  <!-- ════════ SECTION C — 어떻게 판정하는가 ════════ -->
-
-  <!-- C1 (17) evidence object -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 증거 객체</span><span class="pg">17 / 31</span></div>
-      <h1 class="title">증거 객체 — 코드 조각이 각 필드가 된다</h1>
-      <div class="stage"><div class="stage-in">
-        <div class="xrow" style="gap:clamp(10px,1.6vw,22px);align-items:center">
-          <div class="col" style="gap:8px">
-            <div class="code sm">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }</div>
-            <div class="cap" style="font-size:11.5px"><span class="term">table 항목 #0</span></div></div>
-          <span class="rt ev"><span class="tri"></span><span class="lb">추출</span></span>
-          <div class="evobj"><div class="eh">Evidence</div>
-            <div class="er"><span class="ek">kind</span><span class="evv" style="color:var(--ev-ink)">REGISTRATION_INIT</span></div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo</span><span class="cchip cb new">bar</span></div>
+        <div class="xrow" style="gap:clamp(12px,2vw,26px)">
+          <div class="code sm">case <span class="a">ACTION_DATA_TRANSFER</span>:
+    <span class="cb">bar</span>(f-&gt;payload);</div>
+          <span class="rt"><span class="tri"></span><span class="lb">같은 분기</span></span>
+          <div class="evobj plain"><div class="eh">관찰 → 후보</div>
             <div class="er"><span class="ek">action</span><span class="evv" style="color:var(--act)">ACTION_DATA_TRANSFER</span></div>
+            <div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">bar</span></div>
+            <div class="er"><span class="ek">근거</span><span class="evv">case 라벨 = 액션, 호출 = 핸들러</span></div></div>
+        </div>
+        <div class="nexthint">이제 후보가 <b>둘</b>이다 — 어느 것이 진짜 핸들러일까?</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>note</b><p>둘째 후보 bar 등장. 상태 = {foo, bar}.</p></aside>
+
+  <!-- 11 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--sB)"></span><span class="sec">실행 · 문제</span><span class="pg">11 / 28</span></div>
+      <h1 class="title">후보가 둘 — 첫 번째를 그냥 고를 순 없다</h1>
+      <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo</span><span class="cchip cb">bar</span></div>
+        <div class="xrow" style="gap:16px"><span class="pill cb lg">foo · 등록</span><span class="qbig">?</span><span class="pill cb lg">bar · switch</span></div>
+        <div class="grid2" style="max-width:900px">
+          <div class="mp bad"><div class="md"><b>✗ “먼저 본 걸 고른다”</b> — 순서에 의존, 위험</div></div>
+          <div class="mp good"><div class="md"><b>✓ 둘을 공정히 비교</b>해 충분히 신뢰되는 쪽을 고른다</div></div>
+        </div>
+        <div class="nexthint">공정히 비교하려면, 두 관찰을 <b>같은 형식</b>으로 만들어야 한다.</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>note</b><p>후보 해석이 필요한 이유가 실행에서 자연스럽게 등장.</p></aside>
+
+  <!-- 12 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 3단계 증거</span><span class="pg">12 / 28</span></div>
+      <h1 class="title"><span class="step-k">3단계</span>두 관찰을 같은 형식의 증거로 바꾼다</h1>
+      <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · EvA</span><span class="cchip cb">bar · EvB</span></div>
+        <div class="grid2" style="max-width:940px">
+          <div class="evobj"><div class="eh">Evidence A</div>
+            <div class="er"><span class="ek">kind</span><span class="evv" style="color:var(--ev-ink)">REGISTRATION_INIT</span></div>
             <div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">foo</span></div>
-            <div class="er"><span class="ek">match</span><span class="evv">EXACT_IDENTIFIER</span></div>
-            <div class="er"><span class="ek">provenance</span><span class="evv">table entry #0</span></div>
-            <div class="er"><span class="ek">records</span><span class="evv">소스 위치(파일·라인)</span></div></div>
+            <div class="er"><span class="ek">match</span><span class="evv">HEURISTIC_SUBSTRING</span></div>
+            <div class="er"><span class="ek">provenance</span><span class="evv">등록 항목 #0</span></div></div>
+          <div class="evobj"><div class="eh">Evidence B</div>
+            <div class="er"><span class="ek">kind</span><span class="evv" style="color:var(--ev-ink)">ENUM_CASE</span></div>
+            <div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">bar</span></div>
+            <div class="er"><span class="ek">match</span><span class="evv">NORMALIZED_NAME</span></div>
+            <div class="er"><span class="ek">provenance</span><span class="evv">switch 분기</span></div></div>
         </div>
-        <div class="cap">같은 색이 <b>어디서 왔는지</b>를 보여준다 — 각 코드 조각이 한 필드로</div>
+        <div class="nexthint">두 증거를 <b>무엇을 기준으로</b> 비교하지?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>증거 객체의 각 필드 출처를 색으로.</p></aside>
+  <aside class="notes"><b>note</b><p>두 관찰 → 같은 스키마의 증거. 이래야 하나의 계산으로 비교 가능.</p></aside>
 
-  <!-- C2 (18) grouping -->
+  <!-- 13 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 후보로 묶기</span><span class="pg">18 / 31</span></div>
-      <h1 class="title">콜백이 같은 증거끼리 후보로 묶는다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 4단계 그룹화</span><span class="pg">13 / 28</span></div>
+      <h1 class="title"><span class="step-k">4단계</span>증거를 콜백별 후보로 묶는다</h1>
       <div class="stage"><div class="stage-in">
-        <div class="xrow" style="gap:clamp(12px,2vw,30px);align-items:center">
-          <div class="col" style="gap:8px">
-            <div class="evobj" style="min-width:200px"><div class="eh">Evidence A</div><div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">foo</span></div><div class="er"><span class="ek">kind</span><span class="evv">REGISTRATION_INIT</span></div></div>
-            <div class="evobj" style="min-width:200px"><div class="eh">Evidence B</div><div class="er"><span class="ek">callback</span><span class="evv" style="color:var(--cb-ink)">bar</span></div><div class="er"><span class="ek">kind</span><span class="evv">ENUM_CASE</span></div></div>
-          </div>
-          <span class="rt"><span class="tri"></span><span class="lb">콜백별 그룹</span></span>
-          <div class="col" style="gap:10px">
-            <span class="pill cb">Candidate foo · evidence = [ A ]</span>
-            <span class="pill cb">Candidate bar · evidence = [ B ]</span>
-          </div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo=[A]</span><span class="cchip cb">bar=[B]</span></div>
+        <div class="xrow" style="gap:clamp(12px,2vw,28px)">
+          <div class="col" style="gap:8px"><span class="pill ev">Evidence A · foo</span><span class="pill ev">Evidence B · bar</span></div>
+          <span class="rt"><span class="tri"></span><span class="lb">콜백별</span></span>
+          <div class="col" style="gap:10px"><span class="pill cb">Candidate foo · evidence=[A]</span><span class="pill cb">Candidate bar · evidence=[B]</span></div>
         </div>
-        <div class="cap">비교의 단위는 증거가 아니라 <b>콜백 후보</b> — 각 후보가 자기 증거를 들고 있다</div>
+        <div class="cap">비교 단위는 증거가 아니라 <b>콜백 후보</b> — 각 후보가 자기 증거를 들고 있다</div>
+        <div class="nexthint">이제 후보별로 <b>점수</b>를 매기자 — 점수는 무엇으로 정하나?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>증거 → 콜백별 후보. 이제 후보끼리 비교한다.</p></aside>
+  <aside class="notes"><b>note</b><p>증거 → 콜백별 후보. 비교 단위 확정.</p></aside>
 
-  <!-- C3 (19) prior -->
+  <!-- 14 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 방식 사전확률</span><span class="pg">19 / 31</span></div>
-      <h1 class="title">관계를 얼마나 직접 표현하느냐가 사전확률이다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 5단계 점수 · 두 조건</span><span class="pg">14 / 28</span></div>
+      <h1 class="title"><span class="step-k">5단계</span>점수 = 구조 신뢰 × 식별자 대응</h1>
       <div class="stage"><div class="stage-in">
-        <div class="col" style="gap:7px;width:100%;max-width:1010px">
-          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">strcmp(action,<span class="a">"DataTransfer"</span>)==0 → <span class="cb">foo</span>()</div><span class="pill" style="font-size:11.5px">STRING_DISPATCH</span><span class="gauge" style="max-width:140px;flex:0 0 140px"><div class="track"><div class="fill" style="width:90%"></div></div><span class="v">0.90</span></span></div>
-          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">case <span class="a">ACTION_DATA_TRANSFER</span>: <span class="cb">bar</span>()</div><span class="pill" style="font-size:11.5px">ENUM_CASE</span><span class="gauge" style="max-width:140px;flex:0 0 140px"><div class="track"><div class="fill" style="width:85%"></div></div><span class="v">0.85</span></span></div>
-          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> } <span class="cm">// 호출은 딴 곳</span></div><span class="pill" style="font-size:11.5px">REGISTRATION</span><span class="gauge" style="max-width:140px;flex:0 0 140px"><div class="track"><div class="fill" style="width:80%"></div></div><span class="v">0.80</span></span></div>
-          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">register(<span class="a">ACTION…</span>, <span class="cb">foo</span>) <span class="cm">// 피호출부 확인</span></div><span class="pill" style="font-size:11.5px">REGISTRAR</span><span class="gauge" style="max-width:140px;flex:0 0 140px"><div class="track"><div class="fill" style="width:70%"></div></div><span class="v">0.70</span></span></div>
-          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">함수 이름: <span class="dim">handle_data_transfer</span> <span class="cm">// 구조 연결 없음</span></div><span class="pill" style="font-size:11.5px">NAME_MATCH</span><span class="gauge" style="max-width:140px;flex:0 0 140px"><div class="track"><div class="fill dim" style="width:70%"></div></div><span class="v">0.70</span></span></div>
-        </div>
-        <div class="cap">위로 갈수록 <b>직접 표현</b>, 아래로 갈수록 <b>해석이 더 필요</b> · 값은 <b>정책값</b>이다</div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>각 방식이 관계를 얼마나 직접 표현하는지 → 사전확률. 보정된 확률이 아니라 정책값.</p></aside>
-
-  <!-- C4 (20) match strength -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 매치 강도</span><span class="pg">20 / 31</span></div>
-      <h1 class="title">점수는 구조와 식별자가 모두 강해야 강해진다</h1>
-      <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · ?</span><span class="cchip cb">bar · ?</span></div>
         <div class="xrow" style="gap:16px">
           <div class="mp" style="background:var(--act-soft)"><div class="mh" style="color:var(--act-ink)">구조</div><div class="md">믿을 만한 <b>액션→콜백 관계</b>인가? <span class="term">Prior(kind)</span></div></div>
           <span class="qbig" style="font-size:26px;color:var(--muted)">×</span>
           <div class="mp" style="background:var(--cb-soft)"><div class="mh" style="color:var(--cb-ink)">식별자</div><div class="md">이 액션을 <b>명시적으로</b> 가리키나? <span class="term">match</span></div></div>
         </div>
-        <div class="col" style="gap:6px;width:100%;max-width:620px;margin-top:4px">
-          <div class="gauge"><span class="lab">0.80 × 1.00</span><div class="track"><div class="fill" style="width:80%"></div></div><span class="v">0.80</span></div>
-          <div class="gauge"><span class="lab">0.80 × 0.00</span><div class="track"><div class="fill bad" style="width:2%"></div></div><span class="v">0.00</span></div>
-          <div class="gauge"><span class="lab">0.70 × 1.00</span><div class="track"><div class="fill" style="width:70%"></div></div><span class="v">0.70</span></div>
-        </div>
-        <div class="cap"><b>둘 중 하나라도 약하면</b> 전체 증거도 제한된다</div>
+        <div class="cap">둘 중 하나라도 약하면 전체 증거도 제한된다</div>
+        <div class="nexthint">먼저 “구조 신뢰”는 어디서 오나?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>구조 × 식별자. 하나가 0이면 전체 0.</p></aside>
+  <aside class="notes"><b>note</b><p>비교하려면 점수가 필요 → 점수의 두 재료 제시.</p></aside>
 
-  <!-- C5 (21) dedup MAX -->
+  <!-- 15 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 중복 제거</span><span class="pg">21 / 31</span></div>
-      <h1 class="title">같은 코드 위치에서 나온 관찰은 한 번만 센다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 점수 재료 ① 사전확률</span><span class="pg">15 / 28</span></div>
+      <h1 class="title">구조 신뢰 — 관계를 얼마나 직접 표현하나</h1>
       <div class="stage"><div class="stage-in">
-        <div class="code sm">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }</div>
-        <div class="mp" style="background:var(--ev-soft);width:100%;max-width:640px"><div class="mh" style="color:var(--ev-ink)">같은 출처(provenance) 하나</div>
-          <div class="b" style="background:transparent;padding:0;font-family:var(--mono);font-size:12px;line-height:1.85">table-entry 관찰 · 0.80<br>handler-reference 관찰 · 0.80<br>symbol-resolution 관찰 · 0.80</div></div>
-        <div class="grid2" style="max-width:680px">
-          <div class="mp bad"><div class="mh">셋을 다 더하면</div><div class="gauge"><div class="track"><div class="fill bad" style="width:99%"></div></div><span class="v">↑ 과장</span></div><div class="md">한 등록이 세 증인처럼 부풀려짐</div></div>
-          <div class="mp good"><div class="mh">MAX 하나로</div><div class="gauge"><div class="track"><div class="fill cb" style="width:80%"></div></div><span class="v">0.80</span></div><div class="md">같은 출처는 한 번만 센다 <span class="term">(provenance grouping)</span></div></div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · prior 0.80</span><span class="cchip cb">bar · prior 0.85</span></div>
+        <div class="col" style="gap:7px;width:100%;max-width:900px">
+          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">case <span class="a">ACTION…</span>: <span class="cb">bar</span>() <span class="cm">← 우리 bar</span></div><span class="pill" style="font-size:11.5px">ENUM_CASE</span><span class="gauge" style="max-width:130px;flex:0 0 130px"><div class="track"><div class="fill amb" style="width:85%"></div></div><span class="v">0.85</span></span></div>
+          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">{ <span class="a">ACTION…</span>, <span class="cb">foo</span> } <span class="cm">← 우리 foo</span></div><span class="pill" style="font-size:11.5px">REGISTRATION</span><span class="gauge" style="max-width:130px;flex:0 0 130px"><div class="track"><div class="fill cb" style="width:80%"></div></div><span class="v">0.80</span></span></div>
+          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">register(<span class="a">ACTION…</span>, fn) <span class="cm">// 저장 확인 필요</span></div><span class="pill" style="font-size:11.5px">REGISTRAR</span><span class="gauge" style="max-width:130px;flex:0 0 130px"><div class="track"><div class="fill" style="width:70%"></div></div><span class="v">0.70</span></span></div>
+          <div class="xrow" style="justify-content:space-between;gap:14px"><div class="code sm" style="flex:1">이름: <span class="dim">handle_data_transfer</span> <span class="cm">// 구조 없음</span></div><span class="pill" style="font-size:11.5px">NAME_MATCH</span><span class="gauge" style="max-width:130px;flex:0 0 130px"><div class="track"><div class="fill dim" style="width:70%"></div></div><span class="v">0.70</span></span></div>
         </div>
+        <div class="nexthint">두 번째 재료 — <b>식별자 대응</b>은 얼마나 강한가?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>같은 출처를 한 번만(= provenance grouping). 용어는 그림 뒤.</p></aside>
+  <aside class="notes"><b>note</b><p>우리 foo=REGISTRATION 0.80, bar=ENUM_CASE 0.85. 값은 정책값.</p></aside>
 
-  <!-- C6 (22) noisy-OR -->
+  <!-- 16 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 독립 확증</span><span class="pg">22 / 31</span></div>
-      <h1 class="title">서로 다른 곳에서 같은 핸들러를 확인하면 신뢰를 높인다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 점수 재료 ② 매치 강도</span><span class="pg">16 / 28</span></div>
+      <h1 class="title">식별자 대응 — 명시인가, 닮은 것뿐인가</h1>
       <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · ×0.70</span><span class="cchip cb">bar · ×0.85</span></div>
+        <div class="ladder" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;font-family:var(--mono);font-size:12.5px">
+          <span class="pill a" style="font-size:12px">EXACT 1.00</span><span class="rt"><span class="tri"></span></span>
+          <span class="pill" style="font-size:12px">RESOLVED_VALUE 0.95</span><span class="rt"><span class="tri"></span></span>
+          <span class="pill amb" style="font-size:12px;background:var(--amb-soft);color:var(--amb-ink)">NORMALIZED 0.85 · bar</span><span class="rt"><span class="tri"></span></span>
+          <span class="pill" style="font-size:12px;background:var(--cb-soft);color:var(--cb-ink)">SUBSTRING 0.70 · foo</span>
+        </div>
+        <div class="cap">우리 bar 는 정규화 일치(0.85), foo 는 부분 문자열(0.70) — <b>식별자 대응은 bar 가 더 강하다</b></div>
+        <div class="nexthint">이제 <b>foo부터</b> 실제 점수를 계산하자.</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>note</b><p>foo=substring 0.70, bar=normalized 0.85. 대응 강도는 bar 우세.</p></aside>
+
+  <!-- 17 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · foo 점수 · 중복 문제</span><span class="pg">17 / 28</span></div>
+      <h1 class="title">후보 foo — 같은 등록의 관찰 셋을 한 번만 센다</h1>
+      <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb new">foo · 0.56</span><span class="cchip cb">bar · ?</span></div>
+        <div class="grid2" style="max-width:920px">
+          <div class="mp bad"><div class="mh">같은 등록에서 관찰이 셋</div>
+            <div class="md" style="font-family:var(--mono)">table-entry 0.80 · handler-ref 0.80 · symbol 0.80</div>
+            <div class="md">다 더하면? 한 등록이 세 증인처럼 <b>과장</b></div></div>
+          <div class="mp good"><div class="mh" style="color:var(--cb-ink)">같은 출처는 한 번만 → MAX</div>
+            <div class="md" style="font-family:var(--mono)">MAX = 0.80 &nbsp;×&nbsp; match 0.70</div>
+            <div class="gauge"><div class="track"><div class="fill dim" style="width:56%"></div></div><span class="v">0.56</span></div>
+            <div class="md" style="font-size:11px"><span class="term">provenance grouping</span></div></div>
+        </div>
+        <div class="nexthint">이제 <b>bar</b>도 같은 방식으로 계산하자.</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>note</b><p>중복 제거(=provenance grouping)가 foo의 실제 관찰에서 필요해서 등장. MAX 0.80 × 0.70 = 0.56.</p></aside>
+
+  <!-- 18 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · bar 점수</span><span class="pg">18 / 28</span></div>
+      <h1 class="title">후보 bar — 0.85 × 0.85 = 0.72</h1>
+      <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · 0.56</span><span class="cchip cb new win">bar · 0.72</span></div>
+        <div class="col" style="gap:10px;width:100%;max-width:700px">
+          <div class="mp good"><div class="mh"><span style="color:var(--cb-ink)">bar</span> · ENUM_CASE</div>
+            <div class="md" style="font-family:var(--mono)">prior 0.85 &nbsp;×&nbsp; match NORMALIZED 0.85</div>
+            <div class="gauge"><div class="track"><div class="fill cb" style="width:72%"></div></div><span class="v">0.72</span></div></div>
+          <div class="xrow" style="gap:14px"><span class="pill cb">foo · 0.56</span><span class="cap" style="font-family:var(--mono)">vs</span><span class="pill" style="background:var(--cb-soft);color:var(--cb-ink);box-shadow:inset 0 0 0 2px var(--cb)">bar · 0.72</span></div>
+        </div>
+        <div class="nexthint">근거가 <b>더 있었다면</b> 점수가 달라졌을까?</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>note</b><p>bar 0.72. 두 후보 점수 확정. 이제 결합/상한을 “근거가 더 있었다면?”으로 동기화.</p></aside>
+
+  <!-- 19 -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 만약 · 독립 확증</span><span class="pg">19 / 28</span></div>
+      <h1 class="title">만약 한 후보가 다른 곳에서도 확인된다면?</h1>
+      <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · 0.56</span><span class="cchip cb win">bar · 0.72</span><span class="cchip mut">각 후보 = 한 출처뿐</span></div>
         <div class="grid2" style="max-width:820px">
-          <div class="sc"><div class="h">출처 A · 등록부</div><div class="code sm">{ <span class="a">ACTION_DATA_TRANSFER</span>, <span class="cb">foo</span> }</div><div class="cap" style="font-size:12px">점수 0.80 · 남은 의심 0.20</div></div>
-          <div class="sc"><div class="h">출처 B · switch</div><div class="code sm">case <span class="a">ACTION_DATA_TRANSFER</span>:
-    <span class="cb">foo</span>();</div><div class="cap" style="font-size:12px">점수 0.85 · 남은 의심 0.15</div></div>
+          <div class="sc"><div class="h">출처 A</div><div class="code sm">{ <span class="a">ACTION…</span>, <span class="cb">foo</span> } <span class="cm">0.80</span></div></div>
+          <div class="sc"><div class="h">출처 B · 다른 위치</div><div class="code sm">case <span class="a">ACTION…</span>: <span class="cb">foo</span>(); <span class="cm">0.85</span></div></div>
         </div>
-        <div class="mp" style="background:var(--ev-soft);width:100%;max-width:700px"><div class="b" style="background:transparent;padding:0;text-align:center;font-family:var(--mono);font-size:13.5px;line-height:1.8">남은 의심 = 0.20 × 0.15 = <b>0.03</b><br>신뢰도 = 1 − 0.03 = <b style="color:var(--ev-ink)">0.97</b></div></div>
-        <div class="cap"><b>독립된 두 출처</b>가 확인 → 남은 의심을 곱한다 <span class="term">(noisy-OR)</span></div>
+        <div class="mp" style="background:var(--ev-soft);width:100%;max-width:640px"><div class="b" style="background:transparent;padding:0;text-align:center;font-family:var(--mono);font-size:13px;line-height:1.7">남은 의심 = 0.20 × 0.15 = 0.03 → 신뢰도 <b style="color:var(--ev-ink)">0.97</b></div></div>
+        <div class="cap"><b>독립된 두 출처</b>면 남은 의심을 곱해 올린다 <span class="term">(noisy-OR)</span> · 우리 실행에선 각 후보가 한 출처뿐이라 이 단계는 <b>그대로 통과</b></div>
+        <div class="nexthint">반대로, 근거가 <b>약한 이름뿐</b>이라면 과신되지 않을까?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>noisy-OR = 남은 의심의 곱. 여기선 같은 핸들러 foo를 두 곳에서 확인하는 확증 사례.</p></aside>
+  <aside class="notes"><b>note</b><p>noisy-OR를 “근거가 더 있었다면?”으로 동기화. 우리 실행엔 독립 출처가 없어 no-op임을 명시(디버거 정직성).</p></aside>
 
-  <!-- C7 (23) caps -->
+  <!-- 20 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 상한</span><span class="pg">23 / 31</span></div>
-      <h1 class="title">약한 이름 셋이 구조적 증명이 될 순 없다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 만약 · 상한</span><span class="pg">20 / 28</span></div>
+      <h1 class="title">만약 근거가 약한 이름뿐이라면?</h1>
       <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · 0.56</span><span class="cchip cb win">bar · 0.72</span><span class="cchip mut">정확 매치 있음 → cap 미적용</span></div>
         <div class="grid2" style="max-width:900px">
-          <div class="mp bad"><div class="mh">약한 이름 관찰 3개</div><div class="b" style="background:transparent;padding:0;font-family:var(--mono);font-size:12px">0.70 · 0.70 · 0.70</div><div class="gauge"><div class="track"><div class="fill bad" style="width:97%"></div></div><span class="v">0.973</span></div><div class="md">noisy-OR 그대로면 거의 확신? — 아니오</div></div>
-          <div class="mp good"><div class="mh" style="color:var(--cb-ink)">weak-only cap 적용</div><div class="md">정확/해석된 식별자 증거가 하나도 없으면 →</div><div class="gauge"><div class="track"><div class="fill cb" style="width:85%"></div></div><span class="v">0.85</span></div></div>
+          <div class="mp bad"><div class="mh">약한 이름 3개 결합</div><div class="gauge"><div class="track"><div class="fill bad" style="width:97%"></div></div><span class="v">0.973</span></div><div class="md">약한 근거가 구조적 증명처럼 과신?</div></div>
+          <div class="mp good"><div class="mh" style="color:var(--cb-ink)">정확 식별자 증거가 없으면 → cap</div><div class="gauge"><div class="track"><div class="fill cb" style="width:85%"></div></div><span class="v">0.85</span></div><div class="md">아무리 강해도 <span class="term">global cap 0.99</span> 미만</div></div>
         </div>
-        <div class="cap">강한 증거가 아무리 많아도 → <b>절대 확신엔 못 미친다</b> <span class="term">global cap 0.99</span></div>
+        <div class="cap">우리 실행의 bar 는 정규화·정확 대응이 있어 <b>이 상한에 걸리지 않는다</b></div>
+        <div class="nexthint">이제 확정 점수로 돌아가 — <b>bar 0.72 vs foo 0.56</b>, 결정하자.</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>정확 식별자 증거 없으면 0.85 상한, 아무리 많아도 0.99 미만.</p></aside>
+  <aside class="notes"><b>note</b><p>cap도 “약한 이름뿐이라면?”으로 동기화. 우리 bar엔 미적용.</p></aside>
 
-  <!-- C8 (24) floor & margin -->
+  <!-- 21 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">C · 판정 · 임계값·마진</span><span class="pg">24 / 31</span></div>
-      <h1 class="title">두 질문으로 확정·모호·미해결을 가른다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 6단계 비교</span><span class="pg">21 / 28</span></div>
+      <h1 class="title"><span class="step-k">6단계</span>두 후보를 비교한다</h1>
       <div class="stage"><div class="stage-in">
-        <div class="col" style="gap:11px;width:100%;max-width:760px">
-          <div class="mp"><div class="mh">질문 1 · 1위가 충분히 강한가? <span class="term">floor 0.50</span></div>
-            <div class="gauge"><span class="lab">top</span><div class="track"><div class="fill dim" style="width:42%"></div></div><span class="v">0.42</span></div>
-            <span class="tag unr">0.42 &lt; 0.50 → UNRESOLVED</span></div>
-          <div class="mp"><div class="mh">질문 2 · 2위보다 뚜렷이 앞서나? <span class="term">margin 0.15</span></div>
-            <div class="gauge"><span class="lab">top</span><div class="track"><div class="fill amb" style="width:66%"></div></div><span class="v">0.66</span></div>
-            <div class="gauge"><span class="lab">2nd</span><div class="track"><div class="fill dim" style="width:56%"></div></div><span class="v">0.56</span></div>
-            <span class="tag amb">차이 0.10 &lt; 0.15 → AMBIGUOUS</span></div>
-          <div class="mp good"><div class="mh" style="color:var(--cb-ink)">둘 다 통과</div>
-            <div class="gauge"><span class="lab">top</span><div class="track"><div class="fill cb" style="width:72%"></div></div><span class="v">0.72</span></div>
-            <div class="gauge"><span class="lab">2nd</span><div class="track"><div class="fill dim" style="width:56%"></div></div><span class="v">0.56</span></div>
-            <span class="tag res">차이 0.16 ≥ 0.15 → RESOLVED</span></div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip cb">foo · 0.56</span><span class="cchip cb win">bar · 0.72</span></div>
+        <div class="col" style="gap:9px;width:100%;max-width:680px">
+          <div class="gauge"><span class="lab" style="min-width:36px;color:var(--cb-ink)">bar</span><div class="track"><div class="fill cb" style="width:72%"></div></div><span class="v">0.72</span></div>
+          <div class="gauge"><span class="lab" style="min-width:36px">foo</span><div class="track"><div class="fill dim" style="width:56%"></div></div><span class="v">0.56</span></div>
         </div>
+        <div class="xrow" style="gap:16px;flex-wrap:wrap"><span class="pill" style="font-size:12.5px">질문 1 · 1위가 임계값을 넘나?</span><span class="pill" style="font-size:12.5px">질문 2 · 2위보다 뚜렷이 앞서나?</span></div>
+        <div class="nexthint">이 두 질문의 답이 <b>확정·모호·미해결</b>을 가른다.</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>마진을 막대 길이 차로.</p></aside>
+  <aside class="notes"><b>note</b><p>비교 → 두 질문을 준비. 다음 슬라이드에서 판정.</p></aside>
 
-  <!-- ════════ SECTION D — 무엇을 돌려주고 어떻게 검증하나 ════════ -->
-
-  <!-- D1 (25) worked example -->
+  <!-- 22 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">D · 출력 · 사례 실행</span><span class="pg">25 / 31</span></div>
-      <h1 class="title">사례 — foo vs bar 를 숫자로 실행한다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sC)"></span><span class="sec">실행 · 6단계 판정</span><span class="pg">22 / 28</span></div>
+      <h1 class="title"><span class="step-k">6단계</span>두 질문을 통과 → bar 로 확정</h1>
       <div class="stage"><div class="stage-in">
-        <div class="grid2" style="max-width:960px">
-          <div class="mp"><div class="mh"><span style="color:var(--cb-ink)">foo</span> · REGISTRATION_INIT</div><div class="md"><span class="term">prior</span> 0.80 × <span class="term">match</span> HEURISTIC_SUBSTRING 0.70</div><div class="gauge"><div class="track"><div class="fill dim" style="width:56%"></div></div><span class="v">0.56</span></div></div>
-          <div class="mp good"><div class="mh"><span style="color:var(--cb-ink)">bar</span> · ENUM_CASE</div><div class="md"><span class="term">prior</span> 0.85 × <span class="term">match</span> NORMALIZED_NAME 0.85</div><div class="gauge"><div class="track"><div class="fill cb" style="width:72%"></div></div><span class="v">0.72</span></div></div>
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip win">RESOLVED → bar</span></div>
+        <div class="xrow" style="gap:16px;flex-wrap:wrap">
+          <span class="pill" style="font-size:13px">floor · 0.72 ≥ 0.50 ✓</span>
+          <span class="pill" style="font-size:13px">margin · 0.72 − 0.56 = 0.16 ≥ 0.15 ✓</span>
+          <span class="tag res" style="font-size:14px;padding:8px 16px">RESOLVED → bar</span>
         </div>
-        <div class="xrow" style="gap:16px;flex-wrap:wrap"><span class="pill" style="font-size:12.5px">floor · 0.72 ≥ 0.50 ✓</span><span class="pill" style="font-size:12.5px">margin · 0.72 − 0.56 = 0.16 ≥ 0.15 ✓</span><span class="tag res" style="font-size:13px;padding:7px 14px">RESOLVED → bar</span></div>
-        <div class="cap">디스패치(bar)의 식별자 대응이 더 강해 확정 — <b>종류가 아니라 대응 강도</b>의 차이</div>
+        <div class="grid2" style="max-width:900px;grid-template-columns:1fr 1fr 1fr">
+          <div class="mp"><div class="md" style="font-size:11.5px">1위 &lt; 0.50 이면</div><span class="tag unr">UNRESOLVED</span></div>
+          <div class="mp"><div class="md" style="font-size:11.5px">차이 &lt; 0.15 이면</div><span class="tag amb">AMBIGUOUS</span></div>
+          <div class="mp good"><div class="md" style="font-size:11.5px">우리 실행</div><span class="tag res">RESOLVED → bar</span></div>
+        </div>
+        <div class="nexthint">이 결정을 <b>어떻게 내보내나?</b></div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>A8 객체 흐름을 숫자로 실행. bar 0.72 vs foo 0.56 → RESOLVED bar.</p></aside>
+  <aside class="notes"><b>note</b><p>floor·margin 통과 → RESOLVED bar. 다른 값이면 AMB/UNR.</p></aside>
 
-  <!-- D2 (26) r/a/u examples -->
+  <!-- 23 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">D · 출력 · 반사실</span><span class="pg">26 / 31</span></div>
-      <h1 class="title">입력을 바꾸면 결과가 이렇게 달라진다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">실행 · 출력</span><span class="pg">23 / 28</span></div>
+      <h1 class="title">판정을 handler_resolutions 로 내보낸다</h1>
       <div class="stage"><div class="stage-in">
-        <div class="panels" style="max-width:960px">
-          <div class="mp"><div class="mh">A · switch 제거</div><div class="md">foo 0.56 단독, 경쟁 없음</div><span class="tag res">RESOLVED → foo</span></div>
-          <div class="mp"><div class="mh">B · 점수가 근접</div><div class="md">bar 0.66 · foo 0.56 (차이 0.10)</div><span class="tag amb">AMBIGUOUS</span></div>
-          <div class="mp"><div class="mh">C · 약한 증거만</div><div class="md">결합이 0.85를 넘어도</div><span class="tag" style="background:var(--ev-soft);color:var(--ev-ink)">weak-only cap → 0.85</span></div>
-          <div class="mp"><div class="mh">D · 구조적 쌍 없음</div><div class="md">후보 자체가 없음</div><span class="tag unr">UNRESOLVED + 사유</span></div>
-        </div>
-      </div></div>
-      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
-    </div>
-  </section>
-  <aside class="notes"><b>note</b><p>확정/모호/상한/미해결을 실제 로직으로.</p></aside>
-
-  <!-- D3 (27) output schema -->
-  <section class="slide">
-    <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">D · 출력 · 스키마</span><span class="pg">27 / 31</span></div>
-      <h1 class="title">판정의 각 요소가 출력 JSON의 필드가 된다</h1>
-      <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip win">RESOLVED → bar</span></div>
         <div class="xrow" style="gap:clamp(14px,2.4vw,40px);align-items:center">
           <div class="col" style="gap:7px;align-items:stretch">
             <span class="tag res" style="align-self:flex-start">RESOLVED → bar</span>
-            <div class="b" style="background:#f5f6fa;border-radius:12px;padding:12px 15px;font-family:var(--mono);font-size:12px;line-height:1.9">판정 결과<br>1위 후보<br>결합 점수<br>모든 대안<br>소스 레코드</div></div>
+            <div class="b" style="background:#f5f6fa;border-radius:12px;padding:12px 15px;font-family:var(--mono);font-size:12px;line-height:1.9">판정 결과<br>1위 후보 · bar<br>결합 점수 · 0.72<br>모든 대안 · foo</div></div>
           <span class="rt ev"><span class="tri"></span><span class="lb">직렬화</span></span>
           <div class="evobj plain"><div class="eh">handler_resolutions</div>
-            <div class="er"><span class="ek">status</span><span class="evv">← 판정 결과</span></div>
-            <div class="er"><span class="ek">chosen</span><span class="evv">← 1위 후보</span></div>
-            <div class="er"><span class="ek">confidence</span><span class="evv">← 결합 점수</span></div>
-            <div class="er"><span class="ek">candidates</span><span class="evv">← 모든 대안</span></div>
-            <div class="er"><span class="ek">evidence</span><span class="evv">← 소스 레코드</span></div>
-            <div class="er"><span class="ek">unresolved</span><span class="evv">← 실패 사유</span></div></div>
+            <div class="er"><span class="ek">status</span><span class="evv">← RESOLVED</span></div>
+            <div class="er"><span class="ek">chosen</span><span class="evv" style="color:var(--cb-ink)">← bar</span></div>
+            <div class="er"><span class="ek">confidence</span><span class="evv">← 0.72</span></div>
+            <div class="er"><span class="ek">candidates</span><span class="evv">← foo · bar</span></div>
+            <div class="er"><span class="ek">evidence</span><span class="evv">← 소스 레코드</span></div></div>
         </div>
+        <div class="nexthint">이 출력을 <b>누가 쓰나?</b></div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>각 필드가 판정의 어느 요소에서 오는지.</p></aside>
+  <aside class="notes"><b>note</b><p>실행 결과를 JSON으로. 각 필드가 판정 요소에서.</p></aside>
 
-  <!-- D4 (28) downstream -->
+  <!-- 24 -->
   <section class="slide tall">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">D · 출력 · 하위 소비</span><span class="pg">28 / 31</span></div>
-      <h1 class="title">확정된 핸들러가 오염 분석의 출발점이 된다</h1>
+      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">실행 · 하위 소비</span><span class="pg">24 / 28</span></div>
+      <h1 class="title">확정된 bar 가 오염 분석의 출발점이 된다</h1>
       <div class="stage"><div class="stage-in">
+        <div class="statebar"><span class="sl">실행 상태</span><span class="cchip win">chosen = bar</span></div>
         <div class="grid2" style="max-width:980px">
-          <div class="sc"><div class="h">확정된 핸들러 · bar</div>
+          <div class="sc"><div class="h">확정 핸들러 · bar</div>
             <div class="code sm">int <span class="cb">bar</span>(Payload *p) {
     int limit = p-&gt;<span class="a">chargingLimit</span>;
     <span class="ev">set_current_limit</span>(limit);
 }</div>
             <div class="chain" style="margin-top:8px">
-              <div class="cnode neu" style="font-size:12.5px">프로토콜 필드 <span style="color:var(--act)">chargingLimit</span></div><span class="dn" style="margin:0"><span class="tri"></span></span>
-              <div class="cnode neu" style="font-size:12.5px">지역 변수 limit</div><span class="dn" style="margin:0"><span class="tri"></span></span>
+              <div class="cnode neu" style="font-size:12.5px">필드 <span style="color:var(--act)">chargingLimit</span></div><span class="dn" style="margin:0"><span class="tri"></span></span>
+              <div class="cnode neu" style="font-size:12.5px">변수 limit</div><span class="dn" style="margin:0"><span class="tri"></span></span>
               <div class="cnode" style="background:var(--ev-soft);color:var(--ev-ink);font-size:12.5px">싱크 <span class="ev">set_current_limit</span></div></div></div>
-          <div class="sc"><div class="h" style="color:var(--bad-ink)">핸들러가 미해결이면</div>
+          <div class="sc"><div class="h" style="color:var(--bad-ink)">만약 UNRESOLVED 였다면</div>
             <div class="chain">
               <div class="cnode neu">미해결</div><span class="dn bad" style="margin:0"><span class="tri"></span></span>
               <div class="cnode bad">신뢰할 소스 루트 없음</div><span class="dn bad" style="margin:0"><span class="tri"></span></span>
-              <div class="cnode bad">이 액션의 하위 분석 중단</div></div>
-            <div class="cap" style="font-size:12px;text-align:left;margin-top:8px">핸들러가 없으면 오염의 출발점이 없어 분석이 멈춘다</div></div>
+              <div class="cnode bad">이 액션의 하위 분석 중단</div></div></div>
         </div>
+        <div class="nexthint">그렇다면 F2-A가 <b>못 푸는 경우</b>는 언제인가?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
-  <aside class="notes"><b>note</b><p>확정 핸들러 bar = 오염 소스 루트. F2-A를 실제 보안 분석에 연결.</p></aside>
+  <aside class="notes"><b>note</b><p>확정 bar = 오염 소스 루트. 미해결이면 중단.</p></aside>
 
-  <!-- D5 (29) scope -->
+  <!-- 25 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">D · 검증 · 범위</span><span class="pg">29 / 31</span></div>
+      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">경계</span><span class="pg">25 / 28</span></div>
       <h1 class="title">정적으로 슬롯을 증명할 수 있는가가 경계다</h1>
       <div class="stage"><div class="stage-in">
         <div class="grid2" style="max-width:1000px">
           <div class="mp good"><div class="mh" style="color:var(--cb-ink)">지원 — 같은 슬롯</div>
-            <div class="code sm">table[<span class="ev">k</span>].action = <span class="a">ACTION</span>;
-table[<span class="ev">k</span>].fn     = <span class="cb">foo</span>;</div>
-            <div class="md">같은 수신자 + 같은 슬롯 → 쌍 복원 가능</div></div>
+            <div class="code sm">t[<span class="ev">k</span>].action = <span class="a">ACTION…</span>;
+t[<span class="ev">k</span>].fn     = <span class="cb">foo</span>;</div>
+            <div class="md">같은 수신자 + 같은 슬롯 → 복원 가능</div></div>
           <div class="mp bad"><div class="mh" style="color:var(--bad-ink)">미지원 — 런타임 탐색</div>
-            <div class="code sm">for (...) {
-  if (table[<span class="bad">i</span>].action == action)
-     table[<span class="bad">i</span>].fn = <span class="cb">foo</span>;
-}</div>
-            <div class="md">런타임 탐색 + 심볼릭 인덱스 → 루프·값 추론 필요 → <span class="tag bad">미해결 · 사유 명명</span></div></div>
+            <div class="code sm">for (...) if (t[<span class="bad">i</span>].action==action)
+    t[<span class="bad">i</span>].fn = <span class="cb">foo</span>;</div>
+            <div class="md">런타임 탐색 + 심볼릭 인덱스 → <span class="tag bad">미해결 · 사유 명명</span></div></div>
         </div>
-        <div class="cap">전체 지원/미지원 목록은 <b>부록</b>으로 — 여기선 경계의 <b>이유</b>를 그림으로</div>
+        <div class="nexthint">이 동작을 <b>무엇으로 보장</b>하나?</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
   <aside class="notes"><b>note</b><p>슬롯을 정적으로 증명 가능한가가 경계.</p></aside>
 
-  <!-- D6 (30) evaluation -->
+  <!-- 26 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">D · 검증 · 평가</span><span class="pg">30 / 31</span></div>
+      <div class="eyebrow"><span class="dot" style="background:var(--sD)"></span><span class="sec">검증</span><span class="pg">26 / 28</span></div>
       <h1 class="title">테스트는 ‘구현 동작’을 고정하지, ‘현실 정확도’를 증명하진 않는다</h1>
       <div class="stage"><div class="stage-in">
         <div class="grid2" style="max-width:1040px;grid-template-columns:1fr 1fr 1fr">
           <div class="sc"><div class="h">역량 테스트</div><div class="chain">
-            <div class="cnode neu" style="font-size:12px">지원 패턴</div><span class="dn" style="margin:0"><span class="tri"></span></span>
-            <div class="cnode neu" style="font-size:12px">예상 증거</div><span class="dn dec" style="margin:0"><span class="tri"></span></span>
+            <div class="cnode neu" style="font-size:12px">지원 패턴</div><span class="dn dec" style="margin:0"><span class="tri"></span></span>
             <div class="cnode good" style="font-size:12px">RESOLVED</div></div></div>
           <div class="sc"><div class="h">충돌 테스트</div><div class="chain">
-            <div class="cnode neu" style="font-size:12px">경쟁 후보</div><span class="dn" style="margin:0"><span class="tri"></span></span>
-            <div class="cnode neu" style="font-size:12px">마진 실패</div><span class="dn" style="margin:0"><span class="tri" style="border-top-color:var(--amb)"></span></span>
+            <div class="cnode neu" style="font-size:12px">경쟁 후보</div><span class="dn" style="margin:0"><span class="tri" style="border-top-color:var(--amb)"></span></span>
             <div class="cnode" style="background:var(--amb-soft);color:var(--amb-ink);font-size:12px">AMBIGUOUS</div></div></div>
           <div class="sc"><div class="h">거부 테스트</div><div class="chain">
             <div class="cnode neu" style="font-size:12px">미지원 패턴</div><span class="dn" style="margin:0"><span class="tri"></span></span>
-            <div class="cnode neu" style="font-size:12px">명명된 사유</div><span class="dn" style="margin:0"><span class="tri"></span></span>
-            <div class="cnode neu" style="font-size:12px">UNRESOLVED</div></div></div>
+            <div class="cnode neu" style="font-size:12px">UNRESOLVED · 사유</div></div></div>
         </div>
         <div class="cap"><b>고정 픽스처 테스트 = 구현 동작 증명</b> · 임의 펌웨어의 현실 정확도는 별개</div>
       </div></div>
@@ -896,10 +765,36 @@ table[<span class="ev">k</span>].fn     = <span class="cb">foo</span>;</div>
   </section>
   <aside class="notes"><b>note</b><p>구현 동작 ≠ 현실 정확도.</p></aside>
 
-  <!-- APPENDIX (31) -->
+  <!-- 27 -->
   <section class="slide">
     <div class="canvas">
-      <div class="eyebrow"><span class="dot" style="background:var(--faint)"></span><span class="sec">부록 · Q&amp;A</span><span class="pg">A</span></div>
+      <div class="eyebrow"><span class="dot"></span><span class="sec">요약 · 한 화면</span><span class="pg">27 / 28</span></div>
+      <h1 class="title">우리가 방금 실행한 전체 트레이스</h1>
+      <div class="stage"><div class="stage-in">
+        <div class="xrow" style="gap:5px;align-items:stretch;flex-wrap:nowrap">
+          <div class="sc" style="flex:1"><div class="h">프로그램</div><div class="b" style="font-family:var(--mono);font-size:10.5px;padding:9px 10px">등록 foo<br>switch bar</div></div>
+          <span class="rt"><span class="tri"></span></span>
+          <div class="sc" style="flex:1"><div class="h">후보</div><div class="b" style="font-size:11px;padding:9px 10px">foo<br>bar</div></div>
+          <span class="rt"><span class="tri"></span></span>
+          <div class="sc" style="flex:1"><div class="h">증거</div><div class="b" style="font-size:10.5px;padding:9px 10px;color:var(--ev-ink)">EvA · EvB</div></div>
+          <span class="rt"><span class="tri"></span></span>
+          <div class="sc" style="flex:1"><div class="h">점수</div><div class="b" style="font-size:11px;padding:9px 10px">foo 0.56<br>bar 0.72</div></div>
+          <span class="rt"><span class="tri"></span></span>
+          <div class="sc" style="flex:1"><div class="h">floor+margin</div><div class="b" style="font-size:11px;padding:9px 10px">✓ ✓</div></div>
+          <span class="rt dec"><span class="tri"></span></span>
+          <div class="sc" style="flex:1"><div class="h">결과</div><div class="b" style="padding:9px 10px"><span class="tag res">bar</span></div></div>
+        </div>
+        <div class="cap">단계마다 <b>어떤 객체가 있었고, 무엇이 바뀌었는지</b>를 하나의 예제로 따라왔다</div>
+      </div></div>
+      <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
+    </div>
+  </section>
+  <aside class="notes"><b>note</b><p>전체 트레이스 요약. 하나의 예제가 처음부터 끝까지.</p></aside>
+
+  <!-- 28 APPENDIX -->
+  <section class="slide">
+    <div class="canvas">
+      <div class="eyebrow"><span class="dot" style="background:var(--faint)"></span><span class="sec">부록 · Q&amp;A</span><span class="pg">28 / 28</span></div>
       <h1 class="title">부록 — 상수 · 사유 · 결합 방식 비교</h1>
       <div class="stage"><div class="stage-in">
         <div class="grid2" style="max-width:1080px">
@@ -909,20 +804,20 @@ REGISTRATION_* 0.80 · REGISTRAR 0.70 · NAME 0.70/0.65
 EXACT 1.00 · RESOLVED_VALUE 0.95 · NORMALIZED 0.85
 SUBSTRING 0.70 · NONE 0.00
 floor 0.50 · margin 0.15 · weak-only 0.85 · global 0.99 · depth 2</div></div>
-          <div class="sc"><div class="h">미해결 사유 · 결합 방식(0.80·0.49)</div>
+          <div class="sc"><div class="h">미해결 사유 · 결합(0.80·0.49)</div>
             <div class="b" style="background:#f5f6fa;font-family:var(--mono);font-size:11.5px;line-height:1.8">NO_EVIDENCE · LOW_CONFIDENCE · EXTERNAL_DEFINITION
-REGISTRAR_STORE_NOT_REACHED · REGISTRAR_SEARCH_THEN_WRITE
-MISSING_POINTSTO · DYNAMIC_ACTION_ID · REGISTRATION_OUT_OF_TU
+REGISTRAR_STORE_NOT_REACHED · SEARCH_THEN_WRITE
+MISSING_POINTSTO · DYNAMIC_ACTION_ID · OUT_OF_TU
 —
 MAX 0.80 · SUM 1.29 · AVG 0.645 · <span style="color:var(--ev-ink)">NOISY-OR 0.898</span></div></div>
         </div>
-        <div class="cap">본문은 계약과 변환의 이해에 집중 · 수치·전체 분류는 여기에만</div>
+        <div class="cap">본문은 하나의 실행 트레이스에 집중 · 수치·전체 분류는 여기에만</div>
       </div></div>
       <div class="foot">F2-A · 핸들러 해석 — 기술 설계 리뷰</div>
     </div>
   </section>
 
-  <div class="batch">— 계약 우선 재구성 · A 계약(10) · B 인식(6) · C 판정(8) · D 출력·검증(6) + 부록 —</div>
+  <div class="batch">— 실행 트레이스 재구성 · 계약(5) → 실행(6~24) → 경계·검증·요약 + 부록 · ACTION_DATA_TRANSFER 하나로 관통 —</div>
 </main>
 </body>
 </html>
