@@ -1,7 +1,7 @@
 # F2-A Test API
 
 A thin FastAPI service over `ssat.cpg` (CPG generation via Joern) and
-`ssat.f2a` (evidence extraction). It backs the `web-f2a` testing frontend and
+`ssat.f2a` (evidence extraction). It backs the `web` testing frontend and
 deliberately avoids the older template/ast/dfg modules.
 
 ## CPG generation is embedded (no Docker)
