@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (lint, types, tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Sync workspace
+        run: uv sync --all-extras
+
+      - name: ruff check
+        run: uv run ruff check packages api
+
+      - name: ruff format --check
+        run: uv run ruff format --check packages api
+
+      - name: mypy --strict
+        run: uv run mypy packages/ssat/src/ssat api
+
+      # Covers the F2-A suite, the golden characterization snapshots, the
+      # GNN training-data contract, and the CPG backend equivalence checks.
+      # Backend tests that need a Joern install or the container skip cleanly.
+      - name: pytest
+        run: uv run pytest packages/ssat/tests -q
+
+  web:
+    name: Web (types, lint, tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run type-check
+
+      - run: npm run lint
+
+      - run: npm run test
