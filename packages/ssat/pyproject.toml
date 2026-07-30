@@ -15,7 +15,7 @@ dependencies = [
 #
 # There used to be 24 entries here, including bare `test`, `lint`, `format` and
 # `docker-up`, which shadowed common command names in the venv's bin directory
-# and just shelled out to ruff/mypy/pytest/npm. Those live in the Makefile now.
+# and just shelled out to ruff/mypy/pytest/npm. Run those tools directly.
 ssat = "ssat.cli.__main__:ssat_main"
 
 [project.optional-dependencies]

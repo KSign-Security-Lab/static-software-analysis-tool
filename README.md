@@ -39,14 +39,13 @@ and the repo still builds.
 - A CPG backend, either:
   - **jpype** (default) — a local Joern install; point `JOERN_HOME` at its
     `joern-cli` directory. Runs in-process, no container.
-  - **docker** — the bundled Joern image (`make docker-up`).
+  - **docker** — the bundled Joern image (`docker compose up -d`).
 - Node 20+ for the web UI
 
 ## Quick start
 
 ```bash
 uv sync                 # Python workspace
-make backends           # report which CPG backends are usable here
 
 # analyse a source file end to end
 uv run ssat f2a  -d path/to/file.c  -o result/f2a
@@ -73,12 +72,13 @@ Every subcommand takes `-d/--data`, `-o/--output` and
 ## Web UI and API
 
 ```bash
-make api        # FastAPI on :8000 with auto-reload
-make web-dev    # Next.js on :3000
+scripts/dev-api.sh          # FastAPI on :8000 with auto-reload
+cd web && npm run dev       # Next.js on :3000
 ```
 
 The API exposes `/cpg-jpype`, `/cpg-docker`, `/template`, `/ast`, `/dfg`,
-`/analyze-functions`, `/f2a`, `/analyze` and `/health`.
+`/analyze-functions`, `/f2a`, `/analyze` and `/health`. `GET /health` reports
+which CPG backends are usable on this host.
 
 Note the UI derives AST/CFG/DFG/CG *views* from a CPG client-side, by edge
 label. Those are a different thing from the `/ast` and `/dfg` endpoints, which
@@ -87,21 +87,27 @@ return the SSAT pipeline's own artifacts.
 ## Development
 
 ```bash
-make help          # list all targets
-make check         # everything CI enforces
-make test          # pytest
-make golden        # re-record golden snapshots (review the diff!)
+uv run ruff check packages api
+uv run ruff format --check packages api
+uv run mypy packages/ssat/src/ssat api
+uv run pytest packages/ssat/tests
+
+cd web && npm run type-check && npm run lint && npm run test
 ```
 
-The gate is ruff (lint + format), mypy `--strict`, pytest, and
-`tsc --noEmit` + eslint + vitest for the web app. All of it runs in CI.
+That is exactly what CI runs — see `.github/workflows/ci.yml`, which invokes
+the same commands directly rather than going through a task runner.
 
 ### Golden snapshots
 
 `packages/ssat/tests/golden/` records the exact AST and DFG the pipeline
 produces for every CPG fixture. They answer *"did this change?"*, never *"is
 this correct?"* — a diff there is a regression unless the change was
-deliberate, in which case rerun `make golden` and review it.
+deliberate, in which case rerun the generator and review the diff:
+
+```bash
+uv run python packages/ssat/tests/generate_golden.py
+```
 
 ## Notes
 
