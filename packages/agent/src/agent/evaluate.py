@@ -134,16 +134,8 @@ def analyze_sample_with_model(
     dfg_data = sample.get("dfg_graph")
 
     # Wrap per-sample Data into a Batch to satisfy batched forward signatures
-    ast_b = (
-        _move_to_device(Batch.from_data_list([ast_data]), device)
-        if ast_data is not None
-        else None
-    )
-    dfg_b = (
-        _move_to_device(Batch.from_data_list([dfg_data]), device)
-        if dfg_data is not None
-        else None
-    )
+    ast_b = _move_to_device(Batch.from_data_list([ast_data]), device) if ast_data is not None else None
+    dfg_b = _move_to_device(Batch.from_data_list([dfg_data]), device) if dfg_data is not None else None
 
     model.eval()
     with torch.no_grad():
@@ -251,13 +243,9 @@ def evaluate_model(
                 sample_results.append(result)
 
                 if result["filename"]:
-                    classification_files[result["predicted_label"]].append(
-                        result["filename"]
-                    )
+                    classification_files[result["predicted_label"]].append(result["filename"])
                 if result["function_name"]:
-                    classification_functions[result["predicted_label"]].append(
-                        result["function_name"]
-                    )
+                    classification_functions[result["predicted_label"]].append(result["function_name"])
 
                 if output_dir:
                     os.makedirs(output_dir, exist_ok=True)
@@ -283,20 +271,14 @@ def evaluate_model(
                             return None
                         return {
                             "x": g.x.detach().cpu().tolist() if hasattr(g, "x") else [],
-                            "edge_index": (
-                                g.edge_index.detach().cpu().tolist()
-                                if hasattr(g, "edge_index")
-                                else []
-                            ),
+                            "edge_index": (g.edge_index.detach().cpu().tolist() if hasattr(g, "edge_index") else []),
                             "edge_attr": (
                                 g.edge_attr.detach().cpu().tolist()
                                 if hasattr(g, "edge_attr") and g.edge_attr is not None
                                 else []
                             ),
                             "x_feature_names": getattr(g, "x_feature_names", None),
-                            "edge_feature_names": getattr(
-                                g, "edge_feature_names", None
-                            ),
+                            "edge_feature_names": getattr(g, "edge_feature_names", None),
                         }
 
                     graphs_payload = {
@@ -314,9 +296,6 @@ def evaluate_model(
     total_samples = len(sample_results)
     correct_predictions = sum(1 for r in sample_results if r["correct_prediction"])
     accuracy = correct_predictions / total_samples if total_samples > 0 else 0.0
-
-    confidences = [r["confidence"] for r in sample_results]
-    avg_confidence = float(np.mean(confidences)) if confidences else 0.0
 
     true_label_counts = defaultdict(int)
     predicted_label_counts = defaultdict(int)
@@ -382,9 +361,7 @@ def evaluate_model(
         "misclassified_samples": misclassified[:20],
         "filename_availability": {
             "samples_with_filenames": sum(1 for r in sample_results if r["filename"]),
-            "samples_with_function_names": sum(
-                1 for r in sample_results if r["function_name"]
-            ),
+            "samples_with_function_names": sum(1 for r in sample_results if r["function_name"]),
             "total_samples": total_samples,
         },
     }

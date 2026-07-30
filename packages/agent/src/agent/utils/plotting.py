@@ -57,4 +57,3 @@ def draw_loss_plot(
     plt.savefig(out_path)
     plt.close()
     return out_path
-

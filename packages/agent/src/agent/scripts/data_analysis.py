@@ -24,7 +24,6 @@ import argparse
 import glob
 import gzip
 import json
-import math
 import os
 import sys
 from typing import Any, Dict, Iterable, List, Tuple
@@ -68,9 +67,7 @@ def iter_graphs_from_file(path: str, file_format: str) -> Iterable[Dict[str, Any
             raise ValueError("file_format must be 'json' or 'jsonl'")
 
 
-def extract_rows(
-    graph: Dict[str, Any], graph_id: int
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def extract_rows(graph: Dict[str, Any], graph_id: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     node_rows, edge_rows = [], []
     for n in graph.get("nodes", []):
         f = n.get("features", {}) or {}
@@ -111,9 +108,7 @@ def extract_rows(
     return node_rows, edge_rows
 
 
-def write_parquet_shard(
-    df: pl.DataFrame, outdir: str, base: str, shard_idx: int
-) -> str:
+def write_parquet_shard(df: pl.DataFrame, outdir: str, base: str, shard_idx: int) -> str:
     os.makedirs(outdir, exist_ok=True)
     path = os.path.join(outdir, f"{base}-{shard_idx:05d}.parquet")
     df.write_parquet(path, compression="zstd", use_pyarrow=True)
@@ -127,12 +122,7 @@ def build_summaries(nodes_glob: str, edges_glob: str, outdir: str, charts: bool)
     edges = pl.scan_parquet(edges_glob)
 
     # 1) Node Types — Counts
-    node_type_counts = (
-        nodes.group_by("nodeType")
-        .agg(pl.len().alias("count"))
-        .sort("count", descending=True)
-        .collect()
-    )
+    node_type_counts = nodes.group_by("nodeType").agg(pl.len().alias("count")).sort("count", descending=True).collect()
     node_type_counts.write_csv(os.path.join(outdir, "node_types_counts.csv"))
 
     # 2) Sink Flags — Counts
@@ -172,21 +162,11 @@ def build_summaries(nodes_glob: str, edges_glob: str, outdir: str, charts: bool)
     deg_stats.write_csv(os.path.join(outdir, "degree_stats_by_nodeType.csv"))
 
     # 4) Call Names — Counts
-    call_counts = (
-        nodes.group_by("callName")
-        .agg(pl.len().alias("count"))
-        .sort("count", descending=True)
-        .collect()
-    )
+    call_counts = nodes.group_by("callName").agg(pl.len().alias("count")).sort("count", descending=True).collect()
     call_counts.write_csv(os.path.join(outdir, "call_names_counts.csv"))
 
     # 5) Edge flow distribution
-    edge_flows = (
-        edges.group_by("flow")
-        .agg(pl.len().alias("count"))
-        .sort("count", descending=True)
-        .collect()
-    )
+    edge_flows = edges.group_by("flow").agg(pl.len().alias("count")).sort("count", descending=True).collect()
     edge_flows.write_csv(os.path.join(outdir, "edge_flow_counts.csv"))
 
     # Optional charts
@@ -220,18 +200,14 @@ def build_summaries(nodes_glob: str, edges_glob: str, outdir: str, charts: bool)
 
 def main():
     ap = argparse.ArgumentParser(description="Analyze graph JSON at scale.")
-    ap.add_argument(
-        "--input", required=True, help="Glob for input files, e.g. 'data/**/*.jsonl.gz'"
-    )
+    ap.add_argument("--input", required=True, help="Glob for input files, e.g. 'data/**/*.jsonl.gz'")
     ap.add_argument(
         "--format",
         choices=["jsonl", "json"],
         default="json",
         help="File format: 'jsonl' (one graph per line) or 'json' (array).",
     )
-    ap.add_argument(
-        "--outdir", default="out", help="Output directory for shards and summaries."
-    )
+    ap.add_argument("--outdir", default="out", help="Output directory for shards and summaries.")
     ap.add_argument(
         "--batch-size",
         type=int,

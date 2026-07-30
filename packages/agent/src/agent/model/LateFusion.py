@@ -25,16 +25,8 @@ class LateFusionModel(nn.Module):
         self.use_ast = use_ast
         self.use_dfg = use_dfg
 
-        self.ast_gnn = (
-            GINEStack(ast_in, ast_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers)
-            if use_ast
-            else None
-        )
-        self.dfg_gnn = (
-            GINEStack(dfg_in, dfg_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers)
-            if use_dfg
-            else None
-        )
+        self.ast_gnn = GINEStack(ast_in, ast_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers) if use_ast else None
+        self.dfg_gnn = GINEStack(dfg_in, dfg_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers) if use_dfg else None
         # Build fusion MLP with configurable depth
         layers = []
         in_dim = hid * ((1 if use_ast else 0) + (1 if use_dfg else 0))
@@ -57,9 +49,7 @@ class LateFusionModel(nn.Module):
         if not reps:
             # Create a zero representation on the same device as the FC layer
             first_layer = self.fc[0] if len(self.fc) > 0 else None
-            in_features = (
-                first_layer.in_features if isinstance(first_layer, nn.Linear) else 1
-            )
+            in_features = first_layer.in_features if isinstance(first_layer, nn.Linear) else 1
             model_device = next(self.fc.parameters()).device
             reps = [torch.zeros((1, int(in_features)), device=model_device)]
         h = reps[0] if len(reps) == 1 else torch.cat(reps, dim=-1)

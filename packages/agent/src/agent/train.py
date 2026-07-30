@@ -1,4 +1,3 @@
-import argparse
 import json
 import os
 import warnings
@@ -35,8 +34,7 @@ from torch_geometric.data import Data as PyGData
 from .model.CreativeGNN import DualStreamCrossGraphNet
 from .model.LateFusion import LateFusionModel
 from .model.SingleBranch import ASTOnlyModel, DFGOnlyModel
-from .config import Schema, TrainConfig
-from .dataset.JsonDataset import GenericJsonDataset, AnyGraphModel, juliet_json_to_sample
+from .config import TrainConfig
 
 
 # Suppress torch-scatter warning noise
@@ -150,11 +148,17 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
                 g.x = x
             out.append(g)
         # Edge attrs similar
-        max_e = max(int(g.edge_attr.size(1)) if hasattr(g, "edge_attr") and g.edge_attr is not None else 0 for g in graphs)
+        max_e = max(
+            int(g.edge_attr.size(1)) if hasattr(g, "edge_attr") and g.edge_attr is not None else 0 for g in graphs
+        )
         out2 = []
         for g in out:
             if hasattr(g, "edge_attr") and g.edge_attr is not None and g.edge_attr.size(1) < max_e:
-                pad = torch.zeros((g.edge_attr.size(0), max_e - g.edge_attr.size(1)), dtype=g.edge_attr.dtype, device=g.edge_attr.device)
+                pad = torch.zeros(
+                    (g.edge_attr.size(0), max_e - g.edge_attr.size(1)),
+                    dtype=g.edge_attr.dtype,
+                    device=g.edge_attr.device,
+                )
                 gg = g.clone()
                 gg.edge_attr = torch.cat([g.edge_attr, pad], dim=1)
                 out2.append(gg)
@@ -168,7 +172,8 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
     for ns in name_sets:
         for n in ns or []:
             if n not in seen:
-                union_x_names.append(n); seen.add(n)
+                union_x_names.append(n)
+                seen.add(n)
 
     # Edge feature names union
     e_seen = set()
@@ -177,7 +182,8 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
         names = getattr(g, "edge_feature_names", None) or []
         for n in names:
             if n not in e_seen:
-                union_e_names.append(n); e_seen.add(n)
+                union_e_names.append(n)
+                e_seen.add(n)
 
     aligned: List[PyGData] = []
     for g in graphs:
@@ -273,9 +279,7 @@ def collate_multi(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
                 seen_meta.add(k)
                 meta_keys.append(k)
     for k in meta_keys:
-        out[k] = [
-            (it.get(k) if isinstance(it, dict) else getattr(it, k, None)) for it in batch
-        ]
+        out[k] = [(it.get(k) if isinstance(it, dict) else getattr(it, k, None)) for it in batch]
     return out
 
 
@@ -290,9 +294,7 @@ def _get_from_item(item: Any, key: str, default: Any = None) -> Any:
         return default
 
 
-def infer_dims_from_dataset(
-    dataset: SupportsIndex[Sample], kinds: List[str]
-) -> Dict[str, Tuple[int, int]]:
+def infer_dims_from_dataset(dataset: SupportsIndex[Sample], kinds: List[str]) -> Dict[str, Tuple[int, int]]:
     """Inspect a few samples to infer x and edge_attr dims per kind.
 
     Returns mapping: kind -> (x_dim, e_dim)
@@ -318,9 +320,7 @@ def infer_dims_from_dataset(
     return dims
 
 
-def save_training_config(
-    cfg: TrainConfig, results_dir: str, model_info: Dict[str, Any]
-) -> None:
+def save_training_config(cfg: TrainConfig, results_dir: str, model_info: Dict[str, Any]) -> None:
     # Support both dataclasses and Pydantic BaseModel configs
     if hasattr(cfg, "model_dump"):
         cfg_dict = cfg.model_dump()  # type: ignore[attr-defined]
@@ -345,9 +345,7 @@ def save_training_config(
     console.print(f"Saved training configuration → {config_path}", style="green")
 
 
-def compute_class_weights(
-    indices: List[int], dataset: SupportsIndex[Sample], num_classes: int = 2
-) -> torch.Tensor:
+def compute_class_weights(indices: List[int], dataset: SupportsIndex[Sample], num_classes: int = 2) -> torch.Tensor:
     counts = [0] * num_classes
     for idx in indices:
         item = dataset[idx]
@@ -370,9 +368,7 @@ def compute_class_weights(
     return torch.tensor(weights, dtype=torch.float)
 
 
-def forward_by_mode(
-    model: torch.nn.Module, batch: Dict[str, Any], device: torch.device, mode: str
-) -> torch.Tensor:
+def forward_by_mode(model: torch.nn.Module, batch: Dict[str, Any], device: torch.device, mode: str) -> torch.Tensor:
     """Default forward that routes by mode using keys in the collated batch."""
     if mode == "ast":
         return model(batch["ast_graph"].to(device))
@@ -424,9 +420,7 @@ def train_model_from_dataset(
             TimeElapsedColumn(),
             TimeRemainingColumn(),
         ) as progress:
-            task = progress.add_task(
-                f"Epoch {epoch+1}/{cfg.epochs}", total=len(dataloader)
-            )
+            task = progress.add_task(f"Epoch {epoch + 1}/{cfg.epochs}", total=len(dataloader))
             for batch in dataloader:
                 optimizer.zero_grad()
 
@@ -448,14 +442,14 @@ def train_model_from_dataset(
                 progress.update(
                     task,
                     advance=1,
-                    description=f"Epoch {epoch+1}/{cfg.epochs} | loss={curr_loss:.6f}",
+                    description=f"Epoch {epoch + 1}/{cfg.epochs} | loss={curr_loss:.6f}",
                 )
 
         # epoch summary
         if num_batches > 0:
             avg_loss = running_loss / num_batches
             epoch_avg_losses.append(avg_loss)
-            console.print(f"Epoch {epoch+1} average loss: {avg_loss:.6f}")
+            console.print(f"Epoch {epoch + 1} average loss: {avg_loss:.6f}")
 
         # keep epoch checkpoints (full model for backward compatibility)
-        torch.save(model, os.path.join(results_dir, f"model_epoch_{epoch+1}.pt"))
+        torch.save(model, os.path.join(results_dir, f"model_epoch_{epoch + 1}.pt"))

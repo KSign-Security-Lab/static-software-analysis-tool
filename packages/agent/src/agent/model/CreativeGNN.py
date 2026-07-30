@@ -121,9 +121,7 @@ class _GraphTokenEncoder(nn.Module):
                 if edge_attr_norm is None:
                     # (keeps your original fallback behavior)
                     num_edges = edge_index.size(1)
-                    dummy_edge_attr = torch.zeros(
-                        (num_edges, 1), dtype=x.dtype, device=x.device
-                    )
+                    dummy_edge_attr = torch.zeros((num_edges, 1), dtype=x.dtype, device=x.device)
                     x = conv(x, edge_index, dummy_edge_attr)
                 else:
                     x = conv(x, edge_index, edge_attr_norm)
@@ -162,17 +160,13 @@ class DualStreamCrossGraphNet(nn.Module):
 
         self.ast_encoder: Optional[_GraphTokenEncoder]
         if use_ast:
-            self.ast_encoder = _GraphTokenEncoder(
-                ast_in, ast_edge, hid, gnn_layers, kind="attn"
-            )
+            self.ast_encoder = _GraphTokenEncoder(ast_in, ast_edge, hid, gnn_layers, kind="attn")
         else:
             self.ast_encoder = None
 
         self.dfg_encoder: Optional[_GraphTokenEncoder]
         if use_dfg:
-            self.dfg_encoder = _GraphTokenEncoder(
-                dfg_in, dfg_edge, hid, max(1, gnn_layers - 1), kind="sage"
-            )
+            self.dfg_encoder = _GraphTokenEncoder(dfg_in, dfg_edge, hid, max(1, gnn_layers - 1), kind="sage")
         else:
             self.dfg_encoder = None
 
@@ -206,19 +200,9 @@ class DualStreamCrossGraphNet(nn.Module):
         dfg_data: Optional[Data] = None,
     ) -> torch.Tensor:
         # Allow SingleBranch-style calls by remapping single arguments to the active stream
-        if (
-            self.use_ast
-            and not self.use_dfg
-            and ast_data is None
-            and dfg_data is not None
-        ):
+        if self.use_ast and not self.use_dfg and ast_data is None and dfg_data is not None:
             ast_data, dfg_data = dfg_data, None
-        if (
-            self.use_dfg
-            and not self.use_ast
-            and dfg_data is None
-            and ast_data is not None
-        ):
+        if self.use_dfg and not self.use_ast and dfg_data is None and ast_data is not None:
             dfg_data, ast_data = ast_data, None
 
         device = next(self.classifier.parameters()).device

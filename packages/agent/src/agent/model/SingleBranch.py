@@ -102,9 +102,7 @@ class GINEStack(nn.Module):
         batch_vec = getattr(data, "batch", None)
         if isinstance(batch_vec, torch.Tensor) and batch_vec.numel() == x.size(0):
             return global_mean_pool(x, batch_vec)
-        return global_mean_pool(
-            x, torch.zeros(x.size(0), dtype=torch.long, device=x.device)
-        )
+        return global_mean_pool(x, torch.zeros(x.size(0), dtype=torch.long, device=x.device))
 
 
 class ASTOnlyModel(nn.Module):
@@ -117,9 +115,7 @@ class ASTOnlyModel(nn.Module):
         gnn_layers: int = 5,
     ):
         super().__init__()
-        self.gnn = GINEStack(
-            ast_in, ast_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers
-        )
+        self.gnn = GINEStack(ast_in, ast_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers)
         self.fc = nn.Linear(hid, out_classes)
 
     def forward(self, ast_data: Data) -> torch.Tensor:
@@ -137,9 +133,7 @@ class DFGOnlyModel(nn.Module):
         gnn_layers: int = 5,
     ):
         super().__init__()
-        self.gnn = GINEStack(
-            dfg_in, dfg_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers
-        )
+        self.gnn = GINEStack(dfg_in, dfg_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers)
         self.fc = nn.Linear(hid, out_classes)
 
     def forward(self, dfg_data: Data) -> torch.Tensor:

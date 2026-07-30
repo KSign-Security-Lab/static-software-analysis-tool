@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import List, Literal, Tuple, Optional
-from pydantic import BaseModel
+from typing import List, Literal, Tuple
 
 
 class ASTNodeFeatSchema(BaseModel):

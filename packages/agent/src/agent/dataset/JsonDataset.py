@@ -51,9 +51,7 @@ def _infer_label_from_path(path: str) -> int:
         return 0
 
 
-def _flatten_numeric(
-    obj: Any, prefix: str = "", out: Optional[Dict[str, float]] = None
-) -> Dict[str, float]:
+def _flatten_numeric(obj: Any, prefix: str = "", out: Optional[Dict[str, float]] = None) -> Dict[str, float]:
     """
     Recursively flatten dictionaries/lists/objects into {key: float}, keeping numeric leaves only.
     Keys are dot/idx-joined for stability.
@@ -151,9 +149,7 @@ def _collect_config(model_obj: BaseModel) -> Tuple[List[str], Dict[str, List[str
     seen = set()
     node_keys = [k for k in node_keys if not (k in seen or seen.add(k))]
     # ensure deterministic order of families
-    edge_map = {
-        fam: fields for fam, fields in sorted(edge_map.items(), key=lambda kv: kv[0])
-    }
+    edge_map = {fam: fields for fam, fields in sorted(edge_map.items(), key=lambda kv: kv[0])}
     return node_keys, edge_map
 
 
@@ -171,9 +167,7 @@ class AnyGraphModel(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-def _build_graph_from_section(
-    section: Dict[str, Any], *, edge_family_prefixes: Optional[List[str]] = None
-) -> Data:
+def _build_graph_from_section(section: Dict[str, Any], *, edge_family_prefixes: Optional[List[str]] = None) -> Data:
     """Build a PyG Data from a JSON section with 'nodes' and edge lists.
 
     - Nodes: expect list of dicts with a 'feat' dict → flatten numeric features
@@ -207,9 +201,7 @@ def _build_graph_from_section(
     # Determine families: any key starting with 'edges_'
     if edge_family_prefixes is None:
         edge_family_prefixes = [
-            k
-            for k in (section.keys() if isinstance(section, dict) else [])
-            if str(k).startswith("edges_")
+            k for k in (section.keys() if isinstance(section, dict) else []) if str(k).startswith("edges_")
         ]
     fams = sorted(edge_family_prefixes)
 
@@ -281,14 +273,10 @@ def _build_graph_from_section(
         # attr cols
         for name in attr_cols:
             row.append(float(feat.get(name, 0.0)))
-        per_edge_feat_dicts.append(
-            {name: val for name, val in zip(edge_feat_names, row)}
-        )
+        per_edge_feat_dicts.append({name: val for name, val in zip(edge_feat_names, row)})
 
     # Build tensors
-    edge_attr_rows: List[List[float]] = [
-        [feat.get(n, 0.0) for n in edge_feat_names] for feat in per_edge_feat_dicts
-    ]
+    edge_attr_rows: List[List[float]] = [[feat.get(n, 0.0) for n in edge_feat_names] for feat in per_edge_feat_dicts]
 
     if edges:
         edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
@@ -334,6 +322,7 @@ def _infer_label_from_json(
     fname = None
     if fallback_path:
         import os as _os
+
         fname = _os.path.basename(fallback_path)
     if not fname:
         fname = raw.get("file") or raw.get("filename") or raw.get("source_template") or ""
@@ -376,15 +365,11 @@ def juliet_json_to_sample(
 
     ast_graph = _build_graph_from_section(
         ast_section,
-        edge_family_prefixes=[
-            k for k in ast_section.keys() if str(k).startswith("edges_")
-        ],
+        edge_family_prefixes=[k for k in ast_section.keys() if str(k).startswith("edges_")],
     )
     dfg_graph = None
     if isinstance(dfg_section, dict) and dfg_section:
-        dfg_graph = _build_graph_from_section(
-            dfg_section, edge_family_prefixes=["edges_dfg"]
-        )  # dfg-specific
+        dfg_graph = _build_graph_from_section(dfg_section, edge_family_prefixes=["edges_dfg"])  # dfg-specific
 
     # Derive label (filename-based, with optional explicit 'label' field)
     file_name = raw.get("file") or raw.get("filename") or raw.get("source_template")
@@ -425,9 +410,7 @@ def config_pydantic_to_pyg(instance: BaseModel) -> Data:
         edge_index = torch.tensor(dump["edge_index"], dtype=torch.long)
         ea = dump.get("edge_attr")
         if ea is None:
-            ea = torch.zeros(
-                (edge_index.shape[1] if edge_index.numel() else 0, 1), dtype=torch.float
-            )
+            ea = torch.zeros((edge_index.shape[1] if edge_index.numel() else 0, 1), dtype=torch.float)
         else:
             ea = torch.tensor(ea, dtype=torch.float)
             if ea.ndim == 1:
@@ -581,9 +564,7 @@ class GenericJsonDataset(Dataset):
                     skipped += 1
                     continue
                 placeholder = Data()
-                placeholder.y = torch.tensor(
-                    _infer_label_from_path(fp), dtype=torch.long
-                )
+                placeholder.y = torch.tensor(_infer_label_from_path(fp), dtype=torch.long)
                 placeholder.ast_graph = _empty_graph()
                 # Some datasets may not have DFG; keep attribute for consistency
                 placeholder.dfg_graph = _empty_graph()
@@ -592,9 +573,7 @@ class GenericJsonDataset(Dataset):
                 kept += 1
 
         if self.debug:
-            print(
-                f"GenericJsonDataset → kept: {kept}, skipped: {skipped}, total: {kept + skipped}"
-            )
+            print(f"GenericJsonDataset → kept: {kept}, skipped: {skipped}, total: {kept + skipped}")
 
     def __len__(self) -> int:
         return len(self.items)
