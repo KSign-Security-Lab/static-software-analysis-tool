@@ -188,7 +188,7 @@ def process_single_file(
                         per_func_file.write_text(json.dumps(dfg, indent=2), encoding="utf-8")
                 elif options.mode == "full":
                     # Each record already carries the top-level `ast`/`dfg` keys
-                    # agent.dataset.JsonDataset reads. The previous shape
+                    # gnn.dataset.JsonDataset reads. The previous shape
                     # (`ast_result`/`dfg_result`) was unreadable by the trainer.
                     for idx, record in enumerate(result if isinstance(result, list) else []):
                         func_name = sanitize_token(record.get("function_name") or f"func_{idx}")

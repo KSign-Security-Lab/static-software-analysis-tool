@@ -7,7 +7,7 @@ Property Graphs. Two analysis lines share one CPG front end:
   (AST / CFG / DFG / CG) whether an untrusted OCPP payload field reaches a
   dangerous sink without adequate checks, and emits reviewable evidence.
 - **Graph extraction** — CPG → Template → per-function AST and def-use DFG, in
-  the JSON schema the GNN trainer in `packages/agent` consumes.
+  the JSON schema the GNN trainer in `packages/gnn` consumes.
 
 ## Layout
 
@@ -23,7 +23,7 @@ packages/ssat/          the analysis library and the `ssat` CLI
     f2a/                F2-A evidence extraction (self-contained)
     cli/                the `ssat` command
   tests/                pytest suite + golden snapshots
-packages/agent/         GNN training/evaluation over the extracted graphs
+packages/gnn/           GNN training/evaluation over the extracted graphs
 api/                    FastAPI service
 web/                    Next.js UI
 docs/v2/                F2-A design documents

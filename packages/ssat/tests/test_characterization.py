@@ -87,7 +87,7 @@ def test_juliet_helper_still_filters_but_pipeline_does_not():
 def test_graph_output_keys_match_gnn_contract(fixture):
     """The extractor output keys are what the GNN dataset loader reads.
 
-    ``agent.dataset.JsonDataset`` builds the AST graph from every ``edges_*``
+    ``gnn.dataset.JsonDataset`` builds the AST graph from every ``edges_*``
     key and the DFG graph from ``edges_dfg`` specifically. Renaming these keys
     breaks training silently, so pin them.
     """

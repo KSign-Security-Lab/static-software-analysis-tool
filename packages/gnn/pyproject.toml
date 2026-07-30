@@ -1,5 +1,5 @@
 [project]
-name = "agent"
+name = "gnn"
 version = "0.1.0"
 description = "GNN training and evaluation over SSAT-extracted AST/DFG graphs"
 readme = "README.md"
@@ -21,8 +21,8 @@ dependencies = [
 
 [project.scripts]
 # `train` and `evaluate` used to be installed under those bare names, shadowing
-# anything else on PATH. They are subcommands of `agent` now.
-agent = "agent:main"
+# anything else on PATH. They are subcommands of `gnn` now.
+gnn = "gnn:main"
 
 [build-system]
 requires = ["uv_build>=0.9.4,<0.10.0"]

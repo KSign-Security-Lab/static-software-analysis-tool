@@ -7,7 +7,7 @@ The chain is::
 :func:`analyze_cpg` is the primary entry point: AST and DFG are produced together
 because the DFG is derived from the AST, and every consumer wants both.
 :func:`training_record` renders one function into the JSON schema the GNN dataset
-loader (``agent.dataset.JsonDataset``) reads.
+loader (``gnn.dataset.JsonDataset``) reads.
 """
 
 from dataclasses import dataclass, field
@@ -248,7 +248,7 @@ def training_record(
     include_template: bool = True,
     include_label: bool = False,
 ) -> Dict[str, Any]:
-    """Render one function into the schema ``agent.dataset.JsonDataset`` reads.
+    """Render one function into the schema ``gnn.dataset.JsonDataset`` reads.
 
     The loader looks for top-level ``ast`` and ``dfg`` keys
     (``juliet_json_to_sample``). The CLI's old ``full`` mode wrote

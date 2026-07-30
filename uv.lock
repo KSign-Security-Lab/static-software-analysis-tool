@@ -8,40 +8,9 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "agent",
+    "gnn",
     "ssat",
     "static-software-analysis-tool",
-]
-
-[[package]]
-name = "agent"
-version = "0.1.0"
-source = { editable = "packages/agent" }
-dependencies = [
-    { name = "deepdiff" },
-    { name = "matplotlib" },
-    { name = "numpy" },
-    { name = "polars" },
-    { name = "pyarrow" },
-    { name = "pydantic" },
-    { name = "rich" },
-    { name = "torch" },
-    { name = "torch-geometric" },
-    { name = "tqdm" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "deepdiff", specifier = ">=8.6.1" },
-    { name = "matplotlib", specifier = ">=3.8.0" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "polars", specifier = ">=1.0" },
-    { name = "pyarrow", specifier = ">=15.0" },
-    { name = "pydantic", specifier = ">=2.12.3" },
-    { name = "rich", specifier = ">=14.2.0" },
-    { name = "torch", specifier = ">=2.9.0" },
-    { name = "torch-geometric", specifier = ">=2.7.0" },
-    { name = "tqdm", specifier = ">=4.66.0" },
 ]
 
 [[package]]
@@ -481,6 +450,37 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d5/8d/1c51c094345df128ca4a990d633fe1a0ff28726c9e6b3c41ba65087bba1d/fsspec-2026.4.0.tar.gz", hash = "sha256:301d8ac70ae90ef3ad05dcf94d6c3754a097f9b5fe4667d2787aa359ec7df7e4", size = 312760, upload-time = "2026-04-29T20:42:38.635Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d5/0c/043d5e551459da400957a1395e0febbf771446ff34291afcbe3d8be2a279/fsspec-2026.4.0-py3-none-any.whl", hash = "sha256:11ef7bb35dab8a394fde6e608221d5cf3e8499401c249bebaeaad760a1a8dec2", size = 203402, upload-time = "2026-04-29T20:42:36.842Z" },
+]
+
+[[package]]
+name = "gnn"
+version = "0.1.0"
+source = { editable = "packages/gnn" }
+dependencies = [
+    { name = "deepdiff" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "polars" },
+    { name = "pyarrow" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "torch" },
+    { name = "torch-geometric" },
+    { name = "tqdm" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "deepdiff", specifier = ">=8.6.1" },
+    { name = "matplotlib", specifier = ">=3.8.0" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "polars", specifier = ">=1.0" },
+    { name = "pyarrow", specifier = ">=15.0" },
+    { name = "pydantic", specifier = ">=2.12.3" },
+    { name = "rich", specifier = ">=14.2.0" },
+    { name = "torch", specifier = ">=2.9.0" },
+    { name = "torch-geometric", specifier = ">=2.7.0" },
+    { name = "tqdm", specifier = ">=4.66.0" },
 ]
 
 [[package]]
@@ -1427,8 +1427,8 @@ name = "static-software-analysis-tool"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "agent" },
     { name = "fastapi" },
+    { name = "gnn" },
     { name = "jpype1" },
     { name = "mypy" },
     { name = "pytest" },
@@ -1439,8 +1439,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent", editable = "packages/agent" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "gnn", editable = "packages/gnn" },
     { name = "jpype1", specifier = ">=1.5.0" },
     { name = "mypy", specifier = ">=1.14.0" },
     { name = "pytest", specifier = ">=8.0.0" },

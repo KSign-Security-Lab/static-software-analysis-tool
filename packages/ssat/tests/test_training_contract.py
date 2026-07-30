@@ -1,7 +1,7 @@
 """The pipeline's training output must be loadable by the GNN dataset layer.
 
 This contract was silently broken before the refactor: the CLI's ``full`` mode
-wrote ``ast_result``/``dfg_result``, while ``agent.dataset.JsonDataset`` reads
+wrote ``ast_result``/``dfg_result``, while ``gnn.dataset.JsonDataset`` reads
 top-level ``ast``/``dfg``. Nothing failed loudly -- the trainer just saw graphs
 with no nodes. These tests fail loudly instead.
 """
@@ -12,7 +12,7 @@ import pytest
 
 from legacy_chain import all_fixtures
 
-pytest.importorskip("torch", reason="agent's GNN stack is not installed")
+pytest.importorskip("torch", reason="the GNN stack is not installed")
 
 
 def _first_fixture_with_functions():
@@ -43,7 +43,7 @@ def test_loader_builds_populated_ast_and_dfg_graphs():
     """The real round-trip: pipeline output -> juliet_json_to_sample -> Data."""
     from pydantic import BaseModel
 
-    from agent.dataset.JsonDataset import juliet_json_to_sample
+    from gnn.dataset.JsonDataset import juliet_json_to_sample
     from ssat.pipeline import training_record
 
     record = training_record(_first_fixture_with_functions()[0], include_template=False)
@@ -73,7 +73,7 @@ def test_old_broken_schema_degenerates_silently():
     """
     from pydantic import BaseModel
 
-    from agent.dataset.JsonDataset import juliet_json_to_sample
+    from gnn.dataset.JsonDataset import juliet_json_to_sample
     from ssat.pipeline import training_record
 
     record = training_record(_first_fixture_with_functions()[0], include_template=False)

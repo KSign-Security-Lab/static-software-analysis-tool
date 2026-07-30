@@ -14,9 +14,9 @@ from torch.utils.data import (
 from .dataset.JsonDataset import GenericJsonDataset
 from .dataset.JsonDataset import AnyGraphModel, juliet_json_to_sample
 from .config import TrainConfig
-from agent.evaluate import evaluate_model, latest_epoch_checkpoint, load_model_robust, infer_mode_from_model
-from agent.utils.plotting import draw_loss_plot
-from agent.train import (
+from gnn.evaluate import evaluate_model, latest_epoch_checkpoint, load_model_robust, infer_mode_from_model
+from gnn.utils.plotting import draw_loss_plot
+from gnn.train import (
     build_dataloader,
     console,
     Sample,
@@ -31,7 +31,7 @@ from agent.train import (
 
 
 def _parse_train_args() -> TrainConfig:
-    parser = argparse.ArgumentParser(description="Train GNN model (uv run train)")
+    parser = argparse.ArgumentParser(description="Train GNN model (gnn train)")
     parser.add_argument("--save_name", type=str, default=None, help="Results directory (default uses timestamp)")
     parser.add_argument("--device", type=str, default=None, help="Device like cuda:0 or cpu")
     parser.add_argument("--epochs", type=int, default=None, help="Training epochs")
@@ -53,7 +53,7 @@ def _parse_train_args() -> TrainConfig:
 
 def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] = None) -> None:
     if cfg is None:
-        # When invoked via console script (uv run train), parse CLI flags
+        # When invoked via console script (gnn train), parse CLI flags
         cfg = _parse_train_args()
 
     torch.manual_seed(cfg.seed)
@@ -259,12 +259,12 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
 
 
 def evaluate() -> None:
-    """Console entrypoint: uv run evaluate --results_dir <dir> [--device cuda:0] [--max_samples N]
+    """Console entrypoint: gnn evaluate --results_dir <dir> [--device cuda:0] [--max_samples N]
 
     Reconstructs the dataset and model from training_config.json in results_dir
     and writes evaluation.json alongside.
     """
-    parser = argparse.ArgumentParser(description="Evaluate trained model (uv run evaluate)")
+    parser = argparse.ArgumentParser(description="Evaluate trained model (gnn evaluate)")
     parser.add_argument(
         "--results_dir", type=str, required=True, help="Directory containing training_config.json and checkpoints"
     )
@@ -370,10 +370,10 @@ def main() -> None:
     """Top-level entry point.
 
     Example:
-      uv run agent train --save_name results/exp1
-      uv run agent evaluate --results_dir results/exp1
+      gnn train --save_name results/exp1
+      gnn evaluate --results_dir results/exp1
     """
-    parser = argparse.ArgumentParser(prog="agent", description="SSAT GNN training and evaluation")
+    parser = argparse.ArgumentParser(prog="gnn", description="SSAT GNN training and evaluation")
     parser.add_argument("command", nargs="?", choices=["train", "evaluate"], help="Subcommand to run")
     args, _passthrough = parser.parse_known_args()
     if args.command == "train":

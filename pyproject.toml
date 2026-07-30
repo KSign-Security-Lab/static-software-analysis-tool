@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "ssat",
-    "agent",
+    "gnn",
     "pytest>=8.0.0",
     "ruff>=0.9.0",
     "mypy>=1.14.0",
@@ -21,12 +21,12 @@ package = false
 
 [tool.uv.sources]
 ssat = { workspace = true }
-agent = { workspace = true }
+gnn = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/ssat",
-    "packages/agent",
+    "packages/gnn",
 ]
 
 [tool.ruff]
@@ -37,7 +37,7 @@ target-version = "py314"
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
-# So `uv run mypy` needs no arguments. packages/agent is excluded: it is a
+# So `uv run mypy` needs no arguments. packages/gnn is excluded: it is a
 # consumer of the pipeline's output, not part of the analysis library, and is
 # not held to the strict bar.
 files = ["packages/ssat/src/ssat", "api"]
