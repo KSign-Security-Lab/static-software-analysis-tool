@@ -1,7 +1,7 @@
 [project]
 name = "agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "GNN training and evaluation over SSAT-extracted AST/DFG graphs"
 readme = "README.md"
 authors = [{ name = "Keon Oh Kim", email = "keonoh00@gmail.com" }]
 requires-python = ">=3.14"
@@ -12,12 +12,17 @@ dependencies = [
     "torch-geometric>=2.7.0",
     "matplotlib>=3.8.0",
     "pydantic>=2.12.3",
+    "numpy>=1.26",
+    "tqdm>=4.66.0",
+    # scripts/data_analysis.py: parquet-backed graph statistics
+    "polars>=1.0",
+    "pyarrow>=15.0",
 ]
 
 [project.scripts]
+# `train` and `evaluate` used to be installed under those bare names, shadowing
+# anything else on PATH. They are subcommands of `agent` now.
 agent = "agent:main"
-train = "agent:train"
-evaluate = "agent:evaluate"
 
 [build-system]
 requires = ["uv_build>=0.9.4,<0.10.0"]

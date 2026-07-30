@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import Optional
+from typing import Any, Dict, Optional
 
 try:
     from tqdm import tqdm
@@ -55,7 +55,7 @@ class SimpleLogger:
                 bar_format="{l_bar}{bar}| {percentage:3.0f}% | {n_fmt}/{total_fmt} files | ETA: {remaining}",
             )
 
-    def update_progress(self, value: int, payload: Optional[dict] = None) -> None:
+    def update_progress(self, value: int, payload: Optional[Dict[str, Any]] = None) -> None:
         """Update progress bar."""
         if self.progress_bar:
             self.progress_bar.update(value - self.progress_bar.n)
@@ -65,5 +65,3 @@ class SimpleLogger:
         if self.progress_bar:
             self.progress_bar.close()
             self.progress_bar = None
-
-

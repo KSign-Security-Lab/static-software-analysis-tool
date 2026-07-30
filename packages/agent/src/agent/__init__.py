@@ -25,7 +25,6 @@ from agent.train import (
     select_model,
     collate_multi,
     forward_by_mode,
-    ForwardFn,
     train_model_from_dataset,
     save_training_config,
 )
@@ -36,7 +35,9 @@ def _parse_train_args() -> TrainConfig:
     parser.add_argument("--save_name", type=str, default=None, help="Results directory (default uses timestamp)")
     parser.add_argument("--device", type=str, default=None, help="Device like cuda:0 or cpu")
     parser.add_argument("--epochs", type=int, default=None, help="Training epochs")
-    parser.add_argument("--mode", type=str, default=None, choices=["both", "late_fusion", "ast", "dfg"], help="Model mode")
+    parser.add_argument(
+        "--mode", type=str, default=None, choices=["both", "late_fusion", "ast", "dfg"], help="Model mode"
+    )
     args, _ = parser.parse_known_args()
     cfg = TrainConfig()
     if args.save_name:
@@ -80,9 +81,7 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
 
         # Wrap converter to inject per-entry label_key
         def _conv(m, _lk=entry_label_key):
-            return juliet_json_to_sample(
-                m, label_keys=[{"keyword": _lk.keyword, "label": _lk.label}]
-            )
+            return juliet_json_to_sample(m, label_keys=[{"keyword": _lk.keyword, "label": _lk.label}])
 
         # Inject the filesystem path into JSON before validation, so the converter can use filename
         def _pre_inject_path(raw: dict, fp: str):
@@ -142,9 +141,7 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         )
 
     # Save statistics JSON (per dataset and overall)
-    overall_dist = {
-        str(k): (v / overall_total if overall_total > 0 else 0.0) for k, v in overall_counts.items()
-    }
+    overall_dist = {str(k): (v / overall_total if overall_total > 0 else 0.0) for k, v in overall_counts.items()}
     stats_out = {
         "datasets": per_dataset_stats,
         "overall": {
@@ -179,9 +176,7 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         f"Inferred dims → ast: x={ast_in}, edge_attr={ast_edge_dim}; dfg: x={dfg_in}, edge_attr={dfg_edge_dim}"
     )
 
-    class_weights = compute_class_weights(
-        list(range(len(train_dataset))), train_dataset, num_classes=2
-    ).to(device)
+    class_weights = compute_class_weights(list(range(len(train_dataset))), train_dataset, num_classes=2).to(device)
 
     console.print(f"Class weights: {class_weights}")
 
@@ -198,14 +193,11 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
     console.print(f"Model created: {cfg.mode} mode")
     model.to(device)
 
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay
-    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    local_forward: ForwardFn = lambda m, b, d, mode=cfg.mode: forward_by_mode(
-        m, b, d, mode
-    )
+    def local_forward(m, b, d, mode=cfg.mode):
+        return forward_by_mode(m, b, d, mode)
 
     iter_losses: List[float] = []
     epoch_avg_losses: List[float] = []
@@ -236,11 +228,9 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         )
     with open(os.path.join(results_dir, "loss.csv"), "w") as f:
         f.write("iteration,loss\n")
-        for i, l in enumerate(iter_losses, start=1):
-            f.write(f"{i},{l}\n")
-    console.print(
-        f"Saved loss history → {os.path.join(results_dir, 'loss.json')} and loss.png"
-    )
+        for i, loss in enumerate(iter_losses, start=1):
+            f.write(f"{i},{loss}\n")
+    console.print(f"Saved loss history → {os.path.join(results_dir, 'loss.json')} and loss.png")
 
     # Plot with downsampling
     draw_loss_plot(results_dir, iter_losses, epoch_avg_losses, max_points=plot_max_points)
@@ -275,7 +265,9 @@ def evaluate() -> None:
     and writes evaluation.json alongside.
     """
     parser = argparse.ArgumentParser(description="Evaluate trained model (uv run evaluate)")
-    parser.add_argument("--results_dir", type=str, required=True, help="Directory containing training_config.json and checkpoints")
+    parser.add_argument(
+        "--results_dir", type=str, required=True, help="Directory containing training_config.json and checkpoints"
+    )
     parser.add_argument("--device", type=str, default=None, help="Device like cuda:0 or cpu")
     parser.add_argument("--max_samples", type=int, default=100, help="Max samples to evaluate (default: 100)")
     args, _ = parser.parse_known_args()
@@ -302,9 +294,7 @@ def evaluate() -> None:
         entry_label_key = data_entry.label_key
 
         def _conv(m, _lk=entry_label_key):
-            return juliet_json_to_sample(
-                m, label_keys=[{"keyword": _lk.keyword, "label": _lk.label}]
-            )
+            return juliet_json_to_sample(m, label_keys=[{"keyword": _lk.keyword, "label": _lk.label}])
 
         def _pre_inject_path(raw: dict, fp: str):
             raw["__file_path"] = fp
@@ -377,18 +367,18 @@ def evaluate() -> None:
 
 
 def main() -> None:
-    """Top-level entry that points users to subcommands.
+    """Top-level entry point.
 
     Example:
-      uv run train --save_name results/exp1
-      uv run evaluate --results_dir results/exp1
+      uv run agent train --save_name results/exp1
+      uv run agent evaluate --results_dir results/exp1
     """
-    parser = argparse.ArgumentParser(prog="agent", description="SSAT Agent entrypoint")
+    parser = argparse.ArgumentParser(prog="agent", description="SSAT GNN training and evaluation")
     parser.add_argument("command", nargs="?", choices=["train", "evaluate"], help="Subcommand to run")
-    args, passthrough = parser.parse_known_args()
+    args, _passthrough = parser.parse_known_args()
     if args.command == "train":
         train()
     elif args.command == "evaluate":
         evaluate()
     else:
-        print("Use one of:\n  uv run train [args]\n  uv run evaluate [args]")
+        parser.print_help()

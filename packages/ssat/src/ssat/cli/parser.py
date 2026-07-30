@@ -1,177 +1,142 @@
-"""CLI argument parser."""
+"""CLI argument parser.
+
+Every subcommand takes the same options apart from the CPG-specific ones, so
+they are declared once in :func:`_add_common_arguments` rather than repeated per
+subparser (which is how they drifted apart before).
+"""
+
+from __future__ import annotations
 
 import argparse
-from typing import Dict, Literal, Optional
+from dataclasses import dataclass, field
+from typing import List, Literal, Optional
+
+from ..cpg.backends import BACKEND_NAMES
 
 Mode = Literal["cpg", "template", "ast", "dfg", "template-functions", "full", "f2a"]
 
+DEFAULT_BACKEND = "jpype"
 
+#: subcommand -> (help text, default input description, default extensions)
+COMMANDS: dict[str, tuple[str, str, str]] = {
+    "cpg": (
+        "Generate a Code Property Graph from source code",
+        "source file or directory",
+        "c,h,cpp,cc,cxx,hpp,hxx,java",
+    ),
+    "template": ("Generate Template artifacts from CPG data", "CPG file or directory", "json"),
+    "ast": ("Generate Abstract Syntax Trees from CPG data", "CPG file or directory", "json"),
+    "template-functions": (
+        "Extract every function node from a Template, one file per function",
+        "Template file or directory",
+        "json",
+    ),
+    "dfg": ("Generate def-use Data Flow Graphs from CPG data", "CPG file or directory", "json"),
+    "full": (
+        "Generate AST + DFG per function, in the schema the GNN trainer reads",
+        "CPG file or directory",
+        "json",
+    ),
+    "f2a": (
+        "Extract OCPP-native source-to-sink evidence candidates from CPG data",
+        "CPG file or directory",
+        "json",
+    ),
+}
+
+
+@dataclass
 class CliOptions:
-    """CLI options structure."""
+    """Parsed CLI options."""
 
-    def __init__(
-        self,
-        mode: Mode,
-        data: str,
-        output: Optional[str] = None,
-        ext: Optional[list[str]] = None,
-        replace_macro: bool = True,
-        keep_intermediate: bool = False,
-        workers: Optional[str] = None,
-        debug: bool = False,
-        verbose: bool = False,
-        representation: str = "all",
-        export_format: str = "graphson",
-        copy_source: bool = False,
-    ):
-        self.mode = mode
-        self.data = data
-        self.output = output
-        self.ext = ext or []
-        self.replace_macro = replace_macro
-        self.keep_intermediate = keep_intermediate
-        self.workers = workers
-        self.debug = debug
-        self.verbose = verbose
-        self.representation = representation
-        self.export_format = export_format
-        self.copy_source = copy_source
+    mode: Mode
+    data: str
+    output: Optional[str] = None
+    ext: List[str] = field(default_factory=list)
+    replace_macro: bool = True
+    keep_intermediate: bool = False
+    workers: Optional[str] = None
+    debug: bool = False
+    verbose: bool = False
+    backend: str = DEFAULT_BACKEND
+    representation: str = "all"
+    export_format: str = "graphson"
+    copy_source: bool = False
+
+
+def _add_common_arguments(parser: argparse.ArgumentParser, input_help: str, default_ext: str) -> None:
+    """Options every subcommand accepts."""
+    parser.add_argument("-d", "--data", required=True, help=f"Input {input_help}")
+    parser.add_argument("-o", "--output", help="Output directory (default: result/<mode>_<timestamp>)")
+    parser.add_argument("--ext", default=default_ext, help="File extensions to process (comma-separated)")
+    parser.add_argument(
+        "--backend",
+        default=DEFAULT_BACKEND,
+        choices=BACKEND_NAMES,
+        help="CPG engine: 'jpype' runs Joern in-process, 'docker' uses the Joern container",
+    )
+    parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
 
 
 class CliParser:
     """CLI argument parser."""
 
-    def __init__(self):
-        """Initialize parser."""
+    def __init__(self) -> None:
         self.parser = argparse.ArgumentParser(
             prog="ssat",
-            description="Static Software Analysis Tool - Convert source code (C/C++/Java) to various representations",
+            description=(
+                "Static Software Analysis Tool - convert source code (C/C++/Java) "
+                "into CPG, Template, AST, DFG and F2-A evidence"
+            ),
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
         self.parser.add_argument("--version", action="version", version="2.4.3")
         self.setup_subcommands()
 
     def setup_subcommands(self) -> None:
-        """Setup subcommands."""
+        """Declare one subparser per mode."""
         subparsers = self.parser.add_subparsers(dest="mode", help="Command to run", required=True)
 
-        # Common formatter for sub-parsers
-        fmt = argparse.ArgumentDefaultsHelpFormatter
+        for name, (help_text, input_help, default_ext) in COMMANDS.items():
+            subparser = subparsers.add_parser(
+                name,
+                help=help_text,
+                formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            )
+            _add_common_arguments(subparser, input_help, default_ext)
 
-        # CPG command
-        cpg_parser = subparsers.add_parser(
-            "cpg",
-            help="Generate Code Property Graph from C source code",
-            formatter_class=fmt,
-        )
-        cpg_parser.add_argument("-d", "--data", required=True, help="Input source file or directory")
-        cpg_parser.add_argument("-o", "--output", help="Output directory (default: result/cpg_<timestamp>)")
-        cpg_parser.add_argument("--ext", default="c,h,cpp,cc,cxx,hpp,hxx,java", help="File extensions to process (comma-separated)")
-        cpg_parser.add_argument("--workers", default="4", help="Number of parallel workers for batch processing")
-        cpg_parser.add_argument("--repr", default="all", help="Representation (ast, cfg, cpg14, all, etc.)")
-        cpg_parser.add_argument("-f", "--format", default="graphson", help="Export format (dot, graphson, graphml, etc.)")
-        cpg_parser.add_argument("--replace-macro", action="store_true", default=True, help="Replace macros in source files")
-        cpg_parser.add_argument("--no-replace-macro", dest="replace_macro", action="store_false", help="Skip macro replacement")
-        cpg_parser.add_argument("--copy-source", action="store_true", default=False, help="Copy original source files alongside CPG output")
-        cpg_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
-        cpg_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-        cpg_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+            if name == "cpg":
+                # Only CPG generation parallelises: batch_generate_cpg drives a
+                # real process pool. Later stages are sequential CPU work.
+                subparser.add_argument("--workers", default="4", help="Parallel workers for batch CPG generation")
+                subparser.add_argument("--repr", default="all", help="Representation (ast, cfg, cpg14, all, ...)")
+                subparser.add_argument(
+                    "-f", "--format", default="graphson", help="Export format (dot, graphson, graphml, ...)"
+                )
+                subparser.add_argument(
+                    "--replace-macro", action="store_true", default=True, help="Replace macros in source files"
+                )
+                subparser.add_argument(
+                    "--no-replace-macro", dest="replace_macro", action="store_false", help="Skip macro replacement"
+                )
+                subparser.add_argument(
+                    "--copy-source", action="store_true", help="Copy original source files alongside CPG output"
+                )
+            else:
+                subparser.add_argument("--workers", default="1", help="Parallel workers (CPG generation only)")
 
-        # Template command
-        template_parser = subparsers.add_parser(
-            "template",
-            help="Generate Template artifacts from CPG data",
-            formatter_class=fmt,
-        )
-        template_parser.add_argument("-d", "--data", required=True, help="Input CPG file or directory")
-        template_parser.add_argument("-o", "--output", help="Output directory (default: result/template_<timestamp>)")
-        template_parser.add_argument("--ext", default="json", help="File extensions to process (comma-separated)")
-        template_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
-        template_parser.add_argument("--workers", default="1", help="Number of parallel workers")
-        template_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-        template_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-
-        # AST command
-        ast_parser = subparsers.add_parser(
-            "ast",
-            help="Generate Abstract Syntax Tree from Template data",
-            formatter_class=fmt,
-        )
-        ast_parser.add_argument("-d", "--data", required=True, help="Input Template file or directory")
-        ast_parser.add_argument("-o", "--output", help="Output directory (default: result/ast_<timestamp>)")
-        ast_parser.add_argument("--ext", default="json", help="File extensions to process (comma-separated)")
-        ast_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
-        ast_parser.add_argument("--workers", default="1", help="Number of parallel workers")
-        ast_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-        ast_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-
-        # Template-functions command
-        tf_parser = subparsers.add_parser(
-            "template-functions",
-            help="Extract all function nodes from Template recursively and save per-function",
-            formatter_class=fmt,
-        )
-        tf_parser.add_argument("-d", "--data", required=True, help="Input Template file or directory")
-        tf_parser.add_argument("-o", "--output", help="Output directory (default: result/template_functions_<timestamp>)")
-        tf_parser.add_argument("--ext", default="json", help="File extensions to process (comma-separated)")
-        tf_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
-        tf_parser.add_argument("--workers", default="1", help="Number of parallel workers")
-        tf_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-        tf_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-
-        # DFG command
-        dfg_parser = subparsers.add_parser(
-            "dfg",
-            help="Generate Data Flow Graph from Template data",
-            formatter_class=fmt,
-        )
-        dfg_parser.add_argument("-d", "--data", required=True, help="Input Template file or directory")
-        dfg_parser.add_argument("-o", "--output", help="Output directory (default: result/dfg_<timestamp>)")
-        dfg_parser.add_argument("--ext", default="json", help="File extensions to process (comma-separated)")
-        dfg_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
-        dfg_parser.add_argument("--workers", default="1", help="Number of parallel workers")
-        dfg_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-        dfg_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-
-        # Full command
-        full_parser = subparsers.add_parser(
-            "full",
-            help="Generate Full artifacts from Template data",
-            formatter_class=fmt,
-        )
-        full_parser.add_argument("-d", "--data", required=True, help="Input Template file or directory")
-        full_parser.add_argument("-o", "--output", help="Output directory (default: result/full_<timestamp>)")
-        full_parser.add_argument("--ext", default="json", help="File extensions to process (comma-separated)")
-        full_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
-        full_parser.add_argument("--workers", default="1", help="Number of parallel workers")
-        full_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-        full_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-
-        # F2-A command (OCPP-native static evidence extraction from a CPG)
-        f2a_parser = subparsers.add_parser(
-            "f2a",
-            help="Extract OCPP-native source→sink evidence candidates from CPG data",
-            formatter_class=fmt,
-        )
-        f2a_parser.add_argument("-d", "--data", required=True, help="Input CPG file or directory")
-        f2a_parser.add_argument("-o", "--output", help="Output directory (default: result/f2a_<timestamp>)")
-        f2a_parser.add_argument("--ext", default="json", help="File extensions to process (comma-separated)")
-        f2a_parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
-        f2a_parser.add_argument("--workers", default="1", help="Number of parallel workers")
-        f2a_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
-        f2a_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-
-    def parse(self) -> CliOptions:
+    def parse(self, argv: Optional[List[str]] = None) -> CliOptions:
         """Parse command line arguments."""
-        args = self.parser.parse_args()
+        args = self.parser.parse_args(argv)
 
-        # Parse extensions
-        ext_list = []
+        ext_list: List[str] = []
         if getattr(args, "ext", None):
-            ext_list = [e.strip() for e in args.ext.split(",")]
+            ext_list = [e.strip() for e in args.ext.split(",") if e.strip()]
 
         return CliOptions(
-            mode=args.mode,  # type: ignore
+            mode=args.mode,
             data=args.data,
             output=getattr(args, "output", None),
             ext=ext_list,
@@ -180,6 +145,7 @@ class CliParser:
             workers=getattr(args, "workers", None),
             debug=getattr(args, "debug", False),
             verbose=getattr(args, "verbose", False),
+            backend=getattr(args, "backend", DEFAULT_BACKEND),
             representation=getattr(args, "repr", "all"),
             export_format=getattr(args, "format", "graphson"),
             copy_source=getattr(args, "copy_source", False),
