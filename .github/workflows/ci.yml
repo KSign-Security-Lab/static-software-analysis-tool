@@ -28,19 +28,19 @@ jobs:
         run: uv sync --all-extras
 
       - name: ruff check
-        run: uv run ruff check packages api
+        run: uv run ruff check
 
       - name: ruff format --check
-        run: uv run ruff format --check packages api
+        run: uv run ruff format --check
 
       - name: mypy --strict
-        run: uv run mypy packages/ssat/src/ssat api
+        run: uv run mypy
 
       # Covers the F2-A suite, the golden characterization snapshots, the
       # GNN training-data contract, and the CPG backend equivalence checks.
       # Backend tests that need a Joern install or the container skip cleanly.
       - name: pytest
-        run: uv run pytest packages/ssat/tests -q
+        run: uv run pytest -q
 
   web:
     name: Web (types, lint, tests)

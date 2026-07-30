@@ -45,12 +45,14 @@ and the repo still builds.
 ## Quick start
 
 ```bash
-uv sync                 # Python workspace
+uv sync                       # Python workspace
+source .venv/bin/activate     # or prefix each command with `uv run`
 
-# analyse a source file end to end
-uv run ssat f2a  -d path/to/file.c  -o result/f2a
-uv run ssat full -d path/to/file.c  -o result/full     # AST + DFG per function
+ssat f2a  path/to/file.c      # OCPP evidence candidates
+ssat full path/to/file.c      # AST + DFG per function
 ```
+
+Output lands in `result/<mode>_<timestamp>/` unless you pass `-o`.
 
 ## CLI
 
@@ -66,8 +68,8 @@ ssat template-functions  Template      -> one file per function
 ssat f2a                 CPG           -> OCPP evidence candidates
 ```
 
-Every subcommand takes `-d/--data`, `-o/--output` and
-`--backend {jpype,docker}`. `--workers` parallelises CPG generation only.
+The input path is positional. Every subcommand also takes `-o/--output` and
+`--backend {jpype,docker}`; `--workers` parallelises CPG generation only.
 
 ## Web UI and API
 
@@ -87,13 +89,16 @@ return the SSAT pipeline's own artifacts.
 ## Development
 
 ```bash
-uv run ruff check packages api
-uv run ruff format --check packages api
-uv run mypy packages/ssat/src/ssat api
-uv run pytest packages/ssat/tests
+ruff check
+ruff format --check
+mypy
+pytest
 
 cd web && npm run type-check && npm run lint && npm run test
 ```
+
+No path arguments: the targets live in `pyproject.toml`, so there is one
+definition of what gets checked rather than one per caller.
 
 That is exactly what CI runs — see `.github/workflows/ci.yml`, which invokes
 the same commands directly rather than going through a task runner.
@@ -106,7 +111,7 @@ this correct?"* — a diff there is a regression unless the change was
 deliberate, in which case rerun the generator and review the diff:
 
 ```bash
-uv run python packages/ssat/tests/generate_golden.py
+python packages/ssat/tests/generate_golden.py
 ```
 
 ## Notes

@@ -37,3 +37,10 @@ target-version = "py314"
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
+# So `uv run mypy` needs no arguments. packages/agent is excluded: it is a
+# consumer of the pipeline's output, not part of the analysis library, and is
+# not held to the strict bar.
+files = ["packages/ssat/src/ssat", "api"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/ssat/tests"]

@@ -66,7 +66,11 @@ class CliOptions:
 
 def _add_common_arguments(parser: argparse.ArgumentParser, input_help: str, default_ext: str) -> None:
     """Options every subcommand accepts."""
-    parser.add_argument("-d", "--data", required=True, help=f"Input {input_help}")
+    # The input is the one thing every invocation must supply, so it is
+    # positional: `ssat f2a foo.c`, not `ssat f2a -d foo.c`. -d/--data still
+    # works, for anyone with it in a script.
+    parser.add_argument("data", nargs="?", help=f"Input {input_help}")
+    parser.add_argument("-d", "--data", dest="data_flag", help=argparse.SUPPRESS)
     parser.add_argument("-o", "--output", help="Output directory (default: result/<mode>_<timestamp>)")
     parser.add_argument("--ext", default=default_ext, help="File extensions to process (comma-separated)")
     parser.add_argument(
@@ -131,13 +135,17 @@ class CliParser:
         """Parse command line arguments."""
         args = self.parser.parse_args(argv)
 
+        data = args.data or args.data_flag
+        if not data:
+            self.parser.error(f"{args.mode}: an input path is required")
+
         ext_list: List[str] = []
         if getattr(args, "ext", None):
             ext_list = [e.strip() for e in args.ext.split(",") if e.strip()]
 
         return CliOptions(
             mode=args.mode,
-            data=args.data,
+            data=data,
             output=getattr(args, "output", None),
             ext=ext_list,
             replace_macro=getattr(args, "replace_macro", True),
