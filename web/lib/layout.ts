@@ -31,6 +31,8 @@ const DIRECTION: Record<ViewKey, "TB" | "LR"> = {
   cg: "LR",
   dfg: "LR",
   cfg: "TB",
+  "pipeline-ast": "TB",
+  "pipeline-dfg": "LR",
 };
 
 export interface NodeData extends Record<string, unknown> {

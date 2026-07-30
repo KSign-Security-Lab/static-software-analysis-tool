@@ -1,4 +1,4 @@
-import type { AnalyzeResponse } from "./types";
+import type { AnalyzeResponse, PipelineResponse } from "./types";
 
 // Resolve the backend base URL at runtime so it works from whatever host the
 // page was opened on (localhost, the Tailscale IP, any tailnet peer). Override
@@ -54,7 +54,21 @@ export function analyze(input: AnalyzeInput): Promise<AnalyzeResponse> {
   return post<AnalyzeResponse>("/analyze", input);
 }
 
-export async function checkHealth(): Promise<{ status: string; joern_container: string }> {
+/**
+ * Per-function AST + def-use DFG from the SSAT pipeline.
+ *
+ * Takes the CPG that /analyze already produced, so the source is not compiled
+ * twice. These artifacts are a different thing from the AST/DFG views the
+ * browser projects out of the CPG in lib/views.ts.
+ */
+export function analyzeFunctions(cpg: unknown): Promise<PipelineResponse> {
+  return post<PipelineResponse>("/analyze-functions", { cpg });
+}
+
+export async function checkHealth(): Promise<{
+  status: string;
+  backends: Record<string, boolean>;
+}> {
   const res = await fetch(`${apiBase()}/health`);
   if (!res.ok) throw new Error(`health ${res.status}`);
   return res.json();

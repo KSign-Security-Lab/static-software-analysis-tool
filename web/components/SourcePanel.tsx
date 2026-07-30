@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiBase } from "@/lib/api";
 import { SAMPLES } from "@/lib/samples";
+
+/** Source extension -> the language value the API expects. */
+const EXT_LANG: Record<string, string> = {
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  cc: "cpp",
+  cxx: "cpp",
+  hpp: "cpp",
+  hxx: "cpp",
+  java: "java",
+};
 
 export default function SourcePanel({
   source,
@@ -28,6 +40,33 @@ export default function SourcePanel({
   // Resolve on the client (depends on window.location).
   const [backend, setBackend] = useState("");
   useEffect(() => setBackend(apiBase()), []);
+
+  // File upload, ported from the old web/ app's DataUploader. Reads locally and
+  // fills the editor -- the file itself never leaves the browser; only the text
+  // goes to the API, exactly as if it had been pasted.
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+
+  const loadFile = useCallback(
+    (file: File) => {
+      setFileError(null);
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      const detected = EXT_LANG[ext];
+      if (!detected) {
+        setFileError(`지원하지 않는 확장자입니다: .${ext} (c/cpp/java)`);
+        return;
+      }
+      file
+        .text()
+        .then((text) => {
+          setSource(text);
+          setLanguage(detected);
+        })
+        .catch((e: unknown) => setFileError(e instanceof Error ? e.message : String(e)));
+    },
+    [setSource, setLanguage],
+  );
   return (
     <div className="drawer-body">
       <p className="subtitle">
@@ -60,6 +99,40 @@ export default function SourcePanel({
           <option value="cpp">C++</option>
           <option value="java">Java</option>
         </select>
+      </div>
+
+      <div className="field">
+        <label>파일</label>
+        <div
+          className={`dropzone ${dragging ? "dragging" : ""}`}
+          onClick={() => fileInput.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) loadFile(file);
+          }}
+        >
+          소스 파일을 끌어다 놓거나 클릭해 선택하세요
+          <span className="muted small">.c .h .cpp .cc .cxx .hpp .hxx .java</span>
+        </div>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".c,.h,.cpp,.cc,.cxx,.hpp,.hxx,.java"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) loadFile(file);
+            e.target.value = "";
+          }}
+        />
+        {fileError && <div className="error small">{fileError}</div>}
       </div>
 
       <div className="editor">

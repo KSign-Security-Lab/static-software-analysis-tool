@@ -1,38 +1,31 @@
 {
-  "name": "@ssat/web",
+  "name": "ssat-web",
   "version": "0.1.0",
   "private": true,
+  "description": "SSAT web UI — CPG views, SSAT pipeline artifacts, and F2-A evidence",
   "scripts": {
-    "scripts:help": "node -e \"const p=JSON.parse(require('fs').readFileSync('./web/package.json','utf8')); const i=p.scriptsInfo||{}; console.log('Web scripts\\n=========='); for (const [k,v] of Object.entries(i)) console.log(k.padEnd(20),' - ',v);\"",
-    "dev": "next dev",
+    "dev": "next dev -p 3000",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3000",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit"
-  },
-  "scriptsInfo": {
-    "scripts:help": "List Web workspace scripts with descriptions",
-    "dev": "Start Next.js dev server",
-    "build": "Build Next.js app",
-    "start": "Start Next.js production server",
-    "lint": "Run ESLint",
-    "type-check": "Type-check Web workspace"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@prisma/client": "^6.16.2",
-    "@ssat/core": "*",
+    "@xyflow/react": "^12.3.5",
+    "dagre": "^0.8.5",
     "next": "15.5.2",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
+    "@types/dagre": "^0.7.52",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
-    "prisma": "^6.16.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

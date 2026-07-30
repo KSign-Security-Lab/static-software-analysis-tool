@@ -13,7 +13,7 @@ import {
   searchNodes,
 } from "@/lib/graphops";
 import { EDGE_TABS, buildViewFromLabels, cgView } from "@/lib/views";
-import type { ParsedCpg, ViewKey, ViewNode } from "@/lib/types";
+import type { CpgViewKey, ParsedCpg, ViewNode } from "@/lib/types";
 
 export default function GraphExplorer({
   cpg,
@@ -21,7 +21,7 @@ export default function GraphExplorer({
   defaultMethodId,
 }: {
   cpg: ParsedCpg;
-  tab: ViewKey;
+  tab: CpgViewKey;
   defaultMethodId?: string;
 }) {
   const methods = useMemo(() => internalMethods(cpg), [cpg]);
@@ -41,7 +41,7 @@ export default function GraphExplorer({
     setSelected(null);
     setQuery("");
     if (!isCg) {
-      const cand = EDGE_TABS[tab as Exclude<ViewKey, "cg">];
+      const cand = EDGE_TABS[tab as Exclude<CpgViewKey, "cg">];
       setLabels(new Set(cand.filter((c) => c.on).map((c) => c.label)));
     }
   }, [tab, defaultMethodId, methods, isCg]);
@@ -64,7 +64,7 @@ export default function GraphExplorer({
     setSelected(n);
   };
 
-  const candidates = isCg ? [] : EDGE_TABS[tab as Exclude<ViewKey, "cg">];
+  const candidates = isCg ? [] : EDGE_TABS[tab as Exclude<CpgViewKey, "cg">];
 
   return (
     <div className="explorer">

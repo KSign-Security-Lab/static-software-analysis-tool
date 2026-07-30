@@ -83,7 +83,66 @@ export interface GraphView {
   edges: ViewEdge[];
 }
 
-export type ViewKey = "cpg" | "ast" | "cg" | "dfg" | "cfg";
+/** Views projected straight out of the CPG by edge label (see lib/views.ts). */
+export type CpgViewKey = "cpg" | "ast" | "cg" | "dfg" | "cfg";
+
+/** Views built from the SSAT pipeline's own artifacts (see lib/pipeline.ts). */
+export type PipelineViewKey = "pipeline-ast" | "pipeline-dfg";
+
+export type ViewKey = CpgViewKey | PipelineViewKey;
+
+export const CPG_VIEW_KEYS: readonly CpgViewKey[] = ["ast", "cfg", "dfg", "cg", "cpg"];
+export const PIPELINE_VIEW_KEYS: readonly PipelineViewKey[] = ["pipeline-ast", "pipeline-dfg"];
+
+// ---- SSAT pipeline artifacts ---------------------------------------------
+//
+// Deliberately distinct from the CPG views above. `ast` is the syntax tree as
+// Joern exported it; `pipeline-ast` is the statement-level tree the SSAT
+// extractor builds from the Template. Same word, different object -- keeping
+// them apart in the type system keeps them apart in the UI.
+
+export interface PipelineAstNode {
+  sid: number;
+  node_type_id: string;
+  code: string;
+  orig_id?: number;
+  feat?: Record<string, unknown>;
+  debug?: Record<string, unknown>;
+}
+
+export interface PipelineAst {
+  nodes: PipelineAstNode[];
+  /** [parent_sid, child_sid, 0] */
+  edges_ast_pc: [number, number, number][];
+  /** [prev_sid, next_sid, 1] */
+  edges_ast_sb: [number, number, number][];
+  edges_ast_guard: { src: number; dst: number; guard_kind: number; guard_branch: unknown }[];
+}
+
+export interface PipelineDfgNode {
+  sid: number;
+  node_type_id?: string;
+  feat?: Record<string, unknown>;
+  debug?: Record<string, unknown>;
+}
+
+export interface PipelineDfg {
+  nodes: PipelineDfgNode[];
+  /** [src_sid, dst_sid, { feat, debug }] */
+  edges_dfg: [number, number, { feat?: Record<string, unknown>; debug?: Record<string, unknown> }][];
+}
+
+export interface PipelineFunction {
+  function_name: string;
+  source_template?: string;
+  code?: string;
+  ast: PipelineAst;
+  dfg: PipelineDfg;
+}
+
+export interface PipelineResponse {
+  functions: PipelineFunction[];
+}
 
 // ---- F2-A result (subset we render; the rest is passed through) -----------
 

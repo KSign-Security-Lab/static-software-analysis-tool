@@ -1,7 +1,7 @@
 // Project the four graph views out of a parsed CPG, purely by edge label —
 // the same "extract by structure, not text" idea F2-A uses.
 
-import type { CpgEdge, GraphView, ParsedCpg, ViewEdge, ViewKey, ViewNode } from "./types";
+import type { CpgEdge, CpgViewKey, GraphView, ParsedCpg, ViewEdge, ViewNode } from "./types";
 
 function toViewNode(cpg: ParsedCpg, id: string): ViewNode | undefined {
   const n = cpg.nodes.get(id);
@@ -12,7 +12,7 @@ function toViewNode(cpg: ParsedCpg, id: string): ViewNode | undefined {
 /** Build a view from a set of directed edges, inducing the touched node set. */
 function induced(
   cpg: ParsedCpg,
-  key: ViewKey,
+  key: CpgViewKey,
   title: string,
   description: string,
   edges: ViewEdge[],
@@ -128,7 +128,7 @@ export function cpgView(cpg: ParsedCpg): GraphView {
 
 // Candidate edge labels the user can toggle per drill-down tab (CG is special —
 // its edges are lifted to method level, so it has no toggles). `on` = default.
-export const EDGE_TABS: Record<Exclude<ViewKey, "cg">, { label: string; on: boolean }[]> = {
+export const EDGE_TABS: Record<Exclude<CpgViewKey, "cg">, { label: string; on: boolean }[]> = {
   ast: [{ label: "AST", on: true }],
   cfg: [
     { label: "CFG", on: true },
@@ -154,7 +154,7 @@ export const EDGE_TABS: Record<Exclude<ViewKey, "cg">, { label: string; on: bool
   ],
 };
 
-const TAB_TITLES: Record<ViewKey, { title: string; description: string }> = {
+const TAB_TITLES: Record<CpgViewKey, { title: string; description: string }> = {
   cpg: { title: "CPG", description: "Code Property Graph — pick which edge layers to overlay." },
   ast: { title: "AST", description: "Syntax tree — AST edges (parent → child)." },
   cg: { title: "CG", description: "Call graph between functions — who calls whom." },
@@ -163,7 +163,7 @@ const TAB_TITLES: Record<ViewKey, { title: string; description: string }> = {
 };
 
 /** Build a view from an arbitrary set of edge labels (drives the edge toggles). */
-export function buildViewFromLabels(cpg: ParsedCpg, key: ViewKey, labels: string[]): GraphView {
+export function buildViewFromLabels(cpg: ParsedCpg, key: CpgViewKey, labels: string[]): GraphView {
   const edges: ViewEdge[] = [];
   for (const l of labels) {
     for (const e of cpg.edgesByLabel.get(l) ?? []) {
@@ -174,7 +174,7 @@ export function buildViewFromLabels(cpg: ParsedCpg, key: ViewKey, labels: string
   return induced(cpg, key, t.title, t.description, edges);
 }
 
-export function buildViews(cpg: ParsedCpg): Record<ViewKey, GraphView> {
+export function buildViews(cpg: ParsedCpg): Record<CpgViewKey, GraphView> {
   return {
     cpg: cpgView(cpg),
     ast: astView(cpg),
