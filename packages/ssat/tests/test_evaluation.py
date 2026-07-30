@@ -25,10 +25,7 @@ def _run():
 
 
 def _rec(report, corpus_file, action):
-    return next(
-        r for r in report["actions"]
-        if r["corpus_file"] == corpus_file and r["action"] == action
-    )
+    return next(r for r in report["actions"] if r["corpus_file"] == corpus_file and r["action"] == action)
 
 
 def test_report_is_deterministic():
@@ -40,14 +37,14 @@ def test_report_is_deterministic():
 def test_report_shape_has_all_five_areas():
     m = _run()["metrics"]
     for key in (
-        "outcome_counts",                # 1
-        "unresolved_reason_histogram",   # 2 (+ tier_histogram)
+        "outcome_counts",  # 1
+        "unresolved_reason_histogram",  # 2 (+ tier_histogram)
         "tier_histogram",
-        "backend_histogram",             # 3
-        "resolved_confidence",           # 4
+        "backend_histogram",  # 3
+        "resolved_confidence",  # 4
         "corroboration_lift",
         "margin",
-        "evidence_volume",               # 5
+        "evidence_volume",  # 5
         "candidate_volume",
     ):
         assert key in m, key
@@ -71,7 +68,10 @@ def test_analysis_scope_and_supportable_kept_separate():
     hist = _run()["metrics"]["tier_histogram"]
     # the four tiers are distinct buckets; supportable != scope != policy != unknown
     assert set(hist) <= {
-        TIER_ANALYSIS_SCOPE, TIER_POTENTIALLY_SUPPORTABLE, TIER_POLICY, TIER_UNKNOWN,
+        TIER_ANALYSIS_SCOPE,
+        TIER_POTENTIALLY_SUPPORTABLE,
+        TIER_POLICY,
+        TIER_UNKNOWN,
     }
 
 
@@ -108,7 +108,10 @@ def test_every_unresolved_has_a_classification_with_observations():
             c = r["classification"]
             assert c is not None
             assert c["tier"] in {
-                TIER_ANALYSIS_SCOPE, TIER_POTENTIALLY_SUPPORTABLE, TIER_POLICY, TIER_UNKNOWN,
+                TIER_ANALYSIS_SCOPE,
+                TIER_POTENTIALLY_SUPPORTABLE,
+                TIER_POLICY,
+                TIER_UNKNOWN,
             }
             assert isinstance(c["supporting_observations"], list) and c["supporting_observations"]
 

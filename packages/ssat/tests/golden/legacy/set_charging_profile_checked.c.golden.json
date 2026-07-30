@@ -1,0 +1,989 @@
+{
+  "function_names": {
+    "filtered": [],
+    "unfiltered": [
+      "store_charging_profile",
+      "handle_set_charging_profile"
+    ]
+  },
+  "functions": [
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ],
+          [
+            0,
+            3,
+            0
+          ],
+          [
+            0,
+            4,
+            0
+          ],
+          [
+            0,
+            5,
+            0
+          ],
+          [
+            0,
+            6,
+            0
+          ],
+          [
+            0,
+            7,
+            0
+          ]
+        ],
+        "edges_ast_sb": [
+          [
+            1,
+            2,
+            1
+          ],
+          [
+            3,
+            4,
+            1
+          ],
+          [
+            4,
+            5,
+            1
+          ],
+          [
+            5,
+            6,
+            1
+          ],
+          [
+            6,
+            7,
+            1
+          ]
+        ],
+        "nodes": [
+          {
+            "code": "<entry:store_charging_profile>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149697,
+            "sid": 0
+          },
+          {
+            "code": "const unsigned char *schedule",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116992,
+            "sid": 1
+          },
+          {
+            "code": "size_t schedule_length",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116993,
+            "sid": 2
+          },
+          {
+            "code": "schedule == NULL",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 10,
+              "train_mask": 1
+            },
+            "node_type": "IfStatement",
+            "orig_id": 47244640256,
+            "sid": 3
+          },
+          {
+            "code": "schedule_length >= PROFILE_BUFFER_SIZE",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 10,
+              "train_mask": 1
+            },
+            "node_type": "IfStatement",
+            "orig_id": 47244640257,
+            "sid": 4
+          },
+          {
+            "code": "memcpy(g_profile_buffer, schedule, schedule_length)",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 2,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 2,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 30,
+              "train_mask": 1
+            },
+            "node_type": "StandardLibCall",
+            "orig_id": 30064771077,
+            "sid": 5
+          },
+          {
+            "code": "<global> g_profile_buffer",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 1,
+              "is_loop": 0,
+              "node_type_id": 4,
+              "train_mask": 1
+            },
+            "node_type": "ArrayDeclaration",
+            "orig_id": 94489280517,
+            "sid": 6
+          },
+          {
+            "code": "<unknown> NULL",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280518,
+            "sid": 7
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "schedule_length@0"
+              },
+              "feat": {
+                "flow_id": 3,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "schedule@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            2,
+            5,
+            {
+              "debug": {
+                "var_key": "schedule_length@2"
+              },
+              "feat": {
+                "flow_id": 3,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            0,
+            5,
+            {
+              "debug": {
+                "var_key": "g_profile_buffer@0"
+              },
+              "feat": {
+                "flow_id": 4,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            1,
+            5,
+            {
+              "debug": {
+                "var_key": "schedule@1"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:store_charging_profile>",
+              "def_vars": [
+                "g_profile_buffer",
+                "schedule",
+                "schedule_length"
+              ],
+              "use_vars": [
+                "schedule",
+                "schedule_length"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 1,
+              "def_count": 3,
+              "in_degree_dfg": 2,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 1,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 3,
+              "use_count": 2
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "const unsigned char *schedule",
+              "def_vars": [
+                "schedule"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 1,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "size_t schedule_length",
+              "def_vars": [
+                "schedule_length"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 1,
+              "use_count": 0
+            },
+            "sid": 2
+          },
+          {
+            "debug": {
+              "code": "schedule == NULL",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "IfStatement",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 3
+          },
+          {
+            "debug": {
+              "code": "schedule_length >= PROFILE_BUFFER_SIZE",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "IfStatement",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 4
+          },
+          {
+            "debug": {
+              "code": "memcpy(g_profile_buffer, schedule, schedule_length)",
+              "def_vars": [
+                "g_profile_buffer"
+              ],
+              "use_vars": [
+                "schedule",
+                "schedule_length"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 1,
+              "def_count": 1,
+              "in_degree_dfg": 3,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 1,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "StandardLibCall",
+              "out_degree_dfg": 0,
+              "use_count": 2
+            },
+            "sid": 5
+          },
+          {
+            "debug": {
+              "code": "<global> g_profile_buffer",
+              "def_vars": [
+                "g_profile_buffer"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ArrayDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 6
+          },
+          {
+            "debug": {
+              "code": "<unknown> NULL",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 7
+          }
+        ]
+      },
+      "name": "store_charging_profile"
+    },
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ],
+          [
+            0,
+            3,
+            0
+          ],
+          [
+            0,
+            4,
+            0
+          ],
+          [
+            0,
+            5,
+            0
+          ]
+        ],
+        "edges_ast_sb": [
+          [
+            2,
+            3,
+            1
+          ],
+          [
+            3,
+            4,
+            1
+          ],
+          [
+            4,
+            5,
+            1
+          ]
+        ],
+        "nodes": [
+          {
+            "code": "<entry:handle_set_charging_profile>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149698,
+            "sid": 0
+          },
+          {
+            "code": "const SetChargingProfileReq *request",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116994,
+            "sid": 1
+          },
+          {
+            "code": "const unsigned char *schedule",
+            "debug": {
+              "decl_name": "schedule",
+              "pointingType": "unsigned char",
+              "ptr_level": 1,
+              "storage": null
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 5,
+              "train_mask": 1
+            },
+            "node_type": "PointerDeclaration",
+            "orig_id": 94489280514,
+            "sid": 2
+          },
+          {
+            "code": "*schedule = request->charging_schedule.schedule",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 6,
+              "train_mask": 1
+            },
+            "node_type": "AssignmentExpression",
+            "orig_id": 30064771078,
+            "sid": 3
+          },
+          {
+            "code": "size_t schedule_length",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280515,
+            "sid": 4
+          },
+          {
+            "code": "schedule_length = request->charging_schedule.schedule_length",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 6,
+              "train_mask": 1
+            },
+            "node_type": "AssignmentExpression",
+            "orig_id": 30064771081,
+            "sid": 5
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:handle_set_charging_profile>",
+              "def_vars": [
+                "request"
+              ],
+              "use_vars": [
+                "schedule",
+                "schedule_length"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 0,
+              "use_count": 2
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "const SetChargingProfileReq *request",
+              "def_vars": [
+                "request"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "const unsigned char *schedule",
+              "def_vars": [
+                "schedule"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "PointerDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 2
+          },
+          {
+            "debug": {
+              "code": "*schedule = request->charging_schedule.schedule",
+              "def_vars": [
+                "schedule"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "AssignmentExpression",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 3
+          },
+          {
+            "debug": {
+              "code": "size_t schedule_length",
+              "def_vars": [
+                "schedule_length"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 4
+          },
+          {
+            "debug": {
+              "code": "schedule_length = request->charging_schedule.schedule_length",
+              "def_vars": [
+                "schedule_length"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "AssignmentExpression",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 5
+          }
+        ]
+      },
+      "name": "handle_set_charging_profile"
+    }
+  ],
+  "template_root_count": 24
+}

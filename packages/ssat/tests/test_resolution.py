@@ -35,8 +35,12 @@ FX = Path(__file__).parent / "fixtures" / "f2a" / "cpg"
 
 def _ev(kind, callback, weight, match=MatchStrength.EXACT_IDENTIFIER):
     return ResolutionEvidence(
-        kind=kind, action_id=ActionIdentifier(), weight=weight,
-        match_strength=match, callback=callback, score=weight,
+        kind=kind,
+        action_id=ActionIdentifier(),
+        weight=weight,
+        match_strength=match,
+        callback=callback,
+        score=weight,
     )
 
 
@@ -118,9 +122,15 @@ def test_equal_weight_tie_broken_by_kind_rank():
 
 def _cev(kind, callback, ms, group, weight, aid=None, nodes=None, extractor="x", dispatch_site=None):
     return ResolutionEvidence(
-        kind=kind, action_id=aid or ActionIdentifier(), weight=weight, match_strength=ms,
-        callback=callback, dispatch_site=dispatch_site, nodes=nodes or [],
-        provenance_group=group, extractor=extractor,
+        kind=kind,
+        action_id=aid or ActionIdentifier(),
+        weight=weight,
+        match_strength=ms,
+        callback=callback,
+        dispatch_site=dispatch_site,
+        nodes=nodes or [],
+        provenance_group=group,
+        extractor=extractor,
     )
 
 
@@ -129,22 +139,23 @@ def _cev(kind, callback, ms, group, weight, aid=None, nodes=None, extractor="x",
 
 def test_match_strength_rank_is_explicit_and_strictly_ordered():
     order = [
-        MatchStrength.EXACT_IDENTIFIER, MatchStrength.RESOLVED_VALUE,
-        MatchStrength.NORMALIZED_NAME, MatchStrength.HEURISTIC_SUBSTRING, MatchStrength.NONE,
+        MatchStrength.EXACT_IDENTIFIER,
+        MatchStrength.RESOLVED_VALUE,
+        MatchStrength.NORMALIZED_NAME,
+        MatchStrength.HEURISTIC_SUBSTRING,
+        MatchStrength.NONE,
     ]
     ranks = [MATCH_STRENGTH_RANK[m] for m in order]
-    assert ranks == sorted(ranks, reverse=True)          # strictly descending
-    assert len(set(ranks)) == len(order)                 # total, no ties
+    assert ranks == sorted(ranks, reverse=True)  # strictly descending
+    assert len(set(ranks)) == len(order)  # total, no ties
     assert set(MATCH_STRENGTH_RANK) == set(MatchStrength)  # covers every member
 
 
 def test_dedupe_collapses_identical_keeps_strongest():
     # same (kind, callback, dispatch_site, nodes) from two extractors, differing
     # only in match_strength -> one survivor, the stronger match.
-    weak = _cev(REGISTRATION_INIT, 1, MatchStrength.HEURISTIC_SUBSTRING, "g", 0.80,
-                nodes=[10, 11], extractor="b")
-    strong = _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "g", 0.80,
-                  nodes=[11, 10], extractor="a")
+    weak = _cev(REGISTRATION_INIT, 1, MatchStrength.HEURISTIC_SUBSTRING, "g", 0.80, nodes=[10, 11], extractor="b")
+    strong = _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "g", 0.80, nodes=[11, 10], extractor="a")
     out = dedupe_evidence([weak, strong])
     assert len(out) == 1
     assert out[0].match_strength is MatchStrength.EXACT_IDENTIFIER
@@ -157,31 +168,40 @@ def test_dedupe_collapses_identical_keeps_strongest():
 
 
 def test_corroborate_independent_groups_noisy_or():
-    c = HandlerCandidate(1, [
-        _cev(ENUM_CASE, 1, MatchStrength.EXACT_IDENTIFIER, "site:switch:9", 0.85),
-        _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.80),
-    ])
+    c = HandlerCandidate(
+        1,
+        [
+            _cev(ENUM_CASE, 1, MatchStrength.EXACT_IDENTIFIER, "site:switch:9", 0.85),
+            _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.80),
+        ],
+    )
     sel = select_corroborate([c], kb=None)
     assert sel.status is ResolutionStatus.RESOLVED
     assert sel.chosen.confidence == round(1 - (1 - 0.85) * (1 - 0.80), 6)  # 0.97
 
 
 def test_corroborate_same_group_takes_max_no_inflation():
-    c = HandlerCandidate(1, [
-        _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.80),
-        _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.85),
-    ])
+    c = HandlerCandidate(
+        1,
+        [
+            _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.80),
+            _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.85),
+        ],
+    )
     sel = select_corroborate([c], kb=None)
     assert sel.chosen.confidence == 0.85  # max within one group, not 0.97
 
 
 def test_corroborate_weak_only_cap():
     # three independent weak groups would noisy-OR to ~0.933; capped at 0.85.
-    c = HandlerCandidate(1, [
-        _cev(NAME_MATCH, 1, MatchStrength.NORMALIZED_NAME, "token:A", 0.70),
-        _cev(NAME_MATCH, 1, MatchStrength.NORMALIZED_NAME, "token:B", 0.70),
-        _cev(NAME_MATCH, 1, MatchStrength.NORMALIZED_NAME, "token:C", 0.70),
-    ])
+    c = HandlerCandidate(
+        1,
+        [
+            _cev(NAME_MATCH, 1, MatchStrength.NORMALIZED_NAME, "token:A", 0.70),
+            _cev(NAME_MATCH, 1, MatchStrength.NORMALIZED_NAME, "token:B", 0.70),
+            _cev(NAME_MATCH, 1, MatchStrength.NORMALIZED_NAME, "token:C", 0.70),
+        ],
+    )
     sel = select_corroborate([c], kb=None)
     assert sel.chosen.confidence == 0.85  # WEAK_ONLY_CAP
 
@@ -190,8 +210,8 @@ def test_corroborate_conflicting_identifier_penalty_with_diagnostics():
     conflicted = ActionIdentifier(numeric_id=41, resolved_value=15)  # KB-free CONFLICTING
     e = _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.80, aid=conflicted)
     sel = select_corroborate([HandlerCandidate(1, [e])], kb=None)
-    assert e.score_pre_penalty == 0.80                 # W*M before penalty (diagnostic)
-    assert e.score == round(0.80 * 0.70 * 0.5, 6)      # cap M at 0.70, then x0.5 -> 0.28
+    assert e.score_pre_penalty == 0.80  # W*M before penalty (diagnostic)
+    assert e.score == round(0.80 * 0.70 * 0.5, 6)  # cap M at 0.70, then x0.5 -> 0.28
     # 0.28 < MIN_CONFIDENCE -> UNRESOLVED, but per-evidence, not forced ambiguity
     assert sel.status is ResolutionStatus.UNRESOLVED
     assert sel.unresolved.reason is UnresolvedReason.LOW_CONFIDENCE
@@ -243,6 +263,7 @@ def test_integration_string_dispatch_evidence_cascade():
     """Cascade policy: confidence is the strongest kind's raw weight."""
     if not (FX / "update_firmware.c.json").exists():
         import pytest
+
         pytest.skip("fixture CPG not present")
     sel = _resolve("update_firmware.c.json", "UpdateFirmware", selection="cascade")
     assert sel.status is ResolutionStatus.RESOLVED
@@ -257,6 +278,7 @@ def test_integration_enum_candidate_gathers_multiple_evidence_cascade():
     grouping — while cascade confidence stays 0.85 (no corroboration)."""
     if not (FX / "data_transfer_enum.c.json").exists():
         import pytest
+
         pytest.skip("fixture CPG not present")
     sel = _resolve("data_transfer_enum.c.json", "DataTransfer", selection="cascade")
     assert sel.status is ResolutionStatus.RESOLVED
@@ -272,6 +294,7 @@ def test_integration_corroborate_shared_token_no_inflation():
     (0.85*0.85 = 0.7225), NOT a noisy-OR — a shared naming token must not inflate."""
     if not (FX / "data_transfer_enum.c.json").exists():
         import pytest
+
         pytest.skip("fixture CPG not present")
     sel = _resolve("data_transfer_enum.c.json", "DataTransfer", selection="corroborate")
     assert sel.status is ResolutionStatus.RESOLVED

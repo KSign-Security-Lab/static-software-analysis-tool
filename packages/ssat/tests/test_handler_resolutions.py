@@ -50,7 +50,7 @@ def test_competing_registration_vs_switch_retains_loser_and_conflict():
     dt = _res(r, "DataTransfer")
 
     assert dt.status == "RESOLVED"
-    assert dt.chosen is not None and dt.chosen.function == "bar"       # switch wins
+    assert dt.chosen is not None and dt.chosen.function == "bar"  # switch wins
     # chosen is first; the registration loser `foo` is retained as a ranked candidate
     assert dt.candidates[0].function == "bar"
     assert {c.function for c in dt.candidates} == {"bar", "foo"}
@@ -73,7 +73,10 @@ def test_one_resolution_entry_per_requested_action():
     # one entry per KB action, no duplicates, including unresolved ones
     assert actions == sorted(set(actions), key=actions.index)
     assert set(actions) == {
-        "UpdateFirmware", "DataTransfer", "SetChargingProfile", "RemoteStartTransaction",
+        "UpdateFirmware",
+        "DataTransfer",
+        "SetChargingProfile",
+        "RemoteStartTransaction",
     }
     statuses = {h.action: h.status for h in r.handler_resolutions}
     assert statuses["DataTransfer"] == "RESOLVED"
@@ -129,9 +132,9 @@ def test_duplicate_registrations_form_one_candidate_multi_evidence():
     m = CPGModel(json.loads(B.read_text()))
     sel = F2AAnalyzer(m)._resolve_handler("SetChargingProfile")
     assert sel.status is ResolutionStatus.RESOLVED
-    assert len(sel.candidates) == 1                       # same callback -> one candidate
-    assert len(sel.candidates[0].evidence) == 2           # two registrations -> two evidences
-    assert sel.conflict is None                           # not competing
+    assert len(sel.candidates) == 1  # same callback -> one candidate
+    assert len(sel.candidates[0].evidence) == 2  # two registrations -> two evidences
+    assert sel.conflict is None  # not competing
 
 
 # --- match-strength distinction: exact numeric registration beats weak name ---
@@ -234,7 +237,7 @@ def test_designated_initializer_is_field_order_independent_and_multi_entry():
     _need(DI_ORDER)
     result = run_f2a_file(DI_ORDER)
     rs = _res(result, "RemoteStartTransaction")  # `.fn` before `.action`
-    dt = _res(result, "DataTransfer")            # `.action` before `.fn`
+    dt = _res(result, "DataTransfer")  # `.action` before `.fn`
     assert rs.status == "RESOLVED" and rs.chosen.function == "remote_handler"
     assert dt.status == "RESOLVED" and dt.chosen.function == "data_handler"
     assert rs.candidates[0].evidence_kinds == ["REGISTRATION_INIT"]
@@ -270,12 +273,13 @@ def test_exact_numeric_registration_beats_weak_name():
     r = run_f2a_file(C)
     scp = _res(r, "SetChargingProfile")
     assert scp.status == "RESOLVED"
-    assert scp.chosen.function == "store_profile"         # registration 0.80 > name 0.70
+    assert scp.chosen.function == "store_profile"  # registration 0.80 > name 0.70
     by_fn = {c.function: c for c in scp.candidates}
-    assert "handle_set_charging_profile" in by_fn         # weak name retained as competitor
+    assert "handle_set_charging_profile" in by_fn  # weak name retained as competitor
     assert by_fn["store_profile"].evidence_kinds == ["REGISTRATION_INIT"]
     assert by_fn["handle_set_charging_profile"].evidence_kinds == ["NAME_MATCH"]
     assert scp.conflict is not None
     assert {c.function for c in scp.conflict.competing} == {
-        "store_profile", "handle_set_charging_profile",
+        "store_profile",
+        "handle_set_charging_profile",
     }
