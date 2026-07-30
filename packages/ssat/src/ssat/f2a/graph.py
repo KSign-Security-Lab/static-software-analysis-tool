@@ -21,9 +21,7 @@ from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # Joern operator call names that model syntax rather than real function calls.
-FIELD_ACCESS_OPS = frozenset(
-    {"<operator>.indirectFieldAccess", "<operator>.fieldAccess"}
-)
+FIELD_ACCESS_OPS = frozenset({"<operator>.indirectFieldAccess", "<operator>.fieldAccess"})
 ASSIGNMENT_OPS = frozenset({"<operator>.assignment"})
 
 
@@ -51,12 +49,8 @@ class CPGModel:
                 self.by_id[vid] = v
 
         # Adjacency indexed by edge label, both directions.
-        self._out: Dict[str, Dict[int, List[Tuple[int, Dict[str, Any]]]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
-        self._in: Dict[str, Dict[int, List[Tuple[int, Dict[str, Any]]]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
+        self._out: Dict[str, Dict[int, List[Tuple[int, Dict[str, Any]]]]] = defaultdict(lambda: defaultdict(list))
+        self._in: Dict[str, Dict[int, List[Tuple[int, Dict[str, Any]]]]] = defaultdict(lambda: defaultdict(list))
         # AST parent pointer for climbing to the enclosing method.
         self._ast_parent: Dict[int, int] = {}
 
@@ -153,11 +147,7 @@ class CPGModel:
         return val if val is not None else ""
 
     def field_name(self, node_id: Optional[int]) -> str:
-        return str(
-            self.scalar(node_id, "CANONICAL_NAME")
-            or self.scalar(node_id, "CODE")
-            or ""
-        )
+        return str(self.scalar(node_id, "CANONICAL_NAME") or self.scalar(node_id, "CODE") or "")
 
     # ------------------------------------------------------------------
     # Adjacency
@@ -281,11 +271,7 @@ class CPGModel:
     # ------------------------------------------------------------------
 
     def control_structures_in(self, method_id: int) -> List[int]:
-        return [
-            d
-            for d in self.ast_descendants(method_id)
-            if self.label(d) == "CONTROL_STRUCTURE"
-        ]
+        return [d for d in self.ast_descendants(method_id) if self.label(d) == "CONTROL_STRUCTURE"]
 
     def condition_of(self, control_structure_id: int) -> Optional[int]:
         conds = self.out_ids(control_structure_id, "CONDITION")

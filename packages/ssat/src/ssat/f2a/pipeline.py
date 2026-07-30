@@ -153,15 +153,15 @@ class HandlerRegistration:
     stores or registrar calls); handler discovery consumes the list uniformly.
     """
 
-    action_id_symbols: Set[str]   # upper-cased id tokens co-located with the ref
+    action_id_symbols: Set[str]  # upper-cased id tokens co-located with the ref
     action_id_literals: Set[str]  # numeric/string literal ids co-located with the ref
-    callback_method: int          # METHOD node of the handler
-    mechanism: str                # AGGREGATE_INIT | INDEXED_ASSIGN | ...
-    evidence_node: int            # the initializer/assignment node proving the pairing
-    ref_node: int                 # the METHOD_REF node
-    site_key: str = ""            # the enclosing table/array (shared by entries of one table)
+    callback_method: int  # METHOD node of the handler
+    mechanism: str  # AGGREGATE_INIT | INDEXED_ASSIGN | ...
+    evidence_node: int  # the initializer/assignment node proving the pairing
+    ref_node: int  # the METHOD_REF node
+    site_key: str = ""  # the enclosing table/array (shared by entries of one table)
     id_sites: List[int] = field(default_factory=list)  # sibling `.action = id` store(s), for the trail
-    slot: str = ""                # receiver/slot code (e.g. `handlers[0]`), for the trail
+    slot: str = ""  # receiver/slot code (e.g. `handlers[0]`), for the trail
 
 
 class F2AAnalyzer:
@@ -197,9 +197,7 @@ class F2AAnalyzer:
             # action, RESOLVED / AMBIGUOUS / UNRESOLVED alike).
             sel = self._selection.get(action)
             if sel is not None:
-                result.handler_resolutions.append(
-                    self._selection_to_resolution(action, sel)
-                )
+                result.handler_resolutions.append(self._selection_to_resolution(action, sel))
 
             if handler_map is None:
                 # Compatibility limitation, generated from the structured report
@@ -213,8 +211,7 @@ class F2AAnalyzer:
                 binding = self._step2_bind_source(action, field_prof, handler_method)
                 if binding is None:
                     result.limitations.append(
-                        f"Field '{field_prof.field_name}' of '{action}' not bound to a "
-                        f"variable in this CPG."
+                        f"Field '{field_prof.field_name}' of '{action}' not bound to a variable in this CPG."
                     )
                     continue
                 result.field_bindings.append(binding)
@@ -236,13 +233,9 @@ class F2AAnalyzer:
                     sink_mapping = self._step4_map_sink(trace)
                     result.sink_mappings.append(sink_mapping)
 
-                    observed, negatives = self._step5_detect_checks(
-                        action, field_prof, trace
-                    )
+                    observed, negatives = self._step5_detect_checks(action, field_prof, trace)
 
-                    matching, missing_set = self._step6_match_expected(
-                        action, field_prof, trace, observed, negatives
-                    )
+                    matching, missing_set = self._step6_match_expected(action, field_prof, trace, observed, negatives)
                     result.expected_check_matchings.append(matching)
                     result.missing_check_candidate_sets.append(missing_set)
 
@@ -263,9 +256,7 @@ class F2AAnalyzer:
 
         return result
 
-    def _select_sinks(
-        self, trace: "FlowTrace", field_prof: FieldProfile
-    ) -> List[Tuple[int, int]]:
+    def _select_sinks(self, trace: "FlowTrace", field_prof: FieldProfile) -> List[Tuple[int, int]]:
         """Choose which reached sinks to report.
 
         Prefer sinks whose domain is one the KB flags as dangerous for this field
@@ -307,7 +298,7 @@ class F2AAnalyzer:
     def _action_symbol_tokens(self, action: str) -> Set[str]:
         prof = self.kb.actions.get(action)
         toks = {self._upper_snake(action)}
-        for s in (prof.action_symbols if prof else []):
+        for s in prof.action_symbols if prof else []:
             toks.add(s.upper())
         return toks
 
@@ -326,9 +317,7 @@ class F2AAnalyzer:
         # Cascade-compatible: build the HandlerMap from the single highest-weight
         # piece of evidence, so evidence types + confidence are identical to the
         # historical per-strategy output.
-        best = max(
-            sel.chosen.evidence, key=lambda e: (e.weight, KIND_RANK.get(e.kind, 0))
-        )
+        best = max(sel.chosen.evidence, key=lambda e: (e.weight, KIND_RANK.get(e.kind, 0)))
         callee = sel.chosen.callback
         self._handler_method_id[action] = callee
         return HandlerMap(
@@ -364,9 +353,7 @@ class F2AAnalyzer:
             if ev.callback is None:
                 continue
             by_callback.setdefault(ev.callback, []).append(ev)
-        candidates = [
-            HandlerCandidate(callback=cb, evidence=evs) for cb, evs in by_callback.items()
-        ]
+        candidates = [HandlerCandidate(callback=cb, evidence=evs) for cb, evs in by_callback.items()]
 
         if self.selection == "cascade":
             sel = select_cascade(candidates)
@@ -447,8 +434,7 @@ class F2AAnalyzer:
                 ),
                 dispatch_site=site,
                 records=[
-                    EvidenceRecord(type=m.type, value=m.value, file=m.file, line=m.line)
-                    for m in e.mapping_evidence
+                    EvidenceRecord(type=m.type, value=m.value, file=m.file, line=m.line) for m in e.mapping_evidence
                 ],
             )
 
@@ -473,7 +459,12 @@ class F2AAnalyzer:
         # if a future policy selects a non-max-confidence candidate.
         ordered = sorted(
             sel.candidates,
-            key=lambda c: (-c.confidence, cpg.name(c.callback), cpg.method_filename(c.callback), str(cpg.line(c.callback))),
+            key=lambda c: (
+                -c.confidence,
+                cpg.name(c.callback),
+                cpg.method_filename(c.callback),
+                str(cpg.line(c.callback)),
+            ),
         )
         chosen_ref: Optional[HandlerRef] = None
         if sel.status is ResolutionStatus.RESOLVED and sel.chosen is not None:
@@ -481,7 +472,9 @@ class F2AAnalyzer:
             ordered = [c for c in ordered if c is chosen] + [c for c in ordered if c is not chosen]
             cb = chosen.callback
             chosen_ref = HandlerRef(
-                file=cpg.method_filename(cb), function=cpg.name(cb), line=cpg.line(cb),
+                file=cpg.method_filename(cb),
+                function=cpg.name(cb),
+                line=cpg.line(cb),
             )
 
         conflict_view: Optional[ConflictReportView] = None
@@ -526,9 +519,7 @@ class F2AAnalyzer:
             unresolved=unresolved_view,
         )
 
-    def _diagnose_unresolved(
-        self, action: str, evidences: List[ResolutionEvidence]
-    ) -> UnresolvedReport:
+    def _diagnose_unresolved(self, action: str, evidences: List[ResolutionEvidence]) -> UnresolvedReport:
         """Explain *why* no handler resolved, primary reason first — so the
         result is actionable (e.g. 'registrar-style call unsupported' rather than
         the generic 'indirect call unresolved')."""
@@ -570,9 +561,7 @@ class F2AAnalyzer:
             # miss was classified as a runtime search-then-write registrar, name
             # that idiom specifically (most actionable).
             if getattr(self, "_registrar_store_miss", False):
-                reason = getattr(self, "_registrar_miss_reason", None) or (
-                    UnresolvedReason.REGISTRAR_STORE_NOT_REACHED
-                )
+                reason = getattr(self, "_registrar_miss_reason", None) or (UnresolvedReason.REGISTRAR_STORE_NOT_REACHED)
             else:
                 reason = UnresolvedReason.UNSUPPORTED_REGISTRAR_CALL
             secondary = UnresolvedReason.UNRESOLVED_INDIRECT_CALL if dispatch_site else None
@@ -619,26 +608,38 @@ class F2AAnalyzer:
         if callee is None:
             return []
         mapping = [
-            MappingEvidence(type="DISPATCH_STRING_MATCH", value=action,
-                            file=cpg.method_filename(dispatcher), line=cpg.line(literal_id)),
-            MappingEvidence(type="HANDLER_CALL", value=cpg.code(handler_call),
-                            file=cpg.method_filename(dispatcher), line=cpg.line(handler_call)),
-        ]
-        return [ResolutionEvidence(
-            kind=STRING_DISPATCH,
-            action_id=ActionIdentifier(
-                protocol_string=action, normalized_name=action,
-                raw_expression=_strip_quotes(cpg.code(literal_id)), node=literal_id,
+            MappingEvidence(
+                type="DISPATCH_STRING_MATCH",
+                value=action,
+                file=cpg.method_filename(dispatcher),
+                line=cpg.line(literal_id),
             ),
-            weight=0.9,
-            match_strength=MatchStrength.EXACT_IDENTIFIER,
-            callback=callee,
-            nodes=[literal_id, handler_call],
-            provenance_group=f"site:string:{dispatcher}",
-            extractor="string_dispatch",
-            mapping_evidence=mapping,
-            score=0.9,
-        )]
+            MappingEvidence(
+                type="HANDLER_CALL",
+                value=cpg.code(handler_call),
+                file=cpg.method_filename(dispatcher),
+                line=cpg.line(handler_call),
+            ),
+        ]
+        return [
+            ResolutionEvidence(
+                kind=STRING_DISPATCH,
+                action_id=ActionIdentifier(
+                    protocol_string=action,
+                    normalized_name=action,
+                    raw_expression=_strip_quotes(cpg.code(literal_id)),
+                    node=literal_id,
+                ),
+                weight=0.9,
+                match_strength=MatchStrength.EXACT_IDENTIFIER,
+                callback=callee,
+                nodes=[literal_id, handler_call],
+                provenance_group=f"site:string:{dispatcher}",
+                extractor="string_dispatch",
+                mapping_evidence=mapping,
+                score=0.9,
+            )
+        ]
 
     def _handler_by_enum_case(self, action: str) -> List[ResolutionEvidence]:
         """Extractor — enum/switch: a `case <SYMBOL>:` whose symbol matches the
@@ -660,9 +661,7 @@ class F2AAnalyzer:
             if callee is None:
                 continue
             method = cpg.method_of(jt)
-            matched_symbol = next(
-                (s for s in (prof.action_symbols if prof else []) if s.upper() in code), None
-            )
+            matched_symbol = next((s for s in (prof.action_symbols if prof else []) if s.upper() in code), None)
             if matched_symbol is not None:
                 strength = MatchStrength.EXACT_IDENTIFIER
                 group = f"site:switch:{method}"
@@ -673,27 +672,33 @@ class F2AAnalyzer:
                 strength = MatchStrength.HEURISTIC_SUBSTRING
                 group = f"token:{action}"
             mapping = [
-                MappingEvidence(type="DISPATCH_ENUM_CASE", value=cpg.code(jt),
-                                file=cpg.method_filename(method), line=cpg.line(jt)),
-                MappingEvidence(type="HANDLER_CALL", value=cpg.code(call),
-                                file=cpg.method_filename(method), line=cpg.line(call)),
-            ]
-            return [ResolutionEvidence(
-                kind=ENUM_CASE,
-                action_id=ActionIdentifier(
-                    symbol=matched_symbol, normalized_name=action,
-                    raw_expression=cpg.code(jt), node=jt,
+                MappingEvidence(
+                    type="DISPATCH_ENUM_CASE", value=cpg.code(jt), file=cpg.method_filename(method), line=cpg.line(jt)
                 ),
-                weight=0.85,
-                match_strength=strength,
-                callback=callee,
-                dispatch_site=jt,
-                nodes=[jt, call],
-                provenance_group=group,
-                extractor="enum_case",
-                mapping_evidence=mapping,
-                score=0.85,
-            )]
+                MappingEvidence(
+                    type="HANDLER_CALL", value=cpg.code(call), file=cpg.method_filename(method), line=cpg.line(call)
+                ),
+            ]
+            return [
+                ResolutionEvidence(
+                    kind=ENUM_CASE,
+                    action_id=ActionIdentifier(
+                        symbol=matched_symbol,
+                        normalized_name=action,
+                        raw_expression=cpg.code(jt),
+                        node=jt,
+                    ),
+                    weight=0.85,
+                    match_strength=strength,
+                    callback=callee,
+                    dispatch_site=jt,
+                    nodes=[jt, call],
+                    provenance_group=group,
+                    extractor="enum_case",
+                    mapping_evidence=mapping,
+                    score=0.85,
+                )
+            ]
         return []
 
     def _handler_by_name(self, action: str) -> List[ResolutionEvidence]:
@@ -707,43 +712,53 @@ class F2AAnalyzer:
         for m in cpg.internal_methods():
             nm = cpg.name(m).lower()
             if nm in patterns:
-                return [ResolutionEvidence(
-                    kind=NAME_MATCH,
-                    action_id=ActionIdentifier(
-                        normalized_name=action, raw_expression=cpg.name(m), node=m
-                    ),
-                    weight=0.7,
-                    match_strength=MatchStrength.NORMALIZED_NAME,
-                    callback=m,
-                    nodes=[m],
-                    provenance_group=f"token:{action}",
-                    extractor="name_pattern",
-                    mapping_evidence=[
-                        MappingEvidence(type="HANDLER_NAME_PATTERN", value=cpg.name(m),
-                                        file=cpg.method_filename(m), line=cpg.line(m))
-                    ],
-                    score=0.7,
-                )]
+                return [
+                    ResolutionEvidence(
+                        kind=NAME_MATCH,
+                        action_id=ActionIdentifier(normalized_name=action, raw_expression=cpg.name(m), node=m),
+                        weight=0.7,
+                        match_strength=MatchStrength.NORMALIZED_NAME,
+                        callback=m,
+                        nodes=[m],
+                        provenance_group=f"token:{action}",
+                        extractor="name_pattern",
+                        mapping_evidence=[
+                            MappingEvidence(
+                                type="HANDLER_NAME_PATTERN",
+                                value=cpg.name(m),
+                                file=cpg.method_filename(m),
+                                line=cpg.line(m),
+                            )
+                        ],
+                        score=0.7,
+                    )
+                ]
             if fallback is None and snake and snake in nm:
                 fallback = m
         if fallback is not None:
-            return [ResolutionEvidence(
-                kind=NAME_MATCH,
-                action_id=ActionIdentifier(
-                    normalized_name=action, raw_expression=cpg.name(fallback), node=fallback
-                ),
-                weight=0.65,
-                match_strength=MatchStrength.HEURISTIC_SUBSTRING,
-                callback=fallback,
-                nodes=[fallback],
-                provenance_group=f"token:{action}",
-                extractor="name_token",
-                mapping_evidence=[
-                    MappingEvidence(type="HANDLER_NAME_MATCH", value=cpg.name(fallback),
-                                    file=cpg.method_filename(fallback), line=cpg.line(fallback))
-                ],
-                score=0.65,
-            )]
+            return [
+                ResolutionEvidence(
+                    kind=NAME_MATCH,
+                    action_id=ActionIdentifier(
+                        normalized_name=action, raw_expression=cpg.name(fallback), node=fallback
+                    ),
+                    weight=0.65,
+                    match_strength=MatchStrength.HEURISTIC_SUBSTRING,
+                    callback=fallback,
+                    nodes=[fallback],
+                    provenance_group=f"token:{action}",
+                    extractor="name_token",
+                    mapping_evidence=[
+                        MappingEvidence(
+                            type="HANDLER_NAME_MATCH",
+                            value=cpg.name(fallback),
+                            file=cpg.method_filename(fallback),
+                            line=cpg.line(fallback),
+                        )
+                    ],
+                    score=0.65,
+                )
+            ]
         return []
 
     def _first_internal_call_via_cfg(self, start: int) -> Optional[int]:
@@ -798,9 +813,7 @@ class F2AAnalyzer:
             if not (symbol_hit or numeric_hit):
                 continue
 
-            matched_symbol = next(
-                (s for s in symbols if s.upper() in reg.action_id_symbols), None
-            )
+            matched_symbol = next((s for s in symbols if s.upper() in reg.action_id_symbols), None)
             matched_numeric = int(next(iter(numeric_hit))) if numeric_hit else None
             if matched_numeric is not None or matched_symbol is not None:
                 strength = MatchStrength.EXACT_IDENTIFIER
@@ -822,35 +835,43 @@ class F2AAnalyzer:
             # Correlated field stores: show the paired `.action = id` write(s) and
             # the shared slot, so the pairing is auditable in the trail.
             for id_site in reg.id_sites:
-                mapping.append(MappingEvidence(
-                    type="ACTION_STORE", value=cpg.code(id_site),
-                    file=fn_file, line=cpg.line(id_site),
-                ))
+                mapping.append(
+                    MappingEvidence(
+                        type="ACTION_STORE",
+                        value=cpg.code(id_site),
+                        file=fn_file,
+                        line=cpg.line(id_site),
+                    )
+                )
             if reg.slot:
                 mapping.append(MappingEvidence(type="SLOT", value=reg.slot, file=fn_file, line=""))
-            mapping.append(MappingEvidence(
-                type="HANDLER_REF",
-                value=cpg.name(reg.callback_method),
-                file=cpg.method_filename(reg.callback_method),
-                line=cpg.line(reg.callback_method),
-            ))
-            out.append(ResolutionEvidence(
-                kind=kind,
-                action_id=ActionIdentifier(
-                    symbol=matched_symbol,
-                    numeric_id=matched_numeric,
-                    raw_expression=cpg.code(reg.evidence_node),
-                    node=reg.ref_node,
-                ),
-                weight=0.8,
-                match_strength=strength,
-                callback=reg.callback_method,
-                nodes=[reg.evidence_node, reg.ref_node],
-                provenance_group=group,
-                extractor="registration_ast",
-                mapping_evidence=mapping,
-                score=0.8,
-            ))
+            mapping.append(
+                MappingEvidence(
+                    type="HANDLER_REF",
+                    value=cpg.name(reg.callback_method),
+                    file=cpg.method_filename(reg.callback_method),
+                    line=cpg.line(reg.callback_method),
+                )
+            )
+            out.append(
+                ResolutionEvidence(
+                    kind=kind,
+                    action_id=ActionIdentifier(
+                        symbol=matched_symbol,
+                        numeric_id=matched_numeric,
+                        raw_expression=cpg.code(reg.evidence_node),
+                        node=reg.ref_node,
+                    ),
+                    weight=0.8,
+                    match_strength=strength,
+                    callback=reg.callback_method,
+                    nodes=[reg.evidence_node, reg.ref_node],
+                    provenance_group=group,
+                    extractor="registration_ast",
+                    mapping_evidence=mapping,
+                    score=0.8,
+                )
+            )
         return out
 
     # -- Producer 2: registrar call (layered on Producer 1) ---------------
@@ -894,8 +915,11 @@ class F2AAnalyzer:
             args = cpg.call_args(call)
 
             cb_arg = next(
-                ((idx, a) for idx, a in args
-                 if cpg.label(a) == "METHOD_REF" and by_name.get(_strip_quotes(cpg.code(a)))),
+                (
+                    (idx, a)
+                    for idx, a in args
+                    if cpg.label(a) == "METHOD_REF" and by_name.get(_strip_quotes(cpg.code(a)))
+                ),
                 None,
             )
             if cb_arg is None:
@@ -922,9 +946,7 @@ class F2AAnalyzer:
                 continue
 
             depth = self.calculus.registrar_depth
-            trace = self._registrar_trace(
-                target, cpg.name(id_param), cpg.name(cb_param), depth
-            )
+            trace = self._registrar_trace(target, cpg.name(id_param), cpg.name(cb_param), depth)
             if trace is None:
                 self._registrar_store_miss = True  # for _diagnose_unresolved
                 # Refine the miss: a runtime search-then-write registrar is a
@@ -938,36 +960,48 @@ class F2AAnalyzer:
 
             strength = MatchStrength.EXACT_IDENTIFIER if id_exact else MatchStrength.HEURISTIC_SUBSTRING
             mapping = [
-                MappingEvidence(type="DISPATCH_REGISTRAR_CALL", value=cpg.code(call),
-                                file=cpg.method_filename(cpg.method_of(call)), line=cpg.line(call)),
-                *trace,
-                MappingEvidence(type="HANDLER_REF", value=cpg.name(callback),
-                                file=cpg.method_filename(callback), line=cpg.line(callback)),
-            ]
-            out.append(ResolutionEvidence(
-                kind=REGISTRAR_CALL,
-                action_id=ActionIdentifier(
-                    symbol=(_strip_quotes(cpg.code(id_arg[1])) if not id_exact or not id_arg[1] else None),
-                    numeric_id=(int(_strip_quotes(cpg.code(id_arg[1])))
-                                if cpg.label(id_arg[1]) == "LITERAL" and _strip_quotes(cpg.code(id_arg[1])).lstrip("-").isdigit()
-                                else None),
-                    raw_expression=cpg.code(id_arg[1]), node=call,
+                MappingEvidence(
+                    type="DISPATCH_REGISTRAR_CALL",
+                    value=cpg.code(call),
+                    file=cpg.method_filename(cpg.method_of(call)),
+                    line=cpg.line(call),
                 ),
-                weight=0.7,
-                match_strength=strength,
-                callback=callback,
-                dispatch_site=call,
-                nodes=[call, cb_arg[1]],
-                provenance_group=f"site:registrar:{call}",
-                extractor="registrar_call",
-                mapping_evidence=mapping,
-                score=0.7,
-            ))
+                *trace,
+                MappingEvidence(
+                    type="HANDLER_REF",
+                    value=cpg.name(callback),
+                    file=cpg.method_filename(callback),
+                    line=cpg.line(callback),
+                ),
+            ]
+            out.append(
+                ResolutionEvidence(
+                    kind=REGISTRAR_CALL,
+                    action_id=ActionIdentifier(
+                        symbol=(_strip_quotes(cpg.code(id_arg[1])) if not id_exact or not id_arg[1] else None),
+                        numeric_id=(
+                            int(_strip_quotes(cpg.code(id_arg[1])))
+                            if cpg.label(id_arg[1]) == "LITERAL"
+                            and _strip_quotes(cpg.code(id_arg[1])).lstrip("-").isdigit()
+                            else None
+                        ),
+                        raw_expression=cpg.code(id_arg[1]),
+                        node=call,
+                    ),
+                    weight=0.7,
+                    match_strength=strength,
+                    callback=callback,
+                    dispatch_site=call,
+                    nodes=[call, cb_arg[1]],
+                    provenance_group=f"site:registrar:{call}",
+                    extractor="registrar_call",
+                    mapping_evidence=mapping,
+                    score=0.7,
+                )
+            )
         return out
 
-    def _registrar_trace(
-        self, method: int, id_name: str, cb_name: str, depth: int
-    ) -> Optional[List[MappingEvidence]]:
+    def _registrar_trace(self, method: int, id_name: str, cb_name: str, depth: int) -> Optional[List[MappingEvidence]]:
         """If `method` stores its `cb_name` parameter into a table slot paired
         with its `id_name` parameter — directly, or by delegating to a resolved
         callee (arg->param substitution) within `depth` hops — return the ordered
@@ -988,8 +1022,10 @@ class F2AAnalyzer:
 
         def rec(kind: str, node: int) -> MappingEvidence:
             return MappingEvidence(
-                type=kind, value=cpg.code(node),
-                file=cpg.method_filename(method), line=cpg.line(node),
+                type=kind,
+                value=cpg.code(node),
+                file=cpg.method_filename(method),
+                line=cpg.line(node),
             )
 
         assigns = [c for c in cpg.calls_in_method(method) if cpg.name(c) == "<operator>.assignment"]
@@ -1030,11 +1066,16 @@ class F2AAnalyzer:
                 return [rec("CHAIN_CALL", c), *sub]
         return None
 
-    _CMP_OPS = frozenset({
-        "<operator>.equals", "<operator>.notEquals",
-        "<operator>.lessThan", "<operator>.greaterThan",
-        "<operator>.lessEqualsThan", "<operator>.greaterEqualsThan",
-    })
+    _CMP_OPS = frozenset(
+        {
+            "<operator>.equals",
+            "<operator>.notEquals",
+            "<operator>.lessThan",
+            "<operator>.greaterThan",
+            "<operator>.lessEqualsThan",
+            "<operator>.greaterEqualsThan",
+        }
+    )
 
     def _registrar_uses_search(self, method: int, id_name: str, cb_name: str) -> bool:
         """Classify a store-miss registrar as *search-then-write*: it locates the
@@ -1050,8 +1091,7 @@ class F2AAnalyzer:
         """
         cpg = self.cpg
         id_compared = any(
-            cpg.name(c) in self._CMP_OPS
-            and id_name in {cpg.name(d) for d in cpg.ast_descendants(c)}
+            cpg.name(c) in self._CMP_OPS and id_name in {cpg.name(d) for d in cpg.ast_descendants(c)}
             for c in cpg.calls_in_method(method)
         )
         if not id_compared:
@@ -1077,13 +1117,15 @@ class F2AAnalyzer:
         cpg = self.cpg
         target = lhs
         if cpg.label(lhs) == "CALL" and cpg.name(lhs) in (
-            "<operator>.fieldAccess", "<operator>.indirectFieldAccess",
+            "<operator>.fieldAccess",
+            "<operator>.indirectFieldAccess",
         ):
             kids = cpg.out_ids(lhs, "AST")
             if kids:
                 target = kids[0]
         if cpg.label(target) == "CALL" and cpg.name(target) in (
-            "<operator>.indirectIndexAccess", "<operator>.indexAccess",
+            "<operator>.indirectIndexAccess",
+            "<operator>.indexAccess",
         ):
             idx = cpg.out_ids(target, "AST")
             return len(idx) > 1 and cpg.label(idx[1]) != "LITERAL"
@@ -1212,11 +1254,7 @@ class F2AAnalyzer:
             # A designated field initializer (`.fn = f`) reaches the METHOD_REF via
             # an <operator>.assignment; recognize when it belongs to a struct
             # aggregate so it is handled as an aggregate init, not a field store.
-            struct_init = (
-                self._enclosing_struct_init(entry)
-                if op == "<operator>.assignment"
-                else None
-            )
+            struct_init = self._enclosing_struct_init(entry) if op == "<operator>.assignment" else None
 
             if op == "<operator>.arrayInitializer":
                 # Positional aggregate `{ ID, fn }`: the id is a sibling element.
@@ -1402,9 +1440,7 @@ class F2AAnalyzer:
                                 return call, cpg.code(call), [call], call
         return None
 
-    def _assignment_target(
-        self, access_call: int
-    ) -> Tuple[Optional[str], Optional[int], Optional[int]]:
+    def _assignment_target(self, access_call: int) -> Tuple[Optional[str], Optional[int], Optional[int]]:
         """If the field access / call is the RHS of an assignment, return its LHS."""
         cpg = self.cpg
         for call_id, _idx in cpg.argument_of(access_call):
@@ -1555,9 +1591,7 @@ class F2AAnalyzer:
             if key == last_key:
                 continue
             last_key = key
-            steps.append(
-                FlowStep(step=len(steps) + 1, function=fn, file=file, line=ln, operation=operation)
-            )
+            steps.append(FlowStep(step=len(steps) + 1, function=fn, file=file, line=ln, operation=operation))
 
         # Always end at the sink call itself.
         sink_method = cpg.method_of(sink_call)
@@ -1642,9 +1676,7 @@ class F2AAnalyzer:
                 if pattern is None:
                     continue
                 ordered = self._ordered_before(cond, cs, departure, method)
-                strength: CheckStrength = cast(
-                    CheckStrength, pattern.default_strength if ordered else "PARTIAL"
-                )
+                strength: CheckStrength = cast(CheckStrength, pattern.default_strength if ordered else "PARTIAL")
                 ev = cpg.code(cs) or cpg.code(cond)
                 key = (pattern.check_type, cpg.name(method))
                 if key in seen_evidence:
@@ -1733,24 +1765,12 @@ class F2AAnalyzer:
         """
         cpg = self.cpg
         subtree = [cond, *cpg.ast_descendants(cond)]
-        operators = {
-            cpg.name(d)
-            for d in subtree
-            if cpg.label(d) == "CALL" and cpg.name(d).startswith("<operator>")
-        }
+        operators = {cpg.name(d) for d in subtree if cpg.label(d) == "CALL" and cpg.name(d).startswith("<operator>")}
         helper_calls = {
-            cpg.name(d).lower()
-            for d in subtree
-            if cpg.label(d) == "CALL" and not cpg.name(d).startswith("<operator>")
+            cpg.name(d).lower() for d in subtree if cpg.label(d) == "CALL" and not cpg.name(d).startswith("<operator>")
         }
-        operand_idents = {
-            cpg.name(d).lower() for d in subtree if cpg.label(d) == "IDENTIFIER"
-        }
-        operand_literals = [
-            _strip_quotes(cpg.code(d)).lower()
-            for d in subtree
-            if cpg.label(d) == "LITERAL"
-        ]
+        operand_idents = {cpg.name(d).lower() for d in subtree if cpg.label(d) == "IDENTIFIER"}
+        operand_literals = [_strip_quotes(cpg.code(d)).lower() for d in subtree if cpg.label(d) == "LITERAL"]
 
         # A named helper call is the strongest, unambiguous signal.
         for pat in self.kb.check_patterns:
@@ -1763,14 +1783,10 @@ class F2AAnalyzer:
                 return pat
             if not (pat.operators and operators & set(pat.operators)):
                 continue
-            if pat.operand_identifiers and operand_idents & {
-                i.lower() for i in pat.operand_identifiers
-            }:
+            if pat.operand_identifiers and operand_idents & {i.lower() for i in pat.operand_identifiers}:
                 return pat
             if pat.operand_literal_prefixes and any(
-                lit.startswith(p.lower())
-                for lit in operand_literals
-                for p in pat.operand_literal_prefixes
+                lit.startswith(p.lower()) for lit in operand_literals for p in pat.operand_literal_prefixes
             ):
                 return pat
             if not pat.operand_identifiers and not pat.operand_literal_prefixes:
@@ -1784,9 +1800,7 @@ class F2AAnalyzer:
                 return pat
         return None
 
-    def _ordered_before(
-        self, cond: int, cs: int, departure: Optional[int], method: int
-    ) -> bool:
+    def _ordered_before(self, cond: int, cs: int, departure: Optional[int], method: int) -> bool:
         """CFG: does the check dominate the flow's departure toward the sink?
 
         A check only *guards* the sink if it dominates the departure — i.e. every
@@ -1807,9 +1821,7 @@ class F2AAnalyzer:
         cl, dl = cpg.line(cs), cpg.line(departure)
         return isinstance(cl, int) and isinstance(dl, int) and cl <= dl
 
-    def _detect_negative_evidence(
-        self, field_prof: FieldProfile, trace: FlowTrace
-    ) -> List[NegativeCheckEvidence]:
+    def _detect_negative_evidence(self, field_prof: FieldProfile, trace: FlowTrace) -> List[NegativeCheckEvidence]:
         """Structural negative evidence: the tainted value reached a sink whose
         *domain* disproves a required safe-API check (e.g. a COMMAND_EXECUTION
         sink disproves SAFE_DOWNLOAD_API_NO_SHELL).
@@ -1840,8 +1852,7 @@ class F2AAnalyzer:
                         evidence_id=self.ids.next("OCPP-NEG-CHK"),
                         related_expected_check=check_id,
                         reason=(
-                            f"tainted value reaches a {domain} sink "
-                            f"'{cpg.name(call)}' instead of a safe {check_id}."
+                            f"tainted value reaches a {domain} sink '{cpg.name(call)}' instead of a safe {check_id}."
                         ),
                         file=cpg.method_filename(owner) if owner is not None else "",
                         function=cpg.name(owner) if owner is not None else "",
@@ -1892,7 +1903,9 @@ class F2AAnalyzer:
                         matching_status=cast(MatchingStatus, status),
                         basis=["negative_evidence"],
                         confidence=negative.confidence,
-                        limitations=["Negative evidence indicates the safe control is bypassed, not that exploitation is confirmed."],
+                        limitations=[
+                            "Negative evidence indicates the safe control is bypassed, not that exploitation is confirmed."
+                        ],
                     )
                 )
                 summary.missing_check_candidates.append(check_id)
@@ -1948,7 +1961,9 @@ class F2AAnalyzer:
                         check_strength=strongest.check_strength,
                         basis=["semantic_match" if status != "WEAKLY_RELATED" else "weak_match"],
                         confidence=strongest.confidence,
-                        limitations=[] if status == "SATISFIED" else ["Check semantics judged statically; runtime effect not confirmed."],
+                        limitations=[]
+                        if status == "SATISFIED"
+                        else ["Check semantics judged statically; runtime effect not confirmed."],
                     )
                 )
                 continue
@@ -2033,9 +2048,7 @@ class F2AAnalyzer:
 
         missing_ids = missing_set.missing_check_candidates
         related_cwe = sorted(set(field_prof.related_cwe) | set(sink_mapping.related_cwe))
-        root_causes = self.kb.root_cause_for(
-            sink_mapping.sink_domain, [m.check_id for m in missing_ids]
-        )
+        root_causes = self.kb.root_cause_for(sink_mapping.sink_domain, [m.check_id for m in missing_ids])
 
         confidence = self._score(handler_map, binding, trace, sink_mapping, observed, matching)
 
@@ -2044,13 +2057,19 @@ class F2AAnalyzer:
             functions=sorted({s.function for s in trace.steps if s.function}),
             primary_locations=[
                 PrimaryLocation(file=source_ref.file, line=source_ref.line, evidence=binding.binding.source_expression),
-                PrimaryLocation(file=sink_info.file, line=sink_info.line, evidence=sink_mapping.mapping_evidence[0] if sink_mapping.mapping_evidence else ""),
+                PrimaryLocation(
+                    file=sink_info.file,
+                    line=sink_info.line,
+                    evidence=sink_mapping.mapping_evidence[0] if sink_mapping.mapping_evidence else "",
+                ),
             ],
         )
 
         limitations = list(STANDARD_LIMITATIONS)
         if any(s.operation.startswith("argument_pass") for s in trace.steps):
-            limitations.append("Interprocedural flow was bridged via the call graph; deep alias/async paths are not modeled.")
+            limitations.append(
+                "Interprocedural flow was bridged via the call graph; deep alias/async paths are not modeled."
+            )
 
         semantic_summary = (
             f"Untrusted OCPP field '{action}.{field_prof.field_name}' "
@@ -2143,9 +2162,7 @@ class F2AAnalyzer:
             "handler_mapping": handler_map.confidence,
             "field_binding": binding.confidence,
             "semantic_binding": 1.0 if binding.field_semantic else 0.5,
-            "source_sink_flow": 0.8 if any(
-                s.operation.startswith("argument_pass") for s in trace.steps
-            ) else 0.95,
+            "source_sink_flow": 0.8 if any(s.operation.startswith("argument_pass") for s in trace.steps) else 0.95,
             "sink_mapping": 1.0 if sink_mapping.sink_domain != "UNKNOWN_SINK" else 0.4,
             "check_detection": 0.75 if observed else 0.6,
             "traceability": 1.0,

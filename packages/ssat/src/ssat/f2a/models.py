@@ -158,8 +158,8 @@ class HandlerResolutionEvidence(BaseModel):
     action_id_consistency: str = "PARTIAL"
     provenance_group: str = ""
     weight: float = 0.0
-    score: float = 0.0                # post-penalty score used by the calculus
-    score_pre_penalty: float = 0.0    # W*M before any identifier-consistency penalty
+    score: float = 0.0  # post-penalty score used by the calculus
+    score_pre_penalty: float = 0.0  # W*M before any identifier-consistency penalty
     action_id: ActionIdentifierView = Field(default_factory=ActionIdentifierView)
     dispatch_site: Optional[UnresolvedDispatchSite] = None
     records: List[EvidenceRecord] = Field(default_factory=list)
@@ -406,9 +406,7 @@ class MissingCheckCandidateSet(BaseModel):
     field: str
     missing_check_candidates: List[MissingCheckItem] = Field(default_factory=list)
     weak_or_partial_check_candidates: List[WeakCheckItem] = Field(default_factory=list)
-    review_required_missing_check_candidates: List[MissingCheckItem] = Field(
-        default_factory=list
-    )
+    review_required_missing_check_candidates: List[MissingCheckItem] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)
 
 
@@ -477,9 +475,7 @@ class EvidencePackage(BaseModel):
     code_evidence: CodeEvidence
     check_evidence: CheckEvidence
     traceability: Traceability = Field(default_factory=Traceability)
-    security_interpretation: SecurityInterpretation = Field(
-        default_factory=SecurityInterpretation
-    )
+    security_interpretation: SecurityInterpretation = Field(default_factory=SecurityInterpretation)
     root_cause_candidates: List[str] = Field(default_factory=list)
     related_cwe: List[str] = Field(default_factory=list)
     confidence: ConfidenceBreakdown = Field(default_factory=ConfidenceBreakdown)
@@ -491,9 +487,7 @@ class CandidateFragment(BaseModel):
     """F2-A15 output — the ``OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT`` handed to F6."""
 
     candidate_id: str
-    candidate_type: Literal[
-        "OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"
-    ] = "OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"
+    candidate_type: Literal["OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"] = "OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"
     language: str = "c"
     component_type: str = ""
     ocpp_context: OcppContext
@@ -538,9 +532,7 @@ class F2AResult(BaseModel):
     flow_candidates: List[FlowCandidate] = Field(default_factory=list)
     sink_mappings: List[SinkMapping] = Field(default_factory=list)
     expected_check_matchings: List[ExpectedCheckMatching] = Field(default_factory=list)
-    missing_check_candidate_sets: List[MissingCheckCandidateSet] = Field(
-        default_factory=list
-    )
+    missing_check_candidate_sets: List[MissingCheckCandidateSet] = Field(default_factory=list)
     evidence_packages: List[EvidencePackage] = Field(default_factory=list)
     candidate_fragments: List[CandidateFragment] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)

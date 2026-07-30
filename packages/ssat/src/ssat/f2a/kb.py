@@ -268,9 +268,7 @@ class KnowledgeBase:
         out: List[str] = []
         missing_set = set(missing)
         for rc in self.root_causes:
-            if sink_domain in rc.related_sink_domains or (
-                missing_set & set(rc.related_missing_checks)
-            ):
+            if sink_domain in rc.related_sink_domains or (missing_set & set(rc.related_missing_checks)):
                 out.append(rc.root_cause_id)
         return out
 

@@ -70,7 +70,9 @@ def classify_outcome(hr: Any, action_referenced: bool) -> Optional[Classificatio
     leaf; alternatives are listed rather than silently discarded."""
     if hr.status == "AMBIGUOUS":
         return Classification(
-            TIER_POLICY, "COMPETING_CANDIDATES", "HIGH",
+            TIER_POLICY,
+            "COMPETING_CANDIDATES",
+            "HIGH",
             [f"{len(hr.candidates)} competing candidates within the ambiguity margin"],
         )
     if hr.status != "UNRESOLVED":
@@ -85,34 +87,62 @@ def classify_outcome(hr: Any, action_referenced: bool) -> Optional[Classificatio
         obs.append(f"secondary reason: {u.secondary}")
 
     if reason == "LOW_CONFIDENCE":
-        return Classification(TIER_POLICY, "LOW_CONFIDENCE", "HIGH",
-                              ["top candidate below MIN_CONFIDENCE"] + obs)
+        return Classification(TIER_POLICY, "LOW_CONFIDENCE", "HIGH", ["top candidate below MIN_CONFIDENCE"] + obs)
     if reason == "EXTERNAL_DEFINITION":
-        return Classification(TIER_ANALYSIS_SCOPE, "EXTERNAL_DEFINITION", "HIGH",
-                              ["handler defined outside the analyzed translation unit"] + obs)
+        return Classification(
+            TIER_ANALYSIS_SCOPE,
+            "EXTERNAL_DEFINITION",
+            "HIGH",
+            ["handler defined outside the analyzed translation unit"] + obs,
+        )
     if reason == "UNRESOLVED_INDIRECT_CALL":
-        return Classification(TIER_POTENTIALLY_SUPPORTABLE, "INDIRECT_CALL", "MEDIUM",
-                              ["indirect/pointer-call dispatch site present",
-                               "alternative: cross-TU external definition"] + obs)
+        return Classification(
+            TIER_POTENTIALLY_SUPPORTABLE,
+            "INDIRECT_CALL",
+            "MEDIUM",
+            ["indirect/pointer-call dispatch site present", "alternative: cross-TU external definition"] + obs,
+        )
     if reason == "UNSUPPORTED_REGISTRAR_CALL":
-        return Classification(TIER_POTENTIALLY_SUPPORTABLE, "INDIRECT_CALL", "LOW",
-                              ["registrar call target unresolved",
-                               "alternatives: PREPROCESSOR_OR_MACRO, ALIAS_OR_POINTS_TO"] + obs)
+        return Classification(
+            TIER_POTENTIALLY_SUPPORTABLE,
+            "INDIRECT_CALL",
+            "LOW",
+            ["registrar call target unresolved", "alternatives: PREPROCESSOR_OR_MACRO, ALIAS_OR_POINTS_TO"] + obs,
+        )
     if reason == "REGISTRAR_STORE_NOT_REACHED":
-        return Classification(TIER_POTENTIALLY_SUPPORTABLE, "VARIABLE_INDEX_CORRELATION", "LOW",
-                              ["registrar resolved but terminal store not reached within depth",
-                               "alternatives: deeper traversal, ALIAS_OR_POINTS_TO"] + obs)
+        return Classification(
+            TIER_POTENTIALLY_SUPPORTABLE,
+            "VARIABLE_INDEX_CORRELATION",
+            "LOW",
+            [
+                "registrar resolved but terminal store not reached within depth",
+                "alternatives: deeper traversal, ALIAS_OR_POINTS_TO",
+            ]
+            + obs,
+        )
     if reason == "REGISTRAR_SEARCH_THEN_WRITE":
-        return Classification(TIER_POTENTIALLY_SUPPORTABLE, "SEARCH_THEN_WRITE_REGISTRAR", "LOW",
-                              ["registrar resolved but selects the slot at runtime "
-                               "(loop + action predicate) and stores only the callback",
-                               "escalation: loop/predicate reasoning + symbolic index + alias->slot"] + obs)
+        return Classification(
+            TIER_POTENTIALLY_SUPPORTABLE,
+            "SEARCH_THEN_WRITE_REGISTRAR",
+            "LOW",
+            [
+                "registrar resolved but selects the slot at runtime "
+                "(loop + action predicate) and stores only the callback",
+                "escalation: loop/predicate reasoning + symbolic index + alias->slot",
+            ]
+            + obs,
+        )
     if reason == "NO_EVIDENCE":
         if action_referenced:
-            return Classification(TIER_ANALYSIS_SCOPE, "CROSS_TU_REGISTRATION", "MEDIUM",
-                                  ["action id referenced in this TU but no registration/dispatch found"] + obs)
-        return Classification(TIER_UNKNOWN, None, "LOW",
-                              ["action id not referenced in this TU; cannot attribute a cause"] + obs)
+            return Classification(
+                TIER_ANALYSIS_SCOPE,
+                "CROSS_TU_REGISTRATION",
+                "MEDIUM",
+                ["action id referenced in this TU but no registration/dispatch found"] + obs,
+            )
+        return Classification(
+            TIER_UNKNOWN, None, "LOW", ["action id not referenced in this TU; cannot attribute a cause"] + obs
+        )
     return Classification(TIER_UNKNOWN, None, "LOW", [f"unmapped reason {reason}"] + obs)
 
 
@@ -126,10 +156,11 @@ def _action_referenced(cpg: CPGModel, kb: KnowledgeBase, action: str) -> bool:
     string/enum symbol or numeric id)? Used only to distinguish cross-TU
     registration from an action that is simply absent — never to resolve."""
     prof = kb.actions.get(action)
-    up = "".join("_" + c if c.isupper() and i and not action[i - 1].isupper() else c.upper()
-                 for i, c in enumerate(action))
+    up = "".join(
+        "_" + c if c.isupper() and i and not action[i - 1].isupper() else c.upper() for i, c in enumerate(action)
+    )
     tokens = {action.upper(), up}
-    for s in (prof.action_symbols if prof else []):
+    for s in prof.action_symbols if prof else []:
         tokens.add(s.upper())
     numeric = {str(n) for n in (prof.numeric_ids if prof else [])}
     for v in cpg.vertices:
@@ -157,8 +188,7 @@ def _stats(values: List[float]) -> Dict[str, Any]:
     }
 
 
-def _evaluate_one(cpg: CPGModel, corpus_file: str, kb: KnowledgeBase,
-                  cfg: CalculusConfig) -> List[Dict[str, Any]]:
+def _evaluate_one(cpg: CPGModel, corpus_file: str, kb: KnowledgeBase, cfg: CalculusConfig) -> List[Dict[str, Any]]:
     """Per-action records for one CPG."""
     analyzer = F2AAnalyzer(cpg, kb=kb, calculus=cfg)
     result = analyzer.analyze()
@@ -188,21 +218,23 @@ def _evaluate_one(cpg: CPGModel, corpus_file: str, kb: KnowledgeBase,
             c = classify_outcome(hr, referenced)
             classification = asdict(c) if c is not None else None
 
-        records.append({
-            "corpus_file": corpus_file,
-            "action": action,
-            "status": hr.status,
-            "chosen_function": hr.chosen.function if hr.chosen is not None else None,
-            "unresolved_reason": hr.unresolved.reason if hr.unresolved is not None else None,
-            "candidate_count": len(cands),
-            "evidence_count": evidence_count,
-            "evidence_kinds": sorted({k for c in hr.candidates for k in c.evidence_kinds}),
-            "top_confidence": top_conf,
-            "runner_up_confidence": runner,
-            "margin": margin,
-            "corroboration_lift": lift,
-            "classification": classification,
-        })
+        records.append(
+            {
+                "corpus_file": corpus_file,
+                "action": action,
+                "status": hr.status,
+                "chosen_function": hr.chosen.function if hr.chosen is not None else None,
+                "unresolved_reason": hr.unresolved.reason if hr.unresolved is not None else None,
+                "candidate_count": len(cands),
+                "evidence_count": evidence_count,
+                "evidence_kinds": sorted({k for c in hr.candidates for k in c.evidence_kinds}),
+                "top_confidence": top_conf,
+                "runner_up_confidence": runner,
+                "margin": margin,
+                "corroboration_lift": lift,
+                "classification": classification,
+            }
+        )
     return records
 
 
@@ -266,9 +298,7 @@ def _aggregate(records: List[Dict[str, Any]], n_cpgs: int, cfg: CalculusConfig) 
 
 def _tool_commit() -> str:
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
-        ).decode().strip()
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
     except Exception:
         return "unknown"
 
@@ -426,8 +456,10 @@ def main() -> None:  # pragma: no cover - thin CLI wrapper
         report = evaluate_source_dir(args.source_dir, args.corpus_id, timestamp=ts)
     write_reports(report, args.out)
     t = report["metrics"]["totals"]
-    print(f"[f2a-eval] {t['cpgs']} CPGs, {t['actions']} actions -> "
-          f"{t['resolved']} resolved / {t['ambiguous']} ambiguous / {t['unresolved']} unresolved")
+    print(
+        f"[f2a-eval] {t['cpgs']} CPGs, {t['actions']} actions -> "
+        f"{t['resolved']} resolved / {t['ambiguous']} ambiguous / {t['unresolved']} unresolved"
+    )
     print(f"[f2a-eval] reports written to {args.out}")
 
 

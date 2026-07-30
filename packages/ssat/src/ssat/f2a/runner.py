@@ -39,18 +39,10 @@ _ARTIFACT_FILES: dict[str, Callable[[F2AResult], List[Any]]] = {
     "field_binding_map.json": lambda r: [b.model_dump() for b in r.field_bindings],
     "ocpp_flow_candidates.json": lambda r: [c.model_dump() for c in r.flow_candidates],
     "dangerous_sink_mapping.json": lambda r: [s.model_dump() for s in r.sink_mappings],
-    "expected_check_matching_results.json": lambda r: [
-        m.model_dump() for m in r.expected_check_matchings
-    ],
-    "missing_check_candidates.json": lambda r: [
-        m.model_dump() for m in r.missing_check_candidate_sets
-    ],
-    "ocpp_evidence_packages.json": lambda r: [
-        p.model_dump() for p in r.evidence_packages
-    ],
-    "ocpp_native_candidate_fragments.json": lambda r: [
-        f.model_dump() for f in r.candidate_fragments
-    ],
+    "expected_check_matching_results.json": lambda r: [m.model_dump() for m in r.expected_check_matchings],
+    "missing_check_candidates.json": lambda r: [m.model_dump() for m in r.missing_check_candidate_sets],
+    "ocpp_evidence_packages.json": lambda r: [p.model_dump() for p in r.evidence_packages],
+    "ocpp_native_candidate_fragments.json": lambda r: [f.model_dump() for f in r.candidate_fragments],
 }
 
 
@@ -63,14 +55,10 @@ def write_artifacts(result: F2AResult, output_dir: str | Path) -> list[Path]:
     for filename, extractor in _ARTIFACT_FILES.items():
         payload = extractor(result)
         target = out / filename
-        target.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         written.append(target)
 
     combined = out / "f2a_result.json"
-    combined.write_text(
-        json.dumps(result.model_dump(), indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    combined.write_text(json.dumps(result.model_dump(), indent=2, ensure_ascii=False), encoding="utf-8")
     written.append(combined)
     return written

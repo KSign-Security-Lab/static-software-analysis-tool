@@ -35,17 +35,17 @@ class MatchStrength(Enum):
     deliberately ranked above a heuristic substring match.
     """
 
-    EXACT_IDENTIFIER = 4      # symbol / protocol string / numeric id matched a KB field verbatim
-    RESOLVED_VALUE = 3        # a symbol/macro resolved to a constant that matched a KB numeric id
-    NORMALIZED_NAME = 2       # matched the normalized (UPPER_SNAKE / canonical) action name
-    HEURISTIC_SUBSTRING = 1   # a KB token appears as a substring of an observed token
+    EXACT_IDENTIFIER = 4  # symbol / protocol string / numeric id matched a KB field verbatim
+    RESOLVED_VALUE = 3  # a symbol/macro resolved to a constant that matched a KB numeric id
+    NORMALIZED_NAME = 2  # matched the normalized (UPPER_SNAKE / canonical) action name
+    HEURISTIC_SUBSTRING = 1  # a KB token appears as a substring of an observed token
     NONE = 0
 
 
 class ConsistencyState(Enum):
-    CONSISTENT = "CONSISTENT"      # >=2 independent fields agree on one identity
-    CONFLICTING = "CONFLICTING"    # populated fields disagree
-    PARTIAL = "PARTIAL"            # <2 cross-checkable fields — nothing to corroborate
+    CONSISTENT = "CONSISTENT"  # >=2 independent fields agree on one identity
+    CONFLICTING = "CONFLICTING"  # populated fields disagree
+    PARTIAL = "PARTIAL"  # <2 cross-checkable fields — nothing to corroborate
 
 
 class ResolutionStatus(Enum):
@@ -89,7 +89,7 @@ KIND_WEIGHT: Dict[str, float] = {
     REGISTRATION_INIT: 0.80,
     REGISTRATION_ASSIGN: 0.80,
     REGISTRAR_CALL: 0.70,
-    NAME_MATCH: 0.70,       # pattern; token fallback overrides to 0.65 at emit time
+    NAME_MATCH: 0.70,  # pattern; token fallback overrides to 0.65 at emit time
     DISPATCH_SITE: 0.00,
 }
 
@@ -135,8 +135,8 @@ class CalculusConfig:
     global_cap: float = 0.99
     min_confidence: float = 0.50
     ambiguity_margin: float = 0.15
-    conflict_multiplier_cap: float = 0.70   # CONFLICTING identifier caps M here
-    conflict_scale: float = 0.5             # ...then scales the evidence score
+    conflict_multiplier_cap: float = 0.70  # CONFLICTING identifier caps M here
+    conflict_scale: float = 0.5  # ...then scales the evidence score
     # Documented-but-disabled hook (see spec §4): widen the margin when the top
     # two candidates both own a strong-basis group. Off by default.
     strong_competitor_hardening: bool = False
@@ -159,13 +159,13 @@ class ActionIdentifier:
     :meth:`consistency` to classify whether the populated fields agree.
     """
 
-    protocol_string: Optional[str] = None      # wire name / string literal ("RemoteStartTransaction")
-    symbol: Optional[str] = None               # enum/macro constant ("ACTION_REMOTE_START")
-    numeric_id: Optional[int] = None           # integer id as written (15)
-    normalized_name: Optional[str] = None      # KB canonical action_name this maps to
-    raw_expression: Optional[str] = None       # raw CPG code of the id node
+    protocol_string: Optional[str] = None  # wire name / string literal ("RemoteStartTransaction")
+    symbol: Optional[str] = None  # enum/macro constant ("ACTION_REMOTE_START")
+    numeric_id: Optional[int] = None  # integer id as written (15)
+    normalized_name: Optional[str] = None  # KB canonical action_name this maps to
+    raw_expression: Optional[str] = None  # raw CPG code of the id node
     resolved_value: Optional[Union[int, str]] = None  # constant a symbol/macro resolves to
-    node: Optional[int] = None                 # provenance: CPG node the id was read from
+    node: Optional[int] = None  # provenance: CPG node the id was read from
 
     def _numeric_values(self) -> Set[int]:
         vals: Set[int] = set()
@@ -190,8 +190,7 @@ class ActionIdentifier:
 
         if kb is None:
             groups = sum(
-                x is not None
-                for x in (self.protocol_string, self.symbol, self.numeric_id, self.normalized_name)
+                x is not None for x in (self.protocol_string, self.symbol, self.numeric_id, self.normalized_name)
             )
             # Without a KB we cannot cross-check symbolic fields against each
             # other, so anything past the numeric check is reported PARTIAL.
@@ -220,15 +219,11 @@ class ActionIdentifier:
 
 
 def _kb_actions_for_symbol(kb: Any, symbol: str) -> Set[str]:
-    return {
-        name for name, p in kb.actions.items() if symbol in getattr(p, "action_symbols", [])
-    }
+    return {name for name, p in kb.actions.items() if symbol in getattr(p, "action_symbols", [])}
 
 
 def _kb_actions_for_numeric(kb: Any, value: int) -> Set[str]:
-    return {
-        name for name, p in kb.actions.items() if value in getattr(p, "numeric_ids", [])
-    }
+    return {name for name, p in kb.actions.items() if value in getattr(p, "numeric_ids", [])}
 
 
 def _kb_actions_for_name(kb: Any, name: str) -> Set[str]:
@@ -243,14 +238,14 @@ class ResolutionEvidence:
     action_id: ActionIdentifier
     weight: float
     match_strength: MatchStrength
-    callback: Optional[int] = None          # METHOD node id (None for a bare dispatch site)
+    callback: Optional[int] = None  # METHOD node id (None for a bare dispatch site)
     dispatch_site: Optional[int] = None
     nodes: List[int] = field(default_factory=list)
     provenance_group: Optional[str] = None  # correlated-evidence key (used by corroboration, not cascade)
     extractor: str = ""
     mapping_evidence: List[Any] = field(default_factory=list)  # human-facing MappingEvidence for the HandlerMap
-    score: float = 0.0                       # post-policy score (W*M, after any consistency penalty)
-    score_pre_penalty: float = 0.0           # W*M before the consistency penalty (diagnostic)
+    score: float = 0.0  # post-policy score (W*M, after any consistency penalty)
+    score_pre_penalty: float = 0.0  # W*M before the consistency penalty (diagnostic)
 
 
 @dataclass
@@ -422,7 +417,7 @@ def select_corroborate(
             groups[key] = max(groups.get(key, 0.0), e.score)
         doubt = 1.0
         for g in groups.values():
-            doubt *= (1.0 - g)
+            doubt *= 1.0 - g
         conf = min(cfg.global_cap, 1.0 - doubt)
         if not any(e.match_strength in STRONG_BASIS for e in c.evidence):
             conf = min(conf, cfg.weak_only_cap)
