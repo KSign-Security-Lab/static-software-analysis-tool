@@ -1,4 +1,11 @@
-"""Standard library call definitions."""
+"""Recognition set for "is this call part of a known library?".
+
+Deliberately separate from :mod:`ssat.knowledge.c_stdlib`, which answers the
+narrower question of what a libc call does to memory. This set is much broader
+(C++ STL, POSIX networking, LDAP, PostgreSQL, the SySeVR list) and is used only
+to classify a call as library vs user-defined during template conversion.
+Do not merge the two -- widening this set would silently reclassify calls.
+"""
 
 # C Standard Library functions
 c_std_lib_functions: list[str] = [
@@ -893,5 +900,3 @@ sysevr = [
 STANDARD_LIB_CALLS: set[str] = set(
     cpp_stl_methods + c_std_lib_functions + posix_networking_functions + standard_lib_calls + sysevr
 )
-
-

@@ -38,5 +38,3 @@ BinaryExpressionBooleanMap: dict[str, str] = {
     "<operator>.logicalAnd": "boolean",
     "<operator>.logicalOr": "boolean",
 }
-
-

@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional, Union
 
-from ..types.cpg import EdgeGeneric, ICPGRootExport, NodeInfo, TreeNode
+from ..types.cpg import NodeInfo, TreeNode
 
 
 class TemplateExtractor:
@@ -15,7 +15,11 @@ class TemplateExtractor:
 
         data: Dict[str, Any] = cpg
         inner = data.get("@value")
-        if not isinstance(inner, dict) or not isinstance(inner.get("edges"), list) or not isinstance(inner.get("vertices"), list):
+        if (
+            not isinstance(inner, dict)
+            or not isinstance(inner.get("edges"), list)
+            or not isinstance(inner.get("vertices"), list)
+        ):
             return []
 
         edges = inner["edges"]
@@ -30,7 +34,7 @@ class TemplateExtractor:
                 id_val = n["id"].get("@value")
                 if isinstance(id_val, (str, int)):
                     key = str(id_val)
-                    node_dict[key] = n  # type: ignore
+                    node_dict[key] = n
 
         # Build AST edge data
         ast_data: List[Dict[str, Any]] = []
@@ -50,11 +54,13 @@ class TemplateExtractor:
                 in_id_str = str(in_id_unwrapped) if in_id_unwrapped is not None else ""
                 in_node = node_dict.get(in_id_str)
 
-            ast_data.append({
-                "edge": edge,
-                "inV_node": in_node,
-                "outV_node": out_node,
-            })
+            ast_data.append(
+                {
+                    "edge": edge,
+                    "inV_node": in_node,
+                    "outV_node": out_node,
+                }
+            )
 
         # Build node info map and children map
         node_info_map: Dict[str, NodeInfo] = {}
@@ -111,8 +117,14 @@ class TemplateExtractor:
 
         return [build_tree(rid) for rid in root_ids]
 
-    def _extract_node_info(self, node: Optional[NodeInfo]) -> NodeInfo:
-        """Extract node information from CPG node."""
+    def _extract_node_info(self, node: Optional[Dict[str, Any]]) -> NodeInfo:
+        """Flatten a raw GraphSON vertex into a NodeInfo.
+
+        The parameter is the vertex as joern-export writes it (ids and property
+        values wrapped in ``{"@type": ..., "@value": ...}``), not a NodeInfo --
+        producing one is this method's job. It was annotated as ``NodeInfo``,
+        which made every unwrapping step below a type error.
+        """
         if node is None:
             raise ValueError("Node cannot be None in extractNodeInfo")
 
@@ -188,5 +200,3 @@ class TemplateExtractor:
             return None
 
         return None
-
-
