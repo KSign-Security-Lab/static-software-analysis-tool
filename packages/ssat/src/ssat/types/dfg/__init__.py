@@ -1,7 +1,7 @@
 """DFG type definitions."""
 
 from enum import Enum
-from typing import List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 from ..template.BaseNode.base_types import TemplateNodeTypes
 
@@ -57,7 +57,7 @@ class IDFGNode(TypedDict):
     sid: int
     id: int
     features: IDFGNodeFeature
-    debug: Optional[dict]
+    debug: Optional[Dict[str, Any]]
 
 
 class IDFGEdge(TypedDict):
@@ -66,7 +66,7 @@ class IDFGEdge(TypedDict):
     source: int
     destination: int
     features: IDFGEdgeFeature
-    debug: Optional[dict]
+    debug: Optional[Dict[str, Any]]
 
 
 class IDFGGraph(TypedDict):
@@ -85,5 +85,3 @@ __all__ = [
     "IDFGEdge",
     "IDFGGraph",
 ]
-
-

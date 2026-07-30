@@ -1,9 +1,7 @@
 """Base types and enums for template nodes."""
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
-
-from pydantic import BaseModel
+from typing import List, Optional, Required, TypedDict, Union
 
 
 class TemplateNodeTypes(str, Enum):
@@ -50,7 +48,7 @@ class TemplateNodeTypes(str, Enum):
     UserDefinedCall = "UserDefinedCall"
     VariableDeclaration = "VariableDeclaration"
     WhileStatement = "WhileStatement"
-    
+
     # Additional types for CPG compatibility
     UNKNOWN = "UNKNOWN"
     IDENTIFIER = "IDENTIFIER"
@@ -78,29 +76,37 @@ class TemplateNodeTypes(str, Enum):
     TYPE_REF = "TYPE_REF"
 
 
-class IBaseNode(BaseModel):
-    """Base interface that all template nodes must extend."""
+class IBaseNode(TypedDict, total=False):
+    """Base shape every template node shares.
 
-    id: int
-    nodeType: TemplateNodeTypes
-    code: Optional[str] = None
-    children: Optional[List["IBaseNode"]] = None
-    name: Optional[str] = None
-    type: Optional[str] = None
-    size: Optional[Union[str, int]] = None
-    length: Optional[Union[int, str]] = None
-    level: Optional[int] = None
-    storage: Optional[str] = None
+    A TypedDict, not a pydantic model: nothing in the pipeline ever constructs
+    or validates these. The template stage builds plain dicts and reads them
+    with ``.get()``, so modelling them as BaseModel made every access a type
+    error while changing nothing at runtime.
 
-    class Config:
-        """Pydantic configuration."""
+    ``total=False`` with explicit ``Required`` mirrors the old pydantic
+    defaults -- ``id`` and ``nodeType`` were mandatory, everything else
+    defaulted to None.
+    """
 
-        use_enum_values = True
+    id: Required[int]
+    nodeType: Required[TemplateNodeTypes]
+    # Optional both ways: the key may be absent, and the converter also writes
+    # an explicit None for several of these (matching the old pydantic
+    # `Optional[...] = None` defaults).
+    code: Optional[str]
+    children: Optional[List["IBaseNode"]]
+    name: Optional[str]
+    type: Optional[str]
+    size: Optional[Union[str, int]]
+    length: Optional[Union[int, str]]
+    level: Optional[int]
+    storage: Optional[str]
 
 
 def is_node_type(node: IBaseNode, node_type: TemplateNodeTypes) -> bool:
     """Type guard to check if a node has a specific type."""
-    return node.nodeType == node_type
+    return node.get("nodeType") == node_type
 
 
 def is_statement(node: IBaseNode) -> bool:
@@ -117,7 +123,7 @@ def is_statement(node: IBaseNode) -> bool:
         TemplateNodeTypes.SwitchStatement,
         TemplateNodeTypes.WhileStatement,
     ]
-    return node.nodeType in statement_types
+    return node.get("nodeType") in statement_types
 
 
 def is_expression(node: IBaseNode) -> bool:
@@ -138,7 +144,7 @@ def is_expression(node: IBaseNode) -> bool:
         TemplateNodeTypes.UnaryExpression,
         TemplateNodeTypes.UserDefinedCall,
     ]
-    return node.nodeType in expression_types
+    return node.get("nodeType") in expression_types
 
 
 def is_declaration(node: IBaseNode) -> bool:
@@ -151,4 +157,4 @@ def is_declaration(node: IBaseNode) -> bool:
         TemplateNodeTypes.PointerDeclaration,
         TemplateNodeTypes.VariableDeclaration,
     ]
-    return node.nodeType in declaration_types
+    return node.get("nodeType") in declaration_types
