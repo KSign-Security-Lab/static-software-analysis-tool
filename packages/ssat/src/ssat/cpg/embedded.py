@@ -39,9 +39,7 @@ def _classpath() -> List[str]:
     lib = joern_home() / "lib"
     jars = glob.glob(str(lib / "*.jar"))
     if not jars:
-        raise RuntimeError(
-            f"No Joern JARs found under {lib}. Set JOERN_HOME to a joern-cli install."
-        )
+        raise RuntimeError(f"No Joern JARs found under {lib}. Set JOERN_HOME to a joern-cli install.")
     return jars
 
 
