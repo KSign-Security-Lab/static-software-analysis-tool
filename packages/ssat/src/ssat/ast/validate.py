@@ -1,6 +1,6 @@
 """AST validation using Pydantic."""
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, cast
 
 from pydantic import BaseModel
 
@@ -67,26 +67,32 @@ def validate_ast_results(value: Any) -> List[IASTResult]:
         nodes = []
         for node_data in item.get("nodes", []):
             node_model = IASTNodeModel.model_validate(node_data)
-            nodes.append({
-                "sid": node_model.sid,
-                "node_type": node_model.node_type,
-                "code": node_model.code,
-                "orig_id": node_model.orig_id,
-                "feat": node_model.feat.model_dump(),
-                "debug": node_model.debug,
-            })
+            nodes.append(
+                {
+                    "sid": node_model.sid,
+                    "node_type": node_model.node_type,
+                    "code": node_model.code,
+                    "orig_id": node_model.orig_id,
+                    "feat": node_model.feat.model_dump(),
+                    "debug": node_model.debug,
+                }
+            )
 
         # Validate edges
         edges_ast_pc = [tuple(e) for e in item.get("edges_ast_pc", []) if isinstance(e, (list, tuple)) and len(e) == 3]
         edges_ast_sb = [tuple(e) for e in item.get("edges_ast_sb", []) if isinstance(e, (list, tuple)) and len(e) == 3]
         edges_ast_guard = [EdgeASTGuardModel.model_validate(e).model_dump() for e in item.get("edges_ast_guard", [])]
 
-        results.append({
-            "nodes": nodes,
-            "edges_ast_pc": edges_ast_pc,  # type: ignore
-            "edges_ast_sb": edges_ast_sb,  # type: ignore
-            "edges_ast_guard": edges_ast_guard,
-        })
+        results.append(
+            cast(
+                IASTResult,
+                {
+                    "nodes": nodes,
+                    "edges_ast_pc": edges_ast_pc,
+                    "edges_ast_sb": edges_ast_sb,
+                    "edges_ast_guard": edges_ast_guard,
+                },
+            )
+        )
 
     return results
-
