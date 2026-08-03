@@ -90,10 +90,36 @@ Either way the first run downloads the weights, which takes a while.
 
 **Picking a model and a GPU layout.** A 14B at FP16 is about 28 GB of weights
 and fits one 48 GB card with room for KV cache. A 32B at FP16 is roughly 64 GB
-and does not fit one — use a 4-bit AWQ/GPTQ build (`--quantization awq`, about
-18 GB) or split it with `--tensor-parallel-size 2`. Pin the GPU with
-`CUDA_VISIBLE_DEVICES=0`; tensor-parallel across two *different* card
-generations works poorly, so prefer one card unless both are the same model.
+and needs either a 4-bit AWQ/GPTQ build (`--quantization awq`, about 18 GB) on
+one card, or both cards via `--tensor-parallel-size 2`.
+
+Both GPUs can be used together. Whether it is worth it depends on how they are
+connected, so measure rather than assume — on this host `nvidia-smi topo -m`
+reports `NODE` (PCIe through the host bridge, no NVLink) and
+`torch.cuda.can_device_access_peer` is False both ways, so every tensor-parallel
+all-reduce is staged through host memory. vLLM detects the missing peer access
+and falls back off its custom all-reduce; pass `--disable-custom-all-reduce` if
+it does not.
+
+Two more consequences of these particular cards being different generations:
+
+- **FP8 is unavailable.** It needs sm_89 (the RTX 6000 Ada); the A6000 is sm_86.
+  BF16/FP16 and INT4 AWQ/GPTQ run on both.
+- **The slower card sets the pace.** Tensor parallelism splits work evenly, so
+  the result is roughly twice an A6000, not Ada plus Ada.
+
+So tensor parallelism here buys *capacity*, not speed: it is what makes a 32B at
+FP16 possible at all. If a quantised 32B is good enough, one card is the better
+trade — no interconnect cost, and it can be the faster one
+(`CUDA_VISIBLE_DEVICES=0`).
+
+Running two independent single-GPU servers instead would buy nothing today. The
+inspection loop is deliberately sequential — callees before callers, so notes
+propagate — so it issues one request at a time and never has a second in flight.
+That also keeps batch size at 1, which makes per-token all-reduce traffic small
+and the missing NVLink less punishing than it would be for batch serving.
+Inspecting chunks that share a topological level concurrently would change that,
+and is the point at which a second server starts to pay.
 
 `--max-model-len` has to clear the context-pack budget. `AGENT_CONTEXT_CHARS`
 defaults to 24 000 characters, which is roughly 6–8k tokens of code, and the
