@@ -1,0 +1,219 @@
+"""The index is the piece everything else stands on, so it is pinned hard.
+
+Chunking, symbol extraction, link resolution and ordering are all deterministic
+and LLM-free, which means they can be tested as ordinary functions rather than
+sampled. If these pass, a wrong finding is the model's fault; if they fail,
+every finding downstream is pointing at the wrong place.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from agent.index import ChunkStore, build_index, relative_posix
+from agent.index.chunk import FILE_CHUNK_KIND, chunk_id_for, chunk_source, normalize_body
+from agent.index.links import CALLS, FILE_DEPENDS, USES_TYPE, resolve_links
+from agent.index.order import inspection_order
+from agent.languages import spec_for_path
+
+
+def _chunks(tree: Path) -> list:
+    out = []
+    for path in sorted(tree.glob("*.c")) + sorted(tree.glob("*.h")):
+        out.extend(chunk_source(relative_posix(path, tree), path.read_text(encoding="utf-8")))
+    return out
+
+
+def test_functions_become_their_own_chunks(tree: Path) -> None:
+    chunks = _chunks(tree)
+    functions = {c.symbol for c in chunks if c.kind != FILE_CHUNK_KIND}
+    assert {"inner", "outer", "entry", "ping", "pong", "log_msg"} <= functions
+
+
+def test_every_file_gets_a_file_chunk(tree: Path) -> None:
+    """Struct layouts and globals live here, not in the functions that use them."""
+    chunks = _chunks(tree)
+    file_chunks = {c.file for c in chunks if c.kind == FILE_CHUNK_KIND}
+    assert file_chunks == {"app.c", "util.c", "util.h"}
+
+    header = next(c for c in chunks if c.file == "util.h" and c.kind == FILE_CHUNK_KIND)
+    assert "Request" in header.defines, "the typedef must be attributed to the header"
+
+
+def test_chunk_spans_are_one_based_and_inclusive(tree: Path) -> None:
+    """Editors and compilers count from 1; a chunk that counts from 0 puts every
+    marker one line high."""
+    source = (tree / "app.c").read_text(encoding="utf-8")
+    lines = source.splitlines()
+    for chunk in chunk_source("app.c", source):
+        if chunk.kind == FILE_CHUNK_KIND:
+            continue
+        assert chunk.start_line >= 1
+        assert chunk.symbol in lines[chunk.start_line - 1], (
+            f"{chunk.symbol} claims line {chunk.start_line}, which reads {lines[chunk.start_line - 1]!r}"
+        )
+
+
+def test_verbatim_chunk_body_matches_its_byte_span(tree: Path) -> None:
+    """Function chunk bodies are exact slices; file chunk bodies are not.
+
+    A file chunk's body is a synthesized concatenation with function bodies
+    elided, so an offset inside it does not map onto the file. It says so via
+    ``body_is_verbatim`` -- and ``locate`` reads that flag rather than assuming
+    it can index into any chunk body.
+    """
+    raw = (tree / "app.c").read_bytes()
+    chunks = chunk_source("app.c", raw.decode())
+
+    for chunk in chunks:
+        if chunk.body_is_verbatim:
+            assert chunk.body == raw[chunk.start_byte : chunk.end_byte].decode()
+
+    file_chunk = next(c for c in chunks if c.kind == FILE_CHUNK_KIND)
+    assert file_chunk.body_is_verbatim is False
+    assert all(c.body_is_verbatim for c in chunks if c.kind != FILE_CHUNK_KIND)
+
+
+def test_references_exclude_nested_definitions(tree: Path) -> None:
+    """A chunk claims only the calls in its own body."""
+    chunks = {c.symbol: c for c in _chunks(tree) if c.kind != FILE_CHUNK_KIND}
+    assert set(chunks["inner"].references) == {"log_msg", "system"}
+    assert set(chunks["outer"].references) == {"inner"}
+    assert set(chunks["entry"].references) == {"outer"}
+
+
+def test_calls_resolve_to_real_definitions(tree: Path) -> None:
+    chunks = _chunks(tree)
+    by_id = {c.chunk_id: c for c in chunks}
+    edges = {(by_id[link.src].symbol, by_id[link.dst].symbol) for link in resolve_links(chunks) if link.kind == CALLS}
+    assert ("entry", "outer") in edges
+    assert ("outer", "inner") in edges
+    assert ("inner", "log_msg") in edges, "cross-file call did not resolve"
+    assert not any(dst == "system" for _, dst in edges), "libc is not in the tree; nothing to link to"
+
+
+def test_type_and_include_links_resolve(tree: Path) -> None:
+    chunks = _chunks(tree)
+    by_id = {c.chunk_id: c for c in chunks}
+    links = resolve_links(chunks)
+
+    type_edges = {(by_id[x.src].symbol, x.symbol) for x in links if x.kind == USES_TYPE}
+    assert ("inner", "Request") in type_edges
+
+    include_edges = {(by_id[x.src].file, by_id[x.dst].file) for x in links if x.kind == FILE_DEPENDS}
+    assert ("app.c", "util.h") in include_edges
+    assert not any(dst.startswith("<") for _, dst in include_edges), "system headers must not resolve"
+
+
+def test_callees_are_always_inspected_before_callers(tree: Path) -> None:
+    """The ordering invariant the whole cross-chunk design depends on.
+
+    Scoped to acyclic edges, because a cycle has no ordering that satisfies it:
+    in ``ping <-> pong`` whichever is analysed first necessarily precedes a
+    caller. Those edges are excluded here and covered by the mutual-recursion
+    test instead. Every *other* edge must hold, and that is the real claim.
+    """
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    position = {chunk_id: i for i, chunk_id in enumerate(inspection_order(chunks, links))}
+    by_id = {c.chunk_id: c for c in chunks}
+
+    call_edges = {(link.src, link.dst) for link in links if link.kind == CALLS}
+    acyclic = [(src, dst) for src, dst in call_edges if (dst, src) not in call_edges]
+    assert len(acyclic) < len(call_edges), "fixture no longer contains the mutual-recursion case"
+
+    violations = [(by_id[src].symbol, by_id[dst].symbol) for src, dst in acyclic if position[dst] > position[src]]
+    assert violations == [], f"callee analysed after its caller: {violations}"
+
+
+def test_mutual_recursion_does_not_hang_or_duplicate(tree: Path) -> None:
+    """ping/pong is a cycle. It has no valid topological order, so the only
+    requirement is that both appear exactly once and the walk terminates."""
+    chunks = _chunks(tree)
+    order = inspection_order(chunks, resolve_links(chunks))
+    assert len(order) == len(set(order)) == len(chunks)
+
+
+def test_file_chunks_come_first(tree: Path) -> None:
+    chunks = _chunks(tree)
+    order = inspection_order(chunks, resolve_links(chunks))
+    by_id = {c.chunk_id: c for c in chunks}
+    kinds = [by_id[cid].kind for cid in order]
+    assert kinds[: kinds.count(FILE_CHUNK_KIND)] == [FILE_CHUNK_KIND] * kinds.count(FILE_CHUNK_KIND)
+
+
+def test_chunk_ids_are_stable_across_reindexing(tree: Path) -> None:
+    assert [c.chunk_id for c in _chunks(tree)] == [c.chunk_id for c in _chunks(tree)]
+
+
+def test_chunk_id_ignores_reformatting_but_not_edits() -> None:
+    """Reindenting must not invalidate cached findings; editing a token must."""
+    original = "void f(void) {\n    g();\n}"
+    reindented = "void f(void) {\n        g();\n}"
+    edited = "void f(void) {\n    h();\n}"
+
+    assert chunk_id_for("a.c", "f", original) == chunk_id_for("a.c", "f", reindented)
+    assert chunk_id_for("a.c", "f", original) != chunk_id_for("a.c", "f", edited)
+    assert normalize_body("a  \n\t b") == "a b"
+
+
+def test_numbered_body_starts_at_the_real_line(tree: Path) -> None:
+    """The model is given absolute line numbers, not chunk-relative ones."""
+    chunk = next(c for c in _chunks(tree) if c.symbol == "entry")
+    first = chunk.numbered_body().splitlines()[0]
+    assert first.startswith(f"{chunk.start_line:03d}| ")
+
+
+def test_unsupported_files_are_not_indexed() -> None:
+    assert spec_for_path("notes.txt") is None
+    assert spec_for_path("Makefile") is None
+    assert chunk_source("notes.txt", "hello") == []
+    assert spec_for_path("a.hpp") is not None and spec_for_path("a.hpp").name == "cpp"
+    assert spec_for_path("a.h") is not None and spec_for_path("a.h").name == "c"
+
+
+def test_build_index_round_trips_through_the_store(tree: Path, tmp_path: Path) -> None:
+    store = ChunkStore(tmp_path / "out" / "index.db")
+    result = build_index(tree, store)
+
+    assert result.files_indexed == 3
+    assert result.chunks > 0 and result.links > 0
+    assert len(store.order()) == result.chunks
+    assert set(store.files()) == {"app.c", "util.c", "util.h"}
+
+    entry = next(c for c in store.chunks() if c.symbol == "entry")
+    assert [c.symbol for c in store.callees_of(entry.chunk_id)] == ["outer"]
+    outer = next(c for c in store.chunks() if c.symbol == "outer")
+    assert [c.symbol for c in store.callers_of(outer.chunk_id)] == ["entry"]
+    assert [c.file for c in store.definition_of("Request")] == ["util.h"]
+    store.close()
+
+
+def test_notes_and_inspection_state_persist(tree: Path, tmp_path: Path) -> None:
+    """A resumed run must be able to tell 'no findings' from 'not yet analysed'."""
+    path = tmp_path / "index.db"
+    store = ChunkStore(path)
+    build_index(tree, store)
+    chunk_id = store.order()[0]
+    assert store.is_inspected(chunk_id) is False
+    store.set_note(chunk_id, "returns attacker-controlled data")
+    store.mark_inspected(chunk_id)
+    store.close()
+
+    reopened = ChunkStore(path)
+    assert reopened.note(chunk_id) == "returns attacker-controlled data"
+    assert reopened.is_inspected(chunk_id) is True
+    reopened.close()
+
+
+def test_real_corpus_indexes_without_ordering_violations(fixture_root: Path, tmp_path: Path) -> None:
+    """The same invariants, on 19 real files rather than a hand-built tree."""
+    store = ChunkStore(tmp_path / "index.db")
+    result = build_index(fixture_root, store)
+    assert result.files_indexed == 19
+    assert result.files_skipped == 0
+
+    position = {chunk_id: i for i, chunk_id in enumerate(store.order())}
+    violations = [link for link in store.links() if link.kind == CALLS and position[link.dst] > position[link.src]]
+    assert violations == []
+    store.close()
