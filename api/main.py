@@ -12,6 +12,10 @@ POST /analyze-functions      {source|cpg, ...}             -> AST + DFG per func
 POST /f2a                    {cpg}                         -> F2AResult
 POST /analyze                {source, language, filename?} -> {cpg, method_count, f2a}
 
+The ``/agent/*`` routes are a separate line of analysis -- an LLM inspecting
+uploaded source chunk by chunk -- and live in :mod:`api.agent_routes`. They
+share this app but nothing else: ``agent`` does not import ``ssat``.
+
 The two CPG endpoints run the same Joern behind :mod:`ssat.cpg.backends`;
 ``jpype`` is in-process, ``docker`` shells into the container.
 
@@ -33,6 +37,8 @@ from ssat.f2a import run_f2a
 from ssat.pipeline import FunctionGraphs, analyze_template, generate_template, training_record
 from ssat.types.cpg import CPGRoot
 
+from .agent_routes import router as agent_router
+
 app = FastAPI(title="SSAT API", version="2.0.0")
 
 # The Next.js dev server may call this service from localhost or over the
@@ -43,6 +49,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(agent_router)
 
 # Map a UI language choice to a source filename Joern understands.
 _LANG_EXT = {"c": "main.c", "cpp": "main.cpp", "java": "Main.java"}
