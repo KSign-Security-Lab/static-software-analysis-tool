@@ -98,8 +98,9 @@ build = "cd web && npm run build"
 
 # Start everything at once: vLLM, the API and the web UI, in one terminal
 up = "scripts/up.sh"
-# Stop vLLM (Ctrl-C on `up` already stops the API and web)
-down = "docker compose --profile vllm down"
+# Stop vLLM only -- a bare `compose down` would also stop the Joern container
+# that ssat's docker backend uses. Ctrl-C on `up` already stops the API and web.
+down = "docker compose --profile vllm rm -sf vllm"
 
 # End to end: start a server if needed, then inspect the sample tree
 demo = "docker compose --profile vllm up -d --wait vllm && AGENT_MODEL=agent .venv/bin/agent inspect -v packages/agent/tests/fixtures/sample"

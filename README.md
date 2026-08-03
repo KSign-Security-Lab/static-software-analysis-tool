@@ -104,14 +104,17 @@ return the SSAT pipeline's own artifacts.
 ## LLM inspection
 
 ```bash
+scripts/run.sh setup       # once
 scripts/run.sh up          # vLLM + API + web, one terminal
 ```
 
-vLLM is a Compose service (`docker compose --profile vllm up -d --wait vllm`),
-configured by `VLLM_MODEL`, `VLLM_GPUS`, `VLLM_TP`. `up` starts it, reads the
-served model id back so `AGENT_MODEL` is never guessed, and runs the API and web
-on the host where their reloaders work. Ctrl-C stops those two; vLLM keeps
-running.
+The first `up` asks which model, which GPUs, and where to keep the weights, and
+writes them to `.env`. Compose reads that file itself, so later runs are silent;
+edit it, or `scripts/run.sh up --reconfigure`.
+
+It starts vLLM, reads the served model id back so `AGENT_MODEL` is never
+guessed, and runs the API and web on the host where their reloaders work. Ctrl-C
+stops those two; vLLM keeps running, and `scripts/run.sh down` stops it.
 
 ```bash
 agent endpoints                  # what is reachable, and what it serves

@@ -57,39 +57,50 @@ it is recovered without loosening the match.
 ## Quickstart
 
 ```bash
+scripts/run.sh setup   # once
 scripts/run.sh up
 ```
 
-vLLM, the API and the web UI together. Ctrl-C stops the API and web; vLLM keeps
-running, because reloading weights costs minutes.
+The first `up` asks which model, which GPUs, and where to keep the weights, then
+writes the answers to `.env`:
 
-vLLM is a Compose service, so it is configured by environment rather than by
-flags:
-
-```bash
-VLLM_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct-AWQ \
-VLLM_GPUS=0 VLLM_TP=1 \
-  docker compose --profile vllm up -d --wait vllm
-
-docker compose --profile vllm logs -f vllm
-docker compose --profile vllm down
 ```
+VLLM_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
+VLLM_GPUS=0
+VLLM_TP=1
+HF_HOME=/home/you/.cache/huggingface
+```
+
+Compose reads `.env` on its own, so later runs are silent. Edit the file, or
+`scripts/run.sh up --reconfigure` to be asked again.
+
+It then starts vLLM, reads the served model id back so `AGENT_MODEL` is never
+guessed, and runs the API and web on the host where their reloaders work. Ctrl-C
+stops those two; vLLM keeps running, because reloading weights costs minutes.
+`scripts/run.sh down` stops it.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `VLLM_MODEL` | `Qwen/Qwen2.5-Coder-32B-Instruct-AWQ` | Hugging Face id |
-| `VLLM_GPUS` | `0` | Device ids; `"0,1"` with `VLLM_TP=2` |
-| `VLLM_TP` | `1` | Tensor-parallel size |
+| `VLLM_MODEL` | asked on first run | Hugging Face id |
+| `VLLM_GPUS` | asked when there is more than one | Device ids, e.g. `0,1` |
+| `VLLM_TP` | `1` | Tensor-parallel size; `2` with two GPUs |
+| `HF_HOME` | asked on first run | **Where weights are downloaded to** |
 | `VLLM_MAX_LEN` | `16384` | Must clear `AGENT_CONTEXT_CHARS` in tokens |
 | `VLLM_PORT` | `8001` | Host port; 8000 is the API |
 | `VLLM_TOOL_PARSER` | `hermes` | Needed for verification to call tools |
 
-It runs in Docker because the host install cannot work: vllm 0.17 against torch
-2.4, which predates `torch.library.infer_schema`, and this workspace is on
-Python 3.14, which vLLM does not publish wheels for.
+vLLM runs in Docker because the host install cannot work: vllm 0.17 against
+torch 2.4, which predates `torch.library.infer_schema`, and this workspace is on
+Python 3.14, which vLLM does not publish wheels for. `--served-model-name` pins
+the served id to `agent`, so `AGENT_MODEL` does not change when the weights do.
 
-`--served-model-name` pins the served id to `agent`, so `AGENT_MODEL` does not
-change when the weights do.
+Without the wrapper:
+
+```bash
+docker compose --profile vllm up -d --wait vllm
+docker compose --profile vllm logs -f vllm
+docker compose --profile vllm rm -sf vllm
+```
 
 ### Doing it by hand
 
