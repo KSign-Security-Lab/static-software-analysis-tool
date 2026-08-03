@@ -1,19 +1,9 @@
 """The contract between the model, the server and the web page.
 
-Two schemas, deliberately kept apart.
-
-**Model-facing** (:class:`ChunkAnalysis` and friends) is what the LLM is
-constrained to emit under guided decoding. It contains analysis only -- no ids,
-no resolved coordinates, no verification state. Every field is something a
-reader of the source could plausibly produce.
-
-**Wire** (:class:`Finding`, :class:`Report`) is what the web consumes. It adds
-everything the *server* owns: the stable id, the resolved span, the excerpt read
-back from disk, whether the finding survived verification.
-
-Conflating the two is how stable ids and guided decoding both get harder than
-they need to be. The model cannot be trusted to compute an id, and the client
-should never have to.
+Two schemas, kept apart. Model-facing (:class:`ChunkAnalysis`) is what guided
+decoding constrains the LLM to: analysis only. Wire (:class:`Finding`,
+:class:`Report`) adds what the server owns -- the id, the resolved span, the
+excerpt read from disk, the verification state.
 """
 
 from __future__ import annotations
@@ -22,19 +12,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-#: Bumped when a field is removed or its meaning changes. Adding an optional
-#: field does not require a bump; the web tolerates unknown keys.
-#:
-#: Typed as the literal rather than ``str`` so the field defaults below stay
-#: assignable and a bump has to be made in both places deliberately.
+# Bumped when a field is removed or changes meaning; adding an optional one is
+# fine. Typed as the literal so the defaults below stay assignable.
 SCHEMA_VERSION: Literal["1"] = "1"
 
 Severity = Literal["critical", "high", "medium", "low", "info"]
 
-#: What a piece of evidence is doing in the argument. ``source`` is where
-#: untrusted data enters, ``sink`` is where it does damage, ``propagation`` is
-#: the path between them, and ``missing_check`` is the validation that should
-#: have been there and is not.
 EvidenceRole = Literal["source", "propagation", "sink", "missing_check", "context"]
 
 SEVERITY_ORDER: dict[str, int] = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
@@ -80,12 +63,10 @@ class CandidateFinding(BaseModel):
 
 
 class ChunkAnalysis(BaseModel):
-    """The model's complete output for one chunk.
+    """The model's output for one chunk.
 
-    ``note`` is the cross-chunk metadata. It is stored against this chunk and
-    injected into every caller's context, which is how taint crosses a chunk
-    boundary without the whole tree entering one prompt. It should describe
-    what this unit does to data passing through it -- not restate the findings.
+    ``note`` is the cross-chunk metadata: stored here, injected into every
+    caller's context. That is how taint crosses a chunk boundary.
     """
 
     findings: list[CandidateFinding] = Field(default_factory=list)
@@ -110,7 +91,7 @@ class Verdict(BaseModel):
 
 
 class Span(BaseModel):
-    """A resolved source range. 1-based and inclusive, as editors count."""
+    """A resolved source range, 1-based and inclusive."""
 
     file: str
     start_line: int
@@ -129,11 +110,8 @@ class Evidence(BaseModel):
 
 
 class Remediation(BaseModel):
-    """The proposed fix. Display-only.
-
-    ``diff`` may hold a unified diff, but nothing applies it: there is no write
-    endpoint. It is the seam a future "fix now" would attach to.
-    """
+    """Display-only. ``diff`` is never applied -- there is no write endpoint;
+    it is the seam a future "fix now" attaches to."""
 
     summary: str
     detail: str
@@ -157,12 +135,12 @@ class Finding(BaseModel):
     verified: bool = Field(description="Survived the adversarial refute pass.")
 
     def sort_key(self) -> tuple[int, str, int, str]:
-        """Most severe first, then by position, so report order is stable."""
+        """Most severe first, then position. Stable report order."""
         return (SEVERITY_ORDER.get(self.severity, 99), self.primary.file, self.primary.start_line, self.id)
 
 
 class RunStats(BaseModel):
-    """What the run did, for the progress UI and for honest reporting."""
+    """Counts kept separate rather than merged into one score."""
 
     files_indexed: int = 0
     files_skipped: int = 0
@@ -187,15 +165,13 @@ class Report(BaseModel):
 
 
 class FindingDiff(BaseModel):
-    """Two runs compared. Content-derived ids are what make this possible."""
+    """Two runs compared, by content-derived id."""
 
     new: list[Finding] = Field(default_factory=list)
     fixed: list[Finding] = Field(default_factory=list)
     unchanged: list[Finding] = Field(default_factory=list)
 
 
-#: Models exported to TypeScript. Order matters only for readability of the
-#: generated file; dependencies are emitted before dependents.
 EXPORTED_MODELS: tuple[type[BaseModel], ...] = (
     Span,
     Evidence,

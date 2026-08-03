@@ -1,13 +1,8 @@
 """Source text -> syntactic chunks, via tree-sitter.
 
-Fixed-window chunking is wrong for code: it cuts functions in half and destroys
-the only unit an analyser can reason about. A chunk here is a *syntactic* unit --
-one per function or method definition, plus one per file holding the top-level
-material (includes, macros, globals, type definitions) that the functions depend
-on.
-
-Chunk ids are content-derived, so re-indexing an unchanged function yields the
-same id and its cached findings survive.
+One chunk per function or method, plus one per file for the top-level material
+they depend on. Fixed windows cut functions in half. Ids are content-derived, so
+re-indexing an unchanged function keeps its cached findings.
 """
 
 from __future__ import annotations
@@ -27,11 +22,7 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def normalize_body(text: str) -> str:
-    """Collapse whitespace runs, for content hashing.
-
-    Reindenting a function should not invalidate its cached findings, but
-    changing a token must. Whitespace collapsing is the line between the two.
-    """
+    """Reindenting must not invalidate cached findings; changing a token must."""
     return _WHITESPACE.sub(" ", text).strip()
 
 
@@ -49,7 +40,7 @@ class Chunk:
     file: str
     symbol: str
     kind: str
-    #: 1-based, inclusive, matching how editors and compilers count.
+    # 1-based, inclusive.
     start_line: int
     end_line: int
     start_byte: int
@@ -60,11 +51,8 @@ class Chunk:
     references: tuple[str, ...] = ()
     types_used: tuple[str, ...] = ()
     includes: tuple[str, ...] = ()
-    #: True when ``body`` is exactly ``source[start_byte:end_byte]``. File chunks
-    #: set this False: their body is a synthesized concatenation of the
-    #: top-level nodes with definition bodies elided, so offsets within it do
-    #: not map onto the file. Anything resolving a location must read the file
-    #: rather than index into ``body`` -- see :mod:`agent.locate`.
+    # False for file chunks: their body is a synthesized concatenation with
+    # definition bodies elided, so offsets in it do not map onto the file.
     body_is_verbatim: bool = True
 
     @property
@@ -72,12 +60,7 @@ class Chunk:
         return self.end_line - self.start_line + 1
 
     def numbered_body(self) -> str:
-        """The body with ``NNN| `` line prefixes, as fed to the model.
-
-        The model needs line numbers to talk about locations, but it must not
-        copy the prefix into ``anchor_text``; the prompt says so and
-        :mod:`agent.locate` strips it defensively anyway.
-        """
+        """Body with ``NNN| `` prefixes, as fed to the model."""
         lines = self.body.splitlines() or [""]
         width = max(3, len(str(self.start_line + len(lines) - 1)))
         return "\n".join(f"{self.start_line + i:0{width}d}| {line}" for i, line in enumerate(lines))
@@ -97,11 +80,8 @@ def _walk(node: Any) -> Iterator[Any]:
 
 
 def _descendants_excluding_definitions(node: Any, spec: LanguageSpec) -> Iterator[Any]:
-    """Walk a subtree but do not descend into nested definitions.
-
-    A nested function is its own chunk; counting its calls as the outer chunk's
-    references would make the link graph claim edges that do not exist.
-    """
+    """A nested definition is its own chunk, so its calls are not the outer
+    chunk's references."""
     for child in node.children:
         if spec.is_definition(child.type):
             continue
@@ -110,12 +90,8 @@ def _descendants_excluding_definitions(node: Any, spec: LanguageSpec) -> Iterato
 
 
 def definition_name(node: Any, source: bytes) -> str:
-    """The declared name of a definition node.
-
-    Most grammars expose a ``name`` field. C and C++ do not -- they nest a
-    ``declarator`` chain that has to be walked down to the identifier, and the
-    same walk handles pointer returns (``char *f(void)``) and function pointers.
-    """
+    """Most grammars expose a ``name`` field; C and C++ nest a ``declarator``
+    chain that has to be walked down to the identifier."""
     named = node.child_by_field_name("name")
     if named is not None:
         return _text(named, source)
@@ -139,13 +115,9 @@ def definition_name(node: Any, source: bytes) -> str:
 
 
 def _callee_name(call: Any, source: bytes) -> str | None:
-    """The identifier being called, for a call-shaped node.
-
-    Only the *rightmost* identifier is taken from a qualified callee, so
-    ``obj.method()`` resolves as ``method`` and ``a::b::c()`` as ``c``. That is
-    deliberately loose: the resolver matches on bare symbol names, and a
-    slightly over-broad candidate set is cheaper than missing the edge.
-    """
+    """Rightmost identifier of a qualified callee: ``obj.method()`` -> ``method``.
+    Loose on purpose -- the resolver matches bare names, and over-broad is
+    cheaper than a missed edge."""
     target = call.child_by_field_name("function") or call.child_by_field_name("constructor")
     if target is None:
         for child in call.children:
@@ -196,7 +168,7 @@ def _collect(nodes: Sequence[Any], spec: LanguageSpec, source: bytes) -> _Symbol
 
 
 def _dedupe(values: Sequence[str]) -> tuple[str, ...]:
-    """Order-preserving dedupe -- order is stable, so chunk rows are stable."""
+    """Order-preserving, so chunk rows are stable."""
     seen: dict[str, None] = {}
     for value in values:
         cleaned = value.strip()
@@ -255,12 +227,9 @@ def _file_chunk(
     spec: LanguageSpec,
     definitions: Sequence[Any],
 ) -> Chunk:
-    """The file's top-level material, with definition bodies elided.
+    """Top-level material with definition bodies elided.
 
-    Struct layouts, typedefs, globals and includes are what a function's
-    vulnerability usually turns on -- a buffer's declared size lives here, not in
-    the function that overflows it. Keeping them as their own chunk means every
-    function can be given its file's context without re-reading the whole file.
+    A buffer's declared size lives here, not in the function that overflows it.
     """
     definition_ranges = [(node.start_byte, node.end_byte) for node in definitions]
     top_level = [

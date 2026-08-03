@@ -1,17 +1,9 @@
 """The five nodes of the inspection loop.
 
-::
-
     plan -> context -> analyse -> locate -> verify -> (next chunk, or done)
 
-``plan`` picks the next chunk and skips ones already inspected, which is what
-makes re-inspection incremental. ``context`` assembles the pack from the index.
-``analyse`` is one model call. ``locate`` resolves anchors to real spans and
-discards what it cannot find. ``verify`` is a second model call per candidate,
-prompted to refute.
-
-The nodes are built by :func:`make_nodes` so they can close over the store, the
-model client and the run root instead of carrying them in graph state.
+Built by :func:`make_nodes` so they close over the store, the model client and
+the run root instead of carrying them in graph state.
 """
 
 from __future__ import annotations
@@ -57,13 +49,8 @@ class ProgressSink(Protocol):
 
 
 class InspectionNode(Protocol):
-    """One graph node.
-
-    LangGraph's own node protocol requires the parameter to be *named* ``state``,
-    so a plain ``Callable[[InspectionState], ...]`` -- whose parameter is
-    positional-only -- does not satisfy it. Declaring the shape here keeps the
-    node table assignable without a cast.
-    """
+    """LangGraph's node protocol requires the parameter to be *named* ``state``,
+    which a plain ``Callable`` does not satisfy."""
 
     def __call__(self, state: InspectionState) -> dict[str, Any]: ...
 
@@ -81,16 +68,14 @@ class NodeDeps:
     caller: StructuredCaller
     root: Path
     emit: ProgressSink = _noop
-    #: Only used to tag traces, so a LangSmith run maps back to a report.
+    # Tags traces, so a LangSmith run maps back to a report.
     run_id: str = ""
-    #: The agent's MCP client, when the tool surface came up. None means
-    #: verification runs from context alone, which is a supported mode rather
-    #: than a degraded one -- most claims are decidable from the context pack.
+    # None means verification runs from context alone -- a supported mode, not a
+    # degraded one.
     tools: Any = None
 
 
-#: A title is a chip in the UI and a marker message; a paragraph in it wraps the
-#: panel and truncates the marker tooltip.
+# A title is a UI chip; a paragraph wraps the panel and truncates the tooltip.
 MAX_TITLE_CHARS = 120
 
 
@@ -103,7 +88,7 @@ def _clean_title(raw: str) -> str:
 
 
 def _finding_subject(finding: Finding) -> str:
-    """Short label for a finding, for the trace span name."""
+    """Label for the trace span name."""
     where = f"{finding.primary.file}:{finding.primary.start_line}"
     return f"{finding.cwe} {where}" if finding.cwe else where
 
@@ -120,12 +105,10 @@ def _locate_candidate(
     chunk: Chunk,
     deps: NodeDeps,
 ) -> Finding | None:
-    """Resolve a candidate's anchors into real spans, or discard it.
+    """Resolve a candidate's anchors, or discard it.
 
-    The primary anchor is mandatory: without it there is nothing to underline,
-    and a marker on a guessed line is worse than no marker. Evidence anchors are
-    best-effort -- losing one weakens the explanation but does not invalidate
-    the finding, so the finding survives with fewer evidence items.
+    The primary anchor is mandatory. Evidence anchors are best-effort: losing
+    one weakens the explanation but does not invalidate the finding.
     """
     text = _file_text(deps.root, chunk.file)
     if text is None:
@@ -133,9 +116,7 @@ def _locate_candidate(
 
     primary = locate_anchor(candidate.anchor_text, chunk.file, text, chunk)
     if primary is None:
-        # Log the anchor, not the title: the anchor is what failed and what a
-        # prompt fix has to target. (This said `candidate.title` at first, which
-        # made a run of degenerate empty-title output look like a locating bug.)
+        # The anchor, not the title: the anchor is what failed.
         log.info(
             "dropping finding in %s :: %s -- anchor not found: %r",
             chunk.file,
@@ -146,8 +127,7 @@ def _locate_candidate(
 
     evidence: list[Evidence] = []
     for item in candidate.evidence:
-        # Evidence may point at another file -- that is the cross-file trail the
-        # UI makes navigable -- so it is not constrained to this chunk.
+        # Evidence may point at another file: the cross-file trail.
         item_text = text if item.file == chunk.file else _file_text(deps.root, item.file)
         if item_text is None:
             continue
@@ -156,8 +136,7 @@ def _locate_candidate(
         if located is not None:
             evidence.append(Evidence(role=item.role, span=located.span, note=item.note))
 
-    # Normalised before it reaches the id, so the same finding reported with
-    # "CWE-78" one run and a prose blob the next still hashes the same.
+    # Before the id, so "CWE-78" and a prose blob hash the same.
     cwe = normalize_cwe(candidate.cwe)
 
     return Finding(
@@ -187,11 +166,8 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
     """Build the node functions, bound to one run's dependencies."""
 
     def plan(state: InspectionState) -> dict[str, Any]:
-        """Take the next chunk, skipping any already inspected.
-
-        Chunk ids are content-derived, so "already inspected" survives an
-        unrelated file changing -- this is what makes a re-run cheap.
-        """
+        """Next chunk, skipping any already inspected. Chunk ids are
+        content-derived, so that survives an unrelated file changing."""
         pending = list(state.get("pending", []))
         stats = dict(state.get("stats", {}))
 
@@ -243,8 +219,8 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             log.warning("analyse produced nothing usable for %s", chunk.symbol)
             return {"candidates": []}
 
-        # The note is written even when there are no findings: "this function
-        # sanitises its input" is exactly as useful to a caller as a warning.
+        # Written even with no findings: "this sanitises its input" is as
+        # useful to a caller as a warning.
         if result.note.strip():
             deps.store.set_note(chunk.chunk_id, result.note.strip())
 
@@ -290,8 +266,8 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             finding = Finding.model_validate(raw)
 
             if index >= deps.config.max_verify_per_chunk:
-                # Cap reached. Keeping the finding unverified and saying so is
-                # more honest than silently dropping it or silently blessing it.
+                # Cap reached: kept but flagged, rather than silently dropped
+                # or silently blessed.
                 finding.verified = False
                 finding.confidence = 0.3
                 confirmed.append(finding.model_dump())
@@ -300,10 +276,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             if pack is None:
                 pack = build_context(deps.store, chunk, deps.config)
 
-            # Check the claim before ruling on it: read a callee, confirm the
-            # input is really attacker controlled, or compile something in the
-            # sandbox. Empty when tools are unavailable, which just means the
-            # verdict is made from context.
+            # Check the claim before ruling on it. Empty without tools.
             gathered = ""
             if deps.tools is not None:
                 gathered = deps.caller.gather(
@@ -335,7 +308,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                 ),
             )
             if verdict is None:
-                # No verdict is not a pass. Uncertainty counts against.
+                # No verdict is not a pass.
                 stats["refuted"] = stats.get("refuted", 0) + 1
                 continue
             if verdict.refuted:

@@ -1,14 +1,8 @@
 """Consume the MCP tool surface from inside the agent.
 
-The agent is a client of its own server. That is the point of serving the tools
-over MCP rather than importing them: there is one tool surface, and the agent
-gets exactly what any other MCP client would. The cost is a subprocess and a
-JSON-RPC hop per call, which is noise next to model latency.
-
-The adapters are async and the inspection graph is sync, so this owns a private
-event loop on a background thread and exposes a blocking facade. Making the
-whole graph async would push `await` through every node to buy nothing: the loop
-is deliberately sequential, one chunk and one model call at a time.
+The agent is a client of its own server, so there is one tool surface and no
+in-process copy to drift. The adapters are async and the graph is sync, hence a
+private event loop on a background thread behind a blocking facade.
 """
 
 from __future__ import annotations
@@ -27,18 +21,13 @@ from ..config import ENV_INDEX_DB, ENV_RUN_ROOT, ENV_SANDBOX
 
 log = logging.getLogger(__name__)
 
-#: Startup has to import langchain, mcp and the tool modules in a subprocess.
+# Startup imports langchain, mcp and the tools in a subprocess.
 STARTUP_TIMEOUT = 60.0
 CALL_TIMEOUT = 120.0
 
 
 def unwrap_tool_result(result: Any) -> str:
-    """Flatten what an adapter tool returns into text.
-
-    Tools come back as LangChain content blocks --
-    ``[{'type': 'text', 'text': ...}]`` -- not as bare strings. Every consumer
-    would otherwise have to know that.
-    """
+    """Adapter tools return content blocks, not bare strings."""
     if isinstance(result, str):
         return result
     if isinstance(result, list):
@@ -48,11 +37,8 @@ def unwrap_tool_result(result: Any) -> str:
 
 
 class ToolSession:
-    """A running ``agent-mcp`` subprocess and the tools it serves.
-
-    Use as a context manager; the subprocess lives for the session, not per
-    call, so the import cost is paid once per run.
-    """
+    """A running ``agent-mcp`` subprocess and its tools. One per run, so the
+    subprocess import cost is paid once."""
 
     def __init__(
         self,
@@ -64,7 +50,7 @@ class ToolSession:
         self.run_root = run_root
         self.index_db = index_db
         self.sandbox = sandbox
-        #: Restricts what ``tools`` offers. None means the whole surface.
+        # None means the whole surface.
         self.allowed = frozenset(allowed) if allowed is not None else None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -93,8 +79,7 @@ class ToolSession:
             env[ENV_INDEX_DB] = str(self.index_db)
         if self.sandbox is not None:
             env[ENV_SANDBOX] = self.sandbox
-        # The subprocess is `python -m agent.mcp`, so it needs to find the
-        # package the same way this process did.
+        # `python -m agent.mcp` needs to find the package as this process did.
         existing = env.get("PYTHONPATH", "")
         src = str(Path(__file__).resolve().parents[2])
         env["PYTHONPATH"] = f"{src}{os.pathsep}{existing}" if existing else src
@@ -157,12 +142,8 @@ class ToolSession:
         return sorted(self._by_name)
 
     def call(self, name: str, arguments: dict[str, Any]) -> str:
-        """Invoke one tool and return its text.
-
-        Never raises: a tool failure is something the model should read and work
-        around, exactly like the server's own refusals, and it must not abort an
-        inspection.
-        """
+        """Never raises: a tool failure is something the model reads and works
+        around, and must not abort an inspection."""
         tool = self._by_name.get(name)
         if tool is None:
             return f"error: no such tool: {name}"
@@ -180,12 +161,8 @@ def open_session(
     sandbox: str | None = None,
     allowed: Sequence[str] | None = None,
 ) -> ToolSession | None:
-    """Start a session, or return None if the tool surface is unavailable.
-
-    Tools are an enhancement to verification, not a precondition for it. A
-    broken or missing MCP stack degrades the run to context-only verification
-    rather than stopping it.
-    """
+    """None if the tool surface is unavailable: tools enhance verification, they
+    are not a precondition for it."""
     session = ToolSession(run_root, index_db, sandbox, allowed)
     try:
         session.start()
@@ -196,10 +173,8 @@ def open_session(
     return session
 
 
-#: Tools the verify step is allowed to use. Deliberately not the whole surface:
-#: verification is about testing one claim, and an unbounded toolbox invites the
-#: model to wander. ``run_in_sandbox`` is included because "this buffer
-#: overflows" is checkable rather than merely arguable.
+# Not the whole surface: verification is about one claim, and an unbounded
+# toolbox invites wandering.
 VERIFY_TOOLS: Sequence[str] = (
     "read_source",
     "search_text",

@@ -1,21 +1,9 @@
-"""Assemble the context for one chunk, from the index.
+"""Assemble one chunk's context from the index, deterministically.
 
-No model is involved in deciding what to include. The link graph already knows
-which chunks are related and how, so the pack is built deterministically:
-
-* the chunk itself, with absolute line numbers;
-* its file's top-level material -- struct layouts, globals, typedefs -- because
-  a buffer's declared size lives there, not in the function that overflows it;
-* **notes written when its callees were analysed**, which is how taint crosses a
-  chunk boundary without the whole tree entering the prompt;
-* signatures of its callers, so the model can see how it is reached;
-* definitions of the types it uses.
-
-Letting the model explore instead ("open whatever you think you need") costs a
-round trip per file and produces a different context every run, which makes
-findings irreproducible. Tools are still available for the cases the graph
-cannot resolve -- function pointers, macro-generated names -- but they are the
-exception, not the mechanism.
+The pack is the chunk, its file's top-level material, notes written when its
+callees were analysed, its callers' signatures, and the types it uses. No model
+decides what to include: letting it explore costs a round trip per file and
+produces a different context every run, which makes findings irreproducible.
 """
 
 from __future__ import annotations
@@ -42,7 +30,7 @@ class ContextPack:
 
 
 def _signature(chunk: Chunk) -> str:
-    """A definition's first line -- enough to see how it is called."""
+    """First line: enough to see how it is called."""
     for line in chunk.body.splitlines():
         stripped = line.strip()
         if stripped:
@@ -57,12 +45,8 @@ def _truncate(text: str, limit: int) -> tuple[str, bool]:
 
 
 def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> ContextPack:
-    """Build the context pack for one chunk, within the character budget.
-
-    Sections are added in priority order and the budget is spent as it goes, so
-    when a chunk is large the *supporting* material is what gets dropped -- never
-    the code under analysis.
-    """
+    """Sections are added in priority order, so on a large chunk the supporting
+    material is dropped, never the code under analysis."""
     sections: list[str] = []
     budget = config.context_char_budget
 
@@ -127,11 +111,7 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
 
 
 def _type_definitions(store: ChunkStore, chunk: Chunk, budget: int) -> str:
-    """Definitions of the types this chunk uses, where they are in the tree.
-
-    A struct field's type is often the whole finding -- ``char buf[8]`` versus
-    ``char *buf`` changes what an overflow means.
-    """
+    """``char buf[8]`` versus ``char *buf`` changes what an overflow means."""
     blocks: list[str] = []
     remaining = budget
     seen: set[str] = set()
@@ -157,11 +137,8 @@ def _type_definitions(store: ChunkStore, chunk: Chunk, budget: int) -> str:
 
 
 def _extract_type(body: str, type_name: str) -> str:
-    """The declaration of one type out of a file chunk's body.
-
-    File chunks hold every top-level declaration in the file; pasting all of
-    them for one struct would crowd out the code under analysis.
-    """
+    """One type out of a file chunk's body; pasting all of them would crowd out
+    the code under analysis."""
     lines = body.splitlines()
     for index, line in enumerate(lines):
         if type_name in line and any(keyword in line for keyword in ("struct", "typedef", "class", "enum", "union")):

@@ -1,19 +1,8 @@
 """The single place a model gets called.
 
-vLLM runs as a separate OpenAI-compatible server, so this package needs the
-client and not ``vllm`` itself. Two structured-output paths exist and both are
-handled here rather than at call sites:
-
-``response_format={"type": "json_schema", ...}``
-    The OpenAI-standard form, and what ``with_structured_output(method=
-    "json_schema")`` emits. Confirmed working against a served model.
-
-``extra_body={"structured_outputs": {"json": schema}}``
-    vLLM's own form. Kept as a fallback because guided decoding support varies
-    between vLLM builds and backends (``xgrammar``, ``guidance``).
-
-Keeping both behind one function means switching is a configuration change, not
-a refactor.
+vLLM is a separate server, so this needs the OpenAI client, not ``vllm``.
+Structured output goes through ``json_schema`` guided decoding, falling back to
+tool calling; keeping both here makes switching a config change.
 """
 
 from __future__ import annotations
@@ -36,19 +25,13 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 
 StructuredMethod = Literal["json_schema", "function_calling"]
 
-#: Tried in order. ``json_schema`` is real constrained decoding; the tool-calling
-#: path is a fallback for endpoints that expose function calling but not guided
-#: JSON.
+# json_schema is real constrained decoding; function_calling is the fallback.
 STRUCTURED_METHODS: tuple[StructuredMethod, ...] = ("json_schema", "function_calling")
 
 
 def make_llm(config: AgentConfig) -> ChatOpenAI:
-    """A client for the configured endpoint.
-
-    ``require_model`` is called here so a missing model fails at construction
-    with an actionable message, rather than at the first request part-way
-    through a long run.
-    """
+    """``require_model`` here so a missing model fails at construction, not at
+    the first request part-way through a long run."""
     return ChatOpenAI(
         base_url=config.base_url,
         api_key=config.api_key,  # type: ignore[arg-type]
@@ -56,28 +39,25 @@ def make_llm(config: AgentConfig) -> ChatOpenAI:
         temperature=config.temperature,
         timeout=config.request_timeout,
         max_retries=config.max_retries,
-        # The field is `max_tokens`, but it is aliased and the constructor only
-        # accepts the alias.
+        # Aliased: the field is `max_tokens`, the constructor takes the alias.
         max_completion_tokens=config.max_tokens,
     )
 
 
 class StructuredCaller:
-    """Calls the model and returns a validated pydantic object, or None.
+    """Returns a validated pydantic object, or None.
 
-    None rather than an exception: one chunk whose output will not parse must
-    not abort an inspection that is forty minutes in. The failure is counted and
-    reported instead.
+    None rather than raising: one unparseable chunk must not abort a run that is
+    forty minutes in. The failure is counted instead.
     """
 
     def __init__(self, config: AgentConfig, llm: ChatOpenAI | None = None) -> None:
         self.config = config
         self.llm = llm if llm is not None else make_llm(config)
-        #: Which method worked, remembered after the first success so later
-        #: calls do not re-pay for probing a path the endpoint rejects.
+        # Remembered after first success so later calls skip the probe.
         self._method: StructuredMethod | None = None
-        #: Cleared permanently the first time the endpoint refuses tool calling,
-        #: so one unsupported server does not produce one warning per finding.
+        # Cleared for the run on first refusal, so one unsupported server does
+        # not warn once per finding.
         self.tools_available = config.enable_tools
 
     def _runnable(self, schema: type[ModelT], method: StructuredMethod) -> Any:
@@ -90,11 +70,7 @@ class StructuredCaller:
         user: str,
         trace: RunnableConfig | None = None,
     ) -> ModelT | None:
-        """One structured call. Returns None if nothing usable came back.
-
-        ``trace`` names and tags the call for LangSmith; it is inert when
-        tracing is off.
-        """
+        """One structured call. ``trace`` is inert when tracing is off."""
         messages = [("system", system), ("human", user)]
         methods: tuple[StructuredMethod, ...] = (self._method,) if self._method else STRUCTURED_METHODS
 
@@ -102,10 +78,8 @@ class StructuredCaller:
             try:
                 result = self._runnable(schema, method).invoke(messages, config=trace)
             except LengthFinishReasonError:
-                # Guided decoding guarantees the shape, not termination: a model
-                # too small for the schema emits a valid prefix until it runs
-                # out of room. Worth naming, because it looks like a protocol
-                # failure and is not one.
+                # Guided decoding guarantees shape, not termination. Named
+                # because it looks like a protocol failure and is not one.
                 log.warning(
                     "%s did not finish a %s object within max_tokens -- the model is probably "
                     "too small for this schema. Try a larger one, or raise AGENT_MAX_TOKENS.",
@@ -116,9 +90,7 @@ class StructuredCaller:
             except Exception as err:  # noqa: BLE001 - any client/model failure is the same to us
                 log.warning("structured call failed via %s: %s", method, err)
                 if "tool-call-parser" in str(err):
-                    # vLLM rejects tool calling unless the server was started
-                    # with a parser for the model family, so this fallback is
-                    # unavailable rather than broken.
+                    # Unavailable rather than broken: vLLM needs a parser flag.
                     log.warning(
                         "the endpoint needs --tool-call-parser for the function_calling fallback; "
                         "json_schema is the supported path"
@@ -142,16 +114,12 @@ class StructuredCaller:
         budget: int,
         trace: RunnableConfig | None = None,
     ) -> str:
-        """Let the model call tools, and return a transcript of what came back.
+        """Let the model call tools; return a transcript.
 
-        Bounded and single-purpose: this collects material for a verdict, it
-        does not produce one. The verdict is a separate guided-decoding call, so
-        tool calling never has to also be responsible for schema conformance.
-
-        Returns "" when tools are unusable, which is a normal outcome -- vLLM
-        rejects tool calling unless the server was started with
-        ``--tool-call-parser`` for the model family. That degrades verification
-        to context-only rather than failing the run, and is reported once.
+        Collects material for a verdict, never produces one -- the verdict is a
+        separate guided-decoding call, so tool calling is not also responsible
+        for schema conformance. Returns "" when tools are unusable, which
+        degrades verification to context-only rather than failing the run.
         """
         if not self.tools_available or budget <= 0:
             return ""
@@ -194,7 +162,7 @@ class StructuredCaller:
         return "\n\n".join(transcript)
 
     def _disable_tools(self, err: object) -> None:
-        """Turn tools off for the rest of the run, once, with a reason."""
+        """Off for the rest of the run, once, with a reason."""
         if self.tools_available:
             self.tools_available = False
             log.warning(

@@ -1,21 +1,9 @@
-"""The tool surface, served over MCP.
+"""The tool surface, served over MCP. Protocol only -- every tool delegates to
+:mod:`agent.tools`, so there is one implementation.
 
-This module is protocol only. Every tool delegates straight to
-:mod:`agent.tools`, so there is one implementation and the MCP layer adds
-nothing that could drift from it.
-
-The agent connects to this server as a client, which means the tools it uses are
-exactly the tools any other MCP client gets -- Claude Code included. The cost is
-one subprocess hop per run, which is noise next to model latency.
-
-Configuration arrives by environment, because the server is launched as a
-subprocess by whoever wants it:
-
-``AGENT_RUN_ROOT``
-    The uploaded tree. Every filesystem tool is confined to it.
-``AGENT_INDEX_DB``
-    The chunk store, for the graph tools. Optional; without it those tools
-    report that the tree has not been indexed rather than failing.
+Configured by environment, since the server is launched as a subprocess:
+``AGENT_RUN_ROOT`` (the tree; every fs tool is confined to it) and
+``AGENT_INDEX_DB`` (optional; the graph tools need it).
 """
 
 from __future__ import annotations
@@ -64,11 +52,8 @@ def _dump(value: Any) -> str:
 
 
 def _guard(fn: Callable[[], str]) -> str:
-    """Turn a ToolError into a message the model can act on.
-
-    A raised exception becomes an MCP protocol error, which the model sees as a
-    dead tool. A returned string it can read and correct.
-    """
+    """A raised exception looks like a dead tool; a message the model can read,
+    it can correct."""
     try:
         return fn()
     except ToolError as err:
@@ -112,11 +97,8 @@ def search_text(pattern: str, glob: str = "") -> str:
 
 @mcp.tool()
 def find_callers(symbol: str) -> str:
-    """Which functions call this symbol.
-
-    Answered from the resolved link graph, not by searching, so the result is
-    exact rather than every textual mention of the name.
-    """
+    """Which functions call this symbol. From the resolved link graph, so exact
+    rather than every textual mention."""
 
     def run() -> str:
         store = _store()
@@ -164,12 +146,8 @@ def find_definition(symbol: str) -> str:
 
 @mcp.tool()
 def run_in_sandbox(command: list[str]) -> str:
-    """Run a command against the tree in an isolated sandbox.
-
-    Network is denied and the tree is mounted read-only. Use this to *test* a
-    claim -- compile a snippet, run it under a checker -- rather than to argue
-    about it. Returns exit code, stdout and stderr.
-    """
+    """Run a command against the tree, isolated: no network, tree read-only.
+    Use it to *test* a claim rather than argue about it."""
     config = AgentConfig()
 
     def run() -> str:

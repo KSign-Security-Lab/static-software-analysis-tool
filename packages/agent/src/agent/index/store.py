@@ -1,13 +1,8 @@
 """Per-run SQLite store: chunks, links, notes, findings.
 
-SQLite rather than an in-memory dict because a run has to survive the process.
-An inspection over a real tree takes minutes, the API serves it in the
-background, and a resumed or re-requested run must not re-pay for work already
-done. It is also what makes incremental re-inspection possible: chunk ids are
-content-derived, so a finding keyed by chunk id is still valid after an unrelated
-file changes.
-
-One file per run, at ``<run_dir>/index.db``.
+On disk rather than in memory because a run has to survive the process, and
+because it is what makes incremental re-inspection possible. One file per run,
+at ``<run_dir>/index.db``.
 """
 
 from __future__ import annotations
@@ -51,8 +46,7 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE INDEX IF NOT EXISTS links_src ON links(src);
 CREATE INDEX IF NOT EXISTS links_dst ON links(dst);
 
--- The cross-chunk metadata: what a callee's analysis concluded, for its
--- callers to read when their turn comes.
+-- Cross-chunk metadata: what a callee concluded, for its callers.
 CREATE TABLE IF NOT EXISTS notes (
     chunk_id TEXT PRIMARY KEY,
     note     TEXT NOT NULL
@@ -66,8 +60,7 @@ CREATE TABLE IF NOT EXISTS findings (
 );
 CREATE INDEX IF NOT EXISTS findings_chunk ON findings(chunk_id);
 
--- Records that a chunk was inspected even when it produced nothing, so a
--- re-run can tell "no findings" apart from "not yet analysed".
+-- So a re-run can tell "no findings" from "not yet analysed".
 CREATE TABLE IF NOT EXISTS inspected (
     chunk_id TEXT PRIMARY KEY
 );
@@ -256,6 +249,6 @@ class ChunkStore:
         return [json.loads(row["payload"]) for row in rows]
 
     def definition_of(self, symbol: str) -> list[Chunk]:
-        """Chunks defining a symbol. Backs the ``definition_of`` MCP tool."""
+        """Chunks defining a symbol."""
         rows = self.conn.execute("SELECT * FROM chunks ORDER BY file, start_line")
         return [chunk for chunk in map(_row_to_chunk, rows) if symbol in chunk.defines]

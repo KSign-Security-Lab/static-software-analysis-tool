@@ -1,23 +1,9 @@
-"""Turn a model-supplied ``anchor_text`` into a real source span.
+"""Resolve a model-supplied ``anchor_text`` to a real source span.
 
-Models get line numbers wrong, so no line number the model produces is trusted.
-Instead the model quotes the offending source text and this module finds it,
-deriving the true line and column from the match.
-
-They also do not quote cleanly. Observed from a real run against a served
-model, on a function whose finding was entirely correct::
-
-    anchor_text = '"snprintf(cmd, sizeof(cmd), \\"wget -O /tmp/fw %s\\", req->location);"'
-
--- wrapped in quotes, with the inner quotes backslash-escaped. A plain
-``anchor in source`` test rejects that, and rejecting it would have thrown away
-a true positive. Hence a ladder of progressively looser attempts rather than one
-exact match.
-
-The ladder is ordered strictest-first and stops at the first hit, so a finding
-that *can* be located exactly is located exactly. When every rung fails the
-finding is **dropped**: a marker on the wrong line is worse than no marker,
-because line-level precision is the entire point of the product.
+Line numbers from a model are not trusted; the model quotes the source and this
+finds it. Models do not quote cleanly, so matching walks a ladder from exact to
+whitespace-flexible, strictest first. If nothing matches the finding is dropped
+-- a marker on the wrong line is worse than none.
 """
 
 from __future__ import annotations
@@ -28,20 +14,15 @@ from dataclasses import dataclass
 from .index.chunk import Chunk
 from .schema import Span
 
-#: Line-number prefixes we add when prompting (``001| ``). Models sometimes copy
-#: them into the anchor despite being told not to.
+# Models copy the ``001| `` prompt prefix in despite being told not to.
 _LINE_PREFIX = re.compile(r"(?m)^\s*\d{1,6}\s*\|\s?")
 
 _WHITESPACE = re.compile(r"\s+")
 
-#: Wrapping quotes a model adds when it thinks it is quoting rather than copying.
 _QUOTE_PAIRS = (('"', '"'), ("'", "'"), ("`", "`"), ("```", "```"))
 
-#: ``\/`` is in here because models over-escape forward slashes the way some
-#: JSON encoders do -- a real run returned
-#: ``sprintf(cmd, "wget %s -O \/tmp\/fw.bin", url);`` for a line whose source
-#: says ``/tmp/fw.bin``. Unescaping it is lossless; leaving it out discarded a
-#: correct finding.
+# ``\/`` is here because models over-escape forward slashes like some JSON
+# encoders; a real run returned ``\/tmp\/fw.bin`` for ``/tmp/fw.bin``.
 _ESCAPES = (
     ("\\\\", "\\"),
     ('\\"', '"'),
@@ -51,15 +32,12 @@ _ESCAPES = (
     ("\\t", "\t"),
 )
 
-#: Punctuation a model appends when it "completes" a fragment into what looks
-#: like a statement. Observed: source ``sprintf(cmd, "wget %s", url);`` came
-#: back as ``"wget %s", url;`` -- the model dropped the call prefix and added a
-#: semicolon. Trimming these and retrying an *exact* match recovers it without
-#: loosening the match itself.
+# Appended when a model "completes" a fragment into a statement: source
+# ``sprintf(cmd, "wget %s", url);`` came back as ``"wget %s", url;``. Trimming
+# and retrying an *exact* match recovers it without loosening matching.
 _TRAILING_NOISE = ";,)}"
 
-#: A trimmed anchor shorter than this is too generic to identify a location.
-#: ``);`` trimmed down to ``)`` would match almost anywhere.
+# Below this a trimmed anchor matches almost anywhere.
 MIN_TRIMMED_CHARS = 8
 
 
@@ -68,8 +46,7 @@ class Located:
     """A successful match: where it was found and how hard it was to find."""
 
     span: Span
-    #: Which rung of the ladder matched. Recorded so a run can report how much
-    #: of its output needed loosening -- a sudden rise means prompt drift.
+    # Which rung matched; a rise in loose matches means prompt drift.
     strategy: str
 
 
@@ -108,8 +85,8 @@ def _candidates(anchor: str) -> list[tuple[str, str]]:
     if trimmed and trimmed != unescaped:
         forms.append(("trimmed", trimmed))
 
-    # Still an exact substring match, just with punctuation the model added
-    # removed. Bounded so this cannot degrade into "match any prefix".
+    # Still an exact match, minus punctuation the model added. Bounded so it
+    # cannot degrade into "match any prefix".
     candidate = (forms[-1][1]).strip()
     for _ in range(3):
         if len(candidate) <= MIN_TRIMMED_CHARS or candidate[-1] not in _TRAILING_NOISE:
@@ -148,12 +125,8 @@ def _span_from_offsets(file: str, text: str, start: int, end: int) -> Span:
 
 
 def _search_window(text: str, chunk: Chunk | None) -> tuple[int, int]:
-    """Character range of the file the anchor is allowed to match in.
-
-    Restricting to the chunk keeps a common token (``memcpy``) from matching in
-    an unrelated function fifty lines away. File chunks get the whole file,
-    which is correct -- that is their extent.
-    """
+    """Restricting to the chunk stops a common token like ``memcpy`` matching an
+    unrelated function. File chunks span the whole file, which is their extent."""
     if chunk is None:
         return 0, len(text)
     lines = text.splitlines(keepends=True)
@@ -165,11 +138,8 @@ def _search_window(text: str, chunk: Chunk | None) -> tuple[int, int]:
 
 
 def _flexible_pattern(anchor: str) -> re.Pattern[str] | None:
-    """Match the anchor's tokens with any whitespace between them.
-
-    This is the last rung: it accepts a model that re-wrapped a long call across
-    different line breaks, while still requiring every token in order.
-    """
+    """Last rung: accepts different line breaks, still requires every token in
+    order."""
     tokens = [re.escape(token) for token in _WHITESPACE.split(anchor.strip()) if token]
     if not tokens:
         return None
@@ -177,11 +147,10 @@ def _flexible_pattern(anchor: str) -> re.Pattern[str] | None:
 
 
 def locate_anchor(anchor: str, file: str, text: str, chunk: Chunk | None = None) -> Located | None:
-    """Find ``anchor`` in ``text``. Returns None if it is not really there.
+    """Find ``anchor`` in ``text``, or return None.
 
-    ``text`` is always read from disk. Chunk bodies are not searched directly:
-    a file chunk's body is a synthesized concatenation whose offsets do not map
-    onto the file (see ``Chunk.body_is_verbatim``).
+    ``text`` comes from disk, never from ``chunk.body``: a file chunk's body is
+    synthesized and its offsets do not map onto the file.
     """
     if not anchor.strip():
         return None
@@ -204,9 +173,8 @@ def locate_anchor(anchor: str, file: str, text: str, chunk: Chunk | None = None)
             start = window_start + match.start()
             return Located(_span_from_offsets(file, text, start, window_start + match.end()), "whitespace-flexible")
 
-    # Single-line anchors sometimes come back with a trailing comment or a
-    # truncated tail. If the first substantial token sequence occurs on exactly
-    # one line in the window, that line is the anchor.
+    # A single-line anchor occurring on exactly one line in the window is that
+    # line, even with a trailing comment or truncated tail.
     if "\n" not in loosest:
         condensed = _WHITESPACE.sub(" ", loosest).strip()
         hits = [

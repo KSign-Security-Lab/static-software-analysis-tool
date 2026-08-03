@@ -1,13 +1,6 @@
-"""The tool surface, as plain functions.
-
-These are the implementations. :mod:`agent.mcp.server` wraps them for MCP and
-adds nothing but the protocol; keeping the logic here means the tools can be
-tested directly, without a subprocess and a JSON-RPC handshake in the way.
-
-Every filesystem entry point takes the run root explicitly and pushes the path
-through :func:`agent.paths.resolve_within`, so confinement cannot be forgotten
-by a caller.
-"""
+"""The tool implementations, as plain functions, so they can be tested without a
+subprocess in the way. Every filesystem entry point takes the run root and goes
+through :func:`agent.paths.resolve_within`, so confinement cannot be skipped."""
 
 from __future__ import annotations
 
@@ -20,8 +13,7 @@ from typing import Any, Sequence
 from .index.store import ChunkStore
 from .paths import PathEscape, relative_to_root, resolve_within
 
-#: Cap on what one read returns. A tool that dumps a megabyte into the context
-#: window is worse than one that refuses.
+# A tool that dumps a megabyte into the context is worse than one that refuses.
 MAX_READ_CHARS = 100_000
 MAX_GREP_MATCHES = 200
 MAX_LIST_ENTRIES = 1_000
@@ -38,11 +30,7 @@ class ToolError(Exception):
 
 
 def read_file(root: Path, path: str, start_line: int | None = None, end_line: int | None = None) -> str:
-    """Read a file under the run root, optionally a line range.
-
-    Line numbers are 1-based and inclusive, matching every other coordinate in
-    this system.
-    """
+    """Read a file under the run root. Lines are 1-based and inclusive."""
     try:
         resolved = resolve_within(root, path)
     except PathEscape as err:
@@ -89,12 +77,8 @@ def glob_files(root: Path, pattern: str) -> list[str]:
 
 
 def grep(root: Path, pattern: str, glob: str | None = None) -> list[str]:
-    """Search the tree with ripgrep, falling back to a Python scan.
-
-    ripgrep is used when present because it is dramatically faster on a large
-    upload, but the fallback keeps the tool working on a host without it rather
-    than silently returning nothing.
-    """
+    """ripgrep when present, else a Python scan -- the fallback keeps the tool
+    working rather than silently returning nothing."""
     if shutil.which("rg"):
         command = ["rg", "--line-number", "--no-heading", "--color", "never", "-e", pattern]
         if glob:
@@ -150,7 +134,7 @@ def _describe(chunk: Any) -> dict[str, Any]:
 
 
 def callers_of(store: ChunkStore, symbol: str) -> list[dict[str, Any]]:
-    """Chunks that call a symbol. Exact, from the resolved link graph."""
+    """From the resolved link graph, so exact."""
     out: list[dict[str, Any]] = []
     for definition in store.definition_of(symbol):
         out.extend(_describe(chunk) for chunk in store.callers_of(definition.chunk_id))
@@ -196,12 +180,8 @@ def bwrap_available() -> bool:
 
 
 def _bwrap_command(root: Path, command: Sequence[str]) -> list[str]:
-    """Wrap a command in bubblewrap with no network and a read-only system.
-
-    The uploaded tree is bound read-only too. Verification needs to *run* code
-    to test a claim, not to modify the thing it is testing, and a writable
-    upload would let a compile step rewrite the source the findings point at.
-    """
+    """No network, read-only system, read-only tree. A writable upload would let
+    a compile step rewrite the source the findings point at."""
     return [
         "bwrap",
         "--unshare-all",  # no network, no IPC, no PID namespace sharing
@@ -250,12 +230,8 @@ def run_sandboxed(
     backend: str = "bwrap",
     timeout: int = 20,
 ) -> SandboxResult:
-    """Run a command against the uploaded tree, isolated.
-
-    Used by the verify node to test a claim rather than argue about it -- "this
-    buffer overflows" is checkable. Network is denied in every backend; a
-    verification step that phones out is not verification.
-    """
+    """Network is denied in every backend: a verification step that phones out
+    is not verification."""
     if not command:
         raise ToolError("no command given")
 

@@ -1,14 +1,7 @@
-"""Run-root confinement.
-
-Every path that reaches a filesystem tool passes through :func:`resolve_within`.
-The input is an uploaded archive of arbitrary content, so this is a real
-boundary rather than a formality: an entry named ``../../etc/passwd``, an
-absolute path, or a symlink pointing out of the tree must all be rejected.
-
-Resolution is done with ``Path.resolve()`` on the *combined* path and then
-checked against the resolved root, which is what makes symlink escapes fail --
-a lexical check on the string would pass them.
-"""
+"""Run-root confinement. The input is an arbitrary uploaded archive, so this is
+a real boundary. Resolution happens on the combined path and is then checked
+against the resolved root, which is what catches symlink escapes -- a lexical
+check on the string would pass them."""
 
 from __future__ import annotations
 
@@ -20,12 +13,8 @@ class PathEscape(ValueError):
 
 
 def resolve_within(root: Path, candidate: str) -> Path:
-    """Resolve ``candidate`` under ``root``, or raise :class:`PathEscape`.
-
-    Absolute inputs are rejected rather than silently reinterpreted: a tool
-    asked for ``/etc/passwd`` has been given a path it should not have, and
-    quietly serving ``<root>/etc/passwd`` would hide that.
-    """
+    """Resolve under ``root`` or raise. Absolute inputs are rejected rather than
+    reinterpreted -- quietly serving ``<root>/etc/passwd`` would hide the bug."""
     pure = PurePosixPath(candidate)
     if pure.is_absolute() or candidate.startswith("\\"):
         raise PathEscape(f"absolute paths are not allowed: {candidate!r}")

@@ -1,15 +1,7 @@
 """LangSmith tracing.
 
-LangChain traces itself when ``LANGSMITH_TRACING=true`` and an API key are in
-the environment; nothing here turns it on. What this adds is the part that makes
-a trace usable afterwards.
-
-A chunk-by-chunk run makes hundreds of model calls. Untagged they arrive as an
-undifferentiated column of "ChatOpenAI", and answering "why was this finding
-refuted" means opening spans until you find the right one. So every call is
-named for what it was doing and to what -- ``analyse:fetch_firmware``,
-``verify:CWE-78 download.c:28`` -- and carries the run id, chunk id, file and
-symbol as metadata, which are the fields you would want to filter on.
+LangChain exports the traces; this names and tags them. A run makes hundreds of
+calls, and untagged they are an undifferentiated column of "ChatOpenAI".
 """
 
 from __future__ import annotations
@@ -19,9 +11,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-#: Either enables tracing. LANGSMITH_* is current, LANGCHAIN_* is the older
-#: spelling; both are honoured by langsmith itself, so both are reported here
-#: rather than quietly preferring one.
+# LANGSMITH_* is current, LANGCHAIN_* the older spelling; langsmith honours both.
 TRACING_VARS = ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2")
 API_KEY_VARS = ("LANGSMITH_API_KEY", "LANGCHAIN_API_KEY")
 PROJECT_VARS = ("LANGSMITH_PROJECT", "LANGCHAIN_PROJECT")
@@ -43,13 +33,8 @@ def _truthy(value: str | None) -> bool:
 
 
 def refresh_env_cache() -> None:
-    """Make langsmith re-read the environment.
-
-    ``langsmith.utils.get_env_var`` is ``functools.lru_cache``d, so langsmith
-    reads each variable once per process and never again. Anything setting a
-    LANGSMITH_* variable from Python -- as :func:`apply_default_project` does --
-    has to clear that cache or the change is silently ignored.
-    """
+    """``langsmith.utils.get_env_var`` is lru_cached, so a LANGSMITH_* variable
+    set from Python after langsmith is imported is otherwise ignored."""
     try:
         from langsmith.utils import get_env_var
 
@@ -61,22 +46,14 @@ def refresh_env_cache() -> None:
 
 
 def is_enabled() -> bool:
-    """True if tracing is switched on in the environment.
-
-    Read directly rather than delegated to ``langsmith.tracing_is_enabled``,
-    which answers from that cache and so reports whatever was true when
-    langsmith was first imported. For a health endpoint the useful answer is
-    what is configured now.
-    """
+    """Read directly rather than via ``langsmith.tracing_is_enabled``, which
+    answers from its cache. A health endpoint wants what is configured now."""
     return any(_truthy(os.getenv(name)) for name in TRACING_VARS)
 
 
 def _effective() -> bool:
-    """What langsmith itself currently believes, cache and all.
-
-    Differs from :func:`is_enabled` exactly when the environment was set too
-    late, which is the failure worth reporting.
-    """
+    """What langsmith believes, cache and all. Differs from :func:`is_enabled`
+    exactly when the environment was set too late."""
     try:
         from langsmith.utils import tracing_is_enabled
     except ImportError:  # pragma: no cover - langsmith ships with langchain
@@ -85,12 +62,8 @@ def _effective() -> bool:
 
 
 def status() -> dict[str, Any]:
-    """What tracing is doing, for ``/agent/health`` and the CLI.
-
-    Reports the *reason* it is off rather than just the fact, because "on but
-    the key is missing" and "not switched on" need different fixes and look
-    identical from the outside.
-    """
+    """Reports *why* it is off, not just that it is: "on but no key" and "not
+    switched on" need different fixes and look identical otherwise."""
     enabled = is_enabled()
     has_key = _first(API_KEY_VARS) is not None
     detail: str | None = None
@@ -113,11 +86,7 @@ def status() -> dict[str, Any]:
 
 
 def apply_default_project() -> None:
-    """Group this tool's traces under one project unless told otherwise.
-
-    Without it, runs land in LangSmith's ``default`` project alongside anything
-    else on the machine.
-    """
+    """Otherwise runs land in LangSmith's ``default`` project."""
     if _first(PROJECT_VARS) is None:
         os.environ[PROJECT_VARS[0]] = DEFAULT_PROJECT
         # Without this the assignment above does nothing: langsmith has already
@@ -134,12 +103,8 @@ def call_config(
     symbol: str | None = None,
     subject: str | None = None,
 ) -> RunnableConfig:
-    """A LangChain ``config`` that names and tags one model call.
-
-    ``step`` is ``analyse``, ``gather`` or ``verify``. ``subject`` is whatever
-    identifies the thing being worked on, and lands in the span name so the
-    trace list is readable without opening anything.
-    """
+    """Names and tags one model call. ``step`` is analyse/gather/verify;
+    ``subject`` lands in the span name so the trace list reads at a glance."""
     name = f"{step}:{subject}" if subject else step
     metadata = {
         key: value

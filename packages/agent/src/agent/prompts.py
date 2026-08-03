@@ -1,14 +1,7 @@
-"""Prompts, kept together so they can be read as a set.
+"""Prompts, together so they read as a set.
 
-Two properties are load-bearing and appear in both prompts.
-
-**Anchors, not line numbers.** The model quotes the offending source; the server
-finds it. Line numbers a model produces are unreliable, and a marker on the
-wrong line is worse than no marker.
-
-**Verification defaults against the finding.** "Find vulnerabilities" produces
-confident fiction. The refute prompt asks for the opposite conclusion and treats
-uncertainty as refutation, which is what removes it.
+Two properties are load-bearing: the model quotes source instead of giving line
+numbers, and verification defaults against the finding.
 """
 
 from __future__ import annotations
@@ -94,7 +87,7 @@ verdict here; that comes next.
 
 
 def gather_user(finding: Finding, pack: ContextPack) -> str:
-    """Ask what is missing before a verdict, with tools available."""
+    """What is missing before a verdict, with tools available."""
     return "\n\n".join(
         [
             pack.text,

@@ -1,10 +1,8 @@
-"""Resolve chunk references into edges between chunks.
+"""Resolve chunk references into edges.
 
-This is symbol-table work, not search: a chunk's ``references`` entry that
-matches another chunk's ``defines`` entry *is* a call edge. No embeddings, no
-model, no guessing. Where it cannot resolve a name -- function pointers,
-macro-generated calls, dynamic dispatch -- it emits nothing and leaves the
-fallback to :mod:`agent.rag`.
+Symbol-table work, not search: a ``references`` entry matching another chunk's
+``defines`` *is* a call edge. What it cannot resolve -- function pointers,
+macro-generated calls -- it leaves alone rather than guessing.
 """
 
 from __future__ import annotations
@@ -20,9 +18,8 @@ CALLS = "calls"
 USES_TYPE = "uses_type"
 FILE_DEPENDS = "file_depends"
 
-#: A name defined in this many chunks is a common overload or a stub repeated
-#: per translation unit. Linking to all of them buries the real edge, so the
-#: reference is dropped instead.
+# Beyond this the name is an overload or a per-TU stub; linking to all of them
+# buries the real edge.
 MAX_AMBIGUITY = 4
 
 
@@ -45,13 +42,8 @@ def _by_defined_symbol(chunks: Sequence[Chunk]) -> dict[str, list[Chunk]]:
 
 
 def _pick(candidates: Sequence[Chunk], source: Chunk) -> list[Chunk]:
-    """Choose which definitions a reference resolves to.
-
-    Same-file definitions win outright: a static helper shadows an identically
-    named function elsewhere in the tree, and that is the common case in C.
-    Failing that, an unambiguous global match is taken, and a name defined all
-    over the tree is dropped rather than linked everywhere.
-    """
+    """Same-file wins: a static helper shadows an identically named function
+    elsewhere, which is the common case in C."""
     same_file = [c for c in candidates if c.file == source.file and c.chunk_id != source.chunk_id]
     if same_file:
         return same_file[:1]
@@ -62,11 +54,7 @@ def _pick(candidates: Sequence[Chunk], source: Chunk) -> list[Chunk]:
 
 
 def _include_target(include: str) -> str | None:
-    """The quoted path from an include/import line, if it has one.
-
-    Only local includes (``#include "x.h"``) are resolved. System headers are
-    not in the uploaded tree, so there is nothing to link them to.
-    """
+    """Only local includes; system headers are not in the tree."""
     if '"' in include:
         parts = include.split('"')
         if len(parts) >= 2 and parts[1]:
