@@ -28,7 +28,14 @@ from ..index.chunk import Chunk
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..locate import locate_anchor
-from ..prompts import ANALYSE_SYSTEM, VERIFY_SYSTEM, analyse_user, verify_user
+from ..prompts import (
+    ANALYSE_SYSTEM,
+    GATHER_SYSTEM,
+    VERIFY_SYSTEM,
+    analyse_user,
+    gather_user,
+    verify_user,
+)
 from ..schema import (
     CandidateFinding,
     ChunkAnalysis,
@@ -73,6 +80,10 @@ class NodeDeps:
     caller: StructuredCaller
     root: Path
     emit: ProgressSink = _noop
+    #: The agent's MCP client, when the tool surface came up. None means
+    #: verification runs from context alone, which is a supported mode rather
+    #: than a degraded one -- most claims are decidable from the context pack.
+    tools: Any = None
 
 
 #: A title is a chip in the UI and a marker message; a paragraph in it wraps the
@@ -268,7 +279,20 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             if pack is None:
                 pack = build_context(deps.store, chunk, deps.config)
 
-            verdict = deps.caller.call(Verdict, VERIFY_SYSTEM, verify_user(finding, pack))
+            # Check the claim before ruling on it: read a callee, confirm the
+            # input is really attacker controlled, or compile something in the
+            # sandbox. Empty when tools are unavailable, which just means the
+            # verdict is made from context.
+            gathered = ""
+            if deps.tools is not None:
+                gathered = deps.caller.gather(
+                    GATHER_SYSTEM,
+                    gather_user(finding, pack),
+                    deps.tools,
+                    deps.config.max_tool_calls,
+                )
+
+            verdict = deps.caller.call(Verdict, VERIFY_SYSTEM, verify_user(finding, pack, gathered))
             if verdict is None:
                 # No verdict is not a pass. Uncertainty counts against.
                 stats["refuted"] = stats.get("refuted", 0) + 1

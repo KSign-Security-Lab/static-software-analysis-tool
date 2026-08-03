@@ -59,6 +59,15 @@ class ScriptedCaller:
         self.verdict = verdict if verdict is not None else Verdict(refuted=False, reason="holds", confidence=0.9)
         self.default_analysis = default_analysis or ChunkAnalysis()
         self.prompts: list[tuple[str, str]] = []
+        self.gather_calls: list[tuple[Any, int]] = []
+
+    #: Set by tests that want the gather step to return something.
+    gathered: str = ""
+
+    def gather(self, system: str, user: str, session: Any, budget: int) -> str:
+        self.prompts.append(("gather", user))
+        self.gather_calls.append((session, budget))
+        return self.gathered
 
     def call(self, schema: type[BaseModel], system: str, user: str) -> Any:
         self.prompts.append((schema.__name__, user))
@@ -97,15 +106,37 @@ def indexed(tmp_path: Path) -> tuple[Path, ChunkStore]:
     return root, store
 
 
-def _run(root: Path, store: ChunkStore, caller: ScriptedCaller, **config_kwargs: Any):
-    config = AgentConfig(model="fake", **config_kwargs)
+def _run(
+    root: Path,
+    store: ChunkStore,
+    caller: ScriptedCaller,
+    tools: Any = None,
+    **config_kwargs: Any,
+):
+    # enable_tools defaults False here so the suite never spawns an MCP
+    # subprocess unless a test is specifically about tools.
+    config = AgentConfig(model="fake", enable_tools=False, **config_kwargs)
     return run_inspection(
         run_id="test",
         root=root,
         store=store,
         config=config,
         caller=caller,  # type: ignore[arg-type]
+        tools=tools,
     )
+
+
+class FakeToolSession:
+    """Stands in for the MCP session; records what verification asked for."""
+
+    def __init__(self, replies: dict[str, str] | None = None) -> None:
+        self.replies = replies or {}
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.tools: list[Any] = []
+
+    def call(self, name: str, arguments: dict[str, Any]) -> str:
+        self.calls.append((name, arguments))
+        return self.replies.get(name, "")
 
 
 def test_a_located_and_unrefuted_finding_reaches_the_report(indexed) -> None:
@@ -331,6 +362,73 @@ def test_an_overlong_title_is_bounded(indexed) -> None:
 
     assert len(report.findings[0].title) <= 120
     store.close()
+
+
+def test_verification_gathers_evidence_with_tools_before_ruling(indexed) -> None:
+    """A claim gets checked, not just argued about.
+
+    Whether ``run_command``'s argument is attacker controlled is decided in its
+    caller, so a verdict made from the chunk alone is a guess. With tools the
+    verifier can go and look.
+    """
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    caller.gathered = "$ find_callers(run_command)\nhandler passes taint_source() straight in"
+    session = FakeToolSession()
+
+    report = _run(root, store, caller, tools=session)
+
+    assert caller.gather_calls, "verification never offered the tools"
+    _, budget = caller.gather_calls[0]
+    assert budget == AgentConfig().max_tool_calls
+
+    verdict_prompts = caller.prompts_for("Verdict")
+    assert verdict_prompts, "no verdict was requested"
+    assert "WHAT THE TOOLS RETURNED" in verdict_prompts[0]
+    assert "handler passes taint_source" in verdict_prompts[0]
+    assert report.findings
+    store.close()
+
+
+def test_verification_works_without_tools(indexed) -> None:
+    """Context-only is a supported mode, not a degraded one -- most claims are
+    decidable from the pack."""
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+
+    report = _run(root, store, caller, tools=None)
+
+    assert caller.gather_calls == []
+    assert len(report.findings) == 1
+    assert "WHAT THE TOOLS RETURNED" not in caller.prompts_for("Verdict")[0]
+    store.close()
+
+
+def test_an_empty_gather_does_not_pollute_the_verdict_prompt(indexed) -> None:
+    """If the model decides it needs nothing, the prompt should not gain an
+    empty section implying it looked and found nothing."""
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    caller.gathered = "   "
+    session = FakeToolSession()
+
+    _run(root, store, caller, tools=session)
+
+    assert "WHAT THE TOOLS RETURNED" not in caller.prompts_for("Verdict")[0]
+    store.close()
+
+
+def test_tools_are_offered_only_during_verification(indexed) -> None:
+    """Analysis is deterministic-context by design; letting it browse would make
+    two runs over the same tree incomparable."""
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    session = FakeToolSession()
+
+    _run(root, store, caller, tools=session)
+
+    assert len(caller.gather_calls) == 1, "gather should run once per finding, not per chunk"
+    assert len(caller.prompts_for("ChunkAnalysis")) > 1, "analysis still ran for every chunk"
 
 
 def test_findings_are_deduplicated_by_stable_id(indexed) -> None:

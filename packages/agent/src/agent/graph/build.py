@@ -19,6 +19,7 @@ from langgraph.graph import END, START, StateGraph
 from ..config import AgentConfig
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
+from ..mcp.client import VERIFY_TOOLS, ToolSession, open_session
 from ..schema import Finding, Report, RunStats
 from .nodes import NodeDeps, ProgressSink, has_work, make_nodes
 from .state import InspectionState, initial_state
@@ -61,6 +62,7 @@ def run_inspection(
     caller: StructuredCaller | None = None,
     emit: ProgressSink | None = None,
     index_stats: dict[str, int] | None = None,
+    tools: ToolSession | None = None,
 ) -> Report:
     """Inspect an already-indexed tree and return the report.
 
@@ -74,16 +76,34 @@ def run_inspection(
         caller=caller if caller is not None else StructuredCaller(config),
         root=root,
         emit=emit if emit is not None else (lambda event, payload: None),
+        tools=tools,
     )
+
+    # The agent consumes its own MCP server. Opened for the whole run so the
+    # subprocess and its imports are paid for once, not per finding. Absent
+    # tools mean verification runs from context, which is a supported mode.
+    owned_session: ToolSession | None = None
+    if tools is None and config.enable_tools:
+        owned_session = open_session(
+            run_root=root,
+            index_db=store.path,
+            sandbox=config.sandbox,
+            allowed=VERIFY_TOOLS,
+        )
+        deps.tools = owned_session
 
     order = store.order()
     state = initial_state(order, len(order), index_stats)
 
-    app = build_graph(deps)
-    final: dict[str, Any] = app.invoke(
-        state,
-        config={"recursion_limit": len(order) * NODE_VISITS_PER_CHUNK + RECURSION_HEADROOM},
-    )
+    try:
+        app = build_graph(deps)
+        final: dict[str, Any] = app.invoke(
+            state,
+            config={"recursion_limit": len(order) * NODE_VISITS_PER_CHUNK + RECURSION_HEADROOM},
+        )
+    finally:
+        if owned_session is not None:
+            owned_session.close()
 
     stats = RunStats(**{k: v for k, v in final.get("stats", {}).items() if k in RunStats.model_fields})
     findings = [Finding.model_validate(payload) for payload in store.findings()]

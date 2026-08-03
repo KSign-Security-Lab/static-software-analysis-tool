@@ -18,9 +18,11 @@ a refactor.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Literal, TypeVar
 
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from openai import LengthFinishReasonError
 from pydantic import BaseModel
@@ -73,6 +75,9 @@ class StructuredCaller:
         #: Which method worked, remembered after the first success so later
         #: calls do not re-pay for probing a path the endpoint rejects.
         self._method: StructuredMethod | None = None
+        #: Cleared permanently the first time the endpoint refuses tool calling,
+        #: so one unsupported server does not produce one warning per finding.
+        self.tools_available = config.enable_tools
 
     def _runnable(self, schema: type[ModelT], method: StructuredMethod) -> Any:
         return self.llm.with_structured_output(schema, method=method)
@@ -117,3 +122,65 @@ class StructuredCaller:
         if self._method is not None:
             self._method = None
         return None
+
+    def gather(self, system: str, user: str, session: Any, budget: int) -> str:
+        """Let the model call tools, and return a transcript of what came back.
+
+        Bounded and single-purpose: this collects material for a verdict, it
+        does not produce one. The verdict is a separate guided-decoding call, so
+        tool calling never has to also be responsible for schema conformance.
+
+        Returns "" when tools are unusable, which is a normal outcome -- vLLM
+        rejects tool calling unless the server was started with
+        ``--tool-call-parser`` for the model family. That degrades verification
+        to context-only rather than failing the run, and is reported once.
+        """
+        if not self.tools_available or budget <= 0:
+            return ""
+
+        tools = session.tools
+        if not tools:
+            return ""
+
+        try:
+            bound = self.llm.bind_tools(tools)
+        except Exception as err:  # noqa: BLE001
+            self._disable_tools(err)
+            return ""
+
+        messages: list[Any] = [SystemMessage(content=system), HumanMessage(content=user)]
+        transcript: list[str] = []
+
+        for _ in range(budget):
+            try:
+                reply = bound.invoke(messages)
+            except Exception as err:  # noqa: BLE001
+                if "tool-call-parser" in str(err) or "tool_choice" in str(err):
+                    self._disable_tools(err)
+                else:
+                    log.warning("tool-gathering call failed: %s", err)
+                break
+
+            calls = getattr(reply, "tool_calls", None) or []
+            if not calls:
+                break
+
+            messages.append(reply)
+            for call in calls:
+                name = call.get("name", "")
+                args = call.get("args", {}) or {}
+                result = session.call(name, args)
+                transcript.append(f"$ {name}({json.dumps(args, default=str)[:200]})\n{result[:4000]}")
+                messages.append(ToolMessage(content=result[:4000], tool_call_id=call.get("id", name)))
+
+        return "\n\n".join(transcript)
+
+    def _disable_tools(self, err: object) -> None:
+        """Turn tools off for the rest of the run, once, with a reason."""
+        if self.tools_available:
+            self.tools_available = False
+            log.warning(
+                "tool calling is unavailable on this endpoint, verifying from context only. "
+                "vLLM needs --tool-call-parser for the model family. (%s)",
+                str(err)[:200],
+            )

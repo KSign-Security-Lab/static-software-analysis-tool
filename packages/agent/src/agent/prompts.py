@@ -78,7 +78,36 @@ def analyse_user(pack: ContextPack) -> str:
     return "\n\n".join(parts)
 
 
-def verify_user(finding: Finding, pack: ContextPack) -> str:
+GATHER_SYSTEM = """\
+You are checking one specific claim about one piece of code, before ruling on it.
+
+Use the tools to settle questions the code in front of you cannot answer:
+- read_source / find_definition: what a called function actually does
+- find_callers: whether the input really is attacker controlled
+- search_text: whether a check exists elsewhere
+- run_in_sandbox: compile or run something to test the claim directly
+
+Make only the calls that would change the answer. If the material you already
+have is enough to rule, make no calls and say so in one sentence. Do not state a
+verdict here; that comes next.
+"""
+
+
+def gather_user(finding: Finding, pack: ContextPack) -> str:
+    """Ask what is missing before a verdict, with tools available."""
+    return "\n\n".join(
+        [
+            pack.text,
+            "=== CLAIM TO CHECK ===",
+            f"{finding.title} ({finding.cwe or 'no CWE'}) at {finding.primary.file}:{finding.primary.start_line}",
+            f"Anchor: {finding.primary.excerpt.strip()}",
+            f"Explanation: {finding.explanation}",
+            "What, if anything, do you need to look up to decide whether this holds?",
+        ]
+    )
+
+
+def verify_user(finding: Finding, pack: ContextPack, gathered: str = "") -> str:
     """The refute-call payload for one candidate finding."""
     evidence = "\n".join(
         f"- [{item.role}] {item.span.file}:{item.span.start_line}: {item.span.excerpt.strip()} -- {item.note}"
@@ -95,6 +124,7 @@ def verify_user(finding: Finding, pack: ContextPack) -> str:
             f"Anchor: {finding.primary.excerpt.strip()}",
             f"Explanation: {finding.explanation}",
             f"Evidence:\n{evidence}" if evidence else "Evidence: none given",
-            "Does this claim hold up against the code above? Default to refuted if uncertain.",
+            *(["=== WHAT THE TOOLS RETURNED ===", gathered] if gathered.strip() else []),
+            "Does this claim hold up against the material above? Default to refuted if uncertain.",
         ]
     )

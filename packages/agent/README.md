@@ -161,10 +161,15 @@ VULNERABLE or SAFE in its own header comment. It is the CLI's default target,
 so a first run has something to find.
 
 ```bash
-pytest -q                                        # 136 tests, no model needed
+pytest -q                                        # whole suite, no model needed
 agent index packages/agent/tests/fixtures/sample # deterministic; 5 files, 13 chunks
 agent                                            # prompts, defaults to that tree
 ```
+
+`pytest` covers the index, the schema, anchor location, the tool surface, a
+real MCP subprocess round trip, the inspection loop against a scripted model,
+and the HTTP API. Nothing in it calls a real model, so it is fast and
+deterministic; `agent index` proves chunking and ordering on real source.
 
 It is built as an eval set rather than a demo: each vulnerability has a guarded
 twin with the same shape.
@@ -210,9 +215,36 @@ Open <http://localhost:3000/inspect>, upload a zip or a set of files, and press
 explanation, evidence and proposed fix. The `AGENT_*` variables have to be set
 in the shell that starts the API, and the banner says so if they are not.
 
-### MCP server on its own
+### Tools during verification
 
-The tool surface can be driven without the agent, e.g. from the MCP Inspector:
+The agent is a client of its own MCP server. The tool surface is defined once,
+served over stdio, and the agent connects to it exactly as Claude Code or the
+MCP Inspector would — there is no second, in-process copy that could drift.
+
+`verify` uses it. Before ruling on a claim the model may look things up:
+`find_callers` to see whether the input really is attacker controlled,
+`read_source` or `find_definition` for what a callee actually does,
+`run_in_sandbox` to compile or run something and settle the question directly.
+Only that subset is offered; verification is about one claim, and the full
+surface invites wandering.
+
+`analyse` gets no tools, deliberately. Its context is assembled from the index,
+so two runs over the same tree are comparable. Letting it browse would make them
+not be.
+
+Tool calling needs server support: vLLM rejects it unless started with
+`--tool-call-parser` for the model family.
+
+```bash
+scripts/vllm.sh start --model ... --tool-call-parser hermes
+```
+
+Without it the run verifies from context alone, says so once, and continues.
+That is a supported mode, not a broken one — most claims are decidable from the
+context pack. Set `AGENT_TOOLS=0` to force it off.
+
+The server can still be driven on its own, which is useful when a tool itself is
+misbehaving:
 
 ```bash
 AGENT_RUN_ROOT=path/to/src agent-mcp        # stdio
@@ -229,6 +261,8 @@ AGENT_RUN_ROOT=path/to/src agent-mcp        # stdio
 | `AGENT_CONTEXT_CHARS` | `24000` | Context-pack budget per chunk |
 | `AGENT_MAX_TOKENS` | `4096` | Ceiling on one response; bounds a model that cannot finish the schema |
 | `AGENT_MAX_VERIFY_PER_CHUNK` | `8` | Cap on refute calls per chunk |
+| `AGENT_TOOLS` | `1` | Let verification call MCP tools; `0` disables |
+| `AGENT_MAX_TOOL_CALLS` | `4` | Tool calls allowed per finding |
 
 ## Layout
 

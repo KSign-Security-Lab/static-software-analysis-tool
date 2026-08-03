@@ -88,6 +88,15 @@ class AgentConfig:
     #: this turns a slow context-exhausting hang into a fast, legible failure.
     max_tokens: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOKENS", 4096))
 
+    #: Let the verify step call MCP tools to check a claim before ruling on it.
+    #: Requires the endpoint to support tool calling -- vLLM needs
+    #: ``--tool-call-parser`` for the model family. When it does not, the run
+    #: falls back to context-only verification and says so once.
+    enable_tools: bool = field(default_factory=lambda: os.getenv("AGENT_TOOLS", "1") != "0")
+    #: Tool calls allowed per finding. Verification is about one claim; an
+    #: unbounded budget invites the model to wander through the tree.
+    max_tool_calls: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOOL_CALLS", 4))
+
     #: "bwrap", "docker" or "none".
     sandbox: str = field(default_factory=lambda: os.getenv(ENV_SANDBOX, "bwrap"))
     sandbox_timeout: int = field(default_factory=lambda: _env_int("AGENT_SANDBOX_TIMEOUT", 20))
