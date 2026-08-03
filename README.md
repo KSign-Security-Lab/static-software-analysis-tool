@@ -106,6 +106,16 @@ return the SSAT pipeline's own artifacts.
 Start a model server, then run the agent:
 
 ```bash
+scripts/run.sh up                # vLLM + API + web, one terminal, prefixed logs
+```
+
+`up` starts the model server if needed, reads the served model id back from it
+so `AGENT_MODEL` is never guessed, and runs the API and web together. Ctrl-C
+stops the API and web and leaves vLLM running; `scripts/run.sh down` stops that.
+
+Or piece by piece:
+
+```bash
 scripts/vllm.sh                  # interactive: pick a model and a GPU layout
 agent                            # interactive: pick an endpoint, model and target
 ```

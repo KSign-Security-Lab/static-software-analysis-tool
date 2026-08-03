@@ -94,5 +94,10 @@ web = "cd web && npm run dev"
 # Production build of the web app
 build = "cd web && npm run build"
 
+# Start everything at once: vLLM, the API and the web UI, in one terminal
+up = "scripts/up.sh"
+# Stop the vLLM container (Ctrl-C on `up` already stops the API and web)
+down = "scripts/vllm.sh stop"
+
 # End to end: start a server if needed, then inspect the sample tree
 demo = "scripts/vllm.sh status >/dev/null 2>&1 || scripts/vllm.sh; .venv/bin/agent inspect -v packages/agent/tests/fixtures/sample"

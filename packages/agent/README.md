@@ -57,6 +57,18 @@ it is recovered without loosening the match.
 ## Quickstart
 
 ```bash
+scripts/run.sh up    # everything at once: vLLM, the API and the web UI
+```
+
+That starts the model server if it is not already up, reads the served model id
+back from it, exports `AGENT_BASE_URL`/`AGENT_MODEL` so the API inherits them,
+and runs the API and web dev server in one terminal with prefixed logs. Ctrl-C
+stops the API and web; vLLM stays up, because reloading weights costs minutes.
+`scripts/run.sh down` stops it.
+
+Piece by piece instead:
+
+```bash
 scripts/vllm.sh      # start a model server: pick a model and a GPU layout
 agent                # run an inspection: pick an endpoint, model and target
 ```
