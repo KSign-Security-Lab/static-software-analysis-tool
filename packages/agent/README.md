@@ -61,6 +61,10 @@ scripts/vllm.sh      # start a model server: pick a model and a GPU layout
 agent                # run an inspection: pick an endpoint, model and target
 ```
 
+Both are also tasks in `[tool.tasks]` in the root `pyproject.toml`, runnable as
+`scripts/run.sh vllm` and `scripts/run.sh agent`. `scripts/run.sh demo` does
+both against the sample tree.
+
 `scripts/vllm.sh` runs vLLM in Docker. The host install is not used: it is
 vllm 0.17 against torch 2.4, which predates `torch.library.infer_schema`, and
 this workspace is on Python 3.14, which vLLM does not publish wheels for. The

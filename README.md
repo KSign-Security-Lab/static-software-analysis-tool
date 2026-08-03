@@ -139,9 +139,9 @@ Model choice, GPU sizing, port conflicts and how to read the output are in
 
 ## Development
 
-`scripts/run.sh` lists every task in the repo — the equivalent of
-`package.json` scripts for the parts that are not npm. Plain bash, so it needs
-nothing installed that is not already here.
+Tasks are declared in **`[tool.tasks]` in `pyproject.toml`** — the
+`package.json` scripts block for the parts of this repo that are not npm. Open
+it to read the list; `scripts/run.sh` only dispatches, so the two cannot drift.
 
 ```bash
 scripts/run.sh              # the list
