@@ -36,6 +36,7 @@ from ..prompts import (
     gather_user,
     verify_user,
 )
+from ..tracing import call_config
 from ..schema import (
     CandidateFinding,
     ChunkAnalysis,
@@ -80,6 +81,8 @@ class NodeDeps:
     caller: StructuredCaller
     root: Path
     emit: ProgressSink = _noop
+    #: Only used to tag traces, so a LangSmith run maps back to a report.
+    run_id: str = ""
     #: The agent's MCP client, when the tool surface came up. None means
     #: verification runs from context alone, which is a supported mode rather
     #: than a degraded one -- most claims are decidable from the context pack.
@@ -97,6 +100,12 @@ def _clean_title(raw: str) -> str:
     if len(collapsed) <= MAX_TITLE_CHARS:
         return collapsed or "Unnamed finding"
     return collapsed[: MAX_TITLE_CHARS - 1].rstrip() + "…"
+
+
+def _finding_subject(finding: Finding) -> str:
+    """Short label for a finding, for the trace span name."""
+    where = f"{finding.primary.file}:{finding.primary.start_line}"
+    return f"{finding.cwe} {where}" if finding.cwe else where
 
 
 def _file_text(root: Path, relative: str) -> str | None:
@@ -217,7 +226,19 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             return {"candidates": []}
 
         pack = build_context(deps.store, chunk, deps.config)
-        result = deps.caller.call(ChunkAnalysis, ANALYSE_SYSTEM, analyse_user(pack))
+        result = deps.caller.call(
+            ChunkAnalysis,
+            ANALYSE_SYSTEM,
+            analyse_user(pack),
+            trace=call_config(
+                step="analyse",
+                run_id=deps.run_id,
+                chunk_id=chunk.chunk_id,
+                file=chunk.file,
+                symbol=chunk.symbol,
+                subject=chunk.symbol,
+            ),
+        )
         if result is None:
             log.warning("analyse produced nothing usable for %s", chunk.symbol)
             return {"candidates": []}
@@ -290,9 +311,29 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     gather_user(finding, pack),
                     deps.tools,
                     deps.config.max_tool_calls,
+                    trace=call_config(
+                        step="gather",
+                        run_id=deps.run_id,
+                        chunk_id=chunk.chunk_id,
+                        file=chunk.file,
+                        symbol=chunk.symbol,
+                        subject=_finding_subject(finding),
+                    ),
                 )
 
-            verdict = deps.caller.call(Verdict, VERIFY_SYSTEM, verify_user(finding, pack, gathered))
+            verdict = deps.caller.call(
+                Verdict,
+                VERIFY_SYSTEM,
+                verify_user(finding, pack, gathered),
+                trace=call_config(
+                    step="verify",
+                    run_id=deps.run_id,
+                    chunk_id=chunk.chunk_id,
+                    file=chunk.file,
+                    symbol=chunk.symbol,
+                    subject=_finding_subject(finding),
+                ),
+            )
             if verdict is None:
                 # No verdict is not a pass. Uncertainty counts against.
                 stats["refuted"] = stats.get("refuted", 0) + 1

@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from agent.config import AgentConfig
 from agent.endpoint import list_models
+from agent.tracing import status as tracing_status
 from agent.graph.build import run_inspection
 from agent.index import build_index
 from agent.paths import PathEscape, resolve_within
@@ -119,7 +120,9 @@ def agent_health(probe: bool = False) -> Dict[str, Any]:
         "base_url": config.base_url,
         "model": config.model or None,
         "sandbox": config.sandbox,
+        "tools_enabled": config.enable_tools,
         "runs_dir": str(config.runs_dir),
+        "tracing": tracing_status(),
     }
     if probe:
         served = list_models(config.base_url)

@@ -21,6 +21,7 @@ from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..mcp.client import VERIFY_TOOLS, ToolSession, open_session
 from ..schema import Finding, Report, RunStats
+from ..tracing import apply_default_project
 from .nodes import NodeDeps, ProgressSink, has_work, make_nodes
 from .state import InspectionState, initial_state
 
@@ -76,8 +77,14 @@ def run_inspection(
         caller=caller if caller is not None else StructuredCaller(config),
         root=root,
         emit=emit if emit is not None else (lambda event, payload: None),
+        run_id=run_id,
         tools=tools,
     )
+
+    # Group traces under one project so a run does not land in LangSmith's
+    # `default` alongside everything else on the machine. No-op when tracing is
+    # off, and never overrides an explicit LANGSMITH_PROJECT.
+    apply_default_project()
 
     # The agent consumes its own MCP server. Opened for the whole run so the
     # subprocess and its imports are paid for once, not per finding. Absent

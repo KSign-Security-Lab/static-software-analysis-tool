@@ -186,6 +186,37 @@ the guarded half is what separates a useful analyser from one that flags every
 `system()` it sees. Report the two counts separately — a single accuracy number
 hides which one you are failing.
 
+### LangSmith
+
+Tracing is LangChain's; the agent adds the part that makes a trace usable.
+
+```bash
+export LANGSMITH_TRACING=true
+export LANGSMITH_API_KEY=ls-...
+export LANGSMITH_PROJECT=ssat-agent      # optional; this is the default
+```
+
+`agent endpoints` reports whether it is on, which project, and — when it is on
+but no key is set — that traces are going nowhere. That failure otherwise looks
+exactly like success.
+
+**Set these in the shell before the process starts.** `langsmith` wraps its
+environment reads in `functools.lru_cache`, so a variable assigned from Python
+after langsmith has been imported is read once, cached, and ignored. `agent
+endpoints` detects that specific case and says so.
+
+A run makes hundreds of calls, so every one is named for what it did and to
+what, and carries the run id, chunk id, file and symbol as metadata:
+
+```
+analyse:fetch_firmware              step:analyse  run:9ecda9121fbb
+gather:CWE-78 download.c:28         step:gather
+verify:CWE-78 download.c:28         step:verify
+```
+
+Filter by `step:verify` to see every refutation, or by `run:<id>` to isolate one
+report. Untagged, the same trace is an undifferentiated column of `ChatOpenAI`.
+
 ### Reading the output
 
 ```

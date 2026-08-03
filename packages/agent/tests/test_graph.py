@@ -60,17 +60,20 @@ class ScriptedCaller:
         self.default_analysis = default_analysis or ChunkAnalysis()
         self.prompts: list[tuple[str, str]] = []
         self.gather_calls: list[tuple[Any, int]] = []
+        self.traces: list[Any] = []
 
     #: Set by tests that want the gather step to return something.
     gathered: str = ""
 
-    def gather(self, system: str, user: str, session: Any, budget: int) -> str:
+    def gather(self, system: str, user: str, session: Any, budget: int, trace: Any = None) -> str:
         self.prompts.append(("gather", user))
         self.gather_calls.append((session, budget))
+        self.traces.append(trace)
         return self.gathered
 
-    def call(self, schema: type[BaseModel], system: str, user: str) -> Any:
+    def call(self, schema: type[BaseModel], system: str, user: str, trace: Any = None) -> Any:
         self.prompts.append((schema.__name__, user))
+        self.traces.append(trace)
         if schema is ChunkAnalysis:
             for symbol, analysis in self.analyses.items():
                 if f":: {symbol} " in user:
@@ -207,10 +210,10 @@ def test_a_missing_verdict_counts_against_the_finding(indexed) -> None:
     root, store = indexed
 
     class NoVerdict(ScriptedCaller):
-        def call(self, schema: type[BaseModel], system: str, user: str) -> Any:
+        def call(self, schema: type[BaseModel], system: str, user: str, trace: Any = None) -> Any:
             if schema is Verdict:
                 return None
-            return super().call(schema, system, user)
+            return super().call(schema, system, user, trace)
 
     caller = NoVerdict(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
     report = _run(root, store, caller)

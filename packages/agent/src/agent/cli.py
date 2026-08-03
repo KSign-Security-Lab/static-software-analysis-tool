@@ -33,6 +33,7 @@ from .graph.build import run_inspection
 from .index import build_index
 from .runs import STATUS_DONE, STATUS_FAILED, STATUS_INSPECTING, RunPaths, list_runs, new_run
 from .schema import Finding
+from .tracing import status as tracing_status
 
 SEVERITY_MARK = {"critical": "!!", "high": " !", "medium": " ~", "low": " -", "info": " ."}
 
@@ -156,6 +157,10 @@ def _interactive(config: AgentConfig) -> int:
     print(f"  model     {config.model}")
     print(f"  target    {target}")
     print(f"  chunks    {index_result.chunks}  (one model call each, plus one per candidate finding)")
+    trace = tracing_status()
+    print(f"  tracing   {'on -> ' + trace['project'] if trace['enabled'] else 'off'}")
+    if trace["detail"] and trace["enabled"]:
+        print(f"            {trace['detail']}")
     print()
 
     choice = _choose("Choice", ["inspect now", "stop here, print the equivalent command"])
@@ -282,17 +287,28 @@ def cmd_runs(args: argparse.Namespace) -> int:
 
 
 def cmd_endpoints(args: argparse.Namespace) -> int:
-    """What is reachable, and what it serves. Answers 'why does nothing work'."""
+    """What is reachable, and what it serves. Answers 'why does nothing work'.
+
+    Tracing status is printed either way. It is a separate question from whether
+    a model server is up, and the whole point of this command is to answer "what
+    is my environment actually doing" in one place.
+    """
     endpoints = discover()
-    if not endpoints:
-        print("no vLLM server answering on port 8001 or 8000")
-        print("start one with: scripts/vllm.sh")
-        return 1
     for endpoint in endpoints:
         print(endpoint.base_url)
         for model in endpoint.models:
             print(f"  {model}")
-    return 0
+    if not endpoints:
+        print("no vLLM server answering on port 8001 or 8000")
+        print("start one with: scripts/vllm.sh")
+
+    trace = tracing_status()
+    print()
+    print(f"langsmith: {'on -> ' + trace['project'] if trace['enabled'] else 'off'}")
+    if trace["detail"]:
+        print(f"  {trace['detail']}")
+    # Non-zero only for the thing that blocks a run; tracing being off does not.
+    return 0 if endpoints else 1
 
 
 def build_parser() -> argparse.ArgumentParser:

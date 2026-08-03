@@ -139,6 +139,18 @@ Model choice, GPU sizing, port conflicts and how to read the output are in
 
 ## Development
 
+`scripts/run.sh` lists every task in the repo — the equivalent of
+`package.json` scripts for the parts that are not npm. Plain bash, so it needs
+nothing installed that is not already here.
+
+```bash
+scripts/run.sh              # the list
+scripts/run.sh check        # everything CI runs
+scripts/run.sh demo         # vLLM + an inspection of the sample tree
+```
+
+Or invoke the tools directly:
+
 ```bash
 ruff check
 ruff format --check

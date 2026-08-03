@@ -23,6 +23,7 @@ import logging
 from typing import Any, Literal, TypeVar
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from openai import LengthFinishReasonError
 from pydantic import BaseModel
@@ -82,14 +83,24 @@ class StructuredCaller:
     def _runnable(self, schema: type[ModelT], method: StructuredMethod) -> Any:
         return self.llm.with_structured_output(schema, method=method)
 
-    def call(self, schema: type[ModelT], system: str, user: str) -> ModelT | None:
-        """One structured call. Returns None if nothing usable came back."""
+    def call(
+        self,
+        schema: type[ModelT],
+        system: str,
+        user: str,
+        trace: RunnableConfig | None = None,
+    ) -> ModelT | None:
+        """One structured call. Returns None if nothing usable came back.
+
+        ``trace`` names and tags the call for LangSmith; it is inert when
+        tracing is off.
+        """
         messages = [("system", system), ("human", user)]
         methods: tuple[StructuredMethod, ...] = (self._method,) if self._method else STRUCTURED_METHODS
 
         for method in methods:
             try:
-                result = self._runnable(schema, method).invoke(messages)
+                result = self._runnable(schema, method).invoke(messages, config=trace)
             except LengthFinishReasonError:
                 # Guided decoding guarantees the shape, not termination: a model
                 # too small for the schema emits a valid prefix until it runs
@@ -123,7 +134,14 @@ class StructuredCaller:
             self._method = None
         return None
 
-    def gather(self, system: str, user: str, session: Any, budget: int) -> str:
+    def gather(
+        self,
+        system: str,
+        user: str,
+        session: Any,
+        budget: int,
+        trace: RunnableConfig | None = None,
+    ) -> str:
         """Let the model call tools, and return a transcript of what came back.
 
         Bounded and single-purpose: this collects material for a verdict, it
@@ -153,7 +171,7 @@ class StructuredCaller:
 
         for _ in range(budget):
             try:
-                reply = bound.invoke(messages)
+                reply = bound.invoke(messages, config=trace)
             except Exception as err:  # noqa: BLE001
                 if "tool-call-parser" in str(err) or "tool_choice" in str(err):
                     self._disable_tools(err)
