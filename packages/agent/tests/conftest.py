@@ -6,16 +6,21 @@ from pathlib import Path
 
 import pytest
 
-#: Real C source with known call chains, reused rather than duplicated. These
-#: files belong to the ssat suite; the agent only reads them.
-F2A_FIXTURES = Path(__file__).resolve().parents[2] / "ssat" / "tests" / "fixtures" / "f2a"
+#: Multi-file C with a real call graph, and every function labelled VULNERABLE
+#: or SAFE in its own header comment.
+#:
+#: This package owns its test data. An earlier version reached into
+#: ``packages/ssat/tests/fixtures/f2a`` -- convenient, but it coupled this
+#: suite to another package's private fixtures and made an unrelated analysis
+#: line look like part of this one.
+SAMPLE_TREE = Path(__file__).resolve().parent / "fixtures" / "sample"
 
 
 @pytest.fixture
 def fixture_root() -> Path:
-    if not F2A_FIXTURES.is_dir():
-        pytest.skip(f"fixture corpus missing: {F2A_FIXTURES}")
-    return F2A_FIXTURES
+    if not SAMPLE_TREE.is_dir():
+        pytest.skip(f"sample tree missing: {SAMPLE_TREE}")
+    return SAMPLE_TREE
 
 
 @pytest.fixture

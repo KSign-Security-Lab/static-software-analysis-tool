@@ -206,14 +206,52 @@ def test_notes_and_inspection_state_persist(tree: Path, tmp_path: Path) -> None:
     reopened.close()
 
 
-def test_real_corpus_indexes_without_ordering_violations(fixture_root: Path, tmp_path: Path) -> None:
-    """The same invariants, on 19 real files rather than a hand-built tree."""
+def test_sample_tree_indexes_without_ordering_violations(fixture_root: Path, tmp_path: Path) -> None:
+    """The same invariants on the shipped sample tree rather than a built one."""
     store = ChunkStore(tmp_path / "index.db")
     result = build_index(fixture_root, store)
-    assert result.files_indexed == 19
+    assert result.files_indexed == 5
     assert result.files_skipped == 0
 
     position = {chunk_id: i for i, chunk_id in enumerate(store.order())}
     violations = [link for link in store.links() if link.kind == CALLS and position[link.dst] > position[link.src]]
     assert violations == []
     store.close()
+
+
+def test_sample_tree_resolves_its_cross_file_chain(fixture_root: Path, tmp_path: Path) -> None:
+    """The chain an inspection has to follow, checked structurally first.
+
+    ``handle_download`` reaches ``system`` only via ``read_param`` in another
+    file and ``fetch_firmware`` in this one. If these edges are missing, the
+    model is asked to judge a sink with no idea where its argument came from.
+    """
+    store = ChunkStore(tmp_path / "index.db")
+    build_index(fixture_root, store)
+
+    handler = next(c for c in store.chunks() if c.symbol == "handle_download")
+    callees = {c.symbol for c in store.callees_of(handler.chunk_id)}
+    assert {"read_param", "fetch_firmware", "log_line"} <= callees
+
+    read_param = next(c for c in store.chunks() if c.symbol == "read_param")
+    assert read_param.file == "util.c", "cross-file call did not resolve"
+
+    position = {chunk_id: i for i, chunk_id in enumerate(store.order())}
+    fetch = next(c for c in store.chunks() if c.symbol == "fetch_firmware")
+    assert position[fetch.chunk_id] < position[handler.chunk_id]
+    assert position[read_param.chunk_id] < position[handler.chunk_id]
+    store.close()
+
+
+def test_sample_tree_labels_both_halves_of_each_pair(fixture_root: Path) -> None:
+    """The fixtures are an eval set, so the ground truth has to be present.
+
+    A run is scored on both rates: flagging the vulnerable half is easy, and
+    staying quiet on the guarded half is what actually distinguishes a useful
+    analyser.
+    """
+    text = "\n".join(p.read_text(encoding="utf-8") for p in sorted(fixture_root.glob("*.c")))
+    for symbol in ("fetch_firmware", "handle_download", "store_payload"):
+        assert f"{symbol} " in text or f"{symbol}(" in text
+    assert "VULNERABLE" in text and "SAFE" in text
+    assert "f2a" not in text.lower(), "the sample tree must not reference another package's fixtures"

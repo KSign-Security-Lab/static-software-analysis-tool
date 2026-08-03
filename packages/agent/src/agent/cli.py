@@ -36,6 +36,11 @@ from .schema import Finding
 
 SEVERITY_MARK = {"critical": "!!", "high": " !", "medium": " ~", "low": " -", "info": " ."}
 
+#: Offered as the default target when prompting: a small labelled tree shipped
+#: with the package, so a first run has something to find without the user
+#: having to supply source. Absent from an installed wheel, hence the fallback.
+SAMPLE_TREE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "sample"
+
 #: Enough chunks that the run is worth thinking about before starting it.
 LARGE_RUN_CHUNKS = 40
 
@@ -123,7 +128,7 @@ def _interactive(config: AgentConfig) -> int:
     model = endpoint.models[_choose("Model", list(endpoint.models))]
 
     print()
-    target = Path(_ask("Path to inspect", "packages/ssat/tests/fixtures/f2a"))
+    target = Path(_ask("Path to inspect", str(SAMPLE_TREE) if SAMPLE_TREE.is_dir() else "."))
     if not target.is_dir():
         _err(f"not a directory: {target}")
         return 2

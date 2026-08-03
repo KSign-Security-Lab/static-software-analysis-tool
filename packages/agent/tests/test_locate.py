@@ -201,12 +201,12 @@ def test_multiline_span_excerpt_matches_its_coordinates() -> None:
 
 
 def test_locates_against_a_real_fixture_on_disk(fixture_root: Path) -> None:
-    """Same guarantee, on real source rather than an inline string."""
-    path = fixture_root / "update_firmware.c"
+    """Same guarantee, on a file on disk rather than an inline string."""
+    path = fixture_root / "download.c"
     text = path.read_text(encoding="utf-8")
-    chunk = next(c for c in chunk_source("update_firmware.c", text) if c.symbol == "download_firmware")
+    chunk = next(c for c in chunk_source("download.c", text) if c.symbol == "fetch_firmware")
 
-    located = locate_anchor("system(", "update_firmware.c", text, chunk)
+    located = locate_anchor("system(", "download.c", text, chunk)
     assert located is not None
     line = text.splitlines()[located.span.start_line - 1]
     assert "system(" in line

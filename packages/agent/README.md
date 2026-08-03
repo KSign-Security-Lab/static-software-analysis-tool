@@ -4,9 +4,8 @@ Inspects a source tree one syntactic unit at a time using an LLM behind an
 OpenAI-compatible endpoint (vLLM), and returns findings precise enough to render
 as lint markers in an editor.
 
-This is a **second, independent line of analysis**. It does not import `ssat` or
-`gnn`, does not consume F2-A evidence, and does not replace the CPG pipeline —
-the two coexist.
+A standalone package. It does not import `ssat` or `gnn`, and nothing in the
+repo's structural analysis line feeds it or is fed by it — the two coexist.
 
 ## How it works
 
@@ -103,6 +102,7 @@ export AGENT_MODEL=agent          # must match `curl $AGENT_BASE_URL/models`
 agent index   path/to/src         # deterministic, no model calls
 agent inspect path/to/src -v      # the real thing
 agent runs                        # previous runs
+agent endpoints                   # what is reachable, and what it serves
 ```
 
 ### Choosing a model
@@ -153,15 +153,43 @@ and the missing NVLink less punishing than it would be for batch serving.
 Inspecting chunks that share a topological level concurrently would change that,
 and is the point at which a second server starts to pay.
 
+### Testing it
+
+The package ships a small labelled tree at `tests/fixtures/sample/` — five
+files, thirteen chunks, a cross-file call chain, and every function marked
+VULNERABLE or SAFE in its own header comment. It is the CLI's default target,
+so a first run has something to find.
+
+```bash
+pytest -q                                        # 136 tests, no model needed
+agent index packages/agent/tests/fixtures/sample # deterministic; 5 files, 13 chunks
+agent                                            # prompts, defaults to that tree
+```
+
+It is built as an eval set rather than a demo: each vulnerability has a guarded
+twin with the same shape.
+
+| Function | Expected |
+| --- | --- |
+| `fetch_firmware`, `handle_download` | flagged — CWE-78, url reaches `system` unvalidated |
+| `store_payload` | flagged — CWE-787, unbounded `memcpy` into a 64-byte buffer |
+| `fetch_firmware_guarded`, `handle_download_guarded` | **silent** — no shell, scheme and length checked |
+| `store_payload_guarded` | **silent** — bounds checked before the copy |
+
+Score both directions. Flagging the vulnerable half is easy; staying quiet on
+the guarded half is what separates a useful analyser from one that flags every
+`system()` it sees. Report the two counts separately — a single accuracy number
+hides which one you are failing.
+
 ### Reading the output
 
 ```
-run 9ecda9121fbb: indexed 1 files, 2 chunks
- ! fw.c:6:5: high [CWE-78] Command Injection
+run 9ecda9121fbb: indexed 5 files, 13 chunks
+ ! download.c:28:5: high [CWE-78] Command Injection
      sprintf(cmd, "wget %s -O /tmp/fw.bin", url);
      "url" is interpolated into a shell command without sanitisation...
      fix: Build the command without a shell, or escape the input.
-1 finding(s) from 2 chunk(s). 3 candidate(s), 0 refuted, 2 dropped as unlocatable.
+2 finding(s) from 13 chunk(s). 5 candidate(s), 1 refuted, 2 dropped as unlocatable.
 ```
 
 The counts are deliberately not merged into one number. `dropped as
