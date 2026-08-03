@@ -20,13 +20,23 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 API_PORT="${API_PORT:-8000}"
 WEB_PORT="${WEB_PORT:-3000}"
 
-#   id | label | approx GiB on disk
+# id | label | approx GiB | tool-call parser | gpus needed
+#
+# The parser matters: vLLM refuses tool calling without one for the family, and
+# the wrong one breaks it silently. `vllm serve --help=all` lists all 33.
+# Every id here was checked against the Hugging Face API. The list is a starting
+# point, not a whitelist -- "something else" takes any id.
 MODELS=(
-  "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ|Qwen2.5-Coder 32B, 4-bit|19"
-  "Qwen/Qwen2.5-Coder-14B-Instruct|Qwen2.5-Coder 14B, FP16|28"
-  "Qwen/Qwen2.5-Coder-7B-Instruct|Qwen2.5-Coder 7B, FP16|15"
-  "Qwen/Qwen2.5-Coder-32B-Instruct|Qwen2.5-Coder 32B, FP16 (needs 2 GPUs)|64"
-  "Qwen/Qwen2.5-0.5B-Instruct|Qwen2.5 0.5B -- plumbing test only, finds nothing|1"
+  "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ|Qwen2.5-Coder 32B, 4-bit -- code specialist|19|hermes|1"
+  "Qwen/Qwen2.5-Coder-14B-Instruct|Qwen2.5-Coder 14B, FP16|28|hermes|1"
+  "mistralai/Devstral-Small-2507|Devstral Small 24B -- built for code agents|48|mistral|2"
+  "openai/gpt-oss-20b|gpt-oss 20B, MXFP4|13|openai|1"
+  "openai/gpt-oss-120b|gpt-oss 120B, MXFP4|61|openai|2"
+  "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct|DeepSeek-Coder V2 Lite 16B MoE|32|deepseek_v3|1"
+  "meta-llama/Llama-3.1-8B-Instruct|Llama 3.1 8B (gated: needs HF_TOKEN)|16|llama3_json|1"
+  "zai-org/GLM-4.5-Air|GLM-4.5 Air 106B MoE|60|glm45|2"
+  "ibm-granite/granite-3.3-8b-instruct|Granite 3.3 8B|16|granite|1"
+  "Qwen/Qwen2.5-0.5B-Instruct|Qwen2.5 0.5B -- plumbing test only, finds nothing|1|hermes|1"
 )
 
 info() { printf '\033[36m%s\033[0m\n' "$*"; }
@@ -41,20 +51,29 @@ configure() {
   info "First run -- these answers go to .env and are not asked again."
   echo
 
-  local i=0 id label size
+  local i=0 id label size par need
   for entry in "${MODELS[@]}"; do
-    IFS='|' read -r id label size <<<"$entry"
+    IFS='|' read -r id label size par need <<<"$entry"
     i=$((i + 1))
-    printf '  %d) %-46s ~%s GiB\n' "$i" "$label" "$size"
+    printf '  %2d) %-48s ~%3s GiB  %s\n' "$i" "$label" "$size" \
+      "$([[ $need -gt 1 ]] && echo '(2 GPUs)' || echo '')"
   done
-  printf '  %d) something else\n\n' "$((i + 1))"
+  printf '  %2d) something else (any Hugging Face id)\n\n' "$((i + 1))"
 
-  local pick model
+  local pick model parser needs=1
   pick=$(ask "Model" "1")
   if [[ "$pick" == "$((i + 1))" ]]; then
     model=$(ask "Hugging Face id" "")
+    echo
+    echo "  Tool calling needs a parser matching the model family. Without a"
+    echo "  correct one, verification falls back to context-only."
+    echo "  Options: hermes qwen3_coder mistral llama3_json llama4_json openai"
+    echo "           deepseek_v3 glm45 glm47 granite jamba phi4_mini_json pythonic"
+    echo "           kimi_k2 minimax internlm seed_oss xlam  (see: vllm serve --help=all)"
+    echo
+    parser=$(ask "Tool-call parser" "hermes")
   else
-    IFS='|' read -r model _ _ <<<"${MODELS[$((pick - 1))]}"
+    IFS='|' read -r model _ _ parser needs <<<"${MODELS[$((pick - 1))]}"
   fi
   [[ -n "$model" ]] || { echo "no model given" >&2; exit 1; }
 
@@ -75,10 +94,16 @@ configure() {
   cache=$(ask "Where to keep downloaded weights" "${HF_HOME:-$HOME/.cache/huggingface}")
   mkdir -p "$cache"
 
+  if [[ "$needs" -gt 1 && "$tp" -lt 2 ]]; then
+    printf '\033[33mwarning:\033[0m %s\n' \
+      "that model wants 2 GPUs; with one it will fail to allocate. Re-run with --reconfigure and pick 'both'."
+  fi
+
   cat > .env <<EOF
 # Written by scripts/up.sh. Compose reads this file automatically.
 # Edit freely, or re-run: scripts/up.sh --reconfigure
 VLLM_MODEL=$model
+VLLM_TOOL_PARSER=$parser
 VLLM_GPUS=$gpus
 VLLM_TP=$tp
 HF_HOME=$cache
@@ -122,7 +147,7 @@ start() {
   pids+=("$!")
 }
 
-info "starting ${VLLM_MODEL} (weights in ${HF_HOME}) -- first pull can take a while"
+info "starting ${VLLM_MODEL} (parser ${VLLM_TOOL_PARSER}, weights in ${HF_HOME})"
 echo "  follow it with: scripts/run.sh vllm-logs"
 docker compose --profile vllm up -d --wait vllm
 

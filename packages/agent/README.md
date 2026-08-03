@@ -85,9 +85,10 @@ stops those two; vLLM keeps running, because reloading weights costs minutes.
 | `VLLM_GPUS` | asked when there is more than one | Device ids, e.g. `0,1` |
 | `VLLM_TP` | `1` | Tensor-parallel size; `2` with two GPUs |
 | `HF_HOME` | asked on first run | **Where weights are downloaded to** |
+| `VLLM_TOOL_PARSER` | chosen with the model | Tool-call parser for the family |
 | `VLLM_MAX_LEN` | `16384` | Must clear `AGENT_CONTEXT_CHARS` in tokens |
 | `VLLM_PORT` | `8001` | Host port; 8000 is the API |
-| `VLLM_TOOL_PARSER` | `hermes` | Needed for verification to call tools |
+| `VLLM_TOOL_PARSER` | set with the model | Must match the model family |
 
 vLLM runs in Docker because the host install cannot work: vllm 0.17 against
 torch 2.4, which predates `torch.library.infer_schema`, and this workspace is on
@@ -116,7 +117,19 @@ agent endpoints                   # what is reachable, and what it serves
 
 ### Choosing a model
 
-Guided decoding guarantees the output *matches* the schema, not that the model
+Any model vLLM can serve works -- the picker lists a few verified ids, and
+"something else" takes any Hugging Face id. Two things actually constrain the
+choice.
+
+**It needs a tool-call parser for its family.** vLLM refuses tool calling
+without one and the wrong one breaks it silently, which costs verification its
+tools. `vllm serve --help=all` lists all 33: `hermes`, `qwen3_coder`,
+`mistral`, `llama3_json`, `llama4_json`, `openai`, `deepseek_v3`, `glm45`,
+`glm47`, `granite`, `jamba`, `phi4_mini_json`, `pythonic`, `kimi_k2`,
+`minimax`, `internlm`, `seed_oss`, `xlam` and more. The picker sets it with the
+model; for a custom id it asks, because it cannot be guessed from the name.
+
+**It has to be big enough to finish the schema.** guarantees the output *matches* the schema, not that the model
 ever finishes it. A model too small for `ChunkAnalysis` emits a valid-so-far
 prefix until it runs out of room -- measured on a 0.5B, which spent 8048 tokens
 without closing the object. `AGENT_MAX_TOKENS` (default 4096) bounds that into a
