@@ -103,23 +103,28 @@ return the SSAT pipeline's own artifacts.
 
 ## LLM inspection
 
-Two interactive scripts, nothing to memorise:
+Start a model server, then run the agent:
 
 ```bash
-scripts/vllm.sh      # pick a model and a GPU layout, start vLLM (Docker), wait for ready
-scripts/agent.sh     # pick an endpoint and a target, index, then inspect
+scripts/vllm.sh                  # interactive: pick a model and a GPU layout
+agent                            # interactive: pick an endpoint, model and target
 ```
 
-`scripts/vllm.sh` shows the GPUs, annotates a model catalogue with what fits,
-verifies the model id against Hugging Face before committing to a multi-gigabyte
-download, and serves on 8001 so it does not collide with the API on 8000.
-`scripts/agent.sh` asks the endpoint what it serves and sets `AGENT_BASE_URL`
-and `AGENT_MODEL` from the answer — the step people usually get wrong. It
-indexes first, which is free, and reports the chunk count before you commit to
-a run.
+`scripts/vllm.sh` runs vLLM in Docker. Bare, it shows the GPUs, annotates a
+model catalogue with what fits, verifies the id against Hugging Face before
+committing to a multi-gigabyte download, and waits until the server answers. It
+serves on 8001, because the API owns 8000.
 
-Both take flags for scripted use; `--help` on either. Any OpenAI-compatible
-endpoint works, so an existing Ollama server is found automatically.
+`agent` bare asks whichever server is up what it serves and sets
+`AGENT_BASE_URL` and `AGENT_MODEL` from the reply — passing the Hugging Face
+path where the served id belongs is the usual first failure. It indexes first,
+which is free, and reports the chunk count before you commit to a run.
+
+```bash
+agent endpoints                  # what is reachable, and what it serves
+agent index   path/to/src        # deterministic, no model calls
+agent inspect path/to/src -v     # the real thing; minutes, not seconds
+```
 
 Or open `/inspect` in the web UI: upload a tree, read it in the editor, press
 검사 실행, and findings stream in as squiggles with explanation, evidence and a

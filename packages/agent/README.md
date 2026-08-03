@@ -57,11 +57,9 @@ it is recovered without loosening the match.
 
 ## Quickstart
 
-Two scripts. Neither needs anything memorised.
-
 ```bash
-scripts/vllm.sh      # pick a model and a GPU layout, start the server
-scripts/agent.sh     # pick an endpoint and a target, run the inspection
+scripts/vllm.sh      # start a model server: pick a model and a GPU layout
+agent                # run an inspection: pick an endpoint, model and target
 ```
 
 `scripts/vllm.sh` runs vLLM in Docker. The host install is not used: it is
@@ -70,9 +68,9 @@ this workspace is on Python 3.14, which vLLM does not publish wheels for. The
 agent only needs an HTTP endpoint, so the two never have to share a runtime.
 
 Run it with no arguments and it shows the GPUs, offers a model catalogue
-annotated with what fits, asks for a GPU layout, checks the model id against
-the Hugging Face API before starting a multi-gigabyte download, and waits until
-the server actually answers. Everything is also available as flags:
+annotated with what actually fits, asks for a GPU layout, checks the model id
+against the Hugging Face API before starting a multi-gigabyte download, and
+waits until the server answers. Every prompt is also a flag:
 
 ```bash
 scripts/vllm.sh start --model Qwen/Qwen2.5-Coder-32B-Instruct-AWQ --gpus 0
@@ -82,16 +80,19 @@ scripts/vllm.sh logs -f
 scripts/vllm.sh stop
 ```
 
-It defaults to port 8001, because the SSAT API already owns 8000.
+It serves on 8001, because the SSAT API already owns 8000.
 
-`scripts/agent.sh` then finds the endpoint, asks it what it serves, and sets
-`AGENT_BASE_URL` and `AGENT_MODEL` from the answer. Getting `AGENT_MODEL` wrong
--- passing the Hugging Face path instead of the id the server reports -- is the
-usual first failure, and this removes the chance to make it. It indexes first
-(free, no model calls) and tells you the chunk count before you commit to a run.
+`agent` with no arguments then finds the server, asks what it serves, and sets
+`AGENT_BASE_URL` and `AGENT_MODEL` from the answer -- passing the Hugging Face
+path where the served id belongs is the usual first failure, and this removes
+the chance to make it. It indexes before offering to inspect, so the chunk count
+is known before any of the run is paid for.
 
-Any OpenAI-compatible endpoint works, not just vLLM. If Ollama is already up,
-`scripts/agent.sh` will find it on 11434 and list its models.
+There is deliberately no shell wrapper around this. The CLI and the HTTP API are
+two thin front ends over one library (`api` imports `agent`, never the reverse);
+a third entry point in shell would duplicate endpoint discovery and model
+selection outside the type, lint and test gate. `scripts/vllm.sh` stays a script
+because it manages an external process and duplicates nothing.
 
 ### Doing it by hand
 
