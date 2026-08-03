@@ -103,32 +103,15 @@ return the SSAT pipeline's own artifacts.
 
 ## LLM inspection
 
-Start a model server, then run the agent:
-
 ```bash
-scripts/run.sh up                # vLLM + API + web, one terminal, prefixed logs
+scripts/run.sh up          # vLLM + API + web, one terminal
 ```
 
-`up` starts the model server if needed, reads the served model id back from it
-so `AGENT_MODEL` is never guessed, and runs the API and web together. Ctrl-C
-stops the API and web and leaves vLLM running; `scripts/run.sh down` stops that.
-
-Or piece by piece:
-
-```bash
-scripts/vllm.sh                  # interactive: pick a model and a GPU layout
-agent                            # interactive: pick an endpoint, model and target
-```
-
-`scripts/vllm.sh` runs vLLM in Docker. Bare, it shows the GPUs, annotates a
-model catalogue with what fits, verifies the id against Hugging Face before
-committing to a multi-gigabyte download, and waits until the server answers. It
-serves on 8001, because the API owns 8000.
-
-`agent` bare asks whichever server is up what it serves and sets
-`AGENT_BASE_URL` and `AGENT_MODEL` from the reply — passing the Hugging Face
-path where the served id belongs is the usual first failure. It indexes first,
-which is free, and reports the chunk count before you commit to a run.
+vLLM is a Compose service (`docker compose --profile vllm up -d --wait vllm`),
+configured by `VLLM_MODEL`, `VLLM_GPUS`, `VLLM_TP`. `up` starts it, reads the
+served model id back so `AGENT_MODEL` is never guessed, and runs the API and web
+on the host where their reloaders work. Ctrl-C stops those two; vLLM keeps
+running.
 
 ```bash
 agent endpoints                  # what is reachable, and what it serves

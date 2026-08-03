@@ -102,8 +102,7 @@ def test_discover_returns_every_live_candidate(mock_get) -> None:
 
 
 def test_the_script_port_is_probed_before_vllms_default() -> None:
-    """8000 belongs to the SSAT API, so scripts/vllm.sh serves 8001 and that is
-    the port checked first."""
+    """8000 belongs to the SSAT API, so the compose vllm service publishes 8001."""
     assert DEFAULT_CANDIDATES[0].endswith(":8001/v1")
     assert DEFAULT_CANDIDATES[1].endswith(":8000/v1")
 

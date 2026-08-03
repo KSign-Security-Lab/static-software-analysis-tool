@@ -57,57 +57,39 @@ it is recovered without loosening the match.
 ## Quickstart
 
 ```bash
-scripts/run.sh up    # everything at once: vLLM, the API and the web UI
+scripts/run.sh up
 ```
 
-That starts the model server if it is not already up, reads the served model id
-back from it, exports `AGENT_BASE_URL`/`AGENT_MODEL` so the API inherits them,
-and runs the API and web dev server in one terminal with prefixed logs. Ctrl-C
-stops the API and web; vLLM stays up, because reloading weights costs minutes.
-`scripts/run.sh down` stops it.
+vLLM, the API and the web UI together. Ctrl-C stops the API and web; vLLM keeps
+running, because reloading weights costs minutes.
 
-Piece by piece instead:
+vLLM is a Compose service, so it is configured by environment rather than by
+flags:
 
 ```bash
-scripts/vllm.sh      # start a model server: pick a model and a GPU layout
-agent                # run an inspection: pick an endpoint, model and target
+VLLM_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct-AWQ \
+VLLM_GPUS=0 VLLM_TP=1 \
+  docker compose --profile vllm up -d --wait vllm
+
+docker compose --profile vllm logs -f vllm
+docker compose --profile vllm down
 ```
 
-Both are also tasks in `[tool.tasks]` in the root `pyproject.toml`, runnable as
-`scripts/run.sh vllm` and `scripts/run.sh agent`. `scripts/run.sh demo` does
-both against the sample tree.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `VLLM_MODEL` | `Qwen/Qwen2.5-Coder-32B-Instruct-AWQ` | Hugging Face id |
+| `VLLM_GPUS` | `0` | Device ids; `"0,1"` with `VLLM_TP=2` |
+| `VLLM_TP` | `1` | Tensor-parallel size |
+| `VLLM_MAX_LEN` | `16384` | Must clear `AGENT_CONTEXT_CHARS` in tokens |
+| `VLLM_PORT` | `8001` | Host port; 8000 is the API |
+| `VLLM_TOOL_PARSER` | `hermes` | Needed for verification to call tools |
 
-`scripts/vllm.sh` runs vLLM in Docker. The host install is not used: it is
-vllm 0.17 against torch 2.4, which predates `torch.library.infer_schema`, and
-this workspace is on Python 3.14, which vLLM does not publish wheels for. The
-agent only needs an HTTP endpoint, so the two never have to share a runtime.
+It runs in Docker because the host install cannot work: vllm 0.17 against torch
+2.4, which predates `torch.library.infer_schema`, and this workspace is on
+Python 3.14, which vLLM does not publish wheels for.
 
-Run it with no arguments and it shows the GPUs, offers a model catalogue
-annotated with what actually fits, asks for a GPU layout, checks the model id
-against the Hugging Face API before starting a multi-gigabyte download, and
-waits until the server answers. Every prompt is also a flag:
-
-```bash
-scripts/vllm.sh start --model Qwen/Qwen2.5-Coder-32B-Instruct-AWQ --gpus 0
-scripts/vllm.sh start --model Qwen/Qwen2.5-Coder-32B-Instruct --gpus 0,1   # tensor parallel
-scripts/vllm.sh status
-scripts/vllm.sh logs -f
-scripts/vllm.sh stop
-```
-
-It serves on 8001, because the SSAT API already owns 8000.
-
-`agent` with no arguments then finds the server, asks what it serves, and sets
-`AGENT_BASE_URL` and `AGENT_MODEL` from the answer -- passing the Hugging Face
-path where the served id belongs is the usual first failure, and this removes
-the chance to make it. It indexes before offering to inspect, so the chunk count
-is known before any of the run is paid for.
-
-There is deliberately no shell wrapper around this. The CLI and the HTTP API are
-two thin front ends over one library (`api` imports `agent`, never the reverse);
-a third entry point in shell would duplicate endpoint discovery and model
-selection outside the type, lint and test gate. `scripts/vllm.sh` stays a script
-because it manages an external process and duplicates nothing.
+`--served-model-name` pins the served id to `agent`, so `AGENT_MODEL` does not
+change when the weights do.
 
 ### Doing it by hand
 
@@ -135,8 +117,7 @@ sweet spot on a 48 GB card.
 
 ### GPU layout
 
-Both GPUs can be used together — `scripts/vllm.sh` offers it, and
-`--gpus 0,1` sets `--tensor-parallel-size 2`. Whether it is worth it depends on
+Both GPUs can be used together: `VLLM_GPUS=0,1 VLLM_TP=2`. Whether it is worth it depends on
 how the cards are wired, so measure rather than assume:
 
 ```bash
@@ -145,9 +126,8 @@ python -c "import torch; print(torch.cuda.can_device_access_peer(0,1))"
 ```
 
 On this host that reports `NODE` and `False`, so every tensor-parallel
-all-reduce is staged through host memory. The script passes
-`--disable-custom-all-reduce` when it sees no NVLink, because vLLM's custom
-all-reduce needs peer access.
+all-reduce is staged through host memory. Without NVLink, add
+`--disable-custom-all-reduce`: vLLM's custom all-reduce needs peer access.
 
 Two more consequences when the cards are different generations, as they are
 here (sm_89 Ada and sm_86 Ampere):
@@ -282,9 +262,8 @@ not be.
 Tool calling needs server support: vLLM rejects it unless started with
 `--tool-call-parser` for the model family.
 
-```bash
-scripts/vllm.sh start --model ... --tool-call-parser hermes
-```
+The compose service sets `--tool-call-parser` already; override it with
+`VLLM_TOOL_PARSER` for a different model family.
 
 Without it the run verifies from context alone, says so once, and continues.
 That is a supported mode, not a broken one — most claims are decidable from the
@@ -301,7 +280,7 @@ AGENT_RUN_ROOT=path/to/src agent-mcp        # stdio
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_BASE_URL` | `http://localhost:8000/v1` | OpenAI-compatible endpoint (`scripts/vllm.sh` serves on 8001) |
+| `AGENT_BASE_URL` | `http://localhost:8001/v1` | OpenAI-compatible endpoint |
 | `AGENT_MODEL` | *(none — required)* | Model id the endpoint serves |
 | `AGENT_RUNS_DIR` | `artifacts/agent-runs` | Where run workspaces live |
 | `AGENT_SANDBOX` | `bwrap` | `bwrap`, `docker` or `none` |

@@ -18,9 +18,8 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-#: Ports worth probing, nearest first. 8001 is what ``scripts/vllm.sh`` serves;
-#: 8000 is vLLM's own default, which collides with the SSAT API, so it is
-#: checked second rather than first.
+# 8001 is what the compose vllm service publishes; 8000 is vLLM's own
+# default, which collides with the SSAT API.
 DEFAULT_CANDIDATES: tuple[str, ...] = (
     "http://localhost:8001/v1",
     "http://localhost:8000/v1",

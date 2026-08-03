@@ -7,3 +7,40 @@ services:
     restart: unless-stopped
     volumes:
       - ./artifacts/workspace:/workspace
+
+  # Behind a profile so a plain `docker compose up` for Joern does not pull 20 GB.
+  #   docker compose --profile vllm up -d vllm
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: ssat-vllm
+    profiles: [vllm]
+    ports:
+      - "${VLLM_PORT:-8001}:8000"
+    volumes:
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    ipc: host
+    # --served-model-name pins the id clients use, so AGENT_MODEL stays "agent"
+    # when the weights change. --tool-call-parser is what lets verification call
+    # tools; without it a run falls back to context-only and says so.
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-32B-Instruct-AWQ}
+      --served-model-name agent
+      --max-model-len ${VLLM_MAX_LEN:-16384}
+      --tensor-parallel-size ${VLLM_TP:-1}
+      --tool-call-parser ${VLLM_TOOL_PARSER:-hermes}
+      --enable-auto-tool-choice
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${VLLM_GPUS:-0}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/models')"]
+      interval: 10s
+      timeout: 5s
+      retries: 90
+      start_period: 30s
