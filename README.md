@@ -1,13 +1,23 @@
 # Static Software Analysis Tool (SSAT)
 
-Static analysis of C/C++/Java source, built on [Joern](https://joern.io) Code
-Property Graphs. Two analysis lines share one CPG front end:
+Static analysis of source code by two independent routes.
+
+**Structural**, built on [Joern](https://joern.io) Code Property Graphs. Two
+lines share one CPG front end:
 
 - **F2-A** — OCPP-native evidence extraction. Asks the four CPG views
   (AST / CFG / DFG / CG) whether an untrusted OCPP payload field reaches a
   dangerous sink without adequate checks, and emits reviewable evidence.
 - **Graph extraction** — CPG → Template → per-function AST and def-use DFG, in
   the JSON schema the GNN trainer in `packages/gnn` consumes.
+
+**LLM-based**, in `packages/agent`: a model reads the code one syntactic chunk
+at a time, with callees analysed before their callers so what a callee does to
+its inputs is known by the time its caller is judged. Findings carry resolved
+line-level spans and render as lint markers in a code editor at `/inspect`.
+
+The two routes coexist and neither depends on the other — `agent` imports
+neither `ssat` nor `gnn`.
 
 ## Layout
 
@@ -24,8 +34,13 @@ packages/ssat/          the analysis library and the `ssat` CLI
     cli/                the `ssat` command
   tests/                pytest suite + golden snapshots
 packages/gnn/           GNN training/evaluation over the extracted graphs
-api/                    FastAPI service
-web/                    Next.js UI
+packages/agent/         LLM inspection over an OpenAI-compatible endpoint
+  src/agent/
+    index/              tree-sitter chunking, link resolution, chunk store
+    graph/              the LangGraph inspection loop
+    mcp/                the tool surface, served over MCP
+api/                    FastAPI service (SSAT routes + /agent/*)
+web/                    Next.js UI (graph explorer + /inspect editor)
 docs/v2/                F2-A design documents
 artifacts/              generated output, scratch and corpora (gitignored)
 ```
@@ -86,6 +101,40 @@ Note the UI derives AST/CFG/DFG/CG *views* from a CPG client-side, by edge
 label. Those are a different thing from the `/ast` and `/dfg` endpoints, which
 return the SSAT pipeline's own artifacts.
 
+## LLM inspection
+
+Needs a model server. vLLM goes in its own environment — not this venv, which is
+on Python 3.14 and would fight vLLM's pinned torch stack:
+
+```bash
+docker run --rm --gpus '"device=0"' -p 8000:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  vllm/vllm-openai:latest \
+  --model Qwen/Qwen2.5-Coder-14B-Instruct \
+  --served-model-name coder --max-model-len 16384
+```
+
+Then:
+
+```bash
+export AGENT_BASE_URL=http://localhost:8000/v1
+export AGENT_MODEL=coder          # must match `curl .../v1/models`
+
+agent index   path/to/src         # deterministic, no model calls
+agent inspect path/to/src -v      # the real thing; minutes, not seconds
+```
+
+Or open `/inspect` in the web UI: upload a tree, read it in the editor, press
+검사 실행, and findings stream in as squiggles with explanation, evidence and a
+proposed fix. Nothing is ever applied.
+
+Backed by `/agent/runs`, `/agent/runs/{id}/{files,file,inspect,events,findings,diff}`
+and `/agent/health`. Progress streams over SSE because a chunk-by-chunk run
+takes minutes.
+
+Model choice, GPU sizing, port conflicts and how to read the output are in
+[`packages/agent/README.md`](packages/agent/README.md).
+
 ## Development
 
 ```bash
@@ -127,3 +176,10 @@ python packages/ssat/tests/generate_golden.py
 - **F2-A is frozen.** See `docs/v2/f2a-milestone-status.md`. Its knowledge base
   (`ssat/f2a/kb.py`) is OCPP protocol semantics and is deliberately separate
   from `ssat/knowledge/`, which holds libc memory facts.
+- **The agent locates findings by quoting, not by line number.** Models get line
+  numbers wrong, so a finding names the offending source text and the server
+  finds it. If it cannot be found, the finding is dropped rather than pointed at
+  a guessed line.
+- **The generated `web/lib/agent-schema.ts` is not hand-edited.** It comes from
+  the pydantic wire models via `python -m agent.schema_ts --write`, and a test
+  fails if the two drift.
