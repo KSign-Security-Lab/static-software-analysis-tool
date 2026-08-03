@@ -1,0 +1,36 @@
+[project]
+name = "agent"
+version = "0.1.0"
+description = "Chunk-by-chunk LLM code inspection over a vLLM endpoint"
+readme = "README.md"
+authors = [{ name = "Keon Oh Kim", email = "keonoh00@gmail.com" }]
+requires-python = ">=3.14"
+dependencies = [
+    "pydantic>=2.12.3",
+    "langgraph>=1.2.10",
+    "langchain-openai>=1.4.1",
+    "langchain-mcp-adapters>=0.3.1",
+    # Upper bound is load-bearing, not caution. langchain-mcp-adapters 0.3.1
+    # declares `mcp>=1.24.0` with no upper bound, so mcp 2.0 resolves happily
+    # and then fails at import: adapters does
+    # `from mcp.server.fastmcp.tools import Tool`, and 2.0 removed the whole
+    # `mcp.server.fastmcp` package in favour of `mcp.server.MCPServer`.
+    # Revisit when adapters ships a 2.x-compatible release.
+    "mcp>=1.24.0,<2",
+    "tree-sitter>=0.25.0",
+    "tree-sitter-language-pack>=1.13.0",
+]
+
+[project.scripts]
+agent = "agent.cli:main"
+agent-mcp = "agent.mcp.__main__:main"
+
+[project.optional-dependencies]
+# Embedding retrieval is the fallback path for symbols the structural resolver
+# cannot match. It drags in onnxruntime, so it stays out of the default install.
+rag = ["fastembed>=0.8.0"]
+test = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["uv_build>=0.9.4,<0.10.0"]
+build-backend = "uv_build"
