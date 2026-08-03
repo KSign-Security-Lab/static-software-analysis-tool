@@ -22,6 +22,7 @@ import logging
 from typing import Any, Literal, TypeVar
 
 from langchain_openai import ChatOpenAI
+from openai import LengthFinishReasonError
 from pydantic import BaseModel
 
 from .config import AgentConfig
@@ -52,6 +53,9 @@ def make_llm(config: AgentConfig) -> ChatOpenAI:
         temperature=config.temperature,
         timeout=config.request_timeout,
         max_retries=config.max_retries,
+        # The field is `max_tokens`, but it is aliased and the constructor only
+        # accepts the alias.
+        max_completion_tokens=config.max_tokens,
     )
 
 
@@ -81,8 +85,28 @@ class StructuredCaller:
         for method in methods:
             try:
                 result = self._runnable(schema, method).invoke(messages)
+            except LengthFinishReasonError:
+                # Guided decoding guarantees the shape, not termination: a model
+                # too small for the schema emits a valid prefix until it runs
+                # out of room. Worth naming, because it looks like a protocol
+                # failure and is not one.
+                log.warning(
+                    "%s did not finish a %s object within max_tokens -- the model is probably "
+                    "too small for this schema. Try a larger one, or raise AGENT_MAX_TOKENS.",
+                    method,
+                    schema.__name__,
+                )
+                continue
             except Exception as err:  # noqa: BLE001 - any client/model failure is the same to us
                 log.warning("structured call failed via %s: %s", method, err)
+                if "tool-call-parser" in str(err):
+                    # vLLM rejects tool calling unless the server was started
+                    # with a parser for the model family, so this fallback is
+                    # unavailable rather than broken.
+                    log.warning(
+                        "the endpoint needs --tool-call-parser for the function_calling fallback; "
+                        "json_schema is the supported path"
+                    )
                 continue
             if isinstance(result, schema):
                 self._method = method

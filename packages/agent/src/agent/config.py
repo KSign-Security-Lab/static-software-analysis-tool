@@ -80,6 +80,12 @@ class AgentConfig:
     max_verify_per_chunk: int = field(default_factory=lambda: _env_int("AGENT_MAX_VERIFY_PER_CHUNK", 8))
     request_timeout: int = field(default_factory=lambda: _env_int("AGENT_REQUEST_TIMEOUT", 300))
     max_retries: int = field(default_factory=lambda: _env_int("AGENT_MAX_RETRIES", 2))
+    #: Ceiling on one response. Guided decoding guarantees the output *matches*
+    #: the schema, not that the model ever finishes it -- a model too small for
+    #: the schema will emit a valid-so-far prefix until it runs out of context.
+    #: Observed: a 0.5B spent 8048 tokens without closing the object. Bounding
+    #: this turns a slow context-exhausting hang into a fast, legible failure.
+    max_tokens: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOKENS", 4096))
 
     #: "bwrap", "docker" or "none".
     sandbox: str = field(default_factory=lambda: os.getenv(ENV_SANDBOX, "bwrap"))
