@@ -57,63 +57,94 @@ it is recovered without loosening the match.
 
 ## Quickstart
 
-Three steps: start a model server, point the agent at it, run it.
-
-### 1. Start vLLM
-
-**Install vLLM somewhere other than this project's venv.** It pulls in a pinned
-torch/CUDA stack, this workspace is on Python 3.14, and vLLM does not
-necessarily publish wheels that new. The agent only needs an HTTP endpoint, so
-the two never have to share an environment.
-
-Docker avoids the Python-version question entirely and is the easier path:
+Two scripts. Neither needs anything memorised.
 
 ```bash
-docker run --rm --gpus '"device=0"' \
-  -p 8000:8000 \
-  -v ~/.cache/huggingface:/root/.cache/huggingface \
-  vllm/vllm-openai:latest \
-  --model Qwen/Qwen2.5-Coder-14B-Instruct \
-  --served-model-name coder \
-  --max-model-len 16384
+scripts/vllm.sh      # pick a model and a GPU layout, start the server
+scripts/agent.sh     # pick an endpoint and a target, run the inspection
 ```
 
-Or in its own virtualenv:
+`scripts/vllm.sh` runs vLLM in Docker. The host install is not used: it is
+vllm 0.17 against torch 2.4, which predates `torch.library.infer_schema`, and
+this workspace is on Python 3.14, which vLLM does not publish wheels for. The
+agent only needs an HTTP endpoint, so the two never have to share a runtime.
+
+Run it with no arguments and it shows the GPUs, offers a model catalogue
+annotated with what fits, asks for a GPU layout, checks the model id against
+the Hugging Face API before starting a multi-gigabyte download, and waits until
+the server actually answers. Everything is also available as flags:
 
 ```bash
-python3.12 -m venv ~/.venvs/vllm && ~/.venvs/vllm/bin/pip install vllm
-~/.venvs/vllm/bin/vllm serve Qwen/Qwen2.5-Coder-14B-Instruct \
-  --served-model-name coder --max-model-len 16384
+scripts/vllm.sh start --model Qwen/Qwen2.5-Coder-32B-Instruct-AWQ --gpus 0
+scripts/vllm.sh start --model Qwen/Qwen2.5-Coder-32B-Instruct --gpus 0,1   # tensor parallel
+scripts/vllm.sh status
+scripts/vllm.sh logs -f
+scripts/vllm.sh stop
 ```
 
-Either way the first run downloads the weights, which takes a while.
+It defaults to port 8001, because the SSAT API already owns 8000.
 
-**Picking a model and a GPU layout.** A 14B at FP16 is about 28 GB of weights
-and fits one 48 GB card with room for KV cache. A 32B at FP16 is roughly 64 GB
-and needs either a 4-bit AWQ/GPTQ build (`--quantization awq`, about 18 GB) on
-one card, or both cards via `--tensor-parallel-size 2`.
+`scripts/agent.sh` then finds the endpoint, asks it what it serves, and sets
+`AGENT_BASE_URL` and `AGENT_MODEL` from the answer. Getting `AGENT_MODEL` wrong
+-- passing the Hugging Face path instead of the id the server reports -- is the
+usual first failure, and this removes the chance to make it. It indexes first
+(free, no model calls) and tells you the chunk count before you commit to a run.
 
-Both GPUs can be used together. Whether it is worth it depends on how they are
-connected, so measure rather than assume — on this host `nvidia-smi topo -m`
-reports `NODE` (PCIe through the host bridge, no NVLink) and
-`torch.cuda.can_device_access_peer` is False both ways, so every tensor-parallel
-all-reduce is staged through host memory. vLLM detects the missing peer access
-and falls back off its custom all-reduce; pass `--disable-custom-all-reduce` if
-it does not.
+Any OpenAI-compatible endpoint works, not just vLLM. If Ollama is already up,
+`scripts/agent.sh` will find it on 11434 and list its models.
 
-Two more consequences of these particular cards being different generations:
+### Doing it by hand
 
-- **FP8 is unavailable.** It needs sm_89 (the RTX 6000 Ada); the A6000 is sm_86.
-  BF16/FP16 and INT4 AWQ/GPTQ run on both.
+```bash
+export AGENT_BASE_URL=http://localhost:8001/v1
+export AGENT_MODEL=agent          # must match `curl $AGENT_BASE_URL/models`
+
+agent index   path/to/src         # deterministic, no model calls
+agent inspect path/to/src -v      # the real thing
+agent runs                        # previous runs
+```
+
+### Choosing a model
+
+Guided decoding guarantees the output *matches* the schema, not that the model
+ever finishes it. A model too small for `ChunkAnalysis` emits a valid-so-far
+prefix until it runs out of room -- measured on a 0.5B, which spent 8048 tokens
+without closing the object. `AGENT_MAX_TOKENS` (default 4096) bounds that into a
+fast, legible failure rather than a slow one, and the log says which model is at
+fault.
+
+Treat anything below about 7B as non-viable for this schema. A 4-bit 32B is the
+sweet spot on a 48 GB card.
+
+### GPU layout
+
+Both GPUs can be used together — `scripts/vllm.sh` offers it, and
+`--gpus 0,1` sets `--tensor-parallel-size 2`. Whether it is worth it depends on
+how the cards are wired, so measure rather than assume:
+
+```bash
+nvidia-smi topo -m                      # NV# means NVLink; NODE means PCIe only
+python -c "import torch; print(torch.cuda.can_device_access_peer(0,1))"
+```
+
+On this host that reports `NODE` and `False`, so every tensor-parallel
+all-reduce is staged through host memory. The script passes
+`--disable-custom-all-reduce` when it sees no NVLink, because vLLM's custom
+all-reduce needs peer access.
+
+Two more consequences when the cards are different generations, as they are
+here (sm_89 Ada and sm_86 Ampere):
+
+- **FP8 is unavailable.** It needs sm_89; the A6000 is sm_86. BF16/FP16 and
+  INT4 AWQ/GPTQ run on both.
 - **The slower card sets the pace.** Tensor parallelism splits work evenly, so
   the result is roughly twice an A6000, not Ada plus Ada.
 
 So tensor parallelism here buys *capacity*, not speed: it is what makes a 32B at
-FP16 possible at all. If a quantised 32B is good enough, one card is the better
-trade — no interconnect cost, and it can be the faster one
-(`CUDA_VISIBLE_DEVICES=0`).
+FP16 possible at all. If a 4-bit 32B is good enough, one card is the better
+trade — no interconnect cost, and it can be the faster one.
 
-Running two independent single-GPU servers instead would buy nothing today. The
+Running two independent single-GPU servers would buy nothing today. The
 inspection loop is deliberately sequential — callees before callers, so notes
 propagate — so it issues one request at a time and never has a second in flight.
 That also keeps batch size at 1, which makes per-token all-reduce traffic small
@@ -121,51 +152,7 @@ and the missing NVLink less punishing than it would be for batch serving.
 Inspecting chunks that share a topological level concurrently would change that,
 and is the point at which a second server starts to pay.
 
-`--max-model-len` has to clear the context-pack budget. `AGENT_CONTEXT_CHARS`
-defaults to 24 000 characters, which is roughly 6–8k tokens of code, and the
-prompt adds instructions on top — 16384 is a comfortable floor.
-
-Check it is up and note the id it reports:
-
-```bash
-curl -s http://localhost:8000/v1/models | python3 -m json.tool
-```
-
-### 2. Point the agent at it
-
-```bash
-uv sync
-source .venv/bin/activate
-
-export AGENT_BASE_URL=http://localhost:8000/v1
-export AGENT_MODEL=coder          # must match "id" from /v1/models
-```
-
-There is no default model. A wrong one produces confident nonsense that looks
-like a working system, so an unset model fails at startup instead of at chunk
-400 of 600.
-
-Any OpenAI-compatible server works, not just vLLM — Ollama
-(`AGENT_BASE_URL=http://localhost:11434/v1`) is handy for a quick local try,
-though small quantised models vary a lot run to run.
-
-### 3. Run it
-
-```bash
-# Deterministic and free: no model is called. Good first check.
-agent index packages/ssat/tests/fixtures/f2a
-
-# The real thing. -v logs each model call and every dropped anchor.
-agent inspect -v packages/ssat/tests/fixtures/f2a
-
-agent runs                        # previous runs and their status
-```
-
-Expect **minutes, not seconds** — one model call per chunk plus one per
-candidate finding. Start with a handful of files.
-
-Output looks like this, and the counts are deliberately not merged into a single
-score:
+### Reading the output
 
 ```
 run 9ecda9121fbb: indexed 1 files, 2 chunks
@@ -176,28 +163,23 @@ run 9ecda9121fbb: indexed 1 files, 2 chunks
 1 finding(s) from 2 chunk(s). 3 candidate(s), 0 refuted, 2 dropped as unlocatable.
 ```
 
-`dropped as unlocatable` means the model described a finding but its quoted
-source text could not be found in the file, so it was discarded rather than
-pointed at a guessed line. A high number there means the prompt is drifting;
-`-v` prints each rejected anchor.
+The counts are deliberately not merged into one number. `dropped as
+unlocatable` means the model described a finding whose quoted source could not
+be found in the file, so it was discarded rather than pointed at a guessed
+line -- a small model will often produce prose there instead of code. A high
+count means the prompt is drifting; `-v` prints every rejected anchor.
 
 ### From the browser
 
 ```bash
-scripts/dev-api.sh                # FastAPI on :8000 -- use a different port if
-                                  # vLLM already has 8000
+scripts/dev-api.sh                # FastAPI on :8000
 cd web && npm run dev             # Next.js on :3000
 ```
 
 Open <http://localhost:3000/inspect>, upload a zip or a set of files, and press
-**검사 실행**. Findings stream in as each chunk finishes and appear as squiggles;
-click one for the explanation, evidence and proposed fix. If the banner says the
-model is not configured, `AGENT_MODEL` was not set in the shell that started the
-API.
-
-> The API defaults to port 8000, which is also vLLM's default. Run vLLM on
-> another port (`--port 8001`) or the API on one (`--port 8080`, then set
-> `NEXT_PUBLIC_API_PORT`).
+검사 실행. Findings stream in as each chunk finishes; click one for the
+explanation, evidence and proposed fix. The `AGENT_*` variables have to be set
+in the shell that starts the API, and the banner says so if they are not.
 
 ### MCP server on its own
 
@@ -211,11 +193,12 @@ AGENT_RUN_ROOT=path/to/src agent-mcp        # stdio
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_BASE_URL` | `http://localhost:8000/v1` | OpenAI-compatible endpoint |
+| `AGENT_BASE_URL` | `http://localhost:8000/v1` | OpenAI-compatible endpoint (`scripts/vllm.sh` serves on 8001) |
 | `AGENT_MODEL` | *(none — required)* | Model id the endpoint serves |
 | `AGENT_RUNS_DIR` | `artifacts/agent-runs` | Where run workspaces live |
 | `AGENT_SANDBOX` | `bwrap` | `bwrap`, `docker` or `none` |
 | `AGENT_CONTEXT_CHARS` | `24000` | Context-pack budget per chunk |
+| `AGENT_MAX_TOKENS` | `4096` | Ceiling on one response; bounds a model that cannot finish the schema |
 | `AGENT_MAX_VERIFY_PER_CHUNK` | `8` | Cap on refute calls per chunk |
 
 ## Layout
