@@ -255,3 +255,49 @@ def test_sample_tree_labels_both_halves_of_each_pair(fixture_root: Path) -> None
         assert f"{symbol} " in text or f"{symbol}(" in text
     assert "VULNERABLE" in text and "SAFE" in text
     assert "f2a" not in text.lower(), "the sample tree must not reference another package's fixtures"
+
+
+def test_the_store_survives_reads_while_a_run_is_writing(tree: Path, tmp_path: Path) -> None:
+    """GET /findings reads a run's store while the inspection thread writes it.
+
+    Each thread opens its own connection -- sqlite3 forbids sharing one -- and
+    WAL is what stops them blocking each other.
+    """
+    import sqlite3
+    import threading
+
+    db = tmp_path / "index.db"
+    boot = ChunkStore(db)
+    build_index(tree, boot)
+    boot.close()
+
+    assert sqlite3.connect(db).execute("pragma journal_mode").fetchone()[0] == "wal"
+
+    errors: list[str] = []
+
+    def write() -> None:
+        try:
+            store = ChunkStore(db)
+            for i in range(300):
+                store.set_note(f"chunk{i}", "x" * 400)
+            store.close()
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"writer: {err}")
+
+    def read() -> None:
+        try:
+            for _ in range(300):
+                store = ChunkStore(db)
+                store.findings()
+                list(store.chunks())
+                store.close()
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"reader: {err}")
+
+    threads = [threading.Thread(target=write), *(threading.Thread(target=read) for _ in range(2))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+
+    assert errors == []

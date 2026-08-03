@@ -105,6 +105,11 @@ class ChunkStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
+        # WAL so `GET /findings` can read while the inspection thread writes.
+        # The default rollback journal makes them block each other, which under
+        # a slower disk shows up as "database is locked".
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=10000")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 
