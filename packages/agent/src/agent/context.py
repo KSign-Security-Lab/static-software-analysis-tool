@@ -1,0 +1,177 @@
+"""Assemble the context for one chunk, from the index.
+
+No model is involved in deciding what to include. The link graph already knows
+which chunks are related and how, so the pack is built deterministically:
+
+* the chunk itself, with absolute line numbers;
+* its file's top-level material -- struct layouts, globals, typedefs -- because
+  a buffer's declared size lives there, not in the function that overflows it;
+* **notes written when its callees were analysed**, which is how taint crosses a
+  chunk boundary without the whole tree entering the prompt;
+* signatures of its callers, so the model can see how it is reached;
+* definitions of the types it uses.
+
+Letting the model explore instead ("open whatever you think you need") costs a
+round trip per file and produces a different context every run, which makes
+findings irreproducible. Tools are still available for the cases the graph
+cannot resolve -- function pointers, macro-generated names -- but they are the
+exception, not the mechanism.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from .config import AgentConfig
+from .index.chunk import FILE_CHUNK_KIND, Chunk
+from .index.store import ChunkStore
+
+
+@dataclass
+class ContextPack:
+    """Everything the model is shown about one chunk."""
+
+    chunk: Chunk
+    text: str
+    callee_notes: list[tuple[str, str]] = field(default_factory=list)
+    truncated: bool = False
+
+    @property
+    def has_callee_context(self) -> bool:
+        return bool(self.callee_notes)
+
+
+def _signature(chunk: Chunk) -> str:
+    """A definition's first line -- enough to see how it is called."""
+    for line in chunk.body.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped.rstrip("{").strip()
+    return chunk.symbol
+
+
+def _truncate(text: str, limit: int) -> tuple[str, bool]:
+    if len(text) <= limit:
+        return text, False
+    return text[:limit] + f"\n... [truncated at {limit} characters]", True
+
+
+def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> ContextPack:
+    """Build the context pack for one chunk, within the character budget.
+
+    Sections are added in priority order and the budget is spent as it goes, so
+    when a chunk is large the *supporting* material is what gets dropped -- never
+    the code under analysis.
+    """
+    sections: list[str] = []
+    budget = config.context_char_budget
+
+    body, truncated = _truncate(chunk.numbered_body(), config.max_chunk_chars)
+    label = "FILE-LEVEL DECLARATIONS" if chunk.kind == FILE_CHUNK_KIND else "UNIT UNDER ANALYSIS"
+    header = f"=== {label}: {chunk.file} :: {chunk.symbol} (lines {chunk.start_line}-{chunk.end_line}) ==="
+    primary = f"{header}\n{body}"
+    sections.append(primary)
+    budget -= len(primary)
+
+    callee_notes: list[tuple[str, str]] = []
+    for callee in store.callees_of(chunk.chunk_id):
+        note = store.note(callee.chunk_id)
+        if note:
+            callee_notes.append((callee.symbol, note))
+        if len(callee_notes) >= config.max_callee_notes:
+            break
+
+    if callee_notes:
+        lines = [
+            "=== WHAT THIS UNIT'S CALLEES DO (from analysing them first) ===",
+            *(f"- {symbol}: {note}" for symbol, note in callee_notes),
+        ]
+        block = "\n".join(lines)
+        if len(block) <= budget:
+            sections.append(block)
+            budget -= len(block)
+
+    if chunk.kind != FILE_CHUNK_KIND:
+        file_chunk = next((c for c in store.chunks_in_file(chunk.file) if c.kind == FILE_CHUNK_KIND), None)
+        if file_chunk is not None and file_chunk.body.strip():
+            block, _ = _truncate(
+                f"=== TOP-LEVEL DECLARATIONS IN {chunk.file} ===\n{file_chunk.body}",
+                max(0, min(budget, config.max_chunk_chars)),
+            )
+            if block and len(block) <= budget:
+                sections.append(block)
+                budget -= len(block)
+
+    type_defs = _type_definitions(store, chunk, budget)
+    if type_defs:
+        sections.append(type_defs)
+        budget -= len(type_defs)
+
+    callers = store.callers_of(chunk.chunk_id)
+    if callers:
+        block = "\n".join(
+            [
+                "=== CALLED FROM ===",
+                *(f"- {c.file}:{c.start_line} {_signature(c)}" for c in callers[:10]),
+            ]
+        )
+        if len(block) <= budget:
+            sections.append(block)
+
+    return ContextPack(
+        chunk=chunk,
+        text="\n\n".join(sections),
+        callee_notes=callee_notes,
+        truncated=truncated,
+    )
+
+
+def _type_definitions(store: ChunkStore, chunk: Chunk, budget: int) -> str:
+    """Definitions of the types this chunk uses, where they are in the tree.
+
+    A struct field's type is often the whole finding -- ``char buf[8]`` versus
+    ``char *buf`` changes what an overflow means.
+    """
+    blocks: list[str] = []
+    remaining = budget
+    seen: set[str] = set()
+
+    for type_name in chunk.types_used:
+        if type_name in seen:
+            continue
+        seen.add(type_name)
+        for definition in store.definition_of(type_name):
+            if definition.chunk_id == chunk.chunk_id:
+                continue
+            snippet = _extract_type(definition.body, type_name)
+            if not snippet:
+                continue
+            entry = f"- {type_name} (from {definition.file}):\n{snippet}"
+            if len(entry) > remaining:
+                break
+            blocks.append(entry)
+            remaining -= len(entry)
+            break
+
+    return "=== TYPES USED ===\n" + "\n".join(blocks) if blocks else ""
+
+
+def _extract_type(body: str, type_name: str) -> str:
+    """The declaration of one type out of a file chunk's body.
+
+    File chunks hold every top-level declaration in the file; pasting all of
+    them for one struct would crowd out the code under analysis.
+    """
+    lines = body.splitlines()
+    for index, line in enumerate(lines):
+        if type_name in line and any(keyword in line for keyword in ("struct", "typedef", "class", "enum", "union")):
+            start = index
+            depth = 0
+            for end in range(start, min(len(lines), start + 60)):
+                depth += lines[end].count("{") - lines[end].count("}")
+                if depth <= 0 and end > start:
+                    return "\n".join(lines[start : end + 1])
+                if depth == 0 and lines[end].rstrip().endswith(";"):
+                    return "\n".join(lines[start : end + 1])
+            return "\n".join(lines[start : start + 20])
+    return ""
