@@ -27,6 +27,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.config import AgentConfig
+from agent.endpoint import list_models
 from agent.graph.build import run_inspection
 from agent.index import build_index
 from agent.paths import PathEscape, resolve_within
@@ -104,20 +105,28 @@ class DiffRequest(BaseModel):
 
 
 @router.get("/health")
-def agent_health() -> Dict[str, Any]:
+def agent_health(probe: bool = False) -> Dict[str, Any]:
     """Whether the agent is configured well enough to run.
 
-    Reports the model rather than checking the endpoint: probing it on every
-    health check would add a network round trip to a liveness probe.
+    Configuration is answered from the environment, with no network call, so
+    this stays usable as a liveness probe. Pass ``?probe=true`` to also ask the
+    endpoint what it serves -- worth it when diagnosing an AGENT_MODEL that does
+    not match any served id, which is the usual first failure.
     """
     config = AgentConfig()
-    return {
+    body: Dict[str, Any] = {
         "configured": bool(config.model),
         "base_url": config.base_url,
         "model": config.model or None,
         "sandbox": config.sandbox,
         "runs_dir": str(config.runs_dir),
     }
+    if probe:
+        served = list_models(config.base_url)
+        body["reachable"] = bool(served)
+        body["served_models"] = served
+        body["model_is_served"] = config.model in served if (config.model and served) else False
+    return body
 
 
 @router.get("/runs")

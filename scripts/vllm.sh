@@ -333,7 +333,7 @@ wait_for_ready() {
       cmd_status
       echo
       echo "Now run the agent against it:"
-      echo "  scripts/agent.sh"
+      echo "  agent          # interactive"
       return 0
     fi
     printf '\r  waiting... %ds' "$waited"

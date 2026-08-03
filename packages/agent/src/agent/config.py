@@ -14,8 +14,9 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-#: vLLM's OpenAI-compatible server listens here by default.
-DEFAULT_BASE_URL = "http://localhost:8000/v1"
+#: Where ``scripts/vllm.sh`` serves. vLLM's own default is 8000, but that is the
+#: SSAT API's port, so the script moves it and this follows.
+DEFAULT_BASE_URL = "http://localhost:8001/v1"
 
 #: Deliberately empty. A wrong default model produces confident nonsense that
 #: looks like a working system, so an unset model is an error at startup rather

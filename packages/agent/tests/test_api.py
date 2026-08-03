@@ -159,6 +159,50 @@ def test_health_reports_unconfigured_when_no_model_is_set(client: TestClient) ->
     assert body["model"] is None
 
 
+def test_health_does_not_touch_the_network_unless_asked(client: TestClient) -> None:
+    """It doubles as a liveness probe, so the default must stay local."""
+    body = client.get("/agent/health").json()
+    assert "served_models" not in body
+    assert "reachable" not in body
+
+
+def test_health_probe_reports_what_the_endpoint_serves(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """?probe=true answers the question people actually have: is AGENT_MODEL
+    one of the ids this server knows about?"""
+    import api.agent_routes as routes
+
+    monkeypatch.setattr(routes, "list_models", lambda _url: ["agent", "other"])
+    monkeypatch.setenv(ENV_MODEL, "agent")
+
+    body = client.get("/agent/health", params={"probe": "true"}).json()
+    assert body["reachable"] is True
+    assert body["served_models"] == ["agent", "other"]
+    assert body["model_is_served"] is True
+
+
+def test_health_probe_flags_a_model_the_server_does_not_serve(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The usual first failure: the HF path was used instead of the served id."""
+    import api.agent_routes as routes
+
+    monkeypatch.setattr(routes, "list_models", lambda _url: ["agent"])
+    monkeypatch.setenv(ENV_MODEL, "Qwen/Qwen2.5-Coder-32B-Instruct")
+
+    body = client.get("/agent/health", params={"probe": "true"}).json()
+    assert body["reachable"] is True
+    assert body["model_is_served"] is False
+
+
+def test_health_probe_survives_a_dead_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import api.agent_routes as routes
+
+    monkeypatch.setattr(routes, "list_models", lambda _url: [])
+    body = client.get("/agent/health", params={"probe": "true"}).json()
+    assert body["reachable"] is False
+    assert body["model_is_served"] is False
+
+
 def test_inspection_without_a_model_fails_the_run_not_the_request(client: TestClient) -> None:
     """Starting is asynchronous, so a config error surfaces on the stream."""
     run_id = _upload(client)["run_id"]
