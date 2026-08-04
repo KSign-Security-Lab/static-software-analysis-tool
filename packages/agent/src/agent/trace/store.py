@@ -75,9 +75,11 @@ class Span:
 
     @property
     def latency_ms(self) -> int | None:
+        # Rounded, not truncated: float subtraction turns a clean 0.4s into
+        # 0.3999..., and truncating reports it as 399ms.
         if self.ended_at is None:
             return None
-        return int((self.ended_at - self.started_at) * 1000)
+        return round((self.ended_at - self.started_at) * 1000)
 
     def as_dict(self) -> dict[str, Any]:
         return {

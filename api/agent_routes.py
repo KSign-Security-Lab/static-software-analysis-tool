@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from agent.config import AgentConfig
 from agent.endpoint import list_models
 from agent.tracing import status as tracing_status
-from agent.graph.build import run_inspection
+from agent.graph.build import graph_shape, run_inspection
 from agent.index import build_index
 from agent.paths import PathEscape, resolve_within
 from agent.runs import (
@@ -252,6 +252,16 @@ def _trace_url(run: Any) -> str | None:
         return None
 
 
+@router.get("/graph")
+def agent_graph() -> Dict[str, Any]:
+    """The inspection graph's nodes and edges.
+
+    A property of the code, not of a run, so it answers before anything has
+    been inspected -- the structure is the thing you want to look at first.
+    """
+    return graph_shape()
+
+
 @router.get("/runs")
 def get_runs() -> Dict[str, Any]:
     return {"runs": list_runs()}
@@ -416,6 +426,95 @@ def _span_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+@router.get("/runs/{run_id}/checkpoints")
+def run_checkpoints(run_id: str) -> Dict[str, Any]:
+    """This run's state after each super-step, oldest first.
+
+    The trace says what was called; this says what the graph *knew* at each
+    step -- what was still queued, what the last node wrote, where it would go
+    next. One thread per run, so this is only ever this run's history.
+    """
+    paths = _require_run(run_id)
+    steps = paths.checkpoints()
+    return {"run_id": run_id, "checkpoints": steps, "count": len(steps)}
+
+
+@router.get("/runs/{run_id}/thread")
+def run_thread(run_id: str) -> Dict[str, Any]:
+    """The run as conversations -- one per chunk, in the order they happened.
+
+    A span tree shows the machinery. This shows the exchange: what the agent was
+    asked, what it answered, which tools it reached for and what came back.
+    """
+    paths = _require_run(run_id)
+    if not paths.trace_db.exists():
+        return {"run_id": run_id, "threads": []}
+
+    spans = paths.spans()
+    try:
+        rows = spans.spans()
+    finally:
+        spans.close()
+
+    by_id = {span.id: span for span in rows}
+    threads: Dict[str, Dict[str, Any]] = {}
+
+    for span in rows:
+        if span.kind != "llm":
+            continue
+        # Group by chunk, falling back to the node: one chunk is one
+        # conversation, which is the unit the agent actually reasons in.
+        key = str(span.meta.get("chunk_id") or span.meta.get("langgraph_node") or "run")
+        thread = threads.setdefault(
+            key,
+            {
+                "id": key,
+                "symbol": span.meta.get("symbol"),
+                "file": span.meta.get("file"),
+                "turns": [],
+                "tokens": 0,
+            },
+        )
+        thread["tokens"] += span.tokens or 0
+        thread["turns"].append(_turn(span, by_id))
+
+    return {"run_id": run_id, "threads": list(threads.values())}
+
+
+def _turn(span: Any, by_id: Dict[str, Any]) -> Dict[str, Any]:
+    """One model call as an exchange: what went in, what came back, what ran."""
+    inputs = span.inputs if isinstance(span.inputs, dict) else {}
+    outputs = span.outputs if isinstance(span.outputs, dict) else {}
+    messages = inputs.get("messages")
+    if not isinstance(messages, list):
+        # A completion-style call has prompts rather than messages; presented
+        # the same way so the view does not need two shapes.
+        messages = [{"role": "human", "content": text} for text in inputs.get("prompts", [])]
+
+    return {
+        "id": span.id,
+        "step": span.meta.get("step") or span.name,
+        "name": span.name,
+        "messages": messages,
+        "reply": "\n".join(outputs.get("text", [])) or None,
+        "tool_calls": outputs.get("tool_calls") or [],
+        "tools": [
+            {
+                "name": child.name,
+                "inputs": child.inputs,
+                "outputs": child.outputs,
+                "error": child.error,
+                "latency_ms": child.latency_ms,
+            }
+            for child in by_id.values()
+            if child.parent_id == span.id and child.kind == "tool"
+        ],
+        "latency_ms": span.latency_ms,
+        "tokens": span.tokens,
+        "error": span.error,
+    }
+
+
 @router.get("/runs/{run_id}/files")
 def run_files(run_id: str) -> Dict[str, Any]:
     paths = _require_run(run_id)
@@ -475,10 +574,11 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, force: bool) -> None:
     """Run the inspection on a worker thread, publishing progress."""
     config = AgentConfig()
     store = paths.store()
-    # One trace per inspection: the previous one describes work that is about to
-    # be redone, and two runs interleaved in one tree is unreadable.
+    # One trace and one checkpoint thread per inspection: the previous attempt
+    # describes work about to be redone, and two interleaved in one history are
+    # unreadable.
+    paths.reset_debug()
     spans = paths.spans()
-    spans.clear()
 
     def emit(event: str, payload: dict[str, Any]) -> None:
         channel.events.put({"event": event, "data": payload})
@@ -502,6 +602,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, force: bool) -> None:
             emit=emit,
             index_stats=index_stats,
             spans=spans,
+            checkpoints=paths.checkpoint_db,
         )
         paths.save_report(report)
         paths.set_status(STATUS_DONE, findings=len(report.findings))

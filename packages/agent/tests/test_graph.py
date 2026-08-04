@@ -486,3 +486,61 @@ def test_a_run_records_its_own_trace(indexed, tmp_path: Path) -> None:
 
     spans.close()
     store.close()
+
+
+def test_the_graph_shape_is_readable_without_a_run(tmp_path: Path) -> None:
+    """The structure is a property of the code, so the UI can draw it before
+    anything has been inspected."""
+    from agent.graph.build import graph_shape
+
+    shape = graph_shape()
+
+    assert set(shape["nodes"]) == {"__start__", "plan", "context", "analyse", "locate", "verify", "__end__"}
+    edges = {(e["source"], e["target"]) for e in shape["edges"]}
+    assert ("context", "analyse") in edges
+    assert ("verify", "plan") in edges, "the loop back to plan is the whole shape"
+    conditional = {(e["source"], e["target"]) for e in shape["edges"] if e["conditional"]}
+    assert conditional == {("plan", "context"), ("plan", "__end__")}
+
+
+def test_a_run_checkpoints_every_super_step(indexed, tmp_path: Path) -> None:
+    """Each node's state is kept, so a finished run can be stepped through."""
+    from agent.graph.checkpoints import read_history
+
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    db = tmp_path / "checkpoints.db"
+
+    run_inspection(
+        run_id="test",
+        root=root,
+        store=store,
+        config=AgentConfig(model="fake", enable_tools=False),
+        caller=caller,  # type: ignore[arg-type]
+        checkpoints=db,
+    )
+
+    history = read_history(db, "test")
+    assert len(history) > 1
+
+    # Oldest first: reading a run as a sequence of steps is the point, and
+    # LangGraph yields them newest first.
+    steps = [h["step"] for h in history if h["step"] is not None]
+    assert steps == sorted(steps)
+
+    # The metadata does not name the node that wrote a state, so it is derived
+    # from the previous snapshot's `next`.
+    assert {h["node"] for h in history} >= {"plan", "context", "analyse", "locate", "verify"}
+
+    # Bulky lists are counted, not copied: a snapshot says where the run was,
+    # it is not a second copy of the findings.
+    values = history[-1]["values"]
+    assert set(values["pending"]) == {"remaining", "next"}
+    assert set(values["candidates"]) == {"count"}
+    store.close()
+
+
+def test_history_of_a_run_that_was_never_checkpointed_is_empty(tmp_path: Path) -> None:
+    from agent.graph.checkpoints import read_history
+
+    assert read_history(tmp_path / "missing.db", "test") == []

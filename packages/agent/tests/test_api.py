@@ -421,3 +421,59 @@ def test_spans_endpoint_serves_the_recorded_tree(client: TestClient) -> None:
 
 def test_spans_of_an_unknown_run_is_a_404(client: TestClient) -> None:
     assert client.get("/agent/runs/deadbeef/spans").status_code == 404
+
+
+def test_graph_endpoint_answers_before_any_run(client: TestClient) -> None:
+    body = client.get("/agent/graph").json()
+    assert "plan" in body["nodes"] and "verify" in body["nodes"]
+    assert body["mermaid"].startswith("---")
+
+
+def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestClient) -> None:
+    """The span tree shows the machinery; this shows the exchange."""
+    from agent.runs import get_run
+
+    run_id = _upload(client)["run_id"]
+    paths = get_run(run_id)
+    assert paths is not None
+
+    spans = paths.spans()
+    meta = {"chunk_id": "c1", "symbol": "run", "file": "src/app.c"}
+    spans.start(span_id="node", parent_id=None, name="verify", kind="chain", started_at=0.0)
+    spans.start(
+        span_id="llm",
+        parent_id="node",
+        name="gather:CWE-78",
+        kind="llm",
+        started_at=0.0,
+        inputs={"messages": [{"role": "system", "content": "be strict"}, {"role": "human", "content": "check"}]},
+        meta={**meta, "step": "gather"},
+    )
+    spans.finish(span_id="llm", ended_at=1.0, outputs={"tool_calls": [{"name": "read_source"}]}, tokens=90)
+    spans.start(span_id="tool", parent_id="llm", name="read_source", kind="tool", started_at=1.0, inputs={"p": "a.c"})
+    spans.finish(span_id="tool", ended_at=1.4, outputs="int main(void)")
+    spans.close()
+
+    (thread,) = client.get(f"/agent/runs/{run_id}/thread").json()["threads"]
+
+    assert thread["symbol"] == "run"
+    assert thread["tokens"] == 90
+    (turn,) = thread["turns"]
+    assert turn["step"] == "gather"
+    assert [m["role"] for m in turn["messages"]] == ["system", "human"]
+    # The tool the model asked for, and what running it returned -- the pair is
+    # what makes a verify step readable.
+    assert turn["tool_calls"][0]["name"] == "read_source"
+    assert turn["tools"][0]["outputs"] == "int main(void)"
+    assert turn["tools"][0]["latency_ms"] == 400
+
+
+def test_thread_and_checkpoints_are_empty_before_an_inspection(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    assert client.get(f"/agent/runs/{run_id}/thread").json()["threads"] == []
+    assert client.get(f"/agent/runs/{run_id}/checkpoints").json()["count"] == 0
+
+
+def test_checkpoints_of_an_unknown_run_is_a_404(client: TestClient) -> None:
+    assert client.get("/agent/runs/deadbeef/checkpoints").status_code == 404
+    assert client.get("/agent/runs/deadbeef/thread").status_code == 404

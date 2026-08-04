@@ -25,6 +25,7 @@ from typing import Any, Iterator
 from .config import AgentConfig
 from .index import ChunkStore, IndexResult, build_index, iter_source_files
 from .schema import Finding, FindingDiff, Report
+from .graph.checkpoints import read_history
 from .trace import SpanStore
 
 #: Caps on what an upload may contain. A zip that exceeds any of them is
@@ -68,6 +69,11 @@ class RunPaths:
         return self.base / "trace.db"
 
     @property
+    def checkpoint_db(self) -> Path:
+        """LangGraph's state snapshots. One thread, this run."""
+        return self.base / "checkpoints.db"
+
+    @property
     def report_path(self) -> Path:
         return self.base / "report.json"
 
@@ -80,6 +86,24 @@ class RunPaths:
 
     def spans(self) -> SpanStore:
         return SpanStore(self.trace_db)
+
+    def checkpoints(self) -> list[dict[str, Any]]:
+        """This run's state at each super-step, oldest first."""
+        return read_history(self.checkpoint_db, self.run_id)
+
+    def reset_debug(self) -> None:
+        """Clear the trace and the checkpoints before re-inspecting.
+
+        Two attempts interleaved in one thread read as one incoherent run, and
+        a stale checkpoint would make LangGraph resume where the last attempt
+        stopped instead of starting over.
+        """
+        spans = self.spans()
+        spans.clear()
+        spans.close()
+        self.checkpoint_db.unlink(missing_ok=True)
+        for suffix in ("-wal", "-shm"):
+            self.checkpoint_db.with_name(self.checkpoint_db.name + suffix).unlink(missing_ok=True)
 
     def read_meta(self) -> dict[str, Any]:
         if not self.meta_path.exists():

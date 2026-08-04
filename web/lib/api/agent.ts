@@ -132,6 +132,58 @@ export function fetchSpans(runId: string): Promise<RunSpans> {
   return get<RunSpans>(`/agent/runs/${runId}/spans`);
 }
 
+/** The graph itself: a property of the code, not of any run. */
+export interface GraphShape {
+  nodes: string[];
+  edges: { source: string; target: string; conditional: boolean }[];
+  mermaid: string;
+}
+
+export function fetchGraph(): Promise<GraphShape> {
+  return get<GraphShape>("/agent/graph");
+}
+
+/** One model call as an exchange, for the conversation view. */
+export interface Turn {
+  id: string;
+  step: string;
+  name: string;
+  messages: { role: string; content: string }[];
+  reply: string | null;
+  tool_calls: { name?: string; args?: unknown }[];
+  tools: { name: string; inputs: unknown; outputs: unknown; error: string | null; latency_ms: number | null }[];
+  latency_ms: number | null;
+  tokens: number | null;
+  error: string | null;
+}
+
+export interface Thread {
+  id: string;
+  symbol: string | null;
+  file: string | null;
+  turns: Turn[];
+  tokens: number;
+}
+
+export function fetchThreads(runId: string): Promise<{ run_id: string; threads: Thread[] }> {
+  return get(`/agent/runs/${runId}/thread`);
+}
+
+/** LangGraph's state after one super-step. */
+export interface Checkpoint {
+  checkpoint_id: string | null;
+  step: number | null;
+  source: string | null;
+  node: string | null;
+  next: string[];
+  created_at: string | null;
+  values: Record<string, unknown>;
+}
+
+export function fetchCheckpoints(runId: string): Promise<{ run_id: string; checkpoints: Checkpoint[]; count: number }> {
+  return get(`/agent/runs/${runId}/checkpoints`);
+}
+
 export interface RunSummary {
   run_id: string;
   status?: string;

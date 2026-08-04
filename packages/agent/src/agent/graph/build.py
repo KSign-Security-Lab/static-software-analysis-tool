@@ -12,7 +12,7 @@ accounting, not for agentic routing.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
 
@@ -23,6 +23,7 @@ from ..mcp.client import VERIFY_TOOLS, ToolSession, open_session
 from ..schema import Finding, Report, RunStats
 from ..trace import SpanRecorder, SpanStore
 from ..tracing import apply_default_project
+from .checkpoints import checkpoint_saver
 from .nodes import NodeDeps, ProgressSink, has_work, make_nodes
 from .state import InspectionState, initial_state
 
@@ -33,8 +34,13 @@ NODE_VISITS_PER_CHUNK = 5
 RECURSION_HEADROOM = 20
 
 
-def build_graph(deps: NodeDeps) -> Any:
-    """Compile the inspection graph."""
+def build_graph(deps: NodeDeps, checkpointer: Any = None) -> Any:
+    """Compile the inspection graph.
+
+    With a ``checkpointer`` every super-step's state is written to disk, which
+    is what makes a finished run steppable after the fact and an interrupted
+    one resumable.
+    """
     nodes = make_nodes(deps)
     graph = StateGraph(InspectionState)
 
@@ -52,7 +58,35 @@ def build_graph(deps: NodeDeps) -> Any:
     graph.add_edge("analyse", "locate")
     graph.add_edge("locate", "verify")
     graph.add_edge("verify", "plan")
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
+
+
+def hollow_deps() -> NodeDeps:
+    """Dependencies for a graph that will be compiled but not run.
+
+    The nodes only close over what they are given; nothing is touched until a
+    node executes. That is enough to read the graph's shape, or to reopen it
+    over a saver purely to replay history.
+    """
+    return NodeDeps(store=cast(Any, None), config=AgentConfig(), caller=cast(Any, None), root=Path())
+
+
+def graph_shape() -> dict[str, Any]:
+    """Nodes and edges of the inspection graph, with no dependencies attached.
+
+    The structure is a property of the code, not of any run, so this answers
+    without a store, a model or a workspace -- which is what lets the UI draw
+    the graph before anything has been inspected.
+    """
+    shape = build_graph(hollow_deps()).get_graph()
+    return {
+        "nodes": [name for name in shape.nodes],
+        "edges": [
+            {"source": edge.source, "target": edge.target, "conditional": bool(edge.conditional)}
+            for edge in shape.edges
+        ],
+        "mermaid": shape.draw_mermaid(),
+    }
 
 
 def run_inspection(
@@ -66,6 +100,7 @@ def run_inspection(
     index_stats: dict[str, int] | None = None,
     tools: ToolSession | None = None,
     spans: SpanStore | None = None,
+    checkpoints: Path | None = None,
 ) -> Report:
     """Inspect an already-indexed tree and return the report.
 
@@ -109,18 +144,24 @@ def run_inspection(
     order = store.order()
     state = initial_state(order, len(order), index_stats)
 
+    # One thread per run, so a run's history is its own and stepping through it
+    # afterwards shows that run's states and nobody else's.
+    saver = checkpoint_saver(checkpoints) if checkpoints is not None else None
+    invocation: dict[str, Any] = {
+        "recursion_limit": len(order) * NODE_VISITS_PER_CHUNK + RECURSION_HEADROOM,
+        "callbacks": [recorder] if recorder is not None else None,
+    }
+    if saver is not None:
+        invocation["configurable"] = {"thread_id": run_id}
+
     try:
-        app = build_graph(deps)
-        final: dict[str, Any] = app.invoke(
-            state,
-            config={
-                "recursion_limit": len(order) * NODE_VISITS_PER_CHUNK + RECURSION_HEADROOM,
-                "callbacks": [recorder] if recorder is not None else None,
-            },
-        )
+        app = build_graph(deps, checkpointer=saver)
+        final: dict[str, Any] = app.invoke(state, config=invocation)
     finally:
         if owned_session is not None:
             owned_session.close()
+        if saver is not None:
+            saver.conn.close()
 
     stats = RunStats(**{k: v for k, v in final.get("stats", {}).items() if k in RunStats.model_fields})
     findings = [Finding.model_validate(payload) for payload in store.findings()]

@@ -597,6 +597,72 @@ table.checks tr:last-child td { border-bottom: none; }
 .msg-role { margin-bottom: 3px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--alt); }
 .msg .span-io { margin-bottom: 0; }
 
+/* ---- the run panel: one run, four ways of looking at it ------------------ */
+.traces-detail-wrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.run-bar { display: flex; align-items: center; gap: var(--gap-2); padding: var(--gap-2) var(--gap-3); border-bottom: 1px solid var(--line); background: var(--surface); }
+.run-bar-id { font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: 700; color: var(--ink); }
+.run-bar .span-filters { margin-left: auto; }
+
+/* graph: nodes, edges, and what this run did to them */
+.graphview { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--gap-5); align-content: start; padding: var(--gap-4); overflow: auto; min-height: 0; }
+.graphview-svg { flex: none; }
+.gv-edge { stroke: var(--line-2); stroke-width: 1.5; }
+.gv-edge.is-conditional { stroke-dasharray: 4 3; }
+.gv-node { fill: var(--surface-2); stroke: var(--line-2); stroke-width: 1; }
+.gv-node.is-terminal { fill: var(--surface-3); }
+.gv-node.is-visited { fill: var(--accent-wash); stroke: var(--accent); }
+.gv-node.is-running { stroke: var(--alt); stroke-width: 2; }
+.gv-label { font-family: var(--font-mono); font-size: 12px; fill: var(--ink); }
+.gv-count { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink-faint); }
+.graphview-legend { margin: 0; align-self: start; }
+.gv-stat { display: flex; justify-content: space-between; gap: var(--gap-4); padding: 5px 0; border-bottom: 1px solid var(--line); max-width: 340px; }
+.gv-stat dt { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--ink); }
+.gv-stat dd { margin: 0; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--ink-faint); }
+
+/* thread: the run as conversations, one per chunk */
+.threads { flex: 1; display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 0; }
+.threads-list { overflow-y: auto; padding: var(--gap-1); border-right: 1px solid var(--line); }
+.thread-tab { display: grid; gap: 2px; width: 100%; padding: var(--gap-2); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.thread-tab:hover { background: var(--surface-2); }
+.thread-tab.is-selected { background: var(--accent-wash); }
+.thread-tab-name { font-family: var(--font-mono); font-size: var(--text-2xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-body { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.thread-scroll { flex: 1; overflow-y: auto; padding: var(--gap-3) var(--gap-4); }
+
+.turn { padding: var(--gap-3) 0; border-bottom: 1px solid var(--line); }
+.turn.is-error { border-left: 2px solid var(--danger); padding-left: var(--gap-3); }
+.turn-head { display: flex; align-items: center; gap: var(--gap-2); margin-bottom: var(--gap-2); }
+.turn-step { font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-ink); }
+.turn-head .chip { margin-left: auto; font-size: 10px; padding: 1px 7px; cursor: pointer; background: transparent; border-color: var(--line-2); color: var(--ink-muted); }
+.turn-head .chip:hover { color: var(--ink); border-color: var(--accent); }
+
+/* Roles are offset and tinted rather than labelled only: a wall of identical
+   grey blocks is what the span view already was. */
+.bubble { margin-bottom: var(--gap-2); padding: var(--gap-2) var(--gap-3); border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); max-width: 90%; }
+.bubble.is-system { background: transparent; border-style: dashed; opacity: 0.8; }
+.bubble.is-human { border-left: 2px solid var(--accent); }
+.bubble.is-ai { margin-left: auto; background: var(--accent-wash); border-color: transparent; }
+.bubble.is-tool { border-left: 2px solid var(--ok); background: var(--surface); }
+.bubble-role { margin-bottom: 3px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); }
+.bubble-body, .bubble-args { margin: 0; font-family: var(--font-mono); font-size: var(--text-2xs); line-height: 1.55; color: var(--ink); white-space: pre-wrap; word-break: break-word; max-height: 340px; overflow: auto; }
+.bubble-args { margin-bottom: var(--gap-1); color: var(--ink-muted); font-size: 10.5px; }
+
+/* steps: LangGraph's checkpoints, stepped through */
+.steps { flex: 1; display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.steps-rail { padding-bottom: var(--gap-2); border-bottom: 1px solid var(--line); }
+.steps-slider { width: calc(100% - var(--gap-6)); margin: var(--gap-2) var(--gap-3); accent-color: var(--accent); }
+.steps-track { display: flex; gap: 2px; padding: 0 var(--gap-3); overflow-x: auto; }
+.steps-tick { flex: none; padding: 2px 6px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-faint); font-family: var(--font-mono); font-size: 9.5px; cursor: pointer; }
+.steps-tick:hover { color: var(--ink); }
+.steps-tick.is-selected { background: var(--accent-wash); border-color: var(--accent); color: var(--accent-ink); }
+.steps-tick.n-analyse, .steps-tick.n-verify { border-color: var(--line-2); color: var(--ink-muted); }
+
+.state-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-2); margin: 0 0 var(--gap-4); }
+.state-grid > div { padding: var(--gap-2) var(--gap-3); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.state-grid dt { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); }
+.state-grid dd { margin: 2px 0 0; font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink); }
+.state-grid dd.mono { font-size: var(--text-2xs); }
+
 /* ---- section shell: a rail, not tabs ------------------------------------ */
 .app { display: grid; grid-template-columns: 68px minmax(0, 1fr); height: 100vh; min-height: 0; }
 .app-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
