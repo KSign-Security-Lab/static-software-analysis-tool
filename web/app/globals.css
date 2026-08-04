@@ -608,3 +608,6 @@ table.checks tr:last-child td { border-bottom: none; }
 .section-view:hover { color: var(--ink); }
 .section-view.is-active { background: var(--surface); color: var(--ink-strong); box-shadow: var(--shadow-1); }
 .section-actions { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; margin-left: auto; }
+.ws-pane-title { justify-content: space-between; }
+.ws-pane-action { padding: 2px 7px; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--ink-faint); font-size: 10px; font-weight: 600; letter-spacing: 0; text-transform: none; cursor: pointer; }
+.ws-pane-action:hover { background: var(--danger-wash); color: var(--danger); }

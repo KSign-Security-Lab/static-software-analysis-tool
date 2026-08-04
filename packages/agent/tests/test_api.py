@@ -305,3 +305,73 @@ def test_openapi_documents_the_agent_routes(client: TestClient) -> None:
         "/agent/runs/{run_id}/diff",
     ):
         assert route in paths, f"{route} is missing from the OpenAPI document"
+
+
+# -- editing a run in place (the agent section's light IDE) ------------------
+
+
+def test_an_empty_run_can_be_created_and_pasted_into(client: TestClient) -> None:
+    """Trying one snippet must not require saving a file and uploading it."""
+    run_id = client.post("/agent/runs/new").json()["run_id"]
+    assert client.get(f"/agent/runs/{run_id}/files").json()["files"] == []
+
+    body = client.put(
+        f"/agent/runs/{run_id}/file",
+        json={"path": "main.c", "content": "void f(void) { g(); }\n"},
+    ).json()
+    assert body["files"] == ["main.c"]
+    assert body["index"]["chunks"] > 0
+
+
+def test_editing_a_file_reindexes_it(client: TestClient) -> None:
+    """The chunk store is what the inspection walks, so a stale index would
+    have it analysing code that is no longer there."""
+    run_id = client.post("/agent/runs/new").json()["run_id"]
+    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void one(void) { }\n"})
+    after = client.put(
+        f"/agent/runs/{run_id}/file",
+        json={"path": "a.c", "content": "void one(void) { }\nvoid two(void) { one(); }\n"},
+    ).json()
+
+    assert after["index"]["chunks"] == 3  # file chunk + two functions
+    assert "two" in client.get(f"/agent/runs/{run_id}/file", params={"path": "a.c"}).json()["content"]
+
+
+def test_adding_and_deleting_files_tracks_the_tree(client: TestClient) -> None:
+    run_id = client.post("/agent/runs/new").json()["run_id"]
+    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void a(void) { }\n"})
+    added = client.put(f"/agent/runs/{run_id}/file", json={"path": "b.c", "content": "void b(void) { }\n"}).json()
+    assert added["files"] == ["a.c", "b.c"]
+
+    removed = client.request("DELETE", f"/agent/runs/{run_id}/file", params={"path": "b.c"}).json()
+    assert removed["files"] == ["a.c"]
+    assert client.get(f"/agent/runs/{run_id}/file", params={"path": "b.c"}).status_code == 404
+
+
+@pytest.mark.parametrize("path", ["../escape.c", "../../etc/passwd", "/abs.c"])
+def test_writing_outside_the_run_is_rejected(client: TestClient, path: str, tmp_path: Path) -> None:
+    """The path comes from a browser, so this is a real boundary."""
+    run_id = client.post("/agent/runs/new").json()["run_id"]
+    response = client.put(f"/agent/runs/{run_id}/file", json={"path": path, "content": "x"})
+    assert response.status_code == 400
+    assert not (tmp_path / "escape.c").exists()
+
+
+def test_deleting_a_file_drops_its_findings(client: TestClient) -> None:
+    """A finding pointing at a file that no longer exists cannot be opened."""
+    from agent.runs import get_run
+
+    run_id = client.post("/agent/runs/new").json()["run_id"]
+    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void a(void) { }\n"})
+
+    paths = get_run(run_id)
+    assert paths is not None
+    store = paths.store()
+    store.add_findings("chunk1", [{"id": "f1", "primary": {"file": "a.c"}}])
+    assert len(store.findings()) == 1
+    store.close()
+
+    client.request("DELETE", f"/agent/runs/{run_id}/file", params={"path": "a.c"})
+    store = paths.store()
+    assert store.findings() == []
+    store.close()

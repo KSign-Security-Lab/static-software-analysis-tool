@@ -2,7 +2,7 @@
 
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { ROLE_LABEL, markerSeverity, type UiFinding } from "@/lib/model/finding";
 
@@ -64,7 +64,7 @@ export default function CodeCanvas({
   /** Before anything is analysed the canvas *is* the input, so you edit here. */
   editable?: boolean;
   onChange?: (value: string) => void;
-  placeholder?: string;
+  placeholder?: ReactNode;
 }) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);

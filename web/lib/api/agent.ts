@@ -1,5 +1,5 @@
 import type { Finding, FindingDiff, Report } from "@/lib/agent-schema";
-import { get, post, postForm, streamUrl } from "@/lib/http";
+import { del, get, post, postForm, put, streamUrl } from "@/lib/http";
 
 /** The LLM line: upload a tree, inspect it chunk by chunk, stream the results. */
 
@@ -52,6 +52,27 @@ export function uploadSource(files: File[]): Promise<UploadResult> {
   const form = new FormData();
   for (const file of files) form.append("files", file, file.name);
   return postForm<UploadResult>("/agent/runs", form);
+}
+
+/** An empty run to paste into, so trying a snippet needs no file on disk. */
+export function createEmptyRun(): Promise<UploadResult> {
+  return post<UploadResult>("/agent/runs/new", {});
+}
+
+export interface FileWriteResult {
+  path?: string;
+  deleted?: string;
+  index: IndexStats;
+  files: string[];
+}
+
+/** Create or replace a file, then re-index. */
+export function writeFile(runId: string, path: string, content: string): Promise<FileWriteResult> {
+  return put<FileWriteResult>(`/agent/runs/${runId}/file`, { path, content });
+}
+
+export function deleteFile(runId: string, path: string): Promise<FileWriteResult> {
+  return del<FileWriteResult>(`/agent/runs/${runId}/file?path=${encodeURIComponent(path)}`);
 }
 
 export function fetchFile(runId: string, path: string): Promise<FileContent> {

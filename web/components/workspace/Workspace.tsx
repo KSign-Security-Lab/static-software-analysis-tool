@@ -42,6 +42,7 @@ export default function Workspace({
   onEdit,
   placeholder,
   emptyHint,
+  onDeleteFile,
 }: {
   files: string[];
   activeFile: string | null;
@@ -53,8 +54,9 @@ export default function Workspace({
   status?: ReactNode;
   editable?: boolean;
   onEdit?: (value: string) => void;
-  placeholder?: string;
+  placeholder?: ReactNode;
   emptyHint?: string;
+  onDeleteFile?: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [engines, setEngines] = useState<Set<Engine>>(() => new Set<Engine>(["structural", "agent"]));
@@ -94,7 +96,14 @@ export default function Workspace({
 
       <div className="ws-grid">
         <aside className="ws-left">
-          <div className="ws-pane-title">파일</div>
+          <div className="ws-pane-title">
+            파일
+            {onDeleteFile && activeFile && (
+              <button type="button" className="ws-pane-action" onClick={onDeleteFile} title="현재 파일 삭제">
+                삭제
+              </button>
+            )}
+          </div>
           <FileTree files={files} selected={activeFile} counts={counts} onSelect={onOpenFile} />
         </aside>
 

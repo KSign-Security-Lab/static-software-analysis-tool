@@ -99,6 +99,13 @@ class InspectRequest(BaseModel):
     force: bool = False
 
 
+class WriteFileRequest(BaseModel):
+    """Create or replace one file in a run."""
+
+    path: str
+    content: str
+
+
 class DiffRequest(BaseModel):
     """Compare this run against another."""
 
@@ -292,6 +299,78 @@ async def create_run(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
         "index": result.as_dict(),
         "files": sorted(iter_all_files(paths)),
     }
+
+
+@router.post("/runs/new")
+def create_empty_run() -> Dict[str, Any]:
+    """An empty run to paste into.
+
+    The upload endpoint needs files; starting from a blank editor does not have
+    any yet, and making the user save a file to disk first to try one snippet
+    is a poor trade.
+    """
+    paths = new_run()
+    paths.write_meta(status="indexed", index={}, uploaded=0)
+    return {"run_id": paths.run_id, "uploaded": 0, "index": {}, "files": []}
+
+
+def _reindex(paths: RunPaths) -> Dict[str, int]:
+    """Rebuild the index after the tree changed.
+
+    Cheap to do on every edit and necessary for correctness: the chunk store is
+    what the inspection walks. Chunk ids are content-derived, so re-inspecting
+    afterwards only pays for the chunks that actually changed.
+    """
+    store = paths.store()
+    try:
+        store.conn.execute("DELETE FROM chunks")
+        store.conn.execute("DELETE FROM links")
+        store.conn.commit()
+        result = build_index(paths.source, store)
+    finally:
+        store.close()
+    stats = result.as_dict()
+    paths.write_meta(index=stats)
+    return stats
+
+
+@router.put("/runs/{run_id}/file")
+def write_run_file(run_id: str, req: WriteFileRequest) -> Dict[str, Any]:
+    """Write a file into the run and re-index.
+
+    Confined with the same resolver the tools use: the path comes from the
+    browser, so `../` and absolute paths are rejected rather than reinterpreted.
+    """
+    paths = _require_run(run_id)
+    try:
+        resolved = resolve_within(paths.source, req.path)
+    except PathEscape as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(req.content, encoding="utf-8")
+    return {"path": req.path, "index": _reindex(paths), "files": sorted(iter_all_files(paths))}
+
+
+@router.delete("/runs/{run_id}/file")
+def delete_run_file(run_id: str, path: str) -> Dict[str, Any]:
+    paths = _require_run(run_id)
+    try:
+        resolved = resolve_within(paths.source, path)
+    except PathEscape as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail=f"no such file: {path}")
+
+    resolved.unlink()
+    # Findings for the deleted file would otherwise linger in the report.
+    store = paths.store()
+    try:
+        store.conn.execute("DELETE FROM findings WHERE file = ?", (path,))
+        store.conn.commit()
+    finally:
+        store.close()
+    return {"deleted": path, "index": _reindex(paths), "files": sorted(iter_all_files(paths))}
 
 
 @router.get("/runs/{run_id}")
