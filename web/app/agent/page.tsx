@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import SectionHeader from "@/components/shell/SectionHeader";
 import Workspace from "@/components/workspace/Workspace";
 import {
   agentHealth,
@@ -22,7 +23,12 @@ import { fromAgent, type UiFinding } from "@/lib/model/finding";
  * The engines are still independent -- this uploads its own tree and runs its
  * own pipeline -- but a finding is read exactly the same way on both pages.
  */
-export default function InspectPage() {
+const SECTION_VIEWS = [
+  { href: "/agent", label: "검사" },
+  { href: "/agent/traces", label: "실행 기록" },
+];
+
+export default function AgentPage() {
   const [health, setHealth] = useState<AgentHealth | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
@@ -129,36 +135,30 @@ export default function InspectPage() {
   const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
-    <Workspace
+    <>
+      <SectionHeader title="에이전트" note="청크 단위 LLM 검사" views={SECTION_VIEWS}>
+        <button type="button" className="btn" onClick={() => fileInput.current?.click()} disabled={running}>
+          업로드
+        </button>
+        <input ref={fileInput} type="file" multiple hidden onChange={(e) => upload(e.target.files)} />
+        <button type="button" className="btn btn-primary" onClick={inspect} disabled={!runId || running}>
+          {running ? "검사 중…" : "검사 실행"}
+        </button>
+        {index && (
+          <span className="target-stats">
+            파일 {index.files_indexed} · 청크 {index.chunks} · 결과 {findings.length}
+          </span>
+        )}
+        {health && !health.configured && <span className="target-warn">모델 미설정 (AGENT_MODEL)</span>}
+        {health?.tracing?.enabled && <span className="target-hint">추적 → {health.tracing.project}</span>}
+      </SectionHeader>
+
+      <Workspace
       files={files}
       activeFile={activeFile}
       fileContent={content}
       findings={findings}
       onOpenFile={openFile}
-      toolbar={
-        <div className="target">
-          <button type="button" className="btn" onClick={() => fileInput.current?.click()} disabled={running}>
-            소스 업로드
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => upload(e.target.files)}
-          />
-          <button type="button" className="btn btn-primary" onClick={inspect} disabled={!runId || running}>
-            {running ? "검사 중…" : "검사 실행"}
-          </button>
-          {index && (
-            <span className="target-stats">
-              파일 {index.files_indexed} · 청크 {index.chunks} · 결과 {findings.length}
-            </span>
-          )}
-          {health && !health.configured && <span className="target-warn">모델 미설정 (AGENT_MODEL)</span>}
-          {health?.tracing?.enabled && <span className="target-hint">추적 → {health.tracing.project}</span>}
-        </div>
-      }
       status={
         <>
           {error && <div className="ws-error">{error}</div>}
@@ -174,6 +174,7 @@ export default function InspectPage() {
           )}
         </>
       }
-    />
+      />
+    </>
   );
 }

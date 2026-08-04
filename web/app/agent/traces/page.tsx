@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { TracingStatus } from "@/lib/api/agent";
+import SectionHeader from "@/components/shell/SectionHeader";
 import { get } from "@/lib/http";
 
 /**
@@ -141,7 +142,14 @@ export default function TracesPage() {
 
   return (
     <>
-      <div className="target">
+      <SectionHeader
+        title="에이전트"
+        note="청크 단위 LLM 검사"
+        views={[
+          { href: "/agent", label: "검사" },
+          { href: "/agent/traces", label: "실행 기록" },
+        ]}
+      >
         <span className="target-stats">
           {tracing?.enabled ? `추적 켜짐 · ${tracing.project}` : "추적 꺼짐"}
         </span>
@@ -153,8 +161,8 @@ export default function TracesPage() {
             LangSmith에서 열기 ↗
           </a>
         )}
-        <span className="target-hint">실행 구조와 도구 호출을 이 화면에서 봅니다</span>
-      </div>
+        <span className="target-hint">실행 구조와 도구 호출</span>
+      </SectionHeader>
 
       {tracing?.detail && <div className="ws-error ws-error-soft">{tracing.detail}</div>}
       {listError && <div className="ws-error">{listError}</div>}

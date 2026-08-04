@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import SectionHeader from "@/components/shell/SectionHeader";
 import { apiBase } from "@/lib/http";
 import { SAMPLES } from "@/lib/samples";
 
@@ -89,6 +90,15 @@ export default function StagesPage() {
   };
 
   return (
+    <>
+      <SectionHeader
+        title="추출"
+        note="CPG · AST · CFG · DFG · 파이프라인"
+        views={[
+          { href: "/extract", label: "그래프" },
+          { href: "/extract/stages", label: "스테이지" },
+        ]}
+      />
     <main className="stages">
       <div className="stages-input">
         <h2>스테이지 실행</h2>
@@ -182,5 +192,6 @@ export default function StagesPage() {
         {output ? <pre className="stages-json">{output}</pre> : <p className="empty">결과가 여기에 표시됩니다.</p>}
       </div>
     </main>
+    </>
   );
 }
