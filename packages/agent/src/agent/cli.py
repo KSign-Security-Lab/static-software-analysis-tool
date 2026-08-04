@@ -195,6 +195,10 @@ def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, in
             print(f"\r  [{done}/{total}] {str(payload.get('symbol', ''))[:40]}{suffix}", end="", flush=True)
 
     store = paths.store()
+    # Recorded here too, so a run started from the terminal is inspectable in
+    # the web trace view afterwards. They share a runs directory.
+    spans = paths.spans()
+    spans.clear()
     try:
         paths.set_status(STATUS_INSPECTING)
         report = run_inspection(
@@ -204,6 +208,7 @@ def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, in
             config=config,
             emit=emit,
             index_stats=index_stats,
+            spans=spans,
         )
     except Exception as err:  # noqa: BLE001 - the CLI reports rather than traces
         paths.set_status(STATUS_FAILED, error=str(err))
@@ -211,6 +216,7 @@ def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, in
         return 1
     finally:
         store.close()
+        spans.close()
 
     paths.save_report(report)
     paths.set_status(STATUS_DONE)

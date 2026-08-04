@@ -25,6 +25,7 @@ from typing import Any, Iterator
 from .config import AgentConfig
 from .index import ChunkStore, IndexResult, build_index, iter_source_files
 from .schema import Finding, FindingDiff, Report
+from .trace import SpanStore
 
 #: Caps on what an upload may contain. A zip that exceeds any of them is
 #: rejected outright -- silently truncating an upload would mean inspecting a
@@ -61,6 +62,12 @@ class RunPaths:
         return self.base / "index.db"
 
     @property
+    def trace_db(self) -> Path:
+        """Spans, kept apart from the index so re-inspecting cannot disturb the
+        record of what happened last time until it is deliberately cleared."""
+        return self.base / "trace.db"
+
+    @property
     def report_path(self) -> Path:
         return self.base / "report.json"
 
@@ -70,6 +77,9 @@ class RunPaths:
 
     def store(self) -> ChunkStore:
         return ChunkStore(self.index_db)
+
+    def spans(self) -> SpanStore:
+        return SpanStore(self.trace_db)
 
     def read_meta(self) -> dict[str, Any]:
         if not self.meta_path.exists():

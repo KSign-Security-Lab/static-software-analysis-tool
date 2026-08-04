@@ -21,6 +21,7 @@ from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..mcp.client import VERIFY_TOOLS, ToolSession, open_session
 from ..schema import Finding, Report, RunStats
+from ..trace import SpanRecorder, SpanStore
 from ..tracing import apply_default_project
 from .nodes import NodeDeps, ProgressSink, has_work, make_nodes
 from .state import InspectionState, initial_state
@@ -64,6 +65,7 @@ def run_inspection(
     emit: ProgressSink | None = None,
     index_stats: dict[str, int] | None = None,
     tools: ToolSession | None = None,
+    spans: SpanStore | None = None,
 ) -> Report:
     """Inspect an already-indexed tree and return the report.
 
@@ -99,6 +101,12 @@ def run_inspection(
         )
         deps.tools = owned_session
 
+    # Local tracing. Attached at the root so it reaches every node, every model
+    # call under them, and -- via the caller -- every tool call under those.
+    recorder = SpanRecorder(spans) if spans is not None else None
+    if recorder is not None:
+        deps.caller.recorder = recorder
+
     order = store.order()
     state = initial_state(order, len(order), index_stats)
 
@@ -106,7 +114,10 @@ def run_inspection(
         app = build_graph(deps)
         final: dict[str, Any] = app.invoke(
             state,
-            config={"recursion_limit": len(order) * NODE_VISITS_PER_CHUNK + RECURSION_HEADROOM},
+            config={
+                "recursion_limit": len(order) * NODE_VISITS_PER_CHUNK + RECURSION_HEADROOM,
+                "callbacks": [recorder] if recorder is not None else None,
+            },
         )
     finally:
         if owned_session is not None:

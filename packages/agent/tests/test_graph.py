@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from agent.config import AgentConfig
 from agent.graph.build import run_inspection
 from agent.index import ChunkStore, build_index
+from agent.trace import SpanStore
 from agent.schema import (
     CandidateEvidence,
     CandidateFinding,
@@ -454,4 +455,43 @@ def test_empty_analysis_produces_an_empty_report(indexed) -> None:
     assert report.findings == []
     assert report.stats.chunks_inspected == report.stats.chunks_total
     assert report.stats.candidates == 0
+    store.close()
+
+
+def test_a_run_records_its_own_trace(indexed, tmp_path: Path) -> None:
+    """The local trace is what the debug view reads; LangSmith is optional."""
+    root, store = indexed
+    spans = SpanStore(tmp_path / "trace.db")
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+
+    config = AgentConfig(model="fake", enable_tools=False)
+    run_inspection(
+        run_id="test",
+        root=root,
+        store=store,
+        config=config,
+        caller=caller,  # type: ignore[arg-type]
+        spans=spans,
+    )
+
+    recorded = spans.spans()
+    names = {span.name for span in recorded}
+    assert {"plan", "context", "analyse", "locate", "verify"} <= names
+    assert all(span.status == "ok" for span in recorded), "every span should have been closed"
+    assert caller.recorder is not None, "the caller records tool calls the callbacks cannot see"
+
+    # A tree, not a flat list: the node spans hang off the graph's root span.
+    ids = {span.id for span in recorded}
+    parents = {span.parent_id for span in recorded if span.parent_id}
+    assert parents and parents <= ids
+
+    spans.close()
+    store.close()
+
+
+def test_tracing_is_off_unless_a_store_is_passed(indexed) -> None:
+    root, store = indexed
+    caller = ScriptedCaller()
+    _run(root, store, caller)
+    assert getattr(caller, "recorder", None) is None
     store.close()
