@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any, Literal, TypeVar
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -55,9 +54,6 @@ class StructuredCaller:
     def __init__(self, config: AgentConfig, llm: ChatOpenAI | None = None) -> None:
         self.config = config
         self.llm = llm if llm is not None else make_llm(config)
-        # Set by the run when local tracing is on. Tool calls here bypass
-        # LangChain, so nothing else would see them.
-        self.recorder: Any = None
         # Remembered after first success so later calls skip the probe.
         self._method: StructuredMethod | None = None
         # Cleared for the run on first refusal, so one unsupported server does
@@ -159,10 +155,7 @@ class StructuredCaller:
             for call in calls:
                 name = call.get("name", "")
                 args = call.get("args", {}) or {}
-                started = time.time()
                 result = session.call(name, args)
-                if self.recorder is not None:
-                    self.recorder.record_tool(name=name, args=args, result=result, started_at=started)
                 transcript.append(f"$ {name}({json.dumps(args, default=str)[:200]})\n{result[:4000]}")
                 messages.append(ToolMessage(content=result[:4000], tool_call_id=call.get("id", name)))
 

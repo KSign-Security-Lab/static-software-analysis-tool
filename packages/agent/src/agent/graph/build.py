@@ -102,10 +102,9 @@ def run_inspection(
         deps.tools = owned_session
 
     # Local tracing. Attached at the root so it reaches every node, every model
-    # call under them, and -- via the caller -- every tool call under those.
+    # call under them, and every tool call under those -- including the MCP
+    # ones, which run on the session's loop thread but inherit this context.
     recorder = SpanRecorder(spans) if spans is not None else None
-    if recorder is not None:
-        deps.caller.recorder = recorder
 
     order = store.order()
     state = initial_state(order, len(order), index_stats)

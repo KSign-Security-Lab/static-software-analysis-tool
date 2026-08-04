@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -90,12 +89,20 @@ def _uuid() -> UUID:
     return uuid4()
 
 
+def _in_node(name: str) -> dict[str, object]:
+    """Metadata as LangGraph reports it. Everything inside a node inherits the
+    node's metadata, which is exactly why it cannot be what identifies it."""
+    return {"langgraph_node": name, "langgraph_step": 1}
+
+
 def test_recorder_builds_a_parented_tree(store: SpanStore) -> None:
     recorder = SpanRecorder(store)
     root, child = _uuid(), _uuid()
 
     recorder.on_chain_start({"name": "LangGraph"}, {}, run_id=root)
-    recorder.on_chain_start({"name": "analyse"}, {}, run_id=child, parent_run_id=root)
+    recorder.on_chain_start(
+        {}, {}, run_id=child, parent_run_id=root, name="analyse", metadata={"langgraph_node": "analyse"}
+    )
     recorder.on_chain_end({}, run_id=child)
     recorder.on_chain_end({}, run_id=root)
 
@@ -135,23 +142,72 @@ def test_recorder_captures_messages_and_tool_calls(store: SpanStore) -> None:
     assert span.outputs["tool_calls"][0]["name"] == "read_source"
 
 
-def test_recorder_records_an_out_of_band_tool_call_under_the_model(store: SpanStore) -> None:
+def test_a_tool_is_filed_under_the_model_that_asked_for_it(store: SpanStore) -> None:
+    """LangChain reports it under the graph node, because the gathering loop
+    runs the tool after the model call has already closed."""
     recorder = SpanRecorder(store)
-    run = _uuid()
+    node, llm, tool = _uuid(), _uuid(), _uuid()
 
-    recorder.on_chat_model_start({"name": "ChatOpenAI"}, [[HumanMessage(content="go")]], run_id=run)
-    recorder.record_tool(
-        name="find_callers",
-        args={"symbol": "download"},
-        result="fw.c:12",
-        started_at=time.time(),
+    recorder.on_chain_start({}, {}, run_id=node, name="verify", metadata=_in_node("verify"))
+    recorder.on_chat_model_start(
+        {"name": "ChatOpenAI"},
+        [[HumanMessage(content="go")]],
+        run_id=llm,
+        parent_run_id=node,
+        name="gather:CWE-78",
+        metadata=_in_node("verify"),
     )
+    recorder.on_llm_end(LLMResult(generations=[[]]), run_id=llm)
+    recorder.on_tool_start(
+        {"name": "find_callers"},
+        '{"symbol": "download"}',
+        run_id=tool,
+        parent_run_id=node,
+        inputs={"symbol": "download"},
+    )
+    recorder.on_tool_end("fw.c:12", run_id=tool)
 
-    tool = next(span for span in store.spans() if span.kind == "tool")
-    assert tool.parent_id == str(run)
-    assert tool.inputs == {"symbol": "download"}
-    assert tool.outputs == "fw.c:12"
-    assert tool.status == "ok"
+    assert [span.name for span in store.spans()] == ["verify", "gather:CWE-78", "find_callers"]
+    recorded = next(span for span in store.spans() if span.kind == "tool")
+    assert recorded.parent_id == str(llm), "not under the node -- under the call that requested it"
+    assert recorded.inputs == {"symbol": "download"}
+    assert recorded.outputs == "fw.c:12"
+    assert recorded.status == "ok"
+
+
+def test_framework_plumbing_is_dropped_without_orphaning_its_children(store: SpanStore) -> None:
+    """`with_structured_output` wraps the model in a sequence and appends a
+    parser. Recording them tripled the tree and said nothing."""
+    recorder = SpanRecorder(store)
+    node, wrapper, llm, parser = _uuid(), _uuid(), _uuid(), _uuid()
+
+    recorder.on_chain_start({}, {}, run_id=node, name="analyse", metadata=_in_node("analyse"))
+    recorder.on_chain_start(
+        {}, {}, run_id=wrapper, parent_run_id=node, name="analyse:fw.c", metadata=_in_node("analyse")
+    )
+    recorder.on_chat_model_start(
+        {"name": "ChatOpenAI"},
+        [[HumanMessage(content="go")]],
+        run_id=llm,
+        parent_run_id=wrapper,
+        metadata=_in_node("analyse"),
+    )
+    recorder.on_llm_end(LLMResult(generations=[[]]), run_id=llm)
+    recorder.on_chain_start(
+        {}, {}, run_id=parser, parent_run_id=wrapper, name="RunnableLambda", metadata=_in_node("analyse")
+    )
+    recorder.on_chain_end({}, run_id=parser)
+    recorder.on_chain_end({}, run_id=wrapper)
+    recorder.on_chain_end({}, run_id=node)
+
+    names = [span.name for span in store.spans()]
+    assert names == ["analyse", "analyse:fw.c"], "the wrapper and the parser are noise"
+
+    # The model kept the wrapper's name -- the run_name lands on the sequence,
+    # not on the model, so dropping it blindly would leave a row of ChatOpenAI.
+    model = next(span for span in store.spans() if span.kind == "llm")
+    assert model.name == "analyse:fw.c"
+    assert model.parent_id == str(node), "reattached to the node, not orphaned"
 
 
 def test_recorder_records_errors(store: SpanStore) -> None:
@@ -173,7 +229,6 @@ def test_a_broken_store_does_not_break_the_run(tmp_path: Path) -> None:
 
     recorder.on_chain_start({"name": "analyse"}, {}, run_id=_uuid())
     recorder.on_chain_end({}, run_id=_uuid())
-    recorder.record_tool(name="read_source", args={}, result="", started_at=0.0)
 
 
 def test_callbacks_reach_a_model_call_inside_a_graph_node(store: SpanStore) -> None:

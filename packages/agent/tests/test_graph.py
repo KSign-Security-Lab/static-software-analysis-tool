@@ -478,7 +478,6 @@ def test_a_run_records_its_own_trace(indexed, tmp_path: Path) -> None:
     names = {span.name for span in recorded}
     assert {"plan", "context", "analyse", "locate", "verify"} <= names
     assert all(span.status == "ok" for span in recorded), "every span should have been closed"
-    assert caller.recorder is not None, "the caller records tool calls the callbacks cannot see"
 
     # A tree, not a flat list: the node spans hang off the graph's root span.
     ids = {span.id for span in recorded}
@@ -486,12 +485,4 @@ def test_a_run_records_its_own_trace(indexed, tmp_path: Path) -> None:
     assert parents and parents <= ids
 
     spans.close()
-    store.close()
-
-
-def test_tracing_is_off_unless_a_store_is_passed(indexed) -> None:
-    root, store = indexed
-    caller = ScriptedCaller()
-    _run(root, store, caller)
-    assert getattr(caller, "recorder", None) is None
     store.close()

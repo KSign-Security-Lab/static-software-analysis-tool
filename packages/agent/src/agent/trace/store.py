@@ -129,12 +129,6 @@ class SpanStore:
         row = self.conn.execute("SELECT MAX(seq) AS m FROM spans").fetchone()
         return int((row["m"] or 0)) + 1
 
-    def next_seq(self) -> int:
-        """The seq the next :meth:`start` will use -- for callers that have to
-        mint their own span id."""
-        with self._lock:
-            return self._seq
-
     def close(self) -> None:
         with self._lock:
             self.conn.close()
