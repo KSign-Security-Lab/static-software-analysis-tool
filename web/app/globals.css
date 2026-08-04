@@ -595,3 +595,54 @@ table.checks tr:last-child td { border-bottom: none; }
 @media (max-width: 1200px) {
   .inspect-body { grid-template-columns: 220px minmax(0, 1fr) 320px; }
 }
+
+/* ============================================================================
+   App shell — one nav over 분석 / 스테이지 / 검사. Before the frontend merge
+   these were separate apps; two of them ended up with no link at all.
+   ========================================================================== */
+.app-shell { display: flex; flex-direction: column; height: 100vh; min-height: 0; }
+.app-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.appnav { display: flex; align-items: stretch; gap: 2px; padding: 0 14px; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.appnav-brand { display: flex; align-items: center; padding-right: 16px; font-family: var(--mono); font-size: 12px; font-weight: 800; letter-spacing: 0.1em; color: var(--accent); }
+.appnav nav { display: flex; }
+.appnav-link { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 8px 16px; border-bottom: 2px solid transparent; color: var(--muted); font-size: 13px; font-weight: 600; text-decoration: none; }
+.appnav-link:hover { color: var(--fg); background: var(--surface-3); }
+.appnav-link.is-active { color: var(--fg-strong); border-bottom-color: var(--accent); }
+.appnav-note { font-size: 10.5px; font-weight: 400; color: var(--faint); }
+
+/* ---- 코드 tab: the analysed source with the evidence put back on it ------ */
+.codeview { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.codeview-bar { display: flex; align-items: center; gap: 16px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.codeview-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; }
+.codeview-editor { min-width: 0; min-height: 0; }
+.codeview-list { overflow-y: auto; border-left: 1px solid var(--line); background: var(--surface); padding: 6px; }
+
+.ann-row { display: grid; grid-template-columns: 38px 68px 1fr; gap: 6px; align-items: baseline; width: 100%; padding: 6px 8px; margin-bottom: 2px; border: 0; border-left: 2px solid var(--line-2); border-radius: var(--r-sm); background: transparent; color: var(--fg); text-align: left; cursor: pointer; }
+.ann-row:hover { background: var(--surface-2); }
+.ann-line { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.ann-tone { font-size: 10.5px; font-weight: 700; color: var(--muted); }
+.ann-label { font-size: 11.5px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Tones reuse the reserved status colours; every use carries a text label. */
+.ann-source { border-left-color: var(--good); }
+.ann-sink { border-left-color: var(--danger); }
+.ann-check-ok { border-left-color: var(--good); }
+.ann-check-weak { border-left-color: var(--warn); }
+.ann-flow { border-left-color: var(--accent); }
+
+/* Whole-line decorations inside Monaco. */
+.monaco-editor .ann-source { background: var(--good-weak); }
+.monaco-editor .ann-sink { background: var(--danger-weak); }
+.monaco-editor .ann-check-ok { background: var(--good-weak); }
+.monaco-editor .ann-check-weak { background: var(--warn-weak); }
+.monaco-editor .ann-flow { background: var(--accent-weak); }
+.monaco-editor .ann-glyph { width: 4px !important; margin-left: 3px; }
+
+/* ---- 스테이지 page: call one endpoint, read the raw JSON ----------------- */
+.stages { flex: 1; display: grid; grid-template-columns: 380px minmax(0, 1fr); min-height: 0; }
+.stages-input { display: flex; flex-direction: column; gap: 12px; padding: 16px; overflow-y: auto; border-right: 1px solid var(--line); background: var(--surface); }
+.stages-input h2 { margin: 0; font-size: 14px; font-weight: 700; color: var(--fg-strong); }
+.stages-output { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.stages-json { flex: 1; margin: 0; padding: 12px 14px; overflow: auto; font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: var(--fg); background: var(--input); }
+.editor-area { width: 100%; min-height: 220px; padding: 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--input); color: var(--fg); font-family: var(--mono); font-size: 12px; resize: vertical; }

@@ -22,8 +22,10 @@ import {
 // React Flow touches the DOM — load the graph explorer client-only.
 const GraphExplorer = dynamic(() => import("@/components/GraphExplorer"), { ssr: false });
 const PipelineExplorer = dynamic(() => import("@/components/PipelineExplorer"), { ssr: false });
+// Monaco touches the DOM too.
+const CodeView = dynamic(() => import("@/components/CodeView"), { ssr: false });
 
-type Tab = "decision" | ViewKey | "report" | "json";
+type Tab = "decision" | ViewKey | "code" | "report" | "json";
 
 // Two groups of graph tabs, deliberately labelled apart. The CPG group is
 // Joern's graph projected by edge label; the pipeline group is the SSAT
@@ -38,6 +40,7 @@ const TABS: { key: Tab; label: string; group?: string }[] = [
   { key: "cpg", label: "CPG", group: "CPG" },
   { key: "pipeline-ast", label: "AST", group: "파이프라인" },
   { key: "pipeline-dfg", label: "DFG", group: "파이프라인" },
+  { key: "code", label: "코드" },
   { key: "report", label: "리포트" },
   { key: "json", label: "JSON" },
 ];
@@ -129,7 +132,7 @@ export default function Home() {
   // Fetch pipeline artifacts the first time a pipeline tab is opened.
   useEffect(() => {
     if (!response) return;
-    if (!PIPELINE_VIEW_KEYS.includes(tab as PipelineViewKey)) return;
+    if (!PIPELINE_VIEW_KEYS.includes(tab as PipelineViewKey) && tab !== "code") return;
     if (pipelineFns || pipelineError) return;
 
     let cancelled = false;
@@ -208,6 +211,14 @@ export default function Home() {
 
         {response && tab === "decision" && (
           <DecisionView result={response.f2a} source={analyzedSource} onInspect={onInspect} />
+        )}
+        {response && tab === "code" && (
+          <CodeView
+            source={analyzedSource}
+            language={language}
+            evidence={response.f2a.evidence_packages ?? []}
+            functions={pipelineFns}
+          />
         )}
         {response && tab === "report" && <F2AReport result={response.f2a} />}
         {response && tab === "json" && <JsonView result={response.f2a} />}

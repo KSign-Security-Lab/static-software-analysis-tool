@@ -40,7 +40,10 @@ packages/agent/         LLM inspection over an OpenAI-compatible endpoint
     graph/              the LangGraph inspection loop
     mcp/                the tool surface, served over MCP
 api/                    FastAPI service (SSAT routes + /agent/*)
-web/                    Next.js UI (graph explorer + /inspect editor)
+web/                    Next.js UI — one app, three areas:
+                          /          CPG + pipeline views, F2-A, annotated source
+                          /stages    run one pipeline stage, read the raw JSON
+                          /inspect   the LLM agent's code editor
 docs/v2/                F2-A design documents
 artifacts/              generated output, scratch and corpora (gitignored)
 ```
