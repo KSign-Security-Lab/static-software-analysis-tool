@@ -8,11 +8,12 @@ import { annotate, type LineMarker } from "@/lib/annotate";
 import type { EvidencePackage, PipelineFunction } from "@/lib/types";
 
 /**
- * The analysed source, annotated in place -- the old app's /code-viewer, which
- * the frontend merge dropped.
+ * Def-use edges drawn on the source -- the old app's /code-viewer.
  *
- * It reads from what has already been computed rather than asking for a pasted
- * DFG, which is what the old page required.
+ * A lens rather than the default view, because its line numbers are inferred:
+ * the pipeline DFG carries only each node's code text, so an edge is placed by
+ * finding that text in the source and dropped when it appears more than once.
+ * F2-A markers on the code canvas come from real CPG lines and are exact.
  */
 
 const TONE_CLASS: Record<LineMarker["tone"], string> = {
@@ -31,7 +32,7 @@ const TONE_LABEL: Record<LineMarker["tone"], string> = {
   flow: "전파",
 };
 
-export default function CodeView({
+export default function DataFlowView({
   source,
   language,
   evidence,

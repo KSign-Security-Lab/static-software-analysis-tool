@@ -1,269 +1,189 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import SourcePanel from "@/components/SourcePanel";
-import DecisionView from "@/components/DecisionView";
-import F2AReport from "@/components/F2AReport";
-import JsonView from "@/components/JsonView";
-import { analyze, analyzeFunctions, f2aFromCpg } from "@/lib/api";
-import { parseCpg } from "@/lib/cpg";
-import { SAMPLES } from "@/lib/samples";
-import {
-  CPG_VIEW_KEYS,
-  PIPELINE_VIEW_KEYS,
-  type AnalyzeResponse,
-  type CpgViewKey,
-  type PipelineFunction,
-  type PipelineViewKey,
-  type ViewKey,
-} from "@/lib/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-// React Flow touches the DOM — load the graph explorer client-only.
+import TargetBar from "@/components/TargetBar";
+import Workspace, { type Lens } from "@/components/workspace/Workspace";
+import { analyze, analyzeFunctions, f2aFromCpg } from "@/lib/api/ssat";
+import { looksLikeCpg, parseCpg, unwrapCpgDocument } from "@/lib/cpg";
+import { fromF2A, type UiFinding } from "@/lib/model/finding";
+import { SAMPLES } from "@/lib/samples";
+import { CPG_VIEW_KEYS, PIPELINE_VIEW_KEYS, type AnalyzeResponse, type PipelineFunction } from "@/lib/types";
+
 const GraphExplorer = dynamic(() => import("@/components/GraphExplorer"), { ssr: false });
 const PipelineExplorer = dynamic(() => import("@/components/PipelineExplorer"), { ssr: false });
-// Monaco touches the DOM too.
-const CodeView = dynamic(() => import("@/components/CodeView"), { ssr: false });
+const F2AReport = dynamic(() => import("@/components/F2AReport"), { ssr: false });
+const JsonView = dynamic(() => import("@/components/JsonView"), { ssr: false });
+const DataFlowView = dynamic(() => import("@/components/DataFlowView"), { ssr: false });
 
-type Tab = "decision" | ViewKey | "code" | "report" | "json";
-
-// Two groups of graph tabs, deliberately labelled apart. The CPG group is
-// Joern's graph projected by edge label; the pipeline group is the SSAT
-// extractor's own statement-level output. Both are called "AST" and "DFG" in
-// their own worlds, so the UI never shows those words unqualified.
-const TABS: { key: Tab; label: string; group?: string }[] = [
-  { key: "decision", label: "판단" },
-  { key: "ast", label: "AST", group: "CPG" },
-  { key: "cfg", label: "CFG", group: "CPG" },
-  { key: "dfg", label: "DFG", group: "CPG" },
-  { key: "cg", label: "CG", group: "CPG" },
-  { key: "cpg", label: "CPG", group: "CPG" },
-  { key: "pipeline-ast", label: "AST", group: "파이프라인" },
-  { key: "pipeline-dfg", label: "DFG", group: "파이프라인" },
-  { key: "code", label: "코드" },
-  { key: "report", label: "리포트" },
-  { key: "json", label: "JSON" },
-];
-
-export default function Home() {
+/**
+ * Structural analysis, code-first.
+ *
+ * The source is the subject and the graphs are lenses over it. This was a bar
+ * of eleven tabs with the code nowhere in sight, which made a finding hard to
+ * relate to the thing it was about.
+ */
+export default function AnalyzePage() {
   const [source, setSource] = useState(SAMPLES[0].source);
   const [language, setLanguage] = useState(SAMPLES[0].language);
   const [filename, setFilename] = useState(SAMPLES[0].filename);
+  const [analyzed, setAnalyzed] = useState("");
+  const [response, setResponse] = useState<AnalyzeResponse | null>(null);
+  const [pipelineFns, setPipelineFns] = useState<PipelineFunction[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [response, setResponse] = useState<AnalyzeResponse | null>(null);
-  const [analyzedSource, setAnalyzedSource] = useState("");
-  const [tab, setTab] = useState<Tab>("decision");
-  const [focusFn, setFocusFn] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(true); // open on first load
-  // Pipeline artifacts are fetched lazily: /analyze already returned the CPG,
-  // so opening a pipeline tab reuses it rather than recompiling the source.
-  const [pipelineFns, setPipelineFns] = useState<PipelineFunction[] | null>(null);
-  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   const parsed = useMemo(() => (response ? parseCpg(response.cpg) : null), [response]);
+  const findings: UiFinding[] = useMemo(
+    () => (response ? fromF2A(response.f2a, filename) : []),
+    [response, filename],
+  );
 
-  const stats = useMemo(() => {
-    if (!parsed) return null;
-    const methods = [...parsed.nodes.values()].filter((n) => n.label === "METHOD").length;
-    return { vertices: parsed.nodes.size, edges: parsed.edges.length, methods };
-  }, [parsed]);
+  // Fetched once, lazily: /analyze already returned the CPG, so this reuses it
+  // rather than recompiling the source.
+  const fetching = useRef(false);
+  useEffect(() => {
+    if (!response || pipelineFns || fetching.current) return;
+    fetching.current = true;
+    analyzeFunctions(response.cpg)
+      .then((r) => setPipelineFns(r.functions))
+      .catch(() => setPipelineFns([]))
+      .finally(() => {
+        fetching.current = false;
+      });
+  }, [response, pipelineFns]);
 
-  const defaultMethodId = useMemo(() => {
-    if (!parsed) return undefined;
-    const want = focusFn ?? response?.f2a.evidence_packages[0]?.code_evidence.source.function;
-    if (!want) return undefined;
-    for (const [id, n] of parsed.nodes) if (n.label === "METHOD" && n.name === want) return id;
-    return undefined;
-  }, [parsed, response, focusFn]);
-
-  const onLoadSample = (id: string) => {
-    const s = SAMPLES.find((x) => x.id === id);
-    if (!s) return;
-    setSource(s.source);
-    setLanguage(s.language);
-    setFilename(s.filename);
-  };
-
-  // Open a CPG JSON directly -- the old web/ app's primary input, which the
-  // merge dropped. There is no source to compile, so F2-A runs on the uploaded
-  // graph and the source pane shows what came with it, if anything.
-  const onLoadCpg = async (cpg: unknown, name: string) => {
+  const run = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setFocusFn(null);
-    try {
-      const f2a = await f2aFromCpg(cpg);
-      setResponse({ cpg, method_count: 0, f2a });
-      setPipelineFns(null);
-      setPipelineError(null);
-      setAnalyzedSource("");
-      setFilename(name);
-      setTab("decision");
-      setDrawerOpen(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setResponse(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onAnalyze = async () => {
-    setLoading(true);
-    setError(null);
-    setFocusFn(null);
     try {
       const res = await analyze({ source, language, filename });
       setResponse(res);
       setPipelineFns(null);
-      setPipelineError(null);
-      setAnalyzedSource(source);
-      setTab("decision");
-      setDrawerOpen(false); // reveal the result full-width
+      setAnalyzed(source);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setResponse(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [source, language, filename]);
 
-  // Fetch pipeline artifacts the first time a pipeline tab is opened.
-  useEffect(() => {
-    if (!response) return;
-    if (!PIPELINE_VIEW_KEYS.includes(tab as PipelineViewKey) && tab !== "code") return;
-    if (pipelineFns || pipelineError) return;
+  // A CPG JSON skips Joern entirely -- there is no source to compile.
+  const openCpg = useCallback(async (raw: unknown, name: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const cpg = unwrapCpgDocument(raw);
+      const f2a = await f2aFromCpg(cpg);
+      setResponse({ cpg, method_count: 0, f2a });
+      setPipelineFns(null);
+      setAnalyzed("");
+      setFilename(name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setResponse(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-    let cancelled = false;
-    analyzeFunctions(response.cpg)
-      .then((res) => {
-        if (!cancelled) setPipelineFns(res.functions);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setPipelineError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tab, response, pipelineFns, pipelineError]);
+  const loadFile = useCallback(
+    async (file: File) => {
+      setError(null);
+      const text = await file.text();
+      if (file.name.toLowerCase().endsWith(".json")) {
+        const raw: unknown = JSON.parse(text);
+        if (!looksLikeCpg(raw)) {
+          setError("CPG JSON이 아닙니다 (vertices/edges를 찾을 수 없습니다).");
+          return;
+        }
+        await openCpg(raw, file.name);
+        return;
+      }
+      setSource(text);
+      setFilename(file.name);
+    },
+    [openCpg],
+  );
 
-  const onInspect = (fn: string) => {
-    setFocusFn(fn);
-    setTab("dfg");
-  };
-
-  const isCpgGraph = CPG_VIEW_KEYS.includes(tab as CpgViewKey);
-  const isPipelineGraph = PIPELINE_VIEW_KEYS.includes(tab as PipelineViewKey);
-
-  return (
-    <div className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark">F2</div>
-          <div className="brand-name">F2-A</div>
-        </div>
-        <nav className="topnav">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              className={`tab ${tab === t.key ? "active" : ""}`}
-              onClick={() => setTab(t.key)}
-              disabled={!response && t.key !== "decision"}
-              title={t.group ? `${t.group} · ${t.label}` : t.label}
-            >
-              {t.group && <span className="tabgroup">{t.group}</span>}
-              {t.label}
-              {t.key === "decision" && response && (
-                <span className="count">{response.f2a.evidence_packages.length}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-        <div className="topbar-actions">
-          <button className="srcchip" onClick={() => setDrawerOpen(true)} title="소스 편집">
-            <span>{filename}</span>
-            <span className="edit">✎</span>
-          </button>
-        </div>
-      </header>
-
-      <div className="content">
-        {loading && (
-          <div className="loadbar">
-            <span />
-          </div>
-        )}
-
-        {!response && !loading && (
-          <div className="empty">
-            <div className="empty-mark">🛡️</div>
-            소스를 입력하고 <b>분석</b>을 실행하세요.
-            <br />
-            먼저 이해하기 쉬운 <b>판단 결과</b>가 나오고, 각 단계를 누르면 코드 근거를 볼 수 있습니다.
-            <div style={{ marginTop: 18 }}>
-              <button className="primary" onClick={() => setDrawerOpen(true)}>
-                소스 열기
-              </button>
-            </div>
-          </div>
-        )}
-
-        {response && tab === "decision" && (
-          <DecisionView result={response.f2a} source={analyzedSource} onInspect={onInspect} />
-        )}
-        {response && tab === "code" && (
-          <CodeView
-            source={analyzedSource}
+  const lenses: Lens[] = useMemo(() => {
+    const out: Lens[] = [];
+    if (parsed) {
+      for (const key of CPG_VIEW_KEYS) {
+        out.push({
+          key,
+          label: `${key.toUpperCase()}·CPG`,
+          render: () => <GraphExplorer cpg={parsed} tab={key} />,
+        });
+      }
+      for (const key of PIPELINE_VIEW_KEYS) {
+        out.push({
+          key,
+          label: `${key.replace("pipeline-", "").toUpperCase()}·파이프라인`,
+          render: () =>
+            pipelineFns && pipelineFns.length > 0 ? (
+              <PipelineExplorer functions={pipelineFns} tab={key} />
+            ) : (
+              <div className="ws-empty ws-empty-lg">파이프라인 산출물을 불러오는 중…</div>
+            ),
+        });
+      }
+    }
+    if (analyzed) {
+      out.push({
+        key: "dataflow",
+        label: "데이터 흐름",
+        render: () => (
+          <DataFlowView
+            source={analyzed}
             language={language}
-            evidence={response.f2a.evidence_packages ?? []}
+            evidence={response?.f2a.evidence_packages ?? []}
             functions={pipelineFns}
           />
-        )}
-        {response && tab === "report" && <F2AReport result={response.f2a} />}
-        {response && tab === "json" && <JsonView result={response.f2a} />}
-        {parsed && isCpgGraph && (
-          <GraphExplorer cpg={parsed} tab={tab as CpgViewKey} defaultMethodId={defaultMethodId} />
-        )}
-        {isPipelineGraph &&
-          (pipelineError ? (
-            <div className="empty">
-              <p>파이프라인 아티팩트를 가져오지 못했습니다.</p>
-              <p className="muted">{pipelineError}</p>
-            </div>
-          ) : pipelineFns ? (
-            <PipelineExplorer
-              functions={pipelineFns}
-              tab={tab as PipelineViewKey}
-              focusFunction={focusFn}
-            />
-          ) : (
-            <div className="empty">불러오는 중…</div>
-          ))}
-      </div>
+        ),
+      });
+    }
+    if (response) {
+      out.push({ key: "report", label: "리포트", render: () => <F2AReport result={response.f2a} /> });
+      out.push({ key: "json", label: "JSON", render: () => <JsonView result={response.f2a} /> });
+    }
+    return out;
+  }, [parsed, pipelineFns, response, analyzed, language]);
 
-      {/* source drawer */}
-      <div className={`scrim ${drawerOpen ? "open" : ""}`} onClick={() => setDrawerOpen(false)} />
-      <aside className={`drawer ${drawerOpen ? "open" : ""}`} aria-hidden={!drawerOpen}>
-        <div className="drawer-head">
-          <h2>소스 분석</h2>
-          <button className="drawer-close" onClick={() => setDrawerOpen(false)} aria-label="닫기">
-            ✕
-          </button>
-        </div>
-        <SourcePanel
+  return (
+    <Workspace
+      files={analyzed ? [filename] : []}
+      activeFile={analyzed ? filename : null}
+      fileContent={analyzed}
+      findings={findings}
+      onOpenFile={() => undefined}
+      lenses={lenses}
+      toolbar={
+        <TargetBar
           source={source}
           setSource={setSource}
           language={language}
           setLanguage={setLanguage}
           loading={loading}
-          error={error}
-          onAnalyze={onAnalyze}
-          onLoadSample={onLoadSample}
-          onLoadCpg={onLoadCpg}
-          stats={stats}
+          onRun={run}
+          onLoadFile={loadFile}
+          onLoadSample={(id) => {
+            const s = SAMPLES.find((x) => x.id === id);
+            if (!s) return;
+            setSource(s.source);
+            setLanguage(s.language);
+            setFilename(s.filename);
+          }}
+          stats={
+            parsed
+              ? { vertices: parsed.nodes.size, edges: parsed.edges.length, findings: findings.length }
+              : null
+          }
         />
-      </aside>
-    </div>
+      }
+      status={error ? <div className="ws-error">{error}</div> : null}
+    />
   );
 }

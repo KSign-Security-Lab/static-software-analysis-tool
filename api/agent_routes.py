@@ -132,6 +132,58 @@ def agent_health(probe: bool = False) -> Dict[str, Any]:
     return body
 
 
+@router.get("/traces")
+def agent_traces(limit: int = 25) -> Dict[str, Any]:
+    """Recent LangSmith runs for the configured project.
+
+    Read server-side because the API key belongs on the server, and because
+    LangSmith cannot be embedded: it serves `frame-ancestors 'self'`, so an
+    iframe of the hosted app renders blank. Listing the runs here and deep
+    linking out is the version that works.
+    """
+    status = tracing_status()
+    body: Dict[str, Any] = {"tracing": status, "runs": [], "error": None}
+    if not status["enabled"] or not status["api_key_set"]:
+        return body
+
+    try:
+        from langsmith import Client
+
+        client = Client()
+        runs = list(client.list_runs(project_name=status["project"], is_root=True, limit=max(1, min(limit, 100))))
+    except Exception as err:  # noqa: BLE001 - a tracing backend outage is not a server error
+        body["error"] = str(err)
+        return body
+
+    for run in runs:
+        body["runs"].append(
+            {
+                "id": str(run.id),
+                "name": run.name,
+                "status": run.status,
+                "start_time": run.start_time.isoformat() if run.start_time else None,
+                "latency_ms": (
+                    int((run.end_time - run.start_time).total_seconds() * 1000)
+                    if run.end_time and run.start_time
+                    else None
+                ),
+                "tokens": run.total_tokens,
+                "error": run.error,
+                "url": _trace_url(run),
+                "tags": list(run.tags or []),
+            }
+        )
+    return body
+
+
+def _trace_url(run: Any) -> str | None:
+    """The run's page in LangSmith, if the SDK can build one."""
+    try:
+        return str(run.url)
+    except Exception:  # noqa: BLE001 - url is a convenience, not a contract
+        return None
+
+
 @router.get("/runs")
 def get_runs() -> Dict[str, Any]:
     return {"runs": list_runs()}

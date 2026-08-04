@@ -13,6 +13,7 @@ const AREAS = [
   { href: "/", label: "분석", note: "CPG · 파이프라인 · F2-A" },
   { href: "/stages", label: "스테이지", note: "단계별 실행" },
   { href: "/inspect", label: "검사", note: "LLM 에이전트" },
+  { href: "/traces", label: "추적", note: "LangSmith" },
 ];
 
 export default function AppNav() {

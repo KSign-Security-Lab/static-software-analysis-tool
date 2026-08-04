@@ -1,12 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { CodeEditor } from "@/components/inspect/CodeEditor";
-import { FileTree } from "@/components/inspect/FileTree";
-import { FindingList } from "@/components/inspect/FindingList";
-import { FindingPanel } from "@/components/inspect/FindingPanel";
-import { RunProgress } from "@/components/inspect/RunProgress";
+import Workspace from "@/components/workspace/Workspace";
 import {
   agentHealth,
   fetchFile,
@@ -16,142 +12,111 @@ import {
   uploadSource,
   type AgentHealth,
   type IndexStats,
-} from "@/lib/agent-api";
-import type { Finding, SeverityName } from "@/lib/agent-schema";
-import { SEVERITIES } from "@/lib/agent-schema";
-import { countsByFile } from "@/lib/markers";
+} from "@/lib/api/agent";
+import type { Finding } from "@/lib/agent-schema";
+import { fromAgent, type UiFinding } from "@/lib/model/finding";
 
 /**
- * Upload source, read it in an editor, inspect it, and see the findings inline.
+ * LLM inspection, on the same workspace the structural page uses.
  *
- * The page has two jobs and does them in order: it is a working code viewer
- * before anything has been analysed, and it becomes an annotated one after.
- * Findings arrive over SSE as each chunk is confirmed, because a run over a
- * real tree takes minutes and a page that shows nothing for five minutes looks
- * broken.
+ * The engines are still independent -- this uploads its own tree and runs its
+ * own pipeline -- but a finding is read exactly the same way on both pages.
  */
-
-interface FileState {
-  path: string;
-  content: string;
-  language: string;
-}
-
 export default function InspectPage() {
   const [health, setHealth] = useState<AgentHealth | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
-  const [indexStats, setIndexStats] = useState<IndexStats | null>(null);
-  const [active, setActive] = useState<FileState | null>(null);
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [severityFilter, setSeverityFilter] = useState<Set<SeverityName>>(
-    () => new Set(SEVERITIES),
-  );
-
-  const [uploading, setUploading] = useState(false);
+  const [index, setIndex] = useState<IndexStats | null>(null);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [content, setContent] = useState("");
+  const [raw, setRaw] = useState<Finding[]>([]);
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0, current: null as string | null });
+  const [progress, setProgress] = useState({ done: 0, total: 0, symbol: "" });
   const [error, setError] = useState<string | null>(null);
 
   const unsubscribe = useRef<(() => void) | null>(null);
-  const fileInput = useRef<HTMLInputElement | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     agentHealth().then(setHealth).catch(() => setHealth(null));
     return () => unsubscribe.current?.();
   }, []);
 
-  const selected = useMemo(
-    () => findings.find((f) => f.id === selectedId) ?? null,
-    [findings, selectedId],
-  );
-  const counts = useMemo(() => countsByFile(findings), [findings]);
+  const findings: UiFinding[] = fromAgent(raw);
 
   const openFile = useCallback(
     async (path: string) => {
       if (!runId) return;
       try {
         const file = await fetchFile(runId, path);
-        setActive({ path: file.path, content: file.content, language: file.language });
-      } catch (err) {
-        setError(String(err));
+        setActiveFile(file.path);
+        setContent(file.content);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
       }
     },
     [runId],
   );
 
-  const handleUpload = useCallback(async (selectedFiles: FileList | null) => {
-    if (!selectedFiles || selectedFiles.length === 0) return;
-    setUploading(true);
-    setError(null);
-    unsubscribe.current?.();
-    setFindings([]);
-    setSelectedId(null);
-    setProgress({ done: 0, total: 0, current: null });
-
-    try {
-      const result = await uploadSource(Array.from(selectedFiles));
-      setRunId(result.run_id);
-      setFiles(result.files);
-      setIndexStats(result.index);
-      setActive(null);
-      // Open something immediately: the page is a viewer before it is a report.
-      const first = result.files.find((f) => /\.(c|h|cpp|java|py|ts|go|rs)$/i.test(f));
-      if (first) {
-        const file = await fetchFile(result.run_id, first);
-        setActive({ path: file.path, content: file.content, language: file.language });
+  const upload = useCallback(
+    async (selected: FileList | null) => {
+      if (!selected?.length) return;
+      setError(null);
+      unsubscribe.current?.();
+      setRaw([]);
+      setProgress({ done: 0, total: 0, symbol: "" });
+      try {
+        const result = await uploadSource(Array.from(selected));
+        setRunId(result.run_id);
+        setFiles(result.files);
+        setIndex(result.index);
+        const first = result.files.find((f) => /\.(c|h|cpp|cc|java|py|ts|go|rs)$/i.test(f)) ?? result.files[0];
+        if (first) {
+          const file = await fetchFile(result.run_id, first);
+          setActiveFile(file.path);
+          setContent(file.content);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
       }
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setUploading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
-  const handleInspect = useCallback(async () => {
+  const inspect = useCallback(async () => {
     if (!runId) return;
     setError(null);
     setRunning(true);
-    setProgress({ done: 0, total: indexStats?.chunks ?? 0, current: null });
-
+    setProgress({ done: 0, total: index?.chunks ?? 0, symbol: "" });
     try {
       await startInspection(runId);
-    } catch (err) {
-      setError(String(err));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
       setRunning(false);
       return;
     }
 
     unsubscribe.current?.();
     unsubscribe.current = subscribeToRun(runId, {
-      // The first event is the only place the queue length is known before any
-      // chunk has finished, so the bar has a denominator from the start.
-      onChunkStarted: ({ total }) =>
-        setProgress((prev) => ({ ...prev, total: total || prev.total })),
+      onChunkStarted: ({ total }) => setProgress((p) => ({ ...p, total: total || p.total })),
       onChunkFinished: ({ symbol, findings: fresh, stats }) => {
-        setProgress({
-          done: stats.chunks_inspected ?? 0,
-          total: stats.chunks_total ?? 0,
-          current: symbol,
-        });
-        if (fresh.length > 0) {
-          // Merge by id: a re-run of the same chunk must not duplicate rows.
-          setFindings((prev) => {
+        setProgress({ done: stats.chunks_inspected ?? 0, total: stats.chunks_total ?? 0, symbol });
+        if (fresh.length) {
+          // Merge by id so a re-inspected chunk does not duplicate rows.
+          setRaw((prev) => {
             const merged = new Map(prev.map((f) => [f.id, f]));
-            for (const finding of fresh) merged.set(finding.id, finding);
-            return Array.from(merged.values());
+            for (const f of fresh) merged.set(f.id, f);
+            return [...merged.values()];
           });
         }
       },
       onFinished: async () => {
         setRunning(false);
-        setProgress((prev) => ({ ...prev, current: null }));
         try {
           const report = await fetchFindings(runId);
-          setFindings(report.findings ?? []);
+          setRaw(report.findings ?? []);
         } catch {
-          /* the streamed findings are already on screen */
+          /* streamed findings are already on screen */
         }
       },
       onFailed: ({ error: message }) => {
@@ -159,129 +124,56 @@ export default function InspectPage() {
         setError(message);
       },
     });
-  }, [runId, indexStats]);
+  }, [runId, index]);
 
-  const navigateTo = useCallback(
-    async (file: string, line: number) => {
-      if (file !== active?.path) await openFile(file);
-      // The editor reveals the line itself when `selected` changes; this only
-      // has to make sure the right file is open.
-      void line;
-    },
-    [active, openFile],
-  );
-
-  const toggleSeverity = useCallback((severity: SeverityName) => {
-    setSeverityFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(severity)) next.delete(severity);
-      else next.add(severity);
-      return next;
-    });
-  }, []);
-
-  const selectFinding = useCallback(
-    async (finding: Finding) => {
-      setSelectedId(finding.id);
-      if (finding.primary.file !== active?.path) await openFile(finding.primary.file);
-    },
-    [active, openFile],
-  );
+  const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
-    <main className="inspect">
-      <header className="inspect-head">
-        <div className="inspect-brand">
-          <h1>코드 검사</h1>
-          <p className="subtle">소스를 업로드하고 청크 단위로 취약점을 검사합니다.</p>
-        </div>
-
-        <div className="inspect-actions">
+    <Workspace
+      files={files}
+      activeFile={activeFile}
+      fileContent={content}
+      findings={findings}
+      onOpenFile={openFile}
+      toolbar={
+        <div className="target">
+          <button type="button" className="btn" onClick={() => fileInput.current?.click()} disabled={running}>
+            소스 업로드
+          </button>
           <input
             ref={fileInput}
             type="file"
             multiple
             hidden
-            onChange={(event) => handleUpload(event.target.files)}
+            onChange={(e) => upload(e.target.files)}
           />
-          <button
-            type="button"
-            className="btn"
-            onClick={() => fileInput.current?.click()}
-            disabled={uploading || running}
-          >
-            {uploading ? "업로드 중…" : "소스 업로드"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={handleInspect}
-            disabled={!runId || running || uploading}
-            title={health?.configured === false ? "모델이 설정되지 않았습니다" : undefined}
-          >
+          <button type="button" className="btn btn-primary" onClick={inspect} disabled={!runId || running}>
             {running ? "검사 중…" : "검사 실행"}
           </button>
+          {index && (
+            <span className="target-stats">
+              파일 {index.files_indexed} · 청크 {index.chunks} · 결과 {findings.length}
+            </span>
+          )}
+          {health && !health.configured && <span className="target-warn">모델 미설정 (AGENT_MODEL)</span>}
+          {health?.tracing?.enabled && <span className="target-hint">추적 → {health.tracing.project}</span>}
         </div>
-      </header>
-
-      {health && !health.configured && (
-        <div className="banner banner-warn">
-          모델이 설정되지 않았습니다. <code>AGENT_MODEL</code>과 <code>AGENT_BASE_URL</code>을
-          설정한 뒤 API를 다시 시작하세요. (현재 엔드포인트: <code>{health.base_url}</code>)
-        </div>
-      )}
-
-      {indexStats && (
-        <div className="index-summary">
-          파일 {indexStats.files_indexed}개 · 청크 {indexStats.chunks}개 · 연결{" "}
-          {indexStats.links}개
-          {indexStats.files_skipped > 0 && ` · 건너뜀 ${indexStats.files_skipped}개`}
-        </div>
-      )}
-
-      <RunProgress
-        running={running}
-        done={progress.done}
-        total={progress.total}
-        current={progress.current}
-        findings={findings.length}
-        error={error}
-      />
-
-      <div className="inspect-body">
-        <div className="inspect-left">
-          <FileTree
-            files={files}
-            selected={active?.path ?? null}
-            counts={counts}
-            onSelect={openFile}
-          />
-          <FindingList
-            findings={findings}
-            selectedId={selectedId}
-            severityFilter={severityFilter}
-            onToggleSeverity={toggleSeverity}
-            onSelect={selectFinding}
-          />
-        </div>
-
-        <div className="inspect-center">
-          <CodeEditor
-            path={active?.path ?? null}
-            content={active?.content ?? ""}
-            language={active?.language ?? "plaintext"}
-            findings={findings}
-            selected={selected}
-            onSelectFinding={setSelectedId}
-          />
-        </div>
-
-        <FindingPanel
-          finding={selected}
-          onNavigate={navigateTo}
-          onClose={() => setSelectedId(null)}
-        />
-      </div>
-    </main>
+      }
+      status={
+        <>
+          {error && <div className="ws-error">{error}</div>}
+          {(running || progress.done > 0) && (
+            <div className="ws-progress">
+              <div className="ws-progress-bar">
+                <div className="ws-progress-fill" style={{ width: `${percent}%` }} />
+              </div>
+              <span className="ws-progress-text">
+                {progress.done} / {progress.total} 청크{progress.symbol && ` · ${progress.symbol}`}
+              </span>
+            </div>
+          )}
+        </>
+      }
+    />
   );
 }
