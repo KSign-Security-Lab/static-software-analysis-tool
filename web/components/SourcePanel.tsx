@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiBase } from "@/lib/api";
 import { SAMPLES } from "@/lib/samples";
+import { looksLikeCpg, unwrapCpgDocument } from "@/lib/cpg";
 
 /** Source extension -> the language value the API expects. */
 const EXT_LANG: Record<string, string> = {
@@ -25,6 +26,7 @@ export default function SourcePanel({
   error,
   onAnalyze,
   onLoadSample,
+  onLoadCpg,
   stats,
 }: {
   source: string;
@@ -35,15 +37,17 @@ export default function SourcePanel({
   error: string | null;
   onAnalyze: () => void;
   onLoadSample: (id: string) => void;
+  onLoadCpg: (cpg: unknown, filename: string) => void;
   stats: { vertices: number; edges: number; methods: number } | null;
 }) {
   // Resolve on the client (depends on window.location).
   const [backend, setBackend] = useState("");
   useEffect(() => setBackend(apiBase()), []);
 
-  // File upload, ported from the old web/ app's DataUploader. Reads locally and
-  // fills the editor -- the file itself never leaves the browser; only the text
-  // goes to the API, exactly as if it had been pasted.
+  // Two kinds of drop, which is what the old web/ app did before the merge:
+  // a source file fills the editor, and a .json CPG is opened directly. The
+  // second matters because `ssat cpg` writes JSON, and without it that output
+  // could only be viewed by recompiling the source it came from.
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -52,9 +56,25 @@ export default function SourcePanel({
     (file: File) => {
       setFileError(null);
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+
+      if (ext === "json") {
+        file
+          .text()
+          .then((text) => {
+            const raw: unknown = JSON.parse(text);
+            if (!looksLikeCpg(raw)) {
+              setFileError("CPG JSON이 아닙니다 (vertices/edges를 찾을 수 없습니다)");
+              return;
+            }
+            onLoadCpg(unwrapCpgDocument(raw), file.name);
+          })
+          .catch((e: unknown) => setFileError(e instanceof Error ? e.message : String(e)));
+        return;
+      }
+
       const detected = EXT_LANG[ext];
       if (!detected) {
-        setFileError(`지원하지 않는 확장자입니다: .${ext} (c/cpp/java)`);
+        setFileError(`지원하지 않는 확장자입니다: .${ext} (c/cpp/java/json)`);
         return;
       }
       file
@@ -65,7 +85,7 @@ export default function SourcePanel({
         })
         .catch((e: unknown) => setFileError(e instanceof Error ? e.message : String(e)));
     },
-    [setSource, setLanguage],
+    [setSource, setLanguage, onLoadCpg],
   );
   return (
     <div className="drawer-body">
@@ -118,13 +138,13 @@ export default function SourcePanel({
             if (file) loadFile(file);
           }}
         >
-          소스 파일을 끌어다 놓거나 클릭해 선택하세요
-          <span className="muted small">.c .h .cpp .cc .cxx .hpp .hxx .java</span>
+          소스 또는 CPG JSON을 끌어다 놓거나 클릭해 선택하세요
+          <span className="muted small">.c .h .cpp .cc .cxx .hpp .hxx .java · .json (CPG)</span>
         </div>
         <input
           ref={fileInput}
           type="file"
-          accept=".c,.h,.cpp,.cc,.cxx,.hpp,.hxx,.java"
+          accept=".c,.h,.cpp,.cc,.cxx,.hpp,.hxx,.java,.json"
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0];

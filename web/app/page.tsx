@@ -6,7 +6,7 @@ import SourcePanel from "@/components/SourcePanel";
 import DecisionView from "@/components/DecisionView";
 import F2AReport from "@/components/F2AReport";
 import JsonView from "@/components/JsonView";
-import { analyze, analyzeFunctions } from "@/lib/api";
+import { analyze, analyzeFunctions, f2aFromCpg } from "@/lib/api";
 import { parseCpg } from "@/lib/cpg";
 import { SAMPLES } from "@/lib/samples";
 import {
@@ -80,6 +80,30 @@ export default function Home() {
     setSource(s.source);
     setLanguage(s.language);
     setFilename(s.filename);
+  };
+
+  // Open a CPG JSON directly -- the old web/ app's primary input, which the
+  // merge dropped. There is no source to compile, so F2-A runs on the uploaded
+  // graph and the source pane shows what came with it, if anything.
+  const onLoadCpg = async (cpg: unknown, name: string) => {
+    setLoading(true);
+    setError(null);
+    setFocusFn(null);
+    try {
+      const f2a = await f2aFromCpg(cpg);
+      setResponse({ cpg, method_count: 0, f2a });
+      setPipelineFns(null);
+      setPipelineError(null);
+      setAnalyzedSource("");
+      setFilename(name);
+      setTab("decision");
+      setDrawerOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setResponse(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onAnalyze = async () => {
@@ -225,6 +249,7 @@ export default function Home() {
           error={error}
           onAnalyze={onAnalyze}
           onLoadSample={onLoadSample}
+          onLoadCpg={onLoadCpg}
           stats={stats}
         />
       </aside>

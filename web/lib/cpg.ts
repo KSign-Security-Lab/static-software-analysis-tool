@@ -39,6 +39,27 @@ function toId(value: unknown): string {
 }
 
 /** Find the {vertices, edges} object inside any accepted document shape. */
+/**
+ * Unwrap a CPG file to the bare GraphSON the API and the viewers expect.
+ *
+ * `ssat cpg` and the API disagree about the wrapper: the pipeline reads
+ * `{"export": ...}` while /analyze returns the GraphSON directly. Accept both
+ * rather than making the user know which one they have.
+ */
+export function unwrapCpgDocument(raw: unknown): unknown {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const o = raw as Record<string, unknown>;
+    if ("export" in o) return o.export;
+  }
+  return raw;
+}
+
+/** Whether a parsed JSON file has vertices we can draw. */
+export function looksLikeCpg(raw: unknown): boolean {
+  const { vertices } = extractGraph(unwrapCpgDocument(raw) as CpgDocument);
+  return vertices.length > 0;
+}
+
 export function extractGraph(doc: CpgDocument): RawGraph {
   const vertices: RawVertex[] = [];
   const edges: RawEdge[] = [];

@@ -1,4 +1,4 @@
-import type { AnalyzeResponse, PipelineResponse } from "./types";
+import type { AnalyzeResponse, F2AResult, PipelineResponse } from "./types";
 
 // Resolve the backend base URL at runtime so it works from whatever host the
 // page was opened on (localhost, the Tailscale IP, any tailnet peer). Override
@@ -63,6 +63,14 @@ export function analyze(input: AnalyzeInput): Promise<AnalyzeResponse> {
  */
 export function analyzeFunctions(cpg: unknown): Promise<PipelineResponse> {
   return post<PipelineResponse>("/analyze-functions", { cpg });
+}
+
+/**
+ * F2-A over a CPG that already exists -- an uploaded file, or the one /analyze
+ * just returned. Skips regenerating it with Joern.
+ */
+export function f2aFromCpg(cpg: unknown): Promise<F2AResult> {
+  return post<F2AResult>("/f2a", { cpg });
 }
 
 export async function checkHealth(): Promise<{
