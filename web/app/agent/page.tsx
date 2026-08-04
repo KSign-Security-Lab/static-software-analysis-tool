@@ -266,6 +266,12 @@ export default function AgentPage() {
             파일 {files.length} · 청크 {index.chunks} · 결과 {findings.length}
           </span>
         )}
+        {runId && (
+          // Watchable while the run is still going: the trace fills in live.
+          <a className="btn btn-ghost" href={`/agent/traces?run=${runId}`}>
+            실행 기록 ↗
+          </a>
+        )}
         {health && !health.configured && <span className="target-warn">모델 미설정 (AGENT_MODEL)</span>}
       </SectionHeader>
 

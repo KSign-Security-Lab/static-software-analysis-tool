@@ -375,3 +375,49 @@ def test_deleting_a_file_drops_its_findings(client: TestClient) -> None:
     store = paths.store()
     assert store.findings() == []
     store.close()
+
+
+# -- local traces --------------------------------------------------------------
+
+
+def test_spans_are_empty_before_an_inspection(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    body = client.get(f"/agent/runs/{run_id}/spans").json()
+
+    assert body["spans"] == []
+    assert body["summary"]["spans"] == 0
+
+
+def test_spans_endpoint_serves_the_recorded_tree(client: TestClient) -> None:
+    """What the debug view reads: a tree, with counts already totalled."""
+    from agent.runs import get_run
+
+    run_id = _upload(client)["run_id"]
+    paths = get_run(run_id)
+    assert paths is not None
+
+    spans = paths.spans()
+    spans.start(span_id="root", parent_id=None, name="LangGraph", kind="chain", started_at=0.0)
+    spans.start(span_id="llm", parent_id="root", name="analyse:run", kind="llm", started_at=0.0)
+    spans.finish(span_id="llm", ended_at=1.5, outputs={"text": ["ok"]}, tokens=200)
+    spans.start(span_id="tool", parent_id="llm", name="read_source", kind="tool", started_at=1.5)
+    spans.finish(span_id="tool", ended_at=1.6, error="no such file")
+    spans.close()
+
+    body = client.get(f"/agent/runs/{run_id}/spans").json()
+
+    assert [span["id"] for span in body["spans"]] == ["root", "llm", "tool"]
+    assert body["spans"][1]["latency_ms"] == 1500
+    assert body["summary"] == {
+        "spans": 3,
+        "llm_calls": 1,
+        "tool_calls": 1,
+        "errors": 1,
+        "running": 1,
+        "tokens": 200,
+        "total_ms": 1600,
+    }
+
+
+def test_spans_of_an_unknown_run_is_a_404(client: TestClient) -> None:
+    assert client.get("/agent/runs/deadbeef/spans").status_code == 404

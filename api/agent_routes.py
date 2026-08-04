@@ -379,6 +379,43 @@ def run_detail(run_id: str) -> Dict[str, Any]:
     return {"run_id": run_id, **paths.read_meta()}
 
 
+@router.get("/runs/{run_id}/spans")
+def run_spans(run_id: str) -> Dict[str, Any]:
+    """The call tree of this run's last inspection.
+
+    Recorded locally, so the debug view works with no LangSmith account, no key
+    and no egress -- and can be shown to a user, which the hosted view cannot
+    (it serves ``frame-ancestors 'self'`` and needs a login besides).
+
+    Readable mid-run: the store is WAL, so this returns what has landed so far
+    with unfinished spans still marked ``running``.
+    """
+    paths = _require_run(run_id)
+    if not paths.trace_db.exists():
+        return {"run_id": run_id, "spans": [], "summary": _span_summary([])}
+
+    spans = paths.spans()
+    try:
+        rows = [span.as_dict() for span in spans.spans()]
+    finally:
+        spans.close()
+    return {"run_id": run_id, "spans": rows, "summary": _span_summary(rows)}
+
+
+def _span_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Headline numbers, computed here so every client agrees on them."""
+    latencies = [row["latency_ms"] for row in rows if row.get("latency_ms") is not None]
+    return {
+        "spans": len(rows),
+        "llm_calls": sum(1 for row in rows if row["kind"] == "llm"),
+        "tool_calls": sum(1 for row in rows if row["kind"] == "tool"),
+        "errors": sum(1 for row in rows if row["status"] == "error"),
+        "running": sum(1 for row in rows if row["status"] == "running"),
+        "tokens": sum(row["tokens"] or 0 for row in rows),
+        "total_ms": sum(latencies),
+    }
+
+
 @router.get("/runs/{run_id}/files")
 def run_files(run_id: str) -> Dict[str, Any]:
     paths = _require_run(run_id)
@@ -438,6 +475,10 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, force: bool) -> None:
     """Run the inspection on a worker thread, publishing progress."""
     config = AgentConfig()
     store = paths.store()
+    # One trace per inspection: the previous one describes work that is about to
+    # be redone, and two runs interleaved in one tree is unreadable.
+    spans = paths.spans()
+    spans.clear()
 
     def emit(event: str, payload: dict[str, Any]) -> None:
         channel.events.put({"event": event, "data": payload})
@@ -460,6 +501,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, force: bool) -> None:
             config=config,
             emit=emit,
             index_stats=index_stats,
+            spans=spans,
         )
         paths.save_report(report)
         paths.set_status(STATUS_DONE, findings=len(report.findings))
@@ -471,6 +513,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, force: bool) -> None:
         channel.events.put({"event": "run_failed", "data": {"error": str(err)}})
     finally:
         store.close()
+        spans.close()
         channel.finished.set()
 
 

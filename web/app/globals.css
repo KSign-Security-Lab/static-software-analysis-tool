@@ -533,6 +533,7 @@ table.checks tr:last-child td { border-bottom: none; }
 
 .ws-empty { padding: var(--gap-4); color: var(--ink-faint); font-size: var(--text-xs); text-align: center; }
 .ws-empty-lg { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--gap-3); height: 100%; }
+.ws-empty-note { margin: 0; font-size: var(--text-2xs); color: var(--ink-faint); }
 .ws-error { padding: var(--gap-2) var(--gap-4); background: var(--danger-wash); color: var(--danger); font-size: var(--text-xs); border-bottom: 1px solid var(--line); }
 .ws-error-soft { background: var(--warn-wash); color: var(--warn); }
 .ws-progress { padding: var(--gap-2) var(--gap-4); background: var(--surface); border-bottom: 1px solid var(--line); }
@@ -584,7 +585,17 @@ table.checks tr:last-child td { border-bottom: none; }
 .span-meta { display: flex; flex-wrap: wrap; gap: var(--gap-3); margin-bottom: var(--gap-3); font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--ink-muted); }
 .toolcall { margin-bottom: var(--gap-2); padding: var(--gap-2) var(--gap-3); border: 1px solid var(--line); border-left: 2px solid var(--ok); border-radius: var(--r-sm); background: var(--surface-2); }
 .toolcall-name { font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: 700; color: var(--ok); }
-.toolcall-args { margin: var(--gap-1) 0 0; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-muted); white-space: pre-wrap; word-break: break-word; }
+.toolcall-args { margin: var(--gap-1) 0 0; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-muted); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+
+.span-filters { display: flex; gap: 4px; }
+.span-filters .chip { padding: 1px 8px; font-size: 10px; text-transform: none; letter-spacing: 0; background: transparent; color: var(--ink-faint); cursor: pointer; }
+.span-filters .chip:hover { color: var(--ink); }
+.span-filters .chip.is-on { background: var(--accent-wash); border-color: transparent; color: var(--accent-ink); }
+
+/* A prompt is a conversation; showing it as one JSON blob hides the turns. */
+.msg { margin-bottom: var(--gap-2); }
+.msg-role { margin-bottom: 3px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--alt); }
+.msg .span-io { margin-bottom: 0; }
 
 /* ---- section shell: a rail, not tabs ------------------------------------ */
 .app { display: grid; grid-template-columns: 68px minmax(0, 1fr); height: 100vh; min-height: 0; }

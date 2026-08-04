@@ -91,6 +91,59 @@ export function diffRuns(runId: string, against: string): Promise<FindingDiff> {
   return post<FindingDiff>(`/agent/runs/${runId}/diff`, { against });
 }
 
+/**
+ * Local tracing. Every model and tool call of a run is recorded server-side in
+ * the run's own store, so the debug view works with no LangSmith account and
+ * nothing leaves the machine -- and can be shown to a user, which the hosted
+ * view cannot.
+ */
+export interface Span {
+  id: string;
+  parent_id: string | null;
+  seq: number;
+  name: string;
+  kind: "chain" | "llm" | "tool" | string;
+  status: "running" | "ok" | "error";
+  error: string | null;
+  latency_ms: number | null;
+  tokens: number | null;
+  meta: Record<string, unknown>;
+  inputs: unknown;
+  outputs: unknown;
+}
+
+export interface SpanSummary {
+  spans: number;
+  llm_calls: number;
+  tool_calls: number;
+  errors: number;
+  running: number;
+  tokens: number;
+  total_ms: number;
+}
+
+export interface RunSpans {
+  run_id: string;
+  spans: Span[];
+  summary: SpanSummary;
+}
+
+export function fetchSpans(runId: string): Promise<RunSpans> {
+  return get<RunSpans>(`/agent/runs/${runId}/spans`);
+}
+
+export interface RunSummary {
+  run_id: string;
+  status?: string;
+  findings?: number;
+  error?: string;
+  index?: IndexStats;
+}
+
+export function listRuns(): Promise<{ runs: RunSummary[] }> {
+  return get<{ runs: RunSummary[] }>("/agent/runs");
+}
+
 export interface ChunkFinished {
   chunk_id: string;
   file: string;
