@@ -2,12 +2,15 @@
 #
 # vLLM, the API and the web UI in one terminal.
 #
-#   scripts/up.sh                  start everything
+#   scripts/up.sh                  start everything (confirms the config first)
+#   scripts/up.sh -y               start with the saved config, no questions
 #   scripts/up.sh --reconfigure    ask the setup questions again
 #
 # The first run asks which model, which GPUs, and where to keep the weights, and
-# writes the answers to .env. Compose reads .env by itself, so later runs are
-# silent and the file stays editable.
+# writes the answers to .env. Later runs show that config and let you change it
+# -- silently reusing it meant `down` then `up` relaunched the old model with no
+# obvious way to pick another. Compose reads .env itself, so the file also stays
+# editable by hand.
 #
 # Compose runs vLLM. The API and web run on the host so their reloaders work,
 # which is the only reason this file exists rather than being three more compose
@@ -112,14 +115,78 @@ EOF
   info "wrote .env"
 }
 
-if [[ "${1:-}" == "--reconfigure" ]]; then
-  rm -f .env
+# Show what is configured and let it be changed. Reusing .env silently meant
+# `down` then `up` relaunched the old model with no way to pick another short
+# of knowing --reconfigure existed.
+confirm_config() {
+  # shellcheck disable=SC1091
+  (set -a; . ./.env; set +a
+   printf '\n\033[36m현재 설정\033[0m\n'
+   printf '  모델    %s  (parser %s)\n' "$VLLM_MODEL" "${VLLM_TOOL_PARSER:-hermes}"
+   printf '  GPU     %s  (tp=%s)\n' "${VLLM_GPUS:-0}" "${VLLM_TP:-1}"
+   printf '  가중치   %s\n\n' "${HF_HOME:-~/.cache/huggingface}")
+
+  local answer
+  answer=$(ask "Enter=시작 · c=변경 · q=취소" "")
+  case "$answer" in
+    c|C) rm -f .env; configure ;;
+    q|Q) echo "취소했습니다."; exit 0 ;;
+    *) ;;
+  esac
+}
+
+ASSUME_YES=0
+case "${1:-}" in
+  -h|--help)
+    # Without this an unrecognised flag fell through and started the stack,
+    # which is a surprising thing for `--help` to do.
+    awk 'NR==1 && /^#!/ {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$0"
+    exit 0
+    ;;
+  --reconfigure) rm -f .env ;;
+  -y|--yes) ASSUME_YES=1 ;;
+  "") ;;
+  *)
+    printf '\033[31merror:\033[0m 알 수 없는 옵션: %s\n' "$1" >&2
+    exit 1
+    ;;
+esac
+
+if [[ ! -f .env ]]; then
+  configure
+elif [[ "$ASSUME_YES" -eq 0 && -t 0 ]]; then
+  confirm_config
 fi
-[[ -f .env ]] || configure
 
 # shellcheck disable=SC1091
 set -a; . ./.env; set +a
 VLLM_PORT="${VLLM_PORT:-8001}"
+
+# A container left running from a previous model would be reused silently, so
+# `up` would report a model the server is not actually serving.
+running_model() {
+  docker inspect "${VLLM_CONTAINER:-ssat-vllm}" --format '{{json .Config.Cmd}}' 2>/dev/null |
+    python3 -c "
+import json,sys
+try: cmd = json.load(sys.stdin)
+except Exception: sys.exit()
+if '--model' in cmd: print(cmd[cmd.index('--model') + 1])
+" 2>/dev/null || true
+}
+
+current=$(running_model)
+if [[ -n "$current" && "$current" != "$VLLM_MODEL" ]]; then
+  printf '\033[33mwarning:\033[0m 실행 중인 컨테이너는 %s 이고 설정은 %s 입니다.\n' "$current" "$VLLM_MODEL"
+  if [[ "$ASSUME_YES" -eq 1 || ! -t 0 ]]; then
+    printf '  설정에 맞춰 다시 시작합니다.\n'
+    docker compose --profile vllm rm -sf vllm >/dev/null 2>&1 || true
+  else
+    case "$(ask "다시 시작할까요? Enter=예 · n=아니오(실행 중인 것 사용)" "")" in
+      n|N) VLLM_MODEL="$current" ;;
+      *) docker compose --profile vllm rm -sf vllm >/dev/null 2>&1 || true ;;
+    esac
+  fi
+fi
 
 pids=()
 
