@@ -112,7 +112,9 @@ EOF
   info "wrote .env"
 }
 
-[[ "${1:-}" == "--reconfigure" ]] && rm -f .env
+if [[ "${1:-}" == "--reconfigure" ]]; then
+  rm -f .env
+fi
 [[ -f .env ]] || configure
 
 # shellcheck disable=SC1091
@@ -130,11 +132,19 @@ kill_tree() {
 }
 
 cleanup() {
+  local code=$?
   trap - INT TERM EXIT
-  printf '\n\033[36mstopping api and web (vllm stays up: scripts/run.sh down)\033[0m\n'
-  for pid in "${pids[@]:-}"; do [[ -n "$pid" ]] && kill_tree "$pid"; done
-  wait 2>/dev/null || true
-  exit 0
+  # Nothing started means nothing to stop, and saying otherwise hides whatever
+  # actually went wrong -- which is how a failing preflight looked like a
+  # successful shutdown.
+  if [[ ${#pids[@]} -gt 0 ]]; then
+    printf '\n\033[36mstopping api and web (vllm stays up: scripts/run.sh down)\033[0m\n'
+    for pid in "${pids[@]}"; do
+      kill_tree "$pid"
+    done
+    wait 2>/dev/null || true
+  fi
+  exit "$code"
 }
 trap cleanup INT TERM EXIT
 
@@ -146,6 +156,25 @@ start() {
   bash -c "$3" > >(sed -u "s/^/${prefix}/") 2>&1 &
   pids+=("$!")
 }
+
+# A stale server from a previous run holds the port, and uvicorn's and next's
+# own errors for that are easy to misread. Name the process and how to kill it.
+check_port() {
+  local port="$1" name="$2" pid
+  # `|| true`: a free port means grep finds nothing and exits 1, which under
+  # `set -o pipefail` would abort the script instead of reporting "port free".
+  pid=$(ss -ltnp 2>/dev/null | grep ":${port} " | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+  if [[ -z "$pid" ]]; then
+    return 0
+  fi
+  printf '\033[31merror:\033[0m port %s (%s) is held by pid %s: %s\n' \
+    "$port" "$name" "$pid" "$(ps -o args= -p "$pid" 2>/dev/null | head -1)" >&2
+  printf '  kill it with:  kill %s\n  or use another port:  %s=NNNN scripts/run.sh up\n' \
+    "$pid" "$([[ $name == api ]] && echo API_PORT || echo WEB_PORT)" >&2
+  exit 1
+}
+check_port "$API_PORT" api
+check_port "$WEB_PORT" web
 
 info "starting ${VLLM_MODEL} (parser ${VLLM_TOOL_PARSER}, weights in ${HF_HOME})"
 echo "  follow it with: scripts/run.sh vllm-logs"
