@@ -38,6 +38,10 @@ export default function Workspace({
   lenses = [],
   toolbar,
   status,
+  editable = false,
+  onEdit,
+  placeholder,
+  emptyHint,
 }: {
   files: string[];
   activeFile: string | null;
@@ -47,6 +51,10 @@ export default function Workspace({
   lenses?: Lens[];
   toolbar?: ReactNode;
   status?: ReactNode;
+  editable?: boolean;
+  onEdit?: (value: string) => void;
+  placeholder?: string;
+  emptyHint?: string;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [engines, setEngines] = useState<Set<Engine>>(() => new Set<Engine>(["structural", "agent"]));
@@ -122,6 +130,9 @@ export default function Workspace({
                 findings={findings}
                 selected={selected}
                 onSelect={setSelectedId}
+                editable={editable}
+                onChange={onEdit}
+                placeholder={placeholder}
               />
             )}
           </div>
@@ -137,6 +148,7 @@ export default function Workspace({
               engines={engines}
               onToggleEngine={toggleEngine}
               onSelect={openFinding}
+              emptyHint={emptyHint}
             />
           )}
         </aside>

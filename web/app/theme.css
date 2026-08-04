@@ -1,0 +1,272 @@
+/* ============================================================================
+   SSAT design system.
+   ----------------------------------------------------------------------------
+   Colour is defined in OKLCH so a ramp stays perceptually even -- the old
+   hand-picked hex ladder went muddy in the middle and two "different" greys
+   were indistinguishable on a laptop panel.
+
+   Two themes from one set of names. Components reference roles (`--surface`,
+   `--accent`), never a ramp step, so a theme change is confined to this file.
+
+   The accent is teal rather than the previous blue: blue was also the
+   information colour, so an interactive element and a neutral status looked
+   the same. Danger/warn/ok now sit far apart in hue *and* lightness, which is
+   what makes them separable without relying on colour alone.
+   ========================================================================== */
+
+:root {
+  /* ---- neutral ramp (slightly cool, so code reads as the warm thing) ---- */
+  --n-0: oklch(99% 0.002 240);
+  --n-50: oklch(97% 0.003 240);
+  --n-100: oklch(94% 0.004 240);
+  --n-200: oklch(89% 0.005 240);
+  --n-300: oklch(80% 0.007 240);
+  --n-400: oklch(67% 0.009 240);
+  --n-500: oklch(55% 0.010 240);
+  --n-600: oklch(44% 0.012 245);
+  --n-700: oklch(33% 0.014 248);
+  --n-800: oklch(24% 0.014 250);
+  --n-850: oklch(20% 0.014 252);
+  --n-900: oklch(16% 0.013 253);
+  --n-950: oklch(12% 0.012 255);
+
+  /* ---- signal hues ------------------------------------------------------ */
+  --teal-300: oklch(84% 0.10 186);
+  --teal-400: oklch(76% 0.13 186);
+  --teal-500: oklch(68% 0.15 186);
+  --teal-600: oklch(58% 0.14 186);
+
+  --violet-300: oklch(82% 0.10 300);
+  --violet-400: oklch(72% 0.15 300);
+  --violet-500: oklch(63% 0.18 300);
+
+  --red-400: oklch(70% 0.18 25);
+  --red-500: oklch(60% 0.21 25);
+  --amber-400: oklch(81% 0.15 75);
+  --amber-500: oklch(72% 0.16 70);
+  --green-400: oklch(78% 0.15 155);
+  --green-500: oklch(66% 0.15 155);
+
+  /* ---- type ------------------------------------------------------------- */
+  --font-sans:
+    "Inter var", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR",
+    "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --text-2xs: 0.6875rem; /* 11px  — dense metadata */
+  --text-xs: 0.75rem; /*  12px — labels, chips */
+  --text-sm: 0.8125rem; /* 13px — body default */
+  --text-md: 0.9375rem; /* 15px — headings in panels */
+  --text-lg: 1.125rem; /*  18px — page titles */
+
+  /* ---- space: a 4px grid, named by use not by number -------------------- */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+  --gap-6: 32px;
+
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
+
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --fast: 120ms;
+  --slow: 240ms;
+
+  --rail: 248px; /* file rail */
+  --aside: 392px; /* findings rail */
+  --bar: 44px; /* nav + toolbar height */
+}
+
+/* ---- dark (default) ------------------------------------------------------ */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: var(--n-950);
+  --surface: var(--n-900);
+  --surface-2: var(--n-850);
+  --surface-3: var(--n-800);
+  --field: oklch(10% 0.012 255);
+
+  --line: oklch(100% 0 0 / 7%);
+  --line-2: oklch(100% 0 0 / 12%);
+  --line-3: oklch(100% 0 0 / 20%);
+
+  --ink: var(--n-100);
+  --ink-strong: var(--n-0);
+  --ink-muted: var(--n-400);
+  --ink-faint: var(--n-500);
+
+  --accent: var(--teal-400);
+  --accent-ink: var(--teal-300);
+  --accent-solid: var(--teal-600);
+  --accent-wash: oklch(76% 0.13 186 / 14%);
+
+  --alt: var(--violet-400);
+  --alt-wash: oklch(72% 0.15 300 / 16%);
+
+  --danger: var(--red-400);
+  --danger-wash: oklch(70% 0.18 25 / 16%);
+  --warn: var(--amber-400);
+  --warn-wash: oklch(81% 0.15 75 / 15%);
+  --ok: var(--green-400);
+  --ok-wash: oklch(78% 0.15 155 / 15%);
+
+  --shadow-1: 0 1px 2px oklch(0% 0 0 / 40%);
+  --shadow-2: 0 8px 28px oklch(0% 0 0 / 42%);
+}
+
+/* ---- light --------------------------------------------------------------- */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: var(--n-50);
+  --surface: var(--n-0);
+  --surface-2: var(--n-50);
+  --surface-3: var(--n-100);
+  --field: var(--n-0);
+
+  --line: oklch(0% 0 0 / 9%);
+  --line-2: oklch(0% 0 0 / 14%);
+  --line-3: oklch(0% 0 0 / 24%);
+
+  --ink: var(--n-800);
+  --ink-strong: var(--n-950);
+  --ink-muted: var(--n-600);
+  --ink-faint: var(--n-500);
+
+  --accent: var(--teal-600);
+  --accent-ink: oklch(42% 0.11 186);
+  --accent-solid: var(--teal-600);
+  --accent-wash: oklch(58% 0.14 186 / 12%);
+
+  --alt: var(--violet-500);
+  --alt-wash: oklch(63% 0.18 300 / 12%);
+
+  --danger: var(--red-500);
+  --danger-wash: oklch(60% 0.21 25 / 12%);
+  --warn: var(--amber-500);
+  --warn-wash: oklch(72% 0.16 70 / 16%);
+  --ok: var(--green-500);
+  --ok-wash: oklch(66% 0.15 155 / 14%);
+
+  --shadow-1: 0 1px 2px oklch(0% 0 0 / 8%);
+  --shadow-2: 0 8px 28px oklch(0% 0 0 / 12%);
+}
+
+/* ---- severity: hue AND lightness differ, so they survive greyscale ------ */
+:root {
+  --sev-critical: var(--red-500);
+  --sev-high: var(--red-400);
+  --sev-medium: var(--amber-400);
+  --sev-low: var(--teal-400);
+  --sev-info: var(--n-400);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-wash);
+  color: var(--ink-strong);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--r-xs);
+}
+
+/* Scrollbars, so panes do not each look like a different application. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-3) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-full);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--line-3);
+  background-clip: content-box;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   Legacy aliases.
+
+   The graph explorer, the F2-A report and the decision cards were written
+   against the previous token names. Aliasing them onto the new roles re-skins
+   all of it from here instead of touching several hundred rules, and keeps one
+   palette rather than two drifting ones. New code uses the names above.
+   -------------------------------------------------------------------------- */
+:root,
+[data-theme="dark"],
+[data-theme="light"] {
+  --fg: var(--ink);
+  --fg-strong: var(--ink-strong);
+  --muted: var(--ink-muted);
+  --faint: var(--ink-faint);
+  --input: var(--field);
+  --line-strong: var(--line-3);
+
+  --accent-2: var(--accent-solid);
+  --accent-weak: var(--accent-wash);
+  --meter: linear-gradient(90deg, var(--accent-solid), var(--accent));
+
+  --good: var(--ok);
+  --good-weak: var(--ok-wash);
+  --warn-weak: var(--warn-wash);
+  --serious: var(--sev-high);
+  --danger-weak: var(--danger-wash);
+
+  --sans: var(--font-sans);
+  --mono: var(--font-mono);
+  --bg-grad: none;
+  --shadow-3: var(--shadow-2);
+}

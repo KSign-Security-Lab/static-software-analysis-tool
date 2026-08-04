@@ -152,18 +152,24 @@ export default function AnalyzePage() {
     return out;
   }, [parsed, pipelineFns, response, analyzed, language]);
 
+  // The source is on screen from the first paint, before any analysis: the
+  // canvas doubles as the input. Running the analysis adds markers to the very
+  // buffer you were looking at rather than swapping it for something else.
+  const showing = analyzed || source;
+
   return (
     <Workspace
-      files={analyzed ? [filename] : []}
-      activeFile={analyzed ? filename : null}
-      fileContent={analyzed}
+      files={[filename]}
+      activeFile={filename}
+      fileContent={showing}
+      editable={!analyzed}
+      onEdit={setSource}
+      emptyHint={analyzed ? "이 소스에서 발견된 문제가 없습니다." : "‘분석’을 눌러 이 소스를 검사하세요."}
       findings={findings}
       onOpenFile={() => undefined}
       lenses={lenses}
       toolbar={
         <TargetBar
-          source={source}
-          setSource={setSource}
           language={language}
           setLanguage={setLanguage}
           loading={loading}

@@ -14,7 +14,9 @@ import { ROLE_LABEL, markerSeverity, type UiFinding } from "@/lib/model/finding"
  * selected finding's evidence becomes dimmer decorations so the sink reads
  * differently from the trail that leads to it.
  *
- * Read-only: nothing in this app writes to your source.
+ * Editable only before a target exists, when the canvas is also the input.
+ * Once something has been analysed it is read-only: nothing here writes to
+ * your files.
  */
 
 const OWNER = "ssat";
@@ -50,12 +52,19 @@ export default function CodeCanvas({
   findings,
   selected,
   onSelect,
+  editable = false,
+  onChange,
+  placeholder,
 }: {
   path: string | null;
   content: string;
   findings: UiFinding[];
   selected: UiFinding | null;
   onSelect: (id: string) => void;
+  /** Before anything is analysed the canvas *is* the input, so you edit here. */
+  editable?: boolean;
+  onChange?: (value: string) => void;
+  placeholder?: string;
 }) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
@@ -132,7 +141,7 @@ export default function CodeCanvas({
   }, [selected, path]);
 
   if (!path) {
-    return <div className="ws-empty ws-empty-lg">왼쪽에서 파일을 선택하세요.</div>;
+    return <div className="ws-empty ws-empty-lg">{placeholder ?? "왼쪽에서 파일을 선택하세요."}</div>;
   }
 
   return (
@@ -143,9 +152,10 @@ export default function CodeCanvas({
       language={languageOf(path)}
       value={content}
       onMount={handleMount}
+      onChange={(value) => onChange?.(value ?? "")}
       options={{
-        readOnly: true,
-        domReadOnly: true,
+        readOnly: !editable,
+        domReadOnly: !editable,
         minimap: { enabled: true, size: "fill" },
         fontSize: 13,
         lineNumbers: "on",

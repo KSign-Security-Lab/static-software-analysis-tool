@@ -24,12 +24,14 @@ export default function FindingList({
   engines,
   onToggleEngine,
   onSelect,
+  emptyHint,
 }: {
   findings: UiFinding[];
   selectedId: string | null;
   engines: Set<Engine>;
   onToggleEngine: (engine: Engine) => void;
   onSelect: (finding: UiFinding) => void;
+  emptyHint?: string;
 }) {
   const visible = sortFindings(findings).filter((f) => engines.has(f.engine));
   const perEngine = (engine: Engine) => findings.filter((f) => f.engine === engine).length;
@@ -51,7 +53,7 @@ export default function FindingList({
       </div>
 
       {visible.length === 0 ? (
-        <p className="ws-empty">표시할 결과가 없습니다.</p>
+        <p className="ws-empty">{findings.length === 0 ? (emptyHint ?? "아직 결과가 없습니다.") : "필터에 해당하는 결과가 없습니다."}</p>
       ) : (
         <ul className="ws-list">
           {visible.map((f) => (

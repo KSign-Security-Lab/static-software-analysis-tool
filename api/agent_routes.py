@@ -176,6 +176,67 @@ def agent_traces(limit: int = 25) -> Dict[str, Any]:
     return body
 
 
+#: LLM inputs and outputs are large; a trace view needs them readable, not
+#: complete. The full payload is one click away in LangSmith.
+MAX_PAYLOAD_CHARS = 12_000
+
+
+def _clip(value: Any) -> Any:
+    """Shrink a payload to something a browser can render."""
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    if len(text) <= MAX_PAYLOAD_CHARS:
+        return value
+    return {"_truncated": True, "_chars": len(text), "preview": text[:MAX_PAYLOAD_CHARS]}
+
+
+def _span(run: Any) -> Dict[str, Any]:
+    """One node of a trace tree."""
+    return {
+        "id": str(run.id),
+        "parent_id": str(run.parent_run_id) if run.parent_run_id else None,
+        "name": run.name,
+        "run_type": run.run_type,
+        "status": run.status,
+        "error": run.error,
+        "start_time": run.start_time.isoformat() if run.start_time else None,
+        "latency_ms": (
+            int((run.end_time - run.start_time).total_seconds() * 1000) if run.end_time and run.start_time else None
+        ),
+        "tokens": run.total_tokens,
+        "cost": run.total_cost,
+        "tags": list(run.tags or []),
+        "metadata": (run.extra or {}).get("metadata", {}),
+        "inputs": _clip(run.inputs) if run.inputs else None,
+        "outputs": _clip(run.outputs) if run.outputs else None,
+        "dotted_order": run.dotted_order,
+        "url": _trace_url(run),
+    }
+
+
+@router.get("/traces/{trace_id}")
+def agent_trace(trace_id: str) -> Dict[str, Any]:
+    """Every span of one trace, ordered so the tree can be rebuilt here.
+
+    This is the agent-structure and tool-call view, rendered in this app rather
+    than linked out to. LangSmith encodes tree position in `dotted_order`, so
+    sorting on it yields a valid parent-before-child sequence without a second
+    round trip per node.
+    """
+    status = tracing_status()
+    if not status["enabled"] or not status["api_key_set"]:
+        raise HTTPException(status_code=409, detail="tracing is not configured")
+
+    try:
+        from langsmith import Client
+
+        spans = list(Client().list_runs(project_name=status["project"], trace_id=trace_id))
+    except Exception as err:  # noqa: BLE001 - an upstream outage is not a server error
+        raise HTTPException(status_code=502, detail=f"LangSmith: {err}") from err
+
+    spans.sort(key=lambda r: (r.dotted_order or "", r.start_time or 0))
+    return {"trace_id": trace_id, "spans": [_span(run) for run in spans]}
+
+
 def _trace_url(run: Any) -> str | None:
     """The run's page in LangSmith, if the SDK can build one."""
     try:
