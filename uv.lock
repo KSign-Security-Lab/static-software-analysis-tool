@@ -11,6 +11,7 @@ members = [
     "agent",
     "gnn",
     "graphify",
+    "schemagen",
     "ssat",
     "static-software-analysis-tool",
 ]
@@ -27,6 +28,7 @@ dependencies = [
     { name = "langgraph-checkpoint-sqlite" },
     { name = "mcp" },
     { name = "pydantic" },
+    { name = "schemagen" },
     { name = "tree-sitter" },
     { name = "tree-sitter-language-pack" },
 ]
@@ -50,6 +52,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.24.0,<2" },
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" },
+    { name = "schemagen", editable = "packages/schemagen" },
     { name = "tree-sitter", specifier = ">=0.25.0" },
     { name = "tree-sitter-language-pack", specifier = ">=1.13.0" },
 ]
@@ -2295,6 +2298,20 @@ wheels = [
 ]
 
 [[package]]
+name = "schemagen"
+version = "0.1.0"
+source = { editable = "packages/schemagen" }
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" }]
+provides-extras = ["test"]
+
+[[package]]
 name = "setuptools"
 version = "81.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2339,6 +2356,7 @@ version = "2.4.3"
 source = { editable = "packages/ssat" }
 dependencies = [
     { name = "pydantic" },
+    { name = "schemagen" },
     { name = "tqdm" },
 ]
 
@@ -2351,6 +2369,7 @@ test = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.12.3" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
+    { name = "schemagen", editable = "packages/schemagen" },
     { name = "tqdm", specifier = ">=4.66.0" },
 ]
 provides-extras = ["test"]

@@ -8,18 +8,18 @@ file still matches. Regenerate with::
 
     python -m agent.schema_ts --write
 
-Only the subset of JSON Schema the wire models actually use is handled --
-objects, ``$ref``, arrays, string/number/boolean/null, enums and
-``anyOf`` nullables. Anything else raises rather than emitting ``any``, because
-an ``any`` here is exactly the drift this file exists to prevent.
+The rendering itself lives in :mod:`schemagen`, because ``ssat`` needs the same
+thing for the F2-A models and ``agent`` may not import ``ssat`` or the reverse.
+This module is the part that is specific to this schema: which models, which
+header, and the two UI helpers that are not schema at all.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-from typing import Any
+
+from schemagen import render as render_ts, schemas_of
 
 from .schema import EXPORTED_MODELS
 
@@ -34,54 +34,7 @@ HEADER = """\
 #: Where the generated file lands, relative to the repo root.
 OUTPUT_PATH = Path("web") / "lib" / "agent-schema.ts"
 
-_PRIMITIVES = {"string": "string", "integer": "number", "number": "number", "boolean": "boolean", "null": "null"}
-
-
-def _ref_name(ref: str) -> str:
-    return ref.rsplit("/", 1)[-1]
-
-
-def _type_of(schema: dict[str, Any]) -> str:
-    """One JSON-Schema node as a TypeScript type expression."""
-    if "$ref" in schema:
-        return _ref_name(schema["$ref"])
-
-    if "const" in schema:
-        return json.dumps(schema["const"])
-
-    if "enum" in schema:
-        return " | ".join(json.dumps(value) for value in schema["enum"])
-
-    if "anyOf" in schema:
-        return " | ".join(_type_of(option) for option in schema["anyOf"])
-
-    kind = schema.get("type")
-    if kind == "array":
-        return f"{_type_of(schema.get('items', {}))}[]"
-    if isinstance(kind, str) and kind in _PRIMITIVES:
-        return _PRIMITIVES[kind]
-    if isinstance(kind, list):
-        return " | ".join(_PRIMITIVES[k] for k in kind)
-
-    raise ValueError(f"unsupported schema node, refusing to emit `any`: {schema!r}")
-
-
-def _interface(name: str, schema: dict[str, Any]) -> str:
-    required = set(schema.get("required", []))
-    lines = [f"export interface {name} {{"]
-    for field, definition in schema.get("properties", {}).items():
-        description = definition.get("description")
-        if description:
-            lines.append(f"  /** {description} */")
-        optional = "" if field in required else "?"
-        lines.append(f"  {field}{optional}: {_type_of(definition)};")
-    lines.append("}")
-    return "\n".join(lines)
-
-
-def _severity_helpers() -> str:
-    """Hand-maintained extras that are genuinely UI concerns, not schema."""
-    return """\
+EXTRAS = """\
 export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 
 export type SeverityName = (typeof SEVERITIES)[number];
@@ -98,31 +51,12 @@ export const SEVERITY_RANK: Record<SeverityName, number> = {
 
 
 def render() -> str:
-    """The full generated TypeScript source."""
-    definitions: dict[str, dict[str, Any]] = {}
-    roots: list[tuple[str, dict[str, Any]]] = []
+    """The full generated TypeScript source.
 
-    for model in EXPORTED_MODELS:
-        schema = model.model_json_schema(ref_template="#/$defs/{model}")
-        for name, definition in schema.pop("$defs", {}).items():
-            definitions.setdefault(name, definition)
-        roots.append((model.__name__, schema))
-
-    emitted: set[str] = set()
-    blocks: list[str] = []
-
-    # Dependencies first, so the file reads top-down.
-    for name, definition in sorted(definitions.items()):
-        if name not in emitted:
-            emitted.add(name)
-            blocks.append(_interface(name, definition))
-    for name, definition in roots:
-        if name not in emitted:
-            emitted.add(name)
-            blocks.append(_interface(name, definition))
-
-    blocks.append(_severity_helpers())
-    return HEADER + "\n" + "\n\n".join(blocks) + "\n"
+    ``all_present`` is deliberately left off here: these are read *and*
+    written by the client, and the drift test pins this output byte for byte.
+    """
+    return render_ts(schemas_of(EXPORTED_MODELS), HEADER, EXTRAS)
 
 
 def repo_root() -> Path:

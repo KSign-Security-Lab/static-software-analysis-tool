@@ -1,0 +1,18 @@
+[project]
+name = "schemagen"
+version = "0.1.0"
+description = "Render JSON Schema as TypeScript interfaces, so the wire types are generated once and never hand-written twice"
+readme = "README.md"
+authors = [{ name = "Keon Oh Kim", email = "keonoh00@gmail.com" }]
+requires-python = ">=3.14"
+# None, deliberately. It takes (name, json_schema) pairs rather than pydantic
+# models, which is what lets both `agent` and `ssat` use it without either
+# importing the other -- the dependency rule this package exists to respect.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["uv_build>=0.9.4,<0.10.0"]
+build-backend = "uv_build"

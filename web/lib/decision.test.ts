@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildDecisions } from "@/lib/decision";
-import type { F2AResult, HandlerResolution } from "@/lib/types";
+import type { ActionIdentifierView, F2AResult, HandlerResolution } from "@/lib/types";
 
 /**
  * The F2-A result model, as `lib/decision.ts` builds it.
@@ -12,6 +12,23 @@ import type { F2AResult, HandlerResolution } from "@/lib/types";
  * resolution's evidence records become a numbered trace -- the translation the
  * whole F2-A surface depends on, which no longer has a component to hide in.
  */
+
+/**
+ * A full ActionIdentifierView from a partial one.
+ *
+ * The server always sends every field -- the generated schema says so, which is
+ * what caught these fixtures being written against the old hand-mirrored types.
+ * The fixtures still name only what the assertions care about.
+ */
+const actionId = (over: Partial<ActionIdentifierView> = {}): ActionIdentifierView => ({
+  protocol_string: null,
+  symbol: null,
+  numeric_id: null,
+  normalized_name: null,
+  raw_expression: "",
+  resolved_value: null,
+  ...over,
+});
 
 const resolutions: HandlerResolution[] = [
   {
@@ -36,7 +53,7 @@ const resolutions: HandlerResolution[] = [
             weight: 0.7,
             score: 0.7,
             score_pre_penalty: 0.7,
-            action_id: { symbol: null, numeric_id: null, raw_expression: "ACTION_REMOTE_START" },
+            action_id: actionId({ symbol: null, numeric_id: null, raw_expression: "ACTION_REMOTE_START" }),
             dispatch_site: null,
             records: [
               { type: "DISPATCH_REGISTRAR_CALL", value: "register_handler(ACTION_REMOTE_START, remote_handler)", file: "u.c", line: 17 },
@@ -73,7 +90,7 @@ const resolutions: HandlerResolution[] = [
             weight: 0.8,
             score: 0.56,
             score_pre_penalty: 0.56,
-            action_id: { raw_expression: "table_a[0].fn = handle_a" },
+            action_id: actionId({ raw_expression: "table_a[0].fn = handle_a" }),
             dispatch_site: null,
             records: [
               { type: "ACTION_STORE", value: "table_a[0].action = ACTION_DATA_TRANSFER", file: "u.c", line: 20 },
@@ -100,7 +117,7 @@ const resolutions: HandlerResolution[] = [
             weight: 0.8,
             score: 0.56,
             score_pre_penalty: 0.56,
-            action_id: { raw_expression: "table_b[0].fn = handle_b" },
+            action_id: actionId({ raw_expression: "table_b[0].fn = handle_b" }),
             dispatch_site: null,
             records: [
               { type: "ACTION_STORE", value: "table_b[0].action = ACTION_DATA_TRANSFER", file: "u.c", line: 30 },
@@ -131,7 +148,13 @@ const resolutions: HandlerResolution[] = [
 
 function baseResult(overrides: Partial<F2AResult>): F2AResult {
   return {
+    source_cpg: "",
     handler_maps: [],
+    handler_resolutions: [],
+    flow_candidates: [],
+    sink_mappings: [],
+    expected_check_matchings: [],
+    missing_check_candidate_sets: [],
     field_bindings: [],
     evidence_packages: [],
     candidate_fragments: [],

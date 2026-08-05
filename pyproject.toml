@@ -33,6 +33,7 @@ members = [
     "packages/gnn",
     "packages/agent",
     "packages/graphify",
+    "packages/schemagen",
 ]
 
 [tool.ruff]
@@ -46,10 +47,16 @@ ignore_missing_imports = true
 # So `uv run mypy` needs no arguments. packages/gnn is excluded: it is a
 # consumer of the pipeline's output, not part of the analysis library, and is
 # not held to the strict bar.
-files = ["packages/ssat/src/ssat", "packages/agent/src/agent", "packages/graphify/src/graphify", "api"]
+files = [
+    "packages/ssat/src/ssat",
+    "packages/agent/src/agent",
+    "packages/graphify/src/graphify",
+    "packages/schemagen/src/schemagen",
+    "api",
+]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/tests"]
+testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/tests", "packages/schemagen/tests"]
 
 # ---------------------------------------------------------------------------
 # Task index. This is the package.json "scripts" block for the parts of this
@@ -77,7 +84,7 @@ fmt = ".venv/bin/ruff format . && .venv/bin/ruff check --fix ."
 # mypy --strict over the gated packages
 types = ".venv/bin/mypy"
 # Regenerate web/lib/agent-schema.ts from the pydantic wire models
-schema = "cd packages/agent/src && PYTHONPATH=. ../../../.venv/bin/python -m agent.schema_ts --write"
+schema = ".venv/bin/python -m agent.schema_ts --write && .venv/bin/python -m ssat.schema_ts --write"
 
 # Start vLLM in Docker and wait until it answers
 vllm = "docker compose --profile vllm up -d --wait vllm"
