@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "agent",
     "gnn",
+    "graphify",
     "ssat",
     "static-software-analysis-tool",
 ]
@@ -19,6 +20,7 @@ name = "agent"
 version = "0.1.0"
 source = { editable = "packages/agent" }
 dependencies = [
+    { name = "graphify" },
     { name = "langchain-mcp-adapters" },
     { name = "langchain-openai" },
     { name = "langgraph" },
@@ -40,6 +42,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "fastembed", marker = "extra == 'rag'", specifier = ">=0.8.0" },
+    { name = "graphify", editable = "packages/graphify" },
     { name = "langchain-mcp-adapters", specifier = ">=0.3.1" },
     { name = "langchain-openai", specifier = ">=1.4.1" },
     { name = "langgraph", specifier = ">=1.2.10" },
@@ -677,6 +680,20 @@ requires-dist = [
     { name = "torch-geometric", specifier = ">=2.7.0" },
     { name = "tqdm", specifier = ">=4.66.0" },
 ]
+
+[[package]]
+name = "graphify"
+version = "0.1.0"
+source = { editable = "packages/graphify" }
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" }]
+provides-extras = ["test"]
 
 [[package]]
 name = "h11"
@@ -2371,6 +2388,7 @@ dependencies = [
     { name = "agent" },
     { name = "fastapi" },
     { name = "gnn" },
+    { name = "graphify" },
     { name = "jpype1" },
     { name = "mypy" },
     { name = "pytest" },
@@ -2384,6 +2402,7 @@ requires-dist = [
     { name = "agent", editable = "packages/agent" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "gnn", editable = "packages/gnn" },
+    { name = "graphify", editable = "packages/graphify" },
     { name = "jpype1", specifier = ">=1.5.0" },
     { name = "mypy", specifier = ">=1.14.0" },
     { name = "pytest", specifier = ">=8.0.0" },

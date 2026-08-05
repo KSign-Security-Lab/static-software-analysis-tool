@@ -21,6 +21,9 @@ dependencies = [
     # `mcp.server.fastmcp` package in favour of `mcp.server.MCPServer`.
     # Revisit when adapters ships a 2.x-compatible release.
     "mcp>=1.24.0,<2",
+    # The run's own knowledge graph, and the traversals the verify step's
+    # tools answer from. No dependencies of its own, nothing over the wire.
+    "graphify",
     "tree-sitter>=0.25.0",
     "tree-sitter-language-pack>=1.13.0",
 ]
@@ -34,6 +37,9 @@ agent-mcp = "agent.mcp.__main__:main"
 # cannot match. It drags in onnxruntime, so it stays out of the default install.
 rag = ["fastembed>=0.8.0"]
 test = ["pytest>=8.0.0"]
+
+[tool.uv.sources]
+graphify = { workspace = true }
 
 [build-system]
 requires = ["uv_build>=0.9.4,<0.10.0"]

@@ -268,3 +268,41 @@ def test_callbacks_reach_a_model_call_inside_a_graph_node(store: SpanStore) -> N
     assert llm.meta["step"] == "analyse"
     assert llm.parent_id is not None, "the model call should hang under the node, not float at the root"
     assert llm.outputs["text"] == ["clean"]
+
+
+def test_a_tool_stays_with_its_own_model_call_across_threads(store: SpanStore) -> None:
+    """With four specialists in flight, one shared "call that is open now" would
+    file a tool under whichever model answered last on any thread."""
+    import threading
+
+    recorder = SpanRecorder(store)
+    started = threading.Barrier(2)
+    pairs: dict[str, tuple[UUID, UUID]] = {}
+
+    def branch(lens: str) -> None:
+        llm, tool = _uuid(), _uuid()
+        pairs[lens] = (llm, tool)
+        recorder.on_chat_model_start(
+            {"name": "ChatOpenAI"},
+            [[HumanMessage(content=lens)]],
+            run_id=llm,
+            parent_run_id=None,
+            name=f"gather:{lens}",
+            metadata=_in_node("verify"),
+        )
+        # Both models are open at once; without thread-local state the second
+        # one to start owns every tool call that follows.
+        started.wait(timeout=5)
+        recorder.on_tool_start({"name": "find_callers"}, "{}", run_id=tool, parent_run_id=None)
+        recorder.on_tool_end(lens, run_id=tool)
+        recorder.on_llm_end(LLMResult(generations=[[]]), run_id=llm)
+
+    threads = [threading.Thread(target=branch, args=(lens,)) for lens in ("memory", "injection")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    by_id = {span.id: span for span in store.spans()}
+    for lens, (llm, tool) in pairs.items():
+        assert by_id[str(tool)].parent_id == str(llm), f"{lens}'s tool wandered onto another thread's call"

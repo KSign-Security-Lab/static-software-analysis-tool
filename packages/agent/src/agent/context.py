@@ -38,7 +38,7 @@ def _signature(chunk: Chunk) -> str:
     return chunk.symbol
 
 
-def _truncate(text: str, limit: int) -> tuple[str, bool]:
+def truncate(text: str, limit: int) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
     return text[:limit] + f"\n... [truncated at {limit} characters]", True
@@ -50,7 +50,7 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
     sections: list[str] = []
     budget = config.context_char_budget
 
-    body, truncated = _truncate(chunk.numbered_body(), config.max_chunk_chars)
+    body, truncated = truncate(chunk.numbered_body(), config.max_chunk_chars)
     label = "FILE-LEVEL DECLARATIONS" if chunk.kind == FILE_CHUNK_KIND else "UNIT UNDER ANALYSIS"
     header = f"=== {label}: {chunk.file} :: {chunk.symbol} (lines {chunk.start_line}-{chunk.end_line}) ==="
     primary = f"{header}\n{body}"
@@ -78,7 +78,7 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
     if chunk.kind != FILE_CHUNK_KIND:
         file_chunk = next((c for c in store.chunks_in_file(chunk.file) if c.kind == FILE_CHUNK_KIND), None)
         if file_chunk is not None and file_chunk.body.strip():
-            block, _ = _truncate(
+            block, _ = truncate(
                 f"=== TOP-LEVEL DECLARATIONS IN {chunk.file} ===\n{file_chunk.body}",
                 max(0, min(budget, config.max_chunk_chars)),
             )

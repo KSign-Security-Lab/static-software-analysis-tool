@@ -19,8 +19,14 @@ cd "$(dirname "$0")/.."
 : "${PORT:=8000}"
 export JOERN_HOME
 
+# Every package the API imports, not only the two it started with. `packages/agent`
+# was missing, so an edit to the inspection graph left the server running the
+# previous one -- which looks exactly like a fix that did not work, and cost an
+# afternoon proving a change against code that was never loaded.
 exec uv run uvicorn api.main:app \
   --host "$HOST" --port "$PORT" --app-dir . \
   --reload \
   --reload-dir packages/ssat/src/ssat \
+  --reload-dir packages/agent/src/agent \
+  --reload-dir packages/graphify/src/graphify \
   --reload-dir api

@@ -11,6 +11,7 @@ every hook swallows its own failures.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Sequence
 from uuid import UUID
@@ -63,43 +64,65 @@ def _is_step(given: str | None, parent: UUID | None, metadata: dict[str, Any] | 
 
 
 class SpanRecorder(BaseCallbackHandler):
-    """Persist the call tree of one inspection."""
+    """Persist the call tree of one inspection.
+
+    Called from several threads at once, now that a wave of chunks is analysed
+    concurrently. The maps below are shared and locked; the "model call that is
+    currently open" is emphatically not shared -- it is per thread, because that
+    is the only sense in which the question has an answer.
+    """
 
     def __init__(self, store: SpanStore) -> None:
         self.store = store
         # A tool runs after the model that asked for it has already closed, and
         # LangChain reports it under the graph node instead. Filing it under the
         # model call is what makes a verify step readable as one exchange.
-        self._last_llm: str | None = None
+        #
+        # Thread-local: with four specialists in flight, one shared field would
+        # file a tool call under whichever model happened to answer last, on any
+        # thread, and the trace would quietly describe a run that never happened.
+        self._local = threading.local()
         # Dropped spans, and the parent their children should attach to
         # instead, so skipping plumbing does not orphan what ran inside it.
         self._skipped: dict[str, str | None] = {}
         # A skipped wrapper often holds the only meaningful name -- `analyse:fw.c`
         # is set on the sequence, not on the ChatOpenAI inside it.
         self._label: dict[str, str] = {}
+        self._lock = threading.Lock()
 
     # -- helpers -----------------------------------------------------------
+
+    @property
+    def _last_llm(self) -> str | None:
+        """The model call this thread most recently opened."""
+        return getattr(self._local, "last_llm", None)
+
+    @_last_llm.setter
+    def _last_llm(self, span_id: str | None) -> None:
+        self._local.last_llm = span_id
 
     def _parent_of(self, parent: UUID | None) -> str | None:
         """The nearest ancestor that was actually recorded."""
         current = str(parent) if parent else None
         seen = 0
-        while current in self._skipped and seen < 20:
-            current = self._skipped[current]
-            seen += 1
+        with self._lock:
+            while current in self._skipped and seen < 20:
+                current = self._skipped[current]
+                seen += 1
         return current
 
     def _inherited(self, parent: UUID | None) -> str | None:
         """A name donated by a skipped ancestor, if it had one."""
         current = str(parent) if parent else None
         seen = 0
-        while current is not None and seen < 20:
-            if current in self._label:
-                return self._label[current]
-            if current not in self._skipped:
-                return None
-            current = self._skipped[current]
-            seen += 1
+        with self._lock:
+            while current is not None and seen < 20:
+                if current in self._label:
+                    return self._label[current]
+                if current not in self._skipped:
+                    return None
+                current = self._skipped[current]
+                seen += 1
         return None
 
     def _open(self, run_id: UUID, parent: str | None, name: str, kind: str, inputs: Any, meta: Any) -> None:
@@ -117,8 +140,9 @@ class SpanRecorder(BaseCallbackHandler):
             log.debug("span start failed: %s", err)
 
     def _close(self, run_id: UUID, outputs: Any = None, tokens: int | None = None, error: str | None = None) -> None:
-        if str(run_id) in self._skipped:
-            return
+        with self._lock:
+            if str(run_id) in self._skipped:
+                return
         try:
             self.store.finish(span_id=str(run_id), ended_at=time.time(), outputs=outputs, tokens=tokens, error=error)
         except Exception as err:  # noqa: BLE001
@@ -138,11 +162,13 @@ class SpanRecorder(BaseCallbackHandler):
     ) -> None:
         given = kwargs.get("name") or (serialized or {}).get("name")
         if not _is_step(given, parent_run_id, metadata):
-            self._skipped[str(run_id)] = self._parent_of(parent_run_id)
-            # `analyse:fw.c` is set on the wrapper, not on the model inside it,
-            # so dropping the wrapper has to hand the name down.
-            if given:
-                self._label[str(run_id)] = str(given)
+            parent = self._parent_of(parent_run_id)
+            with self._lock:
+                self._skipped[str(run_id)] = parent
+                # `analyse:fw.c` is set on the wrapper, not on the model inside
+                # it, so dropping the wrapper has to hand the name down.
+                if given:
+                    self._label[str(run_id)] = str(given)
             return
         # Graph state is large and mostly the queue; the useful part is which
         # chunk this is, which the metadata already carries.

@@ -8,6 +8,7 @@ dependencies = [
     "ssat",
     "gnn",
     "agent",
+    "graphify",
     "pytest>=8.0.0",
     "ruff>=0.9.0",
     "mypy>=1.14.0",
@@ -24,12 +25,14 @@ package = false
 ssat = { workspace = true }
 gnn = { workspace = true }
 agent = { workspace = true }
+graphify = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/ssat",
     "packages/gnn",
     "packages/agent",
+    "packages/graphify",
 ]
 
 [tool.ruff]
@@ -43,10 +46,10 @@ ignore_missing_imports = true
 # So `uv run mypy` needs no arguments. packages/gnn is excluded: it is a
 # consumer of the pipeline's output, not part of the analysis library, and is
 # not held to the strict bar.
-files = ["packages/ssat/src/ssat", "packages/agent/src/agent", "api"]
+files = ["packages/ssat/src/ssat", "packages/agent/src/agent", "packages/graphify/src/graphify", "api"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/ssat/tests", "packages/agent/tests"]
+testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/tests"]
 
 # ---------------------------------------------------------------------------
 # Task index. This is the package.json "scripts" block for the parts of this

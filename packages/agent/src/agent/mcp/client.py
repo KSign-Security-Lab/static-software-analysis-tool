@@ -181,5 +181,11 @@ VERIFY_TOOLS: Sequence[str] = (
     "find_definition",
     "find_callers",
     "find_callees",
+    # The graph, for the questions the one-relation tools answer badly: how far
+    # something reaches, whether two things are connected at all, and what else
+    # belongs with the code under review. Settling those by grep was the gap.
+    "graph_neighbours",
+    "graph_path",
+    "graph_subsystem",
     "run_in_sandbox",
 )

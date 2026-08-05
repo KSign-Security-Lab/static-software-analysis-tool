@@ -24,8 +24,9 @@ from typing import Any, Iterator
 
 from .config import AgentConfig
 from .index import ChunkStore, IndexResult, build_index, iter_source_files
+from .knowledge import GRAPH_FILE
 from .schema import Finding, FindingDiff, Report
-from .graph.checkpoints import read_history
+from .graph.checkpoints import read_history, read_state, write_state
 from .trace import SpanStore
 
 #: Caps on what an upload may contain. A zip that exceeds any of them is
@@ -38,6 +39,9 @@ MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024
 STATUS_CREATED = "created"
 STATUS_INDEXING = "indexing"
 STATUS_INSPECTING = "inspecting"
+#: Stopped at a breakpoint, waiting for a person. Not an end state: the run is
+#: still holding its tools and can be told to carry on.
+STATUS_INTERRUPTED = "interrupted"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 
@@ -74,6 +78,15 @@ class RunPaths:
         return self.base / "checkpoints.db"
 
     @property
+    def knowledge_graph(self) -> Path:
+        """The tree as a graph: what the verify step's tools traverse.
+
+        Beside the index because it is derived from it and is invalidated by
+        exactly the same events.
+        """
+        return self.base / GRAPH_FILE
+
+    @property
     def report_path(self) -> Path:
         return self.base / "report.json"
 
@@ -87,16 +100,38 @@ class RunPaths:
     def spans(self) -> SpanStore:
         return SpanStore(self.trace_db)
 
-    def checkpoints(self) -> list[dict[str, Any]]:
-        """This run's state at each super-step, oldest first."""
-        return read_history(self.checkpoint_db, self.run_id)
+    def checkpoints(self, full: bool = False) -> list[dict[str, Any]]:
+        """This run's state at each super-step, oldest first.
+
+        Summarised by default: a history is read far more often than it is
+        expanded, and the bulky fields are a second copy of what is already on
+        disk. ``full`` is for when someone actually looks inside a step.
+        """
+        return read_history(self.checkpoint_db, self.run_id, full=full)
+
+    def state(self, checkpoint_id: str | None = None) -> dict[str, Any] | None:
+        """One checkpoint's state in full, for reading or editing."""
+        return read_state(self.checkpoint_db, self.run_id, checkpoint_id)
+
+    def set_state(
+        self,
+        values: dict[str, Any],
+        checkpoint_id: str | None = None,
+        as_node: str | None = None,
+    ) -> str | None:
+        """Write state over a checkpoint, branching the run there."""
+        return write_state(self.checkpoint_db, self.run_id, values, checkpoint_id, as_node)
 
     def reset_debug(self) -> None:
-        """Clear the trace and the checkpoints before re-inspecting.
+        """Clear the trace and the checkpoints before a *fresh* inspection.
 
         Two attempts interleaved in one thread read as one incoherent run, and
         a stale checkpoint would make LangGraph resume where the last attempt
         stopped instead of starting over.
+
+        Only ever on a fresh start. Calling this when resuming or branching
+        would throw away the history the resume is being measured against --
+        including every branch taken off it.
         """
         spans = self.spans()
         spans.clear()
@@ -151,15 +186,77 @@ def get_run(run_id: str, config: AgentConfig | None = None) -> RunPaths | None:
     return RunPaths(run_id=run_id, base=base) if base.is_dir() else None
 
 
+#: How many file names a run is labelled with before the rest become "+3".
+LABEL_FILES = 2
+
+
+def run_label(paths: RunPaths) -> tuple[list[str], int]:
+    """The first few file names in a run, and how many there are.
+
+    A run id is a random hex string, which tells you nothing about which run it
+    was. What people recognise is the code they put in it.
+    """
+    names: list[str] = []
+    total = 0
+    root = paths.source
+    if not root.is_dir():
+        return names, total
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and not path.is_symlink():
+            total += 1
+            if len(names) < LABEL_FILES:
+                names.append(path.name)
+    return names, total
+
+
+def describe_run(paths: RunPaths) -> dict[str, Any]:
+    """One row of the run list: what it was, when, and whether it ran.
+
+    Enough to pick a run out of a list without opening it. ``started`` is the
+    distinction that matters most: a workspace that was created and never
+    inspected has no trace to read and is almost always leftover scaffolding.
+    """
+    meta = paths.read_meta()
+    names, total = run_label(paths)
+    try:
+        updated = paths.meta_path.stat().st_mtime if paths.meta_path.exists() else paths.base.stat().st_mtime
+    except OSError:
+        updated = 0.0
+
+    return {
+        "run_id": paths.run_id,
+        **meta,
+        "files": names,
+        "file_count": total,
+        "updated_at": updated,
+        # A trace file is written the first time an inspection runs, so its
+        # presence is the honest answer to "did this ever do anything".
+        "started": paths.trace_db.exists(),
+    }
+
+
 def list_runs(config: AgentConfig | None = None) -> list[dict[str, Any]]:
+    """Every run, most recently touched first.
+
+    Sorted by time rather than by id: an id is a random hex string, so sorting
+    on it shuffles the list into an order that means nothing to anybody.
+    """
     root = runs_root(config)
     if not root.is_dir():
         return []
-    out: list[dict[str, Any]] = []
-    for child in sorted(root.iterdir(), reverse=True):
-        if child.is_dir():
-            out.append({"run_id": child.name, **RunPaths(child.name, child).read_meta()})
+
+    out = [describe_run(RunPaths(child.name, child)) for child in root.iterdir() if child.is_dir()]
+    out.sort(key=lambda run: run["updated_at"], reverse=True)
     return out
+
+
+def delete_run(paths: RunPaths) -> None:
+    """Remove a run and everything in it.
+
+    Trying things out leaves workspaces behind, and a list full of them is
+    worse than useless. Confined to the run's own directory.
+    """
+    shutil.rmtree(paths.base, ignore_errors=True)
 
 
 def _safe_member(name: str) -> PurePosixPath | None:

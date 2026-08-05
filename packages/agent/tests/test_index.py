@@ -13,7 +13,7 @@ from pathlib import Path
 from agent.index import ChunkStore, build_index, relative_posix
 from agent.index.chunk import FILE_CHUNK_KIND, chunk_id_for, chunk_source, normalize_body
 from agent.index.links import CALLS, FILE_DEPENDS, USES_TYPE, resolve_links
-from agent.index.order import inspection_order
+from agent.index.order import call_levels, inspection_order, wave
 from agent.languages import spec_for_path
 
 
@@ -140,6 +140,66 @@ def test_file_chunks_come_first(tree: Path) -> None:
     by_id = {c.chunk_id: c for c in chunks}
     kinds = [by_id[cid].kind for cid in order]
     assert kinds[: kinds.count(FILE_CHUNK_KIND)] == [FILE_CHUNK_KIND] * kinds.count(FILE_CHUNK_KIND)
+
+
+def test_no_two_chunks_at_one_level_call_each_other(tree: Path) -> None:
+    """The claim a wave rests on. If it ever fails, two chunks inspected
+    concurrently could need each other's note, and the cross-chunk context the
+    ordering exists to provide would be silently missing."""
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    levels = call_levels(chunks, links)
+    by_id = {c.chunk_id: c for c in chunks}
+
+    clashes = [
+        (by_id[link.src].symbol, by_id[link.dst].symbol)
+        for link in links
+        if link.kind == CALLS and link.src in levels and link.dst in levels and levels[link.src] == levels[link.dst]
+    ]
+    assert clashes == [], f"a caller and its callee share a level: {clashes}"
+
+
+def test_every_chunk_gets_a_level_including_a_cycle(tree: Path) -> None:
+    chunks = _chunks(tree)
+    levels = call_levels(chunks, resolve_links(chunks))
+    assert set(levels) == {c.chunk_id for c in chunks}
+    assert all(level >= 0 for level in levels.values())
+
+
+def test_file_chunks_and_leaves_are_level_zero(tree: Path) -> None:
+    chunks = _chunks(tree)
+    levels = call_levels(chunks, resolve_links(chunks))
+    by_id = {c.chunk_id: c for c in chunks}
+    assert all(levels[c.chunk_id] == 0 for c in chunks if c.kind == FILE_CHUNK_KIND)
+    # `outer` calls `inner`, so it must sit above it.
+    inner = next(cid for cid, c in by_id.items() if c.symbol == "inner")
+    outer = next(cid for cid, c in by_id.items() if c.symbol == "outer")
+    assert levels[outer] > levels[inner]
+
+
+def test_a_wave_takes_only_chunks_that_share_a_level() -> None:
+    levels = {"a": 0, "b": 1, "c": 0, "d": 0}
+    assert wave(["a", "b", "c", "d"], levels, width=4) == ["a", "c", "d"]
+    assert wave(["b", "a", "c"], levels, width=4) == ["b"]
+
+
+def test_a_wave_is_bounded_and_degrades_to_one() -> None:
+    levels = {name: 0 for name in "abcdef"}
+    assert wave(list("abcdef"), levels, width=3) == ["a", "b", "c"]
+    assert wave(list("abcdef"), levels, width=1) == ["a"]
+    # An index written before levels existed: one at a time, as before.
+    assert wave(["a", "b"], {}, width=4) == ["a"]
+    assert wave([], levels, width=4) == []
+
+
+def test_levels_survive_a_round_trip_through_the_store(tmp_path: Path, tree: Path) -> None:
+    store = ChunkStore(tmp_path / "index.db")
+    build_index(tree, store)
+    stored = store.levels()
+    store.close()
+
+    chunks = _chunks(tree)
+    assert stored == call_levels(chunks, resolve_links(chunks))
 
 
 def test_chunk_ids_are_stable_across_reindexing(tree: Path) -> None:
@@ -301,3 +361,52 @@ def test_the_store_survives_reads_while_a_run_is_writing(tree: Path, tmp_path: P
         thread.join(timeout=60)
 
     assert errors == []
+
+
+def test_one_store_serves_many_threads(tmp_path: Path, tree: Path) -> None:
+    """A wave of chunks is analysed on LangGraph's pool, and every one of them
+    reads and writes the same store. A connection bound to its creator would
+    raise `ProgrammingError` the moment a node ran off the main thread."""
+    import threading
+
+    store = ChunkStore(tmp_path / "index.db")
+    build_index(tree, store)
+    ids = store.order()
+    errors: list[str] = []
+
+    def work(n: int) -> None:
+        try:
+            for chunk_id in ids:
+                store.set_note(chunk_id, f"note from {n}")
+                store.mark_inspected(chunk_id)
+                store.chunk(chunk_id)
+                store.callees_of(chunk_id)
+                store.is_inspected(chunk_id)
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"{n}: {err}")
+
+    threads = [threading.Thread(target=work, args=(n,)) for n in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+
+    assert errors == []
+    assert all(store.is_inspected(chunk_id) for chunk_id in ids)
+    store.close()
+
+
+def test_a_wave_prefers_the_head_s_own_subsystem() -> None:
+    """Four related functions read better than four strangers, and they share
+    callees, so the pack the specialists get is already assembled."""
+    levels = {name: 0 for name in "abcd"}
+    subsystems = {"a": 1, "b": 2, "c": 1, "d": 2}
+    assert wave(list("abcd"), levels, width=3, affinity=subsystems) == ["a", "c", "b"]
+    # A preference, not a partition: the rest of the wave still gets filled.
+    assert wave(list("abd"), levels, width=3, affinity={"a": 1, "b": 2, "d": 2}) == ["a", "b", "d"]
+
+
+def test_wave_order_is_still_the_index_s_order_within_a_subsystem() -> None:
+    levels = {name: 0 for name in "abcd"}
+    same = {name: 7 for name in "abcd"}
+    assert wave(list("abcd"), levels, width=4, affinity=same) == ["a", "b", "c", "d"]

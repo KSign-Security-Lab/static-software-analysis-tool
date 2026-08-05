@@ -153,7 +153,8 @@ def test_the_loop_tags_every_call_it_makes(tmp_path) -> None:
     traces = [t for t in caller.traces if t]
     assert traces, "no call was tagged"
     assert all("step:" in tag for t in traces for tag in t["tags"] if tag.startswith("step"))
-    assert any(t["run_name"].startswith("analyse:") for t in traces)
+    assert any(t["run_name"].startswith("triage:") for t in traces)
+    assert any(t["run_name"].startswith("lens:memory:") for t in traces), "a specialist should name its lens"
     assert any(t["run_name"].startswith("verify:") for t in traces)
     assert all(t["metadata"]["agent_run_id"] == "r-abc" for t in traces)
     store.close()

@@ -7,6 +7,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .schema import LENSES, Lens
+
 # 8001, not vLLM's default 8000, which the SSAT API owns.
 DEFAULT_BASE_URL = "http://localhost:8001/v1"
 
@@ -18,6 +20,7 @@ ENV_BASE_URL = "AGENT_BASE_URL"
 ENV_MODEL = "AGENT_MODEL"
 ENV_API_KEY = "AGENT_API_KEY"
 ENV_RUNS_DIR = "AGENT_RUNS_DIR"
+ENV_PROMPTS_FILE = "AGENT_PROMPTS_FILE"
 ENV_SANDBOX = "AGENT_SANDBOX"
 ENV_RUN_ROOT = "AGENT_RUN_ROOT"
 ENV_INDEX_DB = "AGENT_INDEX_DB"
@@ -33,6 +36,21 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_lenses(name: str) -> tuple[Lens, ...]:
+    """A comma-separated subset of the specialists, or all of them.
+
+    An unknown name is dropped rather than raising: this is read at import time
+    in a dozen places, and a typo in an environment variable should not stop the
+    server from starting. An empty result falls back to all four, because "run
+    no analysts at all" is never what was meant.
+    """
+    raw = os.getenv(name)
+    if not raw:
+        return LENSES
+    picked = tuple(lens for lens in LENSES if lens in {part.strip() for part in raw.split(",")})
+    return picked or LENSES
+
+
 def default_runs_dir() -> Path:
     """Under ``artifacts/``, which is gitignored: uploads are generated data."""
     override = os.getenv(ENV_RUNS_DIR)
@@ -43,6 +61,18 @@ def default_runs_dir() -> Path:
         if (candidate / "pyproject.toml").exists():
             return candidate / "artifacts" / "agent-runs"
     return current / "artifacts" / "agent-runs"
+
+
+def default_prompts_file() -> Path:
+    """Beside the runs, for the same reason: it is tuned data, not source.
+
+    The defaults live in ``prompts.py``, in git. This file only ever holds what
+    someone has deliberately changed.
+    """
+    override = os.getenv(ENV_PROMPTS_FILE)
+    if override:
+        return Path(override)
+    return default_runs_dir().parent / "prompts.json"
 
 
 @dataclass
@@ -74,10 +104,33 @@ class AgentConfig:
     enable_tools: bool = field(default_factory=lambda: os.getenv("AGENT_TOOLS", "1") != "0")
     max_tool_calls: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOOL_CALLS", 4))
 
+    # -- how wide the run goes ------------------------------------------------
+    #
+    # Chunks at one call depth cannot need each other's notes, so they can be
+    # inspected together. Width is how many at once; concurrency is the ceiling
+    # on requests actually in flight, which is what stops `width x lenses`
+    # arriving at the endpoint as one thundering herd.
+    # 16 is `wave_width` times the number of specialists: enough for one wave's
+    # analyses to go at once, and no more. Measured rather than guessed -- on
+    # the sample tree, 8 spent 2m31 and 16 spent 2m00 on identical work, because
+    # a batching server answers sixteen requests in not much longer than eight.
+    wave_width: int = field(default_factory=lambda: _env_int("AGENT_WAVE_WIDTH", 4))
+    max_concurrency: int = field(default_factory=lambda: _env_int("AGENT_MAX_CONCURRENCY", 16))
+
+    # Which specialists run. Narrowing this is the lever for a small model that
+    # cannot hold four separate briefs; `AGENT_LENSES=injection` is a fast,
+    # single-purpose scan.
+    lenses: tuple[Lens, ...] = field(default_factory=lambda: _env_lenses("AGENT_LENSES"))
+
+    # The screening pass in front of the specialists. Off means every chunk gets
+    # every lens, which is thorough, slow, and occasionally what you want.
+    triage: bool = field(default_factory=lambda: os.getenv("AGENT_TRIAGE", "1") != "0")
+
     sandbox: str = field(default_factory=lambda: os.getenv(ENV_SANDBOX, "bwrap"))
     sandbox_timeout: int = field(default_factory=lambda: _env_int("AGENT_SANDBOX_TIMEOUT", 20))
 
     runs_dir: Path = field(default_factory=default_runs_dir)
+    prompts_file: Path = field(default_factory=default_prompts_file)
 
     def require_model(self) -> str:
         """Called before the first request, so a misconfigured deployment fails

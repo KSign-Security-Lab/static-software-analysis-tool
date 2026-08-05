@@ -18,6 +18,7 @@ import json
 import logging
 import queue
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -29,16 +30,26 @@ from pydantic import BaseModel
 from agent.config import AgentConfig
 from agent.endpoint import list_models
 from agent.tracing import status as tracing_status
-from agent.graph.build import graph_shape, run_inspection
+from agent.graph.build import NODES, graph_shape
+from agent.graph.session import InspectionSession, ParallelStep
+from agent.graph.state import initial_state
 from agent.index import build_index
+from agent.knowledge import read_graph, write_graph
+from graphify import to_json as knowledge_json
+from agent.llm import StructuredCaller
 from agent.paths import PathEscape, resolve_within
+from agent import promptstore as prompt_store
+from agent.promptstore import lens_prompt
 from agent.runs import (
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_INDEXING,
     STATUS_INSPECTING,
+    STATUS_INTERRUPTED,
     RunPaths,
     UploadRejected,
+    delete_run,
+    describe_run,
     diff_reports,
     extract_zip,
     get_run,
@@ -47,7 +58,7 @@ from agent.runs import (
     new_run,
     write_files,
 )
-from agent.schema import Report
+from agent.schema import LENSES, Report
 
 log = logging.getLogger(__name__)
 
@@ -59,18 +70,55 @@ SSE_POLL_SECONDS = 1.0
 SSE_KEEPALIVE_SECONDS = 15.0
 
 
+#: How long a run paused at a breakpoint waits to be told what to do before it
+#: gives up and lets go of its tools. A person is expected to answer; an
+#: abandoned tab is not, and it would hold an MCP subprocess open indefinitely.
+INTERRUPT_TIMEOUT_SECONDS = 30 * 60
+
+
 @dataclass
 class RunChannel:
-    """Progress events for one in-flight run.
+    """The two-way link with one in-flight run.
 
-    A plain thread-safe queue rather than an asyncio one: the producer is the
-    inspection thread and the consumer is the event loop, so the queue has to
-    work across that boundary.
+    Plain thread-safe queues rather than asyncio ones: the run is on a worker
+    thread and the requests are on the event loop, so both have to work across
+    that boundary. ``events`` carries progress out; ``commands`` carries the
+    answer back in when the run stops at a breakpoint and waits.
     """
 
     events: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
+    commands: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
     finished: threading.Event = field(default_factory=threading.Event)
+    #: Set while the run is stopped at a breakpoint, so a resume request knows
+    #: whether to steer the live worker or start a new one.
+    waiting: threading.Event = field(default_factory=threading.Event)
+    #: Whether a worker was ever put on this channel. A channel opened by a
+    #: listener is not a run in flight -- without this, watching a run before
+    #: starting it would make it look like it had already started.
+    claimed: bool = False
     error: Optional[str] = None
+
+    def reclaim(self) -> None:
+        """Ready this channel for another worker, keeping listeners attached.
+
+        The watcher holds this object, so it is reset rather than replaced --
+        swapping it would leave whoever is watching listening to a queue nothing
+        writes to any more.
+        """
+        while True:
+            try:
+                self.events.get_nowait()
+            except queue.Empty:
+                break
+        while True:
+            try:
+                self.commands.get_nowait()
+            except queue.Empty:
+                break
+        self.finished.clear()
+        self.waiting.clear()
+        self.error = None
+        self.claimed = True
 
 
 #: In-process only. A restart loses the stream but not the run: the report is on
@@ -97,6 +145,41 @@ class InspectRequest(BaseModel):
     #: Re-inspect chunks that already have results. Off by default, because the
     #: whole point of content-derived chunk ids is that unchanged code is free.
     force: bool = False
+    #: Nodes to stop *before*, so the state can be read and changed on the way
+    #: past. Validated against the graph, since a misspelled node would
+    #: otherwise be a breakpoint that silently never fires.
+    breakpoints: List[str] = []
+    #: Nodes to stop *after*, once they have written.
+    breakpoints_after: List[str] = []
+    #: Overrides on the starting state -- a shorter queue to try one chunk, say.
+    #: Merged over the computed one rather than replacing it.
+    values: Optional[Dict[str, Any]] = None
+
+
+class ResumeRequest(BaseModel):
+    """What to do with a run that stopped at a breakpoint."""
+
+    #: ``resume`` carries on, ``abort`` gives up and reports what it has.
+    action: str = "resume"
+    #: Written over the state before carrying on. Editing the state is the
+    #: reason to stop at all.
+    values: Optional[Dict[str, Any]] = None
+    #: Carry on from an earlier point instead of the latest one, which branches
+    #: the run there rather than continuing the line it was on.
+    checkpoint_id: Optional[str] = None
+    #: Where the new worker should stop. Only read when there is no worker left
+    #: to steer -- a live one already has the breakpoints it was started with.
+    breakpoints: List[str] = []
+    breakpoints_after: List[str] = []
+
+
+class StateRequest(BaseModel):
+    """Write state over a checkpoint."""
+
+    values: Dict[str, Any]
+    checkpoint_id: Optional[str] = None
+    #: Whose write this stands in for. Inferred from the checkpoint when absent.
+    as_node: Optional[str] = None
 
 
 class WriteFileRequest(BaseModel):
@@ -139,119 +222,6 @@ def agent_health(probe: bool = False) -> Dict[str, Any]:
     return body
 
 
-@router.get("/traces")
-def agent_traces(limit: int = 25) -> Dict[str, Any]:
-    """Recent LangSmith runs for the configured project.
-
-    Read server-side because the API key belongs on the server, and because
-    LangSmith cannot be embedded: it serves `frame-ancestors 'self'`, so an
-    iframe of the hosted app renders blank. Listing the runs here and deep
-    linking out is the version that works.
-    """
-    status = tracing_status()
-    body: Dict[str, Any] = {"tracing": status, "runs": [], "error": None}
-    if not status["enabled"] or not status["api_key_set"]:
-        return body
-
-    try:
-        from langsmith import Client
-
-        client = Client()
-        runs = list(client.list_runs(project_name=status["project"], is_root=True, limit=max(1, min(limit, 100))))
-    except Exception as err:  # noqa: BLE001 - a tracing backend outage is not a server error
-        body["error"] = str(err)
-        return body
-
-    for run in runs:
-        body["runs"].append(
-            {
-                "id": str(run.id),
-                "name": run.name,
-                "status": run.status,
-                "start_time": run.start_time.isoformat() if run.start_time else None,
-                "latency_ms": (
-                    int((run.end_time - run.start_time).total_seconds() * 1000)
-                    if run.end_time and run.start_time
-                    else None
-                ),
-                "tokens": run.total_tokens,
-                "error": run.error,
-                "url": _trace_url(run),
-                "tags": list(run.tags or []),
-            }
-        )
-    return body
-
-
-#: LLM inputs and outputs are large; a trace view needs them readable, not
-#: complete. The full payload is one click away in LangSmith.
-MAX_PAYLOAD_CHARS = 12_000
-
-
-def _clip(value: Any) -> Any:
-    """Shrink a payload to something a browser can render."""
-    text = json.dumps(value, ensure_ascii=False, default=str)
-    if len(text) <= MAX_PAYLOAD_CHARS:
-        return value
-    return {"_truncated": True, "_chars": len(text), "preview": text[:MAX_PAYLOAD_CHARS]}
-
-
-def _span(run: Any) -> Dict[str, Any]:
-    """One node of a trace tree."""
-    return {
-        "id": str(run.id),
-        "parent_id": str(run.parent_run_id) if run.parent_run_id else None,
-        "name": run.name,
-        "run_type": run.run_type,
-        "status": run.status,
-        "error": run.error,
-        "start_time": run.start_time.isoformat() if run.start_time else None,
-        "latency_ms": (
-            int((run.end_time - run.start_time).total_seconds() * 1000) if run.end_time and run.start_time else None
-        ),
-        "tokens": run.total_tokens,
-        "cost": run.total_cost,
-        "tags": list(run.tags or []),
-        "metadata": (run.extra or {}).get("metadata", {}),
-        "inputs": _clip(run.inputs) if run.inputs else None,
-        "outputs": _clip(run.outputs) if run.outputs else None,
-        "dotted_order": run.dotted_order,
-        "url": _trace_url(run),
-    }
-
-
-@router.get("/traces/{trace_id}")
-def agent_trace(trace_id: str) -> Dict[str, Any]:
-    """Every span of one trace, ordered so the tree can be rebuilt here.
-
-    This is the agent-structure and tool-call view, rendered in this app rather
-    than linked out to. LangSmith encodes tree position in `dotted_order`, so
-    sorting on it yields a valid parent-before-child sequence without a second
-    round trip per node.
-    """
-    status = tracing_status()
-    if not status["enabled"] or not status["api_key_set"]:
-        raise HTTPException(status_code=409, detail="tracing is not configured")
-
-    try:
-        from langsmith import Client
-
-        spans = list(Client().list_runs(project_name=status["project"], trace_id=trace_id))
-    except Exception as err:  # noqa: BLE001 - an upstream outage is not a server error
-        raise HTTPException(status_code=502, detail=f"LangSmith: {err}") from err
-
-    spans.sort(key=lambda r: (r.dotted_order or "", r.start_time or 0))
-    return {"trace_id": trace_id, "spans": [_span(run) for run in spans]}
-
-
-def _trace_url(run: Any) -> str | None:
-    """The run's page in LangSmith, if the SDK can build one."""
-    try:
-        return str(run.url)
-    except Exception:  # noqa: BLE001 - url is a convenience, not a contract
-        return None
-
-
 @router.get("/graph")
 def agent_graph() -> Dict[str, Any]:
     """The inspection graph's nodes and edges.
@@ -259,12 +229,33 @@ def agent_graph() -> Dict[str, Any]:
     A property of the code, not of a run, so it answers before anything has
     been inspected -- the structure is the thing you want to look at first.
     """
-    return graph_shape()
+    # ``steppable`` is the subset a breakpoint can name: the real nodes, without
+    # LangGraph's own start and end markers.
+    return {**graph_shape(), "steppable": list(NODES)}
 
 
 @router.get("/runs")
 def get_runs() -> Dict[str, Any]:
+    """Every run, most recently touched first, labelled by its files."""
     return {"runs": list_runs()}
+
+
+@router.delete("/runs/{run_id}")
+def remove_run(run_id: str) -> Dict[str, Any]:
+    """Delete a run and everything in it.
+
+    Trying things out leaves workspaces behind, and a list full of abandoned
+    ones is worse than useless. A run in flight is refused rather than pulled
+    out from under its worker.
+    """
+    paths = _require_run(run_id)
+    if _live_channel(run_id) is not None:
+        raise HTTPException(status_code=409, detail="this run is in flight; stop it first")
+
+    delete_run(paths)
+    with _channels_lock:
+        _channels.pop(run_id, None)
+    return {"deleted": run_id}
 
 
 @router.post("/runs")
@@ -333,9 +324,9 @@ def _reindex(paths: RunPaths) -> Dict[str, int]:
     """
     store = paths.store()
     try:
-        store.conn.execute("DELETE FROM chunks")
-        store.conn.execute("DELETE FROM links")
-        store.conn.commit()
+        store.clear_index()
+        # Writes the knowledge graph beside the index too -- it is derived from
+        # exactly this and goes stale with exactly this.
         result = build_index(paths.source, store)
     finally:
         store.close()
@@ -376,8 +367,7 @@ def delete_run_file(run_id: str, path: str) -> Dict[str, Any]:
     # Findings for the deleted file would otherwise linger in the report.
     store = paths.store()
     try:
-        store.conn.execute("DELETE FROM findings WHERE file = ?", (path,))
-        store.conn.commit()
+        store.drop_findings_in_file(path)
     finally:
         store.close()
     return {"deleted": path, "index": _reindex(paths), "files": sorted(iter_all_files(paths))}
@@ -385,8 +375,12 @@ def delete_run_file(run_id: str, path: str) -> Dict[str, Any]:
 
 @router.get("/runs/{run_id}")
 def run_detail(run_id: str) -> Dict[str, Any]:
-    paths = _require_run(run_id)
-    return {"run_id": run_id, **paths.read_meta()}
+    """One run, described the way the list describes them.
+
+    The trace view shows a single run rather than a list, so this is where its
+    heading comes from: which files, what status, when it last did anything.
+    """
+    return describe_run(_require_run(run_id))
 
 
 @router.get("/runs/{run_id}/spans")
@@ -427,16 +421,82 @@ def _span_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/checkpoints")
-def run_checkpoints(run_id: str) -> Dict[str, Any]:
+def run_checkpoints(run_id: str, full: bool = False) -> Dict[str, Any]:
     """This run's state after each super-step, oldest first.
 
     The trace says what was called; this says what the graph *knew* at each
     step -- what was still queued, what the last node wrote, where it would go
     next. One thread per run, so this is only ever this run's history.
+
+    ``?full=true`` returns the bulky fields rather than counting them, which is
+    what the thread panel asks for when a step is expanded.
     """
     paths = _require_run(run_id)
-    steps = paths.checkpoints()
+    steps = paths.checkpoints(full=full)
     return {"run_id": run_id, "checkpoints": steps, "count": len(steps)}
+
+
+@router.get("/runs/{run_id}/state")
+def run_state(run_id: str, checkpoint_id: str | None = None) -> Dict[str, Any]:
+    """One checkpoint's state in full.
+
+    The history summarises the bulky fields, which is right for a timeline and
+    wrong for an editor: a count cannot be edited back into a list. Defaults to
+    the latest checkpoint, which is where a stopped run is sitting.
+    """
+    paths = _require_run(run_id)
+    state = paths.state(checkpoint_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="this run has no state at that point")
+    return {"run_id": run_id, **state}
+
+
+@router.post("/runs/{run_id}/state")
+def set_run_state(run_id: str, request: StateRequest) -> Dict[str, Any]:
+    """Write state over a checkpoint, branching the run there.
+
+    Nothing is overwritten: the write lands as a child of the checkpoint it was
+    made against, so the course already recorded survives being second-guessed
+    and both lines show up in the history.
+    """
+    paths = _require_run(run_id)
+    if request.as_node is not None and request.as_node not in NODES:
+        raise HTTPException(status_code=400, detail=f"unknown node: {request.as_node}")
+    if not paths.checkpoint_db.exists():
+        raise HTTPException(status_code=409, detail="this run has no history to write over")
+
+    try:
+        checkpoint_id = paths.set_state(request.values, request.checkpoint_id, request.as_node)
+    except ValueError as err:
+        # LangGraph refuses a write it cannot attribute to a node.
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    return {"run_id": run_id, "checkpoint_id": checkpoint_id}
+
+
+@router.get("/runs/{run_id}/graph")
+def run_knowledge_graph(run_id: str) -> Dict[str, Any]:
+    """The tree as a graph: units, what connects them, and the subsystems.
+
+    A property of the code, not of any inspection, so it answers for a run that
+    has never been inspected. Built at index time; derived on the spot for a run
+    indexed before this existed.
+    """
+    paths = _require_run(run_id)
+    loaded = read_graph(paths.knowledge_graph)
+    if loaded is None:
+        if not paths.index_db.exists():
+            raise HTTPException(status_code=404, detail="this run has not been indexed")
+        store = paths.store()
+        try:
+            write_graph(store, paths.source, paths.knowledge_graph)
+        finally:
+            store.close()
+        loaded = read_graph(paths.knowledge_graph)
+    if loaded is None:
+        raise HTTPException(status_code=500, detail="the knowledge graph could not be built")
+
+    graph, communities = loaded
+    return {"run_id": run_id, **knowledge_json(graph, communities)}
 
 
 @router.get("/runs/{run_id}/thread")
@@ -515,10 +575,160 @@ def _turn(span: Any, by_id: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-@router.get("/runs/{run_id}/files")
-def run_files(run_id: str) -> Dict[str, Any]:
+class ReplayRequest(BaseModel):
+    """Run one recorded model call again, with the prompt changed."""
+
+    #: Defaults to what the span recorded, so an unedited replay is a re-run of
+    #: exactly what happened.
+    system: Optional[str] = None
+    user: Optional[str] = None
+
+
+#: Which schema a step's call is guided into. `gather` is the odd one out: it is
+#: a tool-calling loop returning prose, not a structured object.
+#: What guided decoding constrained each kind of call to, so a replay is
+#: constrained the same way. Every specialist produces a ChunkAnalysis -- the
+#: lens is in the prompt, not in the shape of the answer.
+_REPLAY_SCHEMAS = {
+    "triage": "Triage",
+    "verify": "Verdict",
+    **{lens_prompt(lens): "ChunkAnalysis" for lens in LENSES},
+}
+
+
+def _recorded_messages(span: Any) -> tuple[str, str]:
+    """The system and user text of a recorded model call."""
+    inputs = span.inputs if isinstance(span.inputs, dict) else {}
+    messages = inputs.get("messages")
+    if isinstance(messages, list):
+        system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
+        user = next((m.get("content", "") for m in messages if m.get("role") in ("human", "user")), "")
+        return str(system), str(user)
+    prompts = inputs.get("prompts")
+    if isinstance(prompts, list) and prompts:
+        return "", str(prompts[0])
+    return "", ""
+
+
+@router.post("/runs/{run_id}/spans/{span_id}/replay")
+def replay_span(run_id: str, span_id: str, request: ReplayRequest | None = None) -> Dict[str, Any]:
+    """Call the model again for one span, optionally with an edited prompt.
+
+    A side experiment, deliberately: it writes nothing to the run, the trace or
+    the report. The point is to see what a changed prompt would have produced
+    for an input that really occurred, and to be able to try that ten times
+    without turning the recorded run into a scratchpad. Changing the run's
+    course is what the checkpoint fork is for.
+    """
     paths = _require_run(run_id)
-    return {"run_id": run_id, "files": sorted(iter_all_files(paths))}
+    options = request or ReplayRequest()
+
+    if not paths.trace_db.exists():
+        raise HTTPException(status_code=404, detail="this run has no trace")
+
+    spans = paths.spans()
+    try:
+        span = next((s for s in spans.spans() if s.id == span_id), None)
+    finally:
+        spans.close()
+
+    if span is None:
+        raise HTTPException(status_code=404, detail=f"unknown span: {span_id}")
+    if span.kind != "llm":
+        raise HTTPException(status_code=400, detail="only a model call can be replayed")
+
+    recorded_system, recorded_user = _recorded_messages(span)
+    system = options.system if options.system is not None else recorded_system
+    user = options.user if options.user is not None else recorded_user
+    if not user.strip():
+        raise HTTPException(status_code=400, detail="this span recorded no prompt to replay")
+
+    config = AgentConfig()
+    try:
+        config.require_model()
+    except RuntimeError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
+
+    step = str(span.meta.get("step") or "")
+    schema = _REPLAY_SCHEMAS.get(step)
+
+    started = time.monotonic()
+    caller = StructuredCaller(config)
+    if schema is None:
+        # No schema for this step, so the reply is taken as text. Tools are not
+        # offered: a replay must not touch the filesystem or the sandbox.
+        result: Any = caller.llm.invoke([("system", system), ("human", user)]).content
+    else:
+        from agent import schema as wire
+
+        produced = caller.call(getattr(wire, schema), system, user)
+        result = produced.model_dump() if produced is not None else None
+
+    return {
+        "run_id": run_id,
+        "span_id": span_id,
+        "step": step or None,
+        "schema": schema,
+        "output": result,
+        "latency_ms": int((time.monotonic() - started) * 1000),
+        # So the UI can say what it is comparing against without a second read.
+        "recorded": {"system": recorded_system, "user": recorded_user, "output": span.outputs},
+        "edited": system != recorded_system or user != recorded_user,
+    }
+
+
+@router.get("/prompts")
+def list_prompts() -> Dict[str, Any]:
+    """The system prompts, their shipped defaults, and any tuning applied."""
+    return {"prompts": prompt_store.describe(AgentConfig().prompts_file)}
+
+
+class PromptRequest(BaseModel):
+    text: str
+
+
+@router.put("/prompts/{name}")
+def put_prompt(name: str, request: PromptRequest) -> Dict[str, Any]:
+    """Adopt a tuned prompt. Every later run uses it until it is cleared."""
+    path = AgentConfig().prompts_file
+    try:
+        prompt_store.save(path, name, request.text)
+    except prompt_store.UnknownPrompt as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    return {"prompts": prompt_store.describe(path)}
+
+
+@router.delete("/prompts/{name}")
+def delete_prompt(name: str) -> Dict[str, Any]:
+    """Go back to the prompt the code ships with."""
+    path = AgentConfig().prompts_file
+    try:
+        prompt_store.clear(path, name)
+    except prompt_store.UnknownPrompt as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+    return {"prompts": prompt_store.describe(path)}
+
+
+@router.get("/runs/{run_id}/input")
+def run_input(run_id: str) -> Dict[str, Any]:
+    """The state a fresh run would begin from.
+
+    The studio shows this as the run's input *before* there is a run, so it
+    cannot come from a checkpoint. Computed from the index instead, which is
+    where the starting queue comes from anyway -- and it is a pure function of
+    it, so this costs a read rather than a session.
+    """
+    paths = _require_run(run_id)
+    store = paths.store()
+    try:
+        order = store.order()
+    finally:
+        store.close()
+
+    stats = paths.read_meta().get("index", {})
+    return {"run_id": run_id, "values": dict(initial_state(order, len(order), stats))}
 
 
 @router.get("/runs/{run_id}/file")
@@ -570,31 +780,59 @@ def _language_for(path: Path) -> str:
     return _MONACO_LANGUAGES.get(path.suffix.lower(), "plaintext")
 
 
-def _inspect_worker(paths: RunPaths, channel: RunChannel, force: bool) -> None:
-    """Run the inspection on a worker thread, publishing progress."""
+@dataclass
+class WorkOrder:
+    """What a worker thread has been asked to do."""
+
+    #: Nodes to stop before, and to stop after.
+    breakpoints: List[str] = field(default_factory=list)
+    breakpoints_after: List[str] = field(default_factory=list)
+    #: Throw away cached results and inspect every chunk again.
+    force: bool = False
+    #: Overrides on the starting state, from the studio's input pane.
+    values: Optional[Dict[str, Any]] = None
+    #: Carry on from an existing history instead of starting over. The trace and
+    #: the checkpoints are left alone in this case -- clearing them is what a
+    #: fresh start means, and it would delete the very history being resumed.
+    resume_from: Optional[str] = None
+    resume_values: Optional[Dict[str, Any]] = None
+    #: Whether this is a fresh start. Held rather than derived, because a resume
+    #: with nothing to write looks exactly like a start that was given nothing.
+    resuming: bool = False
+
+    @property
+    def fresh(self) -> bool:
+        return not self.resuming
+
+
+def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> None:
+    """Drive one inspection on a worker thread, publishing progress.
+
+    The loop exists for breakpoints: the graph returns when it stops at one, and
+    the run is not over -- it is waiting. The session stays open across the wait
+    so the MCP subprocess and the chunk store are still there when it carries on.
+    """
     config = AgentConfig()
     store = paths.store()
-    # One trace and one checkpoint thread per inspection: the previous attempt
-    # describes work about to be redone, and two interleaved in one history are
-    # unreadable.
-    paths.reset_debug()
+    if order.fresh:
+        # Two attempts interleaved in one history read as one incoherent run.
+        paths.reset_debug()
     spans = paths.spans()
 
     def emit(event: str, payload: dict[str, Any]) -> None:
         channel.events.put({"event": event, "data": payload})
 
+    session: InspectionSession | None = None
     try:
         config.require_model()
-        if force:
-            store.conn.execute("DELETE FROM inspected")
-            store.conn.execute("DELETE FROM findings")
-            store.conn.commit()
+        if order.force:
+            store.clear_results()
 
         index_stats = paths.read_meta().get("index", {})
         paths.set_status(STATUS_INSPECTING)
         emit("run_started", {"run_id": paths.run_id, **index_stats})
 
-        report = run_inspection(
+        session = InspectionSession(
             run_id=paths.run_id,
             root=paths.source,
             store=store,
@@ -603,19 +841,110 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, force: bool) -> None:
             index_stats=index_stats,
             spans=spans,
             checkpoints=paths.checkpoint_db,
+            breakpoints=order.breakpoints,
+            breakpoints_after=order.breakpoints_after,
         )
+
+        if order.fresh:
+            session.start(values=order.values)
+        else:
+            session.resume(values=order.resume_values, checkpoint_id=order.resume_from)
+
+        aborted = False
+        while session.interrupted and not aborted:
+            paths.set_status(STATUS_INTERRUPTED)
+            emit(
+                "run_interrupted",
+                {
+                    "run_id": paths.run_id,
+                    "next": session.next_nodes,
+                    "checkpoint_id": session.checkpoint_id,
+                },
+            )
+            command = _await_command(channel)
+            if command.get("action") == "abort":
+                aborted = True
+                break
+            paths.set_status(STATUS_INSPECTING)
+            emit("run_resumed", {"run_id": paths.run_id})
+            try:
+                session.resume(values=command.get("values"), checkpoint_id=command.get("checkpoint_id"))
+            except ParallelStep as err:
+                # An edit that cannot be attributed to a node. Reported and the
+                # run left where it was, rather than torn down: the run is fine,
+                # the question was not, and the answer is to ask a different one.
+                emit("resume_refused", {"run_id": paths.run_id, "error": str(err)})
+                continue
+
+        report = session.report()
         paths.save_report(report)
         paths.set_status(STATUS_DONE, findings=len(report.findings))
-        emit("run_finished", {"run_id": paths.run_id, "findings": len(report.findings)})
+        emit(
+            "run_finished",
+            {"run_id": paths.run_id, "findings": len(report.findings), "aborted": aborted},
+        )
     except Exception as err:  # noqa: BLE001 - the failure is reported, not raised into the loop
         log.exception("inspection failed for run %s", paths.run_id)
         channel.error = str(err)
         paths.set_status(STATUS_FAILED, error=str(err))
         channel.events.put({"event": "run_failed", "data": {"error": str(err)}})
     finally:
+        if session is not None:
+            session.close()
         store.close()
         spans.close()
+        channel.waiting.clear()
         channel.finished.set()
+
+
+def _await_command(channel: RunChannel) -> Dict[str, Any]:
+    """Block until someone says what to do with a stopped run.
+
+    A tab that was closed is never going to answer, so the wait is bounded and
+    a timeout is read as an abort rather than as a reason to hold the run's
+    tools open forever.
+    """
+    channel.waiting.set()
+    try:
+        return channel.commands.get(True, INTERRUPT_TIMEOUT_SECONDS)
+    except queue.Empty:
+        log.info("no answer for an interrupted run in %ss; giving up", INTERRUPT_TIMEOUT_SECONDS)
+        return {"action": "abort"}
+    finally:
+        channel.waiting.clear()
+
+
+def _validate_breakpoints(names: List[str]) -> List[str]:
+    unknown = sorted(set(names) - set(NODES))
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown node(s): {', '.join(unknown)}")
+    return list(dict.fromkeys(names))
+
+
+def _spawn(paths: RunPaths, order: WorkOrder) -> RunChannel:
+    """Put a worker on the run, reusing the channel anyone is already watching."""
+    channel = _channel(paths.run_id)
+    channel.reclaim()
+    threading.Thread(
+        target=_inspect_worker,
+        args=(paths, channel, order),
+        name=f"inspect-{paths.run_id}",
+        daemon=True,
+    ).start()
+    return channel
+
+
+def _live_channel(run_id: str) -> Optional[RunChannel]:
+    """The run's channel if a worker is still on it.
+
+    Watching is not running: the studio opens the stream when a run is selected,
+    long before anyone presses start, and that must not read as in flight.
+    """
+    with _channels_lock:
+        channel = _channels.get(run_id)
+    if channel is None or not channel.claimed or channel.finished.is_set():
+        return None
+    return channel
 
 
 @router.post("/runs/{run_id}/inspect")
@@ -623,22 +952,72 @@ def start_inspection(run_id: str, request: InspectRequest | None = None) -> Dict
     """Start an inspection. Returns immediately; watch ``/events``."""
     paths = _require_run(run_id)
     options = request or InspectRequest()
+    breakpoints = _validate_breakpoints(options.breakpoints)
+    after = _validate_breakpoints(options.breakpoints_after)
 
-    with _channels_lock:
-        existing = _channels.get(run_id)
-        if existing is not None and not existing.finished.is_set():
-            return {"run_id": run_id, "status": STATUS_INSPECTING, "already_running": True}
-        channel = RunChannel()
-        _channels[run_id] = channel
+    if _live_channel(run_id) is not None:
+        return {"run_id": run_id, "status": STATUS_INSPECTING, "already_running": True}
 
-    thread = threading.Thread(
-        target=_inspect_worker,
-        args=(paths, channel, options.force),
-        name=f"inspect-{run_id}",
-        daemon=True,
+    _spawn(
+        paths,
+        WorkOrder(
+            breakpoints=breakpoints,
+            breakpoints_after=after,
+            force=options.force,
+            values=options.values,
+        ),
     )
-    thread.start()
-    return {"run_id": run_id, "status": STATUS_INSPECTING, "already_running": False}
+    return {
+        "run_id": run_id,
+        "status": STATUS_INSPECTING,
+        "already_running": False,
+        "breakpoints": breakpoints,
+        "breakpoints_after": after,
+    }
+
+
+@router.post("/runs/{run_id}/resume")
+def resume_inspection(run_id: str, request: ResumeRequest | None = None) -> Dict[str, Any]:
+    """Let a stopped run carry on, optionally with the state changed.
+
+    Two ways in. A run still paused at a breakpoint is steered by handing the
+    waiting worker its answer, which keeps the tools it already has open. A run
+    whose worker is gone -- the server restarted, or it finished -- is picked up
+    again from its checkpoints by a new worker.
+    """
+    paths = _require_run(run_id)
+    options = request or ResumeRequest()
+    if options.action not in ("resume", "abort"):
+        raise HTTPException(status_code=400, detail=f"unknown action: {options.action}")
+
+    channel = _live_channel(run_id)
+    if channel is not None:
+        if not channel.waiting.is_set():
+            raise HTTPException(status_code=409, detail="this run is not stopped at a breakpoint")
+        channel.commands.put(
+            {"action": options.action, "values": options.values, "checkpoint_id": options.checkpoint_id}
+        )
+        return {"run_id": run_id, "resumed": options.action == "resume", "worker": "existing"}
+
+    if options.action == "abort":
+        raise HTTPException(status_code=409, detail="no run is in flight")
+    if not paths.checkpoint_db.exists():
+        raise HTTPException(status_code=409, detail="this run has no history to resume from")
+
+    _spawn(
+        paths,
+        WorkOrder(
+            breakpoints=_validate_breakpoints(options.breakpoints),
+            breakpoints_after=_validate_breakpoints(options.breakpoints_after),
+            resume_from=options.checkpoint_id,
+            resume_values=options.values,
+            # Said outright rather than inferred from the values: "re-run from
+            # here" writes nothing, and a resume that clears the history it is
+            # resuming from would be worse than useless.
+            resuming=True,
+        ),
+    )
+    return {"run_id": run_id, "resumed": True, "worker": "new"}
 
 
 @router.get("/runs/{run_id}/events")

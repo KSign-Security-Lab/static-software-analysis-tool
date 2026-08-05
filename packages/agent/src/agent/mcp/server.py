@@ -13,8 +13,10 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from graphify import Direction, describe_neighbours, describe_path, describe_subsystem
 from mcp.server.fastmcp import FastMCP
 
+from .. import knowledge
 from ..config import ENV_INDEX_DB, ENV_RUN_ROOT, ENV_SANDBOX, AgentConfig
 from ..index.store import ChunkStore
 from ..tools import (
@@ -142,6 +144,91 @@ def find_definition(symbol: str) -> str:
             store.close()
 
     return _guard(run)
+
+
+def _map() -> Any:
+    """The run's knowledge graph, or a message saying why there is not one.
+
+    Built on the spot when no document has been written, so a run indexed before
+    the graph existed still gets working tools rather than an error.
+    """
+    store = _store()
+    if store is None:
+        return "error: the tree has not been indexed"
+    try:
+        root = run_root()
+        return knowledge.load_or_build(store, root, store.path.parent / knowledge.GRAPH_FILE)
+    finally:
+        store.close()
+
+
+@mcp.tool()
+def graph_neighbours(symbol: str, hops: int = 1, direction: str = "both") -> str:
+    """What a symbol is connected to in the tree, within `hops` steps.
+
+    Wider than find_callers/find_callees, which answer one relation each: this
+    walks callers, callees, types and the documents that mention it together.
+    `direction` is "out" (what it uses), "in" (what uses it) or "both".
+    """
+
+    def run() -> str:
+        loaded = _map()
+        if isinstance(loaded, str):
+            return loaded
+        graph, _ = loaded
+        node = knowledge.find(graph, symbol)
+        if node is None:
+            return f"error: nothing in this tree is called {symbol!r}"
+        return describe_neighbours(graph, node, hops=hops, direction=_direction(direction))
+
+    return _guard(run)
+
+
+@mcp.tool()
+def graph_path(start: str, end: str) -> str:
+    """How two symbols are related: the shortest chain between them, or nothing.
+
+    The tool for "is this input really reaching that sink" -- it answers with the
+    units in between rather than leaving it to be guessed from a grep.
+    """
+
+    def run() -> str:
+        loaded = _map()
+        if isinstance(loaded, str):
+            return loaded
+        graph, _ = loaded
+        a, b = knowledge.find(graph, start), knowledge.find(graph, end)
+        if a is None or b is None:
+            return f"error: nothing in this tree is called {start if a is None else end!r}"
+        return describe_path(graph, a, b)
+
+    return _guard(run)
+
+
+@mcp.tool()
+def graph_subsystem(symbol: str) -> str:
+    """What else belongs with this symbol.
+
+    The tree clustered by what actually depends on what, rather than by
+    directory. Use it to find the code that would have to change with this, or
+    the sibling that already handles the case being argued about.
+    """
+
+    def run() -> str:
+        loaded = _map()
+        if isinstance(loaded, str):
+            return loaded
+        graph, communities = loaded
+        node = knowledge.find(graph, symbol)
+        if node is None:
+            return f"error: nothing in this tree is called {symbol!r}"
+        return describe_subsystem(graph, communities, node)
+
+    return _guard(run)
+
+
+def _direction(given: str) -> Direction:
+    return given if given in ("out", "in", "both") else "both"  # type: ignore[return-value]
 
 
 @mcp.tool()

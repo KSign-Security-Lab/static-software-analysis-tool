@@ -18,12 +18,15 @@ chunks ── one per function/method, plus one per file for the top-level
    ▼  symbol resolution (not embeddings)
 links  ── calls / uses_type / file_depends
    │
-   ▼  topological sort, callees first
-inspection loop, one chunk at a time:
-   plan → context → analyse → locate → verify
+   ▼  topological sort, callees first; call depth per chunk
+inspection loop, one wave of independent chunks at a time:
+   plan → context → triage ─┬→ memory    ─┐
+                            ├→ injection ─┤
+                            ├→ access    ─┼→ locate → verify → reduce
+                            └→ logic     ─┘
 ```
 
-Three decisions do most of the work.
+Four decisions do most of the work.
 
 **Chunks are syntactic, not fixed windows.** A fixed window cuts functions in
 half and destroys the only unit worth reasoning about.
@@ -33,6 +36,33 @@ model writes a *note* — "returns a buffer built from `req->location` with no
 validation" — and that note is injected into every caller's context. Taint
 crosses chunk boundaries without the whole tree ever entering one prompt. This
 is what the cross-chunk metadata is for.
+
+**Four narrow analysts, not one broad one.** A single prompt asked to hold
+memory safety, injection, access control and resource lifetime in mind at once
+skims all four. Each specialist gets one family of defect, is told to leave the
+others alone, and runs at the same time as its peers — so recall goes up and the
+wall clock does not. A cheap screening call in front of them decides which of
+the four a unit has earned; it is biased to say yes, because a false positive
+there costs one analysis and a false negative loses a vulnerability. Chunks that
+share a call depth cannot need each other's notes, so a *wave* of them goes at
+once. `AGENT_WAVE_WIDTH`, `AGENT_MAX_CONCURRENCY`, `AGENT_LENSES` and
+`AGENT_TRIAGE` are the levers; `AGENT_TRIAGE=0 AGENT_WAVE_WIDTH=1
+AGENT_LENSES=injection` is close to what this used to do.
+
+On the sample tree (13 chunks, one A6000-class card behind vLLM):
+
+| Configuration | Model calls | Wall clock |
+| --- | --- | --- |
+| One lens, one chunk at a time — what this used to be | 24 | 2m07 |
+| One lens, waves of 4 | 24 | 1m18 |
+| Four lenses, triage, waves of 4 — the default | 55 | 2m00 |
+
+Two things to read out of that. Waves alone are worth about a third of the wall
+clock, because a batching endpoint answers eight requests in not much longer
+than one. And the default spends what that bought on 2.3× as many calls rather
+than on finishing sooner — which is how it turned up an unbounded `memcpy` the
+single generalist prompt walked past in every run. Triage is what keeps the bill
+down: it sent an average of 1.6 specialists per chunk, not four.
 
 **The model quotes source; the server locates it.** Models get line numbers
 wrong, so a finding carries `anchor_text` — the exact offending text — and
@@ -165,13 +195,13 @@ So tensor parallelism here buys *capacity*, not speed: it is what makes a 32B at
 FP16 possible at all. If a 4-bit 32B is good enough, one card is the better
 trade — no interconnect cost, and it can be the faster one.
 
-Running two independent single-GPU servers would buy nothing today. The
-inspection loop is deliberately sequential — callees before callers, so notes
-propagate — so it issues one request at a time and never has a second in flight.
-That also keeps batch size at 1, which makes per-token all-reduce traffic small
-and the missing NVLink less punishing than it would be for batch serving.
-Inspecting chunks that share a topological level concurrently would change that,
-and is the point at which a second server starts to pay.
+This used to be less of a constraint than it is now. The loop issued one request
+at a time — callees before callers, so notes propagate — which kept batch size at
+1 and made the missing NVLink barely matter. It no longer does: a wave of chunks
+times four specialists puts up to `AGENT_MAX_CONCURRENCY` requests in flight at
+once, which is what continuous batching is for and what makes the endpoint's
+throughput rather than its latency the number that matters. Two independent
+single-GPU servers behind one address now buy something real.
 
 ### Testing it
 
@@ -279,9 +309,17 @@ MCP Inspector would — there is no second, in-process copy that could drift.
 Only that subset is offered; verification is about one claim, and the full
 surface invites wandering.
 
-`analyse` gets no tools, deliberately. Its context is assembled from the index,
-so two runs over the same tree are comparable. Letting it browse would make them
-not be.
+Three of them come from [`graphify`](../graphify/README.md), which turns the
+index into a knowledge graph at index time: `graph_path` answers whether the
+claimed source really reaches the claimed sink and through what, and does it in
+one call rather than a chain of `find_callers` guesses; `graph_neighbours`
+answers what a unit touches in every relation at once; `graph_subsystem` answers
+what else belongs with it, clustered by what actually depends on what rather
+than by directory. No model and no network are involved in building any of it.
+
+The specialists get no tools, deliberately. Their context is assembled from the
+index, so two runs over the same tree are comparable. Letting them browse would
+make them not be.
 
 Tool calling needs server support: vLLM rejects it unless started with
 `--tool-call-parser` for the model family.
@@ -313,6 +351,10 @@ AGENT_RUN_ROOT=path/to/src agent-mcp        # stdio
 | `AGENT_MAX_VERIFY_PER_CHUNK` | `8` | Cap on refute calls per chunk |
 | `AGENT_TOOLS` | `1` | Let verification call MCP tools; `0` disables |
 | `AGENT_MAX_TOOL_CALLS` | `4` | Tool calls allowed per finding |
+| `AGENT_WAVE_WIDTH` | `4` | Chunks inspected at once, at one call depth |
+| `AGENT_MAX_CONCURRENCY` | `16` | Ceiling on requests actually in flight |
+| `AGENT_LENSES` | *(all four)* | Comma-separated: `memory,injection,access,logic` |
+| `AGENT_TRIAGE` | `1` | Screen each chunk before the specialists; `0` runs them all |
 
 ## Layout
 
@@ -322,15 +364,17 @@ src/agent/
   index/
     chunk.py       tree-sitter -> chunks
     links.py       symbol resolution -> edges
-    order.py       topological order, cycle breaking
+    order.py       topological order, call depth, waves
     store.py       per-run SQLite: chunks, links, notes, findings
   schema.py        the contract: model-facing and wire schemas
   schema_ts.py     generates web/lib/agent-schema.ts
   locate.py        anchor_text -> real span, or nothing
   context.py       context packs, assembled from the index
-  prompts.py       analyse and refute prompts
+  prompts.py       triage, the four specialists, and the refute prompt
+  promptstore.py   prompts tuned against a trace, read at run time
   llm.py           the one place a model is called
-  graph/           LangGraph nodes and wiring
+  graph/           LangGraph nodes, fan-out and wiring
+  knowledge.py     the index as a graphify knowledge graph
   mcp/             the tool surface over MCP
   tools.py         tool implementations (fs, grep, graph, sandbox)
   runs.py          run workspaces, safe upload extraction

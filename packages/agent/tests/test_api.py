@@ -11,7 +11,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 
@@ -139,8 +139,8 @@ def test_missing_file_is_a_404(client: TestClient) -> None:
 
 
 def test_unknown_run_is_a_404(client: TestClient) -> None:
-    assert client.get("/agent/runs/deadbeef/files").status_code == 404
-    assert client.get("/agent/runs/../../etc/files").status_code in (307, 404)
+    assert client.get("/agent/runs/deadbeef/spans").status_code == 404
+    assert client.get("/agent/runs/../../etc/spans").status_code in (307, 404)
 
 
 def test_runs_can_be_listed(client: TestClient) -> None:
@@ -297,12 +297,13 @@ def test_openapi_documents_the_agent_routes(client: TestClient) -> None:
     paths = json.loads(client.get("/openapi.json").text)["paths"]
     for route in (
         "/agent/runs",
-        "/agent/runs/{run_id}/files",
         "/agent/runs/{run_id}/file",
         "/agent/runs/{run_id}/inspect",
         "/agent/runs/{run_id}/events",
         "/agent/runs/{run_id}/findings",
         "/agent/runs/{run_id}/diff",
+        "/agent/runs/{run_id}/state",
+        "/agent/runs/{run_id}/resume",
     ):
         assert route in paths, f"{route} is missing from the OpenAPI document"
 
@@ -313,7 +314,7 @@ def test_openapi_documents_the_agent_routes(client: TestClient) -> None:
 def test_an_empty_run_can_be_created_and_pasted_into(client: TestClient) -> None:
     """Trying one snippet must not require saving a file and uploading it."""
     run_id = client.post("/agent/runs/new").json()["run_id"]
-    assert client.get(f"/agent/runs/{run_id}/files").json()["files"] == []
+    assert any(run["run_id"] == run_id for run in client.get("/agent/runs").json()["runs"])
 
     body = client.put(
         f"/agent/runs/{run_id}/file",
@@ -477,3 +478,411 @@ def test_thread_and_checkpoints_are_empty_before_an_inspection(client: TestClien
 def test_checkpoints_of_an_unknown_run_is_a_404(client: TestClient) -> None:
     assert client.get("/agent/runs/deadbeef/checkpoints").status_code == 404
     assert client.get("/agent/runs/deadbeef/thread").status_code == 404
+
+
+# -- the studio: breakpoints, state and resume --------------------------------
+
+
+def test_graph_endpoint_names_the_nodes_a_breakpoint_may_use(client: TestClient) -> None:
+    """The studio offers these as checkboxes, so they have to be the real set."""
+    body = client.get("/agent/graph").json()
+
+    assert set(body["steppable"]) == {
+        "plan",
+        "context",
+        "triage",
+        "memory",
+        "injection",
+        "access",
+        "logic",
+        "skip",
+        "locate",
+        "verify",
+        "reduce",
+    }
+    # LangGraph's own markers are in `nodes` and are not somewhere to stop.
+    assert "__start__" not in body["steppable"]
+
+
+def test_a_misspelled_breakpoint_is_refused_before_the_run_starts(client: TestClient) -> None:
+    """A breakpoint that silently never fires is worse than an error."""
+    run_id = _upload(client)["run_id"]
+    response = client.post(f"/agent/runs/{run_id}/inspect", json={"breakpoints": ["analyze"]})
+
+    assert response.status_code == 400
+    assert "analyze" in response.json()["detail"]
+
+
+def test_state_before_any_run_is_a_404_not_an_empty_state(client: TestClient) -> None:
+    """Nothing to show and nothing to edit are the same answer here."""
+    run_id = _upload(client)["run_id"]
+    assert client.get(f"/agent/runs/{run_id}/state").status_code == 404
+    assert client.get("/agent/runs/deadbeef/state").status_code == 404
+
+
+def test_writing_state_with_no_history_is_refused(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    response = client.post(f"/agent/runs/{run_id}/state", json={"values": {"pending": []}})
+
+    assert response.status_code == 409
+
+
+def test_writing_state_as_an_unknown_node_is_refused(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    response = client.post(
+        f"/agent/runs/{run_id}/state",
+        json={"values": {"pending": []}, "as_node": "analyze"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_resuming_a_run_that_is_not_stopped_is_refused(client: TestClient) -> None:
+    """Nothing is in flight and there is no history, so there is nowhere to go."""
+    run_id = _upload(client)["run_id"]
+    response = client.post(f"/agent/runs/{run_id}/resume", json={})
+
+    assert response.status_code == 409
+
+
+def test_resume_rejects_an_action_it_does_not_know(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    assert client.post(f"/agent/runs/{run_id}/resume", json={"action": "rewind"}).status_code == 400
+
+
+def test_state_and_resume_of_an_unknown_run_are_404(client: TestClient) -> None:
+    assert client.post("/agent/runs/deadbeef/resume", json={}).status_code == 404
+    assert client.post("/agent/runs/deadbeef/state", json={"values": {}}).status_code == 404
+
+
+def test_state_can_be_read_and_branched_over_a_real_history(client: TestClient) -> None:
+    """The round trip the studio's editor makes: read a step, write it back."""
+    from agent.config import AgentConfig
+    from agent.graph.build import run_inspection
+    from agent.runs import get_run
+
+    run_id = client.post("/agent/runs/new").json()["run_id"]
+    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void one(void) { }\n"})
+    paths = get_run(run_id)
+    assert paths is not None
+
+    store = paths.store()
+    try:
+        run_inspection(
+            run_id=run_id,
+            root=paths.source,
+            store=store,
+            config=AgentConfig(model="fake", enable_tools=False),
+            caller=_SilentCaller(),
+            checkpoints=paths.checkpoint_db,
+        )
+    finally:
+        store.close()
+
+    state = client.get(f"/agent/runs/{run_id}/state").json()
+    # Full values, not the summary the timeline gets: a count cannot be edited
+    # back into a list.
+    assert isinstance(state["values"]["pending"], list)
+
+    history = client.get(f"/agent/runs/{run_id}/checkpoints").json()["checkpoints"]
+    target = next(h for h in history if h["node"] == "plan")
+    written = client.post(
+        f"/agent/runs/{run_id}/state",
+        json={"values": {"pending": ["made-up"]}, "checkpoint_id": target["checkpoint_id"]},
+    ).json()
+
+    branched = client.get(f"/agent/runs/{run_id}/state", params={"checkpoint_id": written["checkpoint_id"]}).json()
+    assert branched["values"]["pending"] == ["made-up"]
+    # The line it was branched off is still there, and still says what it said.
+    assert branched["parent_checkpoint_id"] == target["checkpoint_id"]
+    assert len(client.get(f"/agent/runs/{run_id}/checkpoints").json()["checkpoints"]) == len(history) + 1
+
+
+class _SilentCaller:
+    """A model that finds nothing, so a run finishes without one being served."""
+
+    def call(self, schema: Any, system: str, user: str, trace: Any = None) -> Any:
+        from agent.schema import ChunkAnalysis, Verdict
+
+        if schema is ChunkAnalysis:
+            return ChunkAnalysis()
+        if schema is Verdict:
+            return Verdict(refuted=False, reason="holds", confidence=0.9)
+        return None
+
+    def gather(self, system: str, user: str, session: Any, budget: int, trace: Any = None) -> str:
+        return ""
+
+
+def test_watching_a_run_does_not_make_it_look_started(client: TestClient) -> None:
+    """The studio opens the stream when a run is picked, before anyone presses
+    start. If that read as in flight, the run could never be started at all."""
+    import api.agent_routes as routes
+
+    run_id = _upload(client)["run_id"]
+    # What GET /events does on connect.
+    routes._channel(run_id)
+
+    body = client.post(f"/agent/runs/{run_id}/inspect", json={}).json()
+    assert body["already_running"] is False
+
+
+def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient) -> None:
+    """The watcher holds the channel object, so a new worker reuses it rather
+    than swapping in one nothing writes to."""
+    import api.agent_routes as routes
+
+    run_id = _upload(client)["run_id"]
+    watched = routes._channel(run_id)
+
+    client.post(f"/agent/runs/{run_id}/inspect", json={})
+
+    assert routes._channel(run_id) is watched
+    assert watched.claimed is True
+
+
+def test_reclaiming_a_channel_drops_the_last_attempt(client: TestClient) -> None:
+    """Replaying the previous attempt's events would describe work about to be
+    redone, and its finished flag would end the new stream immediately."""
+    from api.agent_routes import RunChannel
+
+    channel = RunChannel()
+    channel.events.put({"event": "stale", "data": {}})
+    channel.commands.put({"action": "resume"})
+    channel.finished.set()
+    channel.waiting.set()
+    channel.error = "the last one blew up"
+
+    channel.reclaim()
+
+    assert channel.events.empty() and channel.commands.empty()
+    assert not channel.finished.is_set() and not channel.waiting.is_set()
+    assert channel.error is None and channel.claimed is True
+
+
+# -- tuning a prompt against a real trace -------------------------------------
+
+
+def _recorded_llm_span(client: TestClient, step: str = "lens:memory") -> tuple[str, str]:
+    """A run with one recorded model call, as a finished inspection leaves."""
+    from agent.runs import get_run
+
+    run_id = _upload(client)["run_id"]
+    paths = get_run(run_id)
+    assert paths is not None
+
+    spans = paths.spans()
+    spans.start(
+        span_id="llm-1",
+        parent_id=None,
+        name=f"{step}:run",
+        kind="llm",
+        started_at=0.0,
+        inputs={"messages": [{"role": "system", "content": "BE STRICT"}, {"role": "human", "content": "int x;"}]},
+        meta={"step": step},
+    )
+    spans.finish(span_id="llm-1", ended_at=1.0, outputs={"text": ["nothing found"]}, tokens=10)
+    spans.close()
+    return run_id, "llm-1"
+
+
+def test_prompts_start_as_the_shipped_defaults(client: TestClient, tmp_path: Path) -> None:
+    from agent.promptstore import DEFAULTS
+
+    rows = {row["name"]: row for row in client.get("/agent/prompts").json()["prompts"]}
+
+    assert set(rows) == set(DEFAULTS)
+    assert all(row["override"] is None for row in rows.values())
+    assert rows["lens:memory"]["in_use"] == DEFAULTS["lens:memory"]
+
+
+def test_a_tuned_prompt_is_saved_and_revertible(client: TestClient, monkeypatch, tmp_path: Path) -> None:
+    from agent.config import ENV_PROMPTS_FILE
+
+    monkeypatch.setenv(ENV_PROMPTS_FILE, str(tmp_path / "prompts.json"))
+
+    saved = client.put("/agent/prompts/lens:memory", json={"text": "Only memory errors."}).json()
+    rows = {row["name"]: row for row in saved["prompts"]}
+    assert rows["lens:memory"]["override"] == "Only memory errors."
+    assert rows["lens:memory"]["in_use"] == "Only memory errors."
+
+    reverted = client.delete("/agent/prompts/lens:memory").json()
+    assert {r["name"]: r for r in reverted["prompts"]}["lens:memory"]["override"] is None
+
+
+def test_an_unknown_or_empty_prompt_is_refused(client: TestClient, monkeypatch, tmp_path: Path) -> None:
+    from agent.config import ENV_PROMPTS_FILE
+
+    monkeypatch.setenv(ENV_PROMPTS_FILE, str(tmp_path / "prompts.json"))
+
+    assert client.put("/agent/prompts/analyze", json={"text": "x"}).status_code == 404
+    assert client.delete("/agent/prompts/analyze").status_code == 404
+    assert client.put("/agent/prompts/lens:memory", json={"text": "  "}).status_code == 400
+
+
+def test_replaying_a_span_that_is_not_a_model_call_is_refused(client: TestClient) -> None:
+    from agent.runs import get_run
+
+    run_id = _upload(client)["run_id"]
+    paths = get_run(run_id)
+    assert paths is not None
+    spans = paths.spans()
+    spans.start(span_id="node", parent_id=None, name="analyse", kind="chain", started_at=0.0)
+    spans.finish(span_id="node", ended_at=1.0)
+    spans.close()
+
+    response = client.post(f"/agent/runs/{run_id}/spans/node/replay", json={})
+    assert response.status_code == 400
+    assert "model call" in response.json()["detail"]
+
+
+def test_replaying_an_unknown_span_is_a_404(client: TestClient) -> None:
+    run_id, _ = _recorded_llm_span(client)
+
+    assert client.post(f"/agent/runs/{run_id}/spans/nope/replay", json={}).status_code == 404
+    assert client.post("/agent/runs/deadbeef/spans/x/replay", json={}).status_code == 404
+
+
+def test_replaying_without_a_model_configured_says_so(client: TestClient) -> None:
+    """A 409 rather than a crashed request: the fix is configuration."""
+    run_id, span_id = _recorded_llm_span(client)
+
+    response = client.post(f"/agent/runs/{run_id}/spans/{span_id}/replay", json={})
+    assert response.status_code == 409
+    assert "AGENT_MODEL" in response.json()["detail"]
+
+
+def test_a_replay_leaves_the_recorded_run_alone(client: TestClient, monkeypatch) -> None:
+    """The whole basis of the tuning loop: try a prompt ten times without
+    turning the run you are studying into a scratchpad."""
+    import api.agent_routes as routes
+    from agent.runs import get_run
+
+    run_id, span_id = _recorded_llm_span(client)
+    monkeypatch.setenv(ENV_MODEL, "fake")
+
+    class FakeCaller:
+        def __init__(self, config) -> None:  # noqa: ANN001
+            self.llm = self
+
+        def call(self, schema, system, user, trace=None):  # noqa: ANN001
+            return schema(findings=[], note=f"saw: {system[:12]}")
+
+    monkeypatch.setattr(routes, "StructuredCaller", FakeCaller)
+
+    body = client.post(
+        f"/agent/runs/{run_id}/spans/{span_id}/replay",
+        json={"system": "BE LENIENT"},
+    ).json()
+
+    assert body["edited"] is True
+    assert body["step"] == "lens:memory"
+    assert body["output"]["note"] == "saw: BE LENIENT"
+    # What it is being compared against comes back with it.
+    assert body["recorded"]["system"] == "BE STRICT"
+    assert body["recorded"]["output"] == {"text": ["nothing found"]}
+
+    # The trace is untouched: still one span, still saying what it said.
+    paths = get_run(run_id)
+    assert paths is not None
+    spans = paths.spans()
+    try:
+        rows = spans.spans()
+    finally:
+        spans.close()
+    assert len(rows) == 1
+    assert rows[0].outputs == {"text": ["nothing found"]}
+
+
+def test_an_unedited_replay_reuses_what_the_span_recorded(client: TestClient, monkeypatch) -> None:
+    import api.agent_routes as routes
+
+    run_id, span_id = _recorded_llm_span(client)
+    monkeypatch.setenv(ENV_MODEL, "fake")
+
+    seen: dict[str, str] = {}
+
+    class FakeCaller:
+        def __init__(self, config) -> None:  # noqa: ANN001
+            self.llm = self
+
+        def call(self, schema, system, user, trace=None):  # noqa: ANN001
+            seen.update(system=system, user=user)
+            return schema(findings=[], note="")
+
+    monkeypatch.setattr(routes, "StructuredCaller", FakeCaller)
+
+    body = client.post(f"/agent/runs/{run_id}/spans/{span_id}/replay", json={}).json()
+
+    assert seen == {"system": "BE STRICT", "user": "int x;"}
+    assert body["edited"] is False
+
+
+# -- picking a run out of a list ----------------------------------------------
+
+
+def test_a_run_is_labelled_by_its_files_not_its_id(client: TestClient) -> None:
+    """A run id is random hex. What anyone recognises is the code in it."""
+    run_id = _upload(client)["run_id"]
+
+    run = next(r for r in client.get("/agent/runs").json()["runs"] if r["run_id"] == run_id)
+    assert set(run["files"]) <= {"app.c", "util.h"}
+    assert run["file_count"] == 2
+    assert run["updated_at"] > 0
+
+
+def test_runs_are_listed_most_recently_touched_first(client: TestClient) -> None:
+    """Sorted by id, a list of random hex is shuffled into a meaningless order."""
+    import os
+    import time
+
+    from agent.runs import get_run
+
+    first = _upload(client)["run_id"]
+    second = _upload(client)["run_id"]
+    # Timestamps can land in the same tick on a fast filesystem.
+    later = time.time() + 10
+    paths = get_run(second)
+    assert paths is not None
+    os.utime(paths.meta_path, (later, later))
+
+    listed = [r["run_id"] for r in client.get("/agent/runs").json()["runs"]]
+    assert listed.index(second) < listed.index(first)
+
+
+def test_a_run_that_never_ran_is_marked_as_such(client: TestClient) -> None:
+    """It has no trace to read, so the list can fold it away rather than
+    padding itself with workspaces someone abandoned."""
+    run_id = _upload(client)["run_id"]
+
+    run = next(r for r in client.get("/agent/runs").json()["runs"] if r["run_id"] == run_id)
+    assert run["started"] is False
+
+
+def test_a_run_can_be_deleted(client: TestClient) -> None:
+    from agent.runs import get_run
+
+    run_id = _upload(client)["run_id"]
+    paths = get_run(run_id)
+    assert paths is not None
+    assert paths.base.is_dir()
+
+    assert client.delete(f"/agent/runs/{run_id}").json()["deleted"] == run_id
+    assert not paths.base.exists()
+    assert all(r["run_id"] != run_id for r in client.get("/agent/runs").json()["runs"])
+
+
+def test_deleting_an_unknown_run_is_a_404(client: TestClient) -> None:
+    assert client.delete("/agent/runs/deadbeef").status_code == 404
+
+
+def test_a_run_in_flight_is_not_deleted_from_under_its_worker(client: TestClient) -> None:
+    import api.agent_routes as routes
+
+    run_id = _upload(client)["run_id"]
+    channel = routes._channel(run_id)
+    channel.claimed = True
+
+    response = client.delete(f"/agent/runs/{run_id}")
+    assert response.status_code == 409
+    assert "in flight" in response.json()["detail"]

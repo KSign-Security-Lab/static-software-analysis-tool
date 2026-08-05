@@ -228,6 +228,9 @@ def test_mcp_server_exposes_the_expected_tools() -> None:
         "find_callers",
         "find_callees",
         "find_definition",
+        "graph_neighbours",
+        "graph_path",
+        "graph_subsystem",
         "run_in_sandbox",
     }
 

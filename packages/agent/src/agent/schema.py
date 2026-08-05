@@ -1,14 +1,14 @@
 """The contract between the model, the server and the web page.
 
-Two schemas, kept apart. Model-facing (:class:`ChunkAnalysis`) is what guided
-decoding constrains the LLM to: analysis only. Wire (:class:`Finding`,
-:class:`Report`) adds what the server owns -- the id, the resolved span, the
-excerpt read from disk, the verification state.
+Two schemas, kept apart. Model-facing (:class:`ChunkAnalysis`, :class:`Triage`,
+:class:`Verdict`) is what guided decoding constrains the LLM to: analysis only.
+Wire (:class:`Finding`, :class:`Report`) adds what the server owns -- the id, the
+resolved span, the excerpt read from disk, the verification state.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
 
@@ -85,6 +85,33 @@ class Verdict(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence that the finding is real.")
 
 
+#: The specialists. One generalist prompt asked to hold every vulnerability
+#: class in mind at once skims all of them; four narrow ones, run concurrently,
+#: each have room to be thorough about their own.
+Lens = Literal["memory", "injection", "access", "logic"]
+
+LENSES: tuple[Lens, ...] = get_args(Lens)
+
+
+class Triage(BaseModel):
+    """The screening pass: is this unit worth a specialist's time, and whose?
+
+    The mirror of :class:`Verdict`, and deliberately so. Verification defaults
+    against the finding because a false positive wastes a reader's afternoon.
+    Triage defaults *for* the unit, because a false negative here is a
+    vulnerability nobody ever hears about.
+    """
+
+    worth_analysing: bool = Field(
+        description="True unless this unit plainly cannot contain a vulnerability. When in doubt, true."
+    )
+    lenses: list[Lens] = Field(
+        default_factory=list,
+        description="Which specialists should look at it. Empty means all of them.",
+    )
+    reason: str = Field(default="", description="One sentence. What made this worth a look, or not.")
+
+
 # --------------------------------------------------------------------------
 # Wire: what the web consumes.
 # --------------------------------------------------------------------------
@@ -147,6 +174,8 @@ class RunStats(BaseModel):
     chunks_total: int = 0
     chunks_inspected: int = 0
     chunks_cached: int = 0
+    #: Screened out before any specialist looked at them.
+    triaged_out: int = 0
     candidates: int = 0
     dropped_unlocatable: int = 0
     refuted: int = 0
