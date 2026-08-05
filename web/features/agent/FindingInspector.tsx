@@ -1,9 +1,11 @@
 "use client";
 
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Waypoints } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { PanelShell } from "@/components/workbench/PanelShell";
+import { neighbours } from "@/lib/api/knowledge";
+import type { KnowledgeGraph } from "@/lib/api/types";
 import { ROLE_LABEL, SEVERITY_LABEL, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
@@ -26,9 +28,11 @@ const ROLE_TONE: Record<string, string> = {
 /** Why this is a finding, and where the evidence for it sits. */
 export default function FindingInspector({
   finding,
+  knowledge,
   onNavigate,
 }: {
   finding: UiFinding | null;
+  knowledge?: KnowledgeGraph;
   onNavigate: (file: string, line: number) => void;
 }) {
   if (!finding) {
@@ -42,6 +46,12 @@ export default function FindingInspector({
   }
 
   const confidence = Math.round(finding.confidence * 100);
+
+  // The callers and callees of the unit this sits in. Computed here because
+  // the whole graph is already in the cache -- the server can do it, but does
+  // not expose it over HTTP, and a breadth-first walk beats a round trip per
+  // selected finding.
+  const related = knowledge && finding.chunkId ? neighbours(knowledge, finding.chunkId, 1) : [];
 
   return (
     <PanelShell title="인스펙터" note={finding.cwe ?? undefined}>
@@ -114,6 +124,29 @@ export default function FindingInspector({
                 </li>
               ))}
             </ol>
+          </section>
+        )}
+
+        {related.length > 0 && (
+          <section className="space-y-1.5">
+            <h4 className="flex items-center gap-1 text-2xs font-semibold tracking-wide text-ink-faint uppercase">
+              <Waypoints className="size-3" />
+              관련 코드
+            </h4>
+            <ul className="flex flex-wrap gap-1">
+              {related.slice(0, 12).map((node) => (
+                <li key={node.id}>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(node.file, node.attrs?.start_line ?? 0)}
+                    className="rounded-sm border border-line px-1.5 py-0.5 font-mono text-2xs text-ink-muted transition-colors hover:border-line-3 hover:text-ink"
+                    title={`${node.file}${node.attrs ? `:${node.attrs.start_line}` : ""}`}
+                  >
+                    {node.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 

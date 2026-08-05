@@ -47,6 +47,15 @@ export interface Evidence {
 export interface UiFinding {
   id: string;
   engine: Engine;
+  /**
+   * The unit this was found in, for the agent engine.
+   *
+   * Carried because it is the join to the knowledge graph: a node's id *is* a
+   * chunk id, which is what lets the structure map be painted with severity
+   * rather than being a picture beside the findings. The structural engine has
+   * no equivalent, so it is null there.
+   */
+  chunkId: string | null;
   severity: Severity;
   title: string;
   cwe: string | null;
@@ -106,6 +115,7 @@ export function fromF2A(result: F2AResult | null | undefined, file: string): UiF
       return {
         id: `f2a:${d.id}`,
         engine: "structural" as const,
+        chunkId: null,
         severity: severityFromConfidence(d.confidence),
         title: d.title,
         cwe: d.cwe[0] ?? null,
@@ -125,6 +135,7 @@ export function fromAgent(findings: AgentFinding[] | null | undefined): UiFindin
   return (findings ?? []).map((f) => ({
     id: `agent:${f.id}`,
     engine: "agent" as const,
+    chunkId: f.chunk_id,
     severity: f.severity as Severity,
     title: f.title,
     cwe: f.cwe ?? null,
@@ -179,6 +190,26 @@ export function countByFile(findings: UiFinding[]): Map<string, FileCount> {
       current.worst = f.severity;
     }
     counts.set(f.primary.file, current);
+  }
+  return counts;
+}
+
+/**
+ * The same tally, keyed by unit rather than file.
+ *
+ * What paints the structure map: node ids are chunk ids, so this joins
+ * straight onto them.
+ */
+export function countByChunk(findings: UiFinding[]): Map<string, FileCount> {
+  const counts = new Map<string, FileCount>();
+  for (const f of findings) {
+    if (!f.chunkId) continue;
+    const current = counts.get(f.chunkId) ?? { total: 0, worst: null };
+    current.total += 1;
+    if (current.worst === null || SEVERITY_ORDER[f.severity] < SEVERITY_ORDER[current.worst]) {
+      current.worst = f.severity;
+    }
+    counts.set(f.chunkId, current);
   }
   return counts;
 }

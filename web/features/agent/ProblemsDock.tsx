@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 
 import DockTabs from "@/components/workbench/DockTabs";
-import { Placeholder } from "@/components/workbench/PanelShell";
+import KnowledgePanel from "@/features/knowledge/KnowledgePanel";
 import { fromAgent } from "@/lib/model/finding";
 import { useFindings } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
@@ -50,7 +50,7 @@ export default function ProblemsDock() {
         {
           id: "graph",
           label: "구조 지도",
-          content: <Placeholder what="코드의 지식 그래프가 여기 들어갑니다." />,
+          content: <KnowledgePanel />,
         },
       ]}
     />

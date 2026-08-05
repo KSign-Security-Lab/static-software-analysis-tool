@@ -146,12 +146,38 @@ try {
   await sleep(wait);
 
   if (click) {
-    const { result } = await call("Runtime.evaluate", {
-      expression: `(() => { const el = document.querySelector(${JSON.stringify(click)}); if (!el) return "no match"; el.click(); return "clicked"; })()`,
-      returnByValue: true,
-    });
-    console.log(`click ${click}: ${result.value}`);
-    await sleep(1500);
+    // `text=…` matches on visible text. Radix does not put its `value` in an
+    // attribute, so a tab is not addressable by CSS -- and matching what the
+    // user would actually read is the more honest target anyway.
+    const finder = click.startsWith("text=")
+      ? `[...document.querySelectorAll("button, a, [role=tab], [role=button], [role=menuitem]")]
+           .find((e) => (e.textContent || "").trim().includes(${JSON.stringify(click.slice(5))}))`
+      : `document.querySelector(${JSON.stringify(click)})`;
+
+    // Returns the centre point, so the caller can aim a real pointer at it.
+    const expression = `(() => {
+      const el = ${finder};
+      if (!el) return "no match";
+      el.scrollIntoView({ block: "center" });
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return "not visible";
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    })()`;
+
+    const { result } = await call("Runtime.evaluate", { expression, returnByValue: true });
+    if (typeof result.value === "string") {
+      console.log(`click ${click}: ${result.value}`);
+    } else if (result.value) {
+      // A real pointer, not element.click(). Radix activates a tab on
+      // mousedown and focus; a synthetic click event alone does nothing, which
+      // looks exactly like a broken app when it is a broken test.
+      const { x, y } = result.value;
+      for (const type of ["mousePressed", "mouseReleased"]) {
+        await call("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+      }
+      console.log(`click ${click}: at ${Math.round(x)},${Math.round(y)}`);
+    }
+    await sleep(2000);
   }
 
   if (evaluate) {
