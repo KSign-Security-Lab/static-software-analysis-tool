@@ -5,15 +5,43 @@
    hand-picked hex ladder went muddy in the middle and two "different" greys
    were indistinguishable on a laptop panel.
 
-   Two themes from one set of names. Components reference roles (`--surface`,
-   `--accent`), never a ramp step, so a theme change is confined to this file.
+   Three layers, and the order matters:
+
+     1. private inputs -- the neutral ramp and the signal hues. Plain custom
+        properties, deliberately NOT `@theme`: nothing should reference a ramp
+        step directly, so none of them needs to become a utility.
+     2. roles, redefined per theme. Also plain CSS, because their values change
+        with `data-theme` and `@theme` is for things that do not move.
+     3. `@theme inline`, mapping those roles into Tailwind's namespace -- once
+        for SSAT's own vocabulary (`bg-surface`, `text-ink-muted`) and once for
+        the token contract vendored shadcn components expect (`bg-muted`,
+        `border-input`). Both point at the same roles, so there is one palette.
+
+   `inline` is load-bearing in layer 3. Plain `@theme` would emit
+   `:root { --color-surface: var(--surface) }`, and custom-property
+   substitution happens where the property is *declared* -- so it would resolve
+   once against the root and inherit that fixed value, and a nested
+   `[data-theme="light"]` subtree would not change. `inline` compiles
+   `bg-surface` straight to `var(--surface)`, resolved at the element.
 
    The accent is teal rather than the previous blue: blue was also the
    information colour, so an interactive element and a neutral status looked
-   the same. Danger/warn/ok now sit far apart in hue *and* lightness, which is
-   what makes them separable without relying on colour alone.
+   the same. Danger/warn/ok sit far apart in hue *and* lightness, which is what
+   makes them separable without relying on colour alone.
    ========================================================================== */
 
+/* Tailwind's `dark:` variant defaults to prefers-color-scheme, shadcn's stock
+   setup keys off a `.dark` class, and this app has always used an attribute.
+   Three mechanisms, reduced to the one next-themes writes.
+
+   Two branches, not one: shadcn ships `&:is(.dark *)`, which matches only
+   descendants and so misses <html> itself. `:where()` keeps the variant at
+   specificity 0 so it can never outrank a plain utility. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------------------------------------------------------------------------
+   1. Private inputs
+   ------------------------------------------------------------------------ */
 :root {
   /* ---- neutral ramp (slightly cool, so code reads as the warm thing) ---- */
   --n-0: oklch(99% 0.002 240);
@@ -47,32 +75,7 @@
   --green-400: oklch(78% 0.15 155);
   --green-500: oklch(66% 0.15 155);
 
-  /* ---- type ------------------------------------------------------------- */
-  --font-sans:
-    "Inter var", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR",
-    "Apple SD Gothic Neo", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
-
-  --text-2xs: 0.6875rem; /* 11px  — dense metadata */
-  --text-xs: 0.75rem; /*  12px — labels, chips */
-  --text-sm: 0.8125rem; /* 13px — body default */
-  --text-md: 0.9375rem; /* 15px — headings in panels */
-  --text-lg: 1.125rem; /*  18px — page titles */
-
-  /* ---- space: a 4px grid, named by use not by number -------------------- */
-  --gap-1: 4px;
-  --gap-2: 8px;
-  --gap-3: 12px;
-  --gap-4: 16px;
-  --gap-5: 24px;
-  --gap-6: 32px;
-
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-full: 999px;
-
+  /* ---- motion and layout, still read by the sheets being replaced ------- */
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --fast: 120ms;
   --slow: 240ms;
@@ -80,7 +83,68 @@
   --rail: 248px; /* file rail */
   --aside: 392px; /* findings rail */
   --bar: 44px; /* nav + toolbar height */
+
+  /* A 4px grid, named by use not by number. Superseded by Tailwind's
+     `--spacing` below for new work; kept while the legacy sheets read it.
+     The mapping is NOT 1:1 -- `--gap-5` is `gap-6` and `--gap-6` is `gap-8`,
+     because Tailwind counts 4px steps and this counts positions. */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+  --gap-6: 32px;
+
+  /* Likewise: the `--radius-*` scale below is the one new code uses. */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
 }
+
+/* ---------------------------------------------------------------------------
+   1b. Scales that should become utilities
+   ------------------------------------------------------------------------ */
+@theme {
+  /* Reset Tailwind's own scale first. Without this its defaults survive
+     alongside ours and the type scale quietly grows to twelve steps with two
+     different ideas of what "small" means. Every name a vendored component
+     might reach for is redefined below, in our sizes. */
+  --text-*: initial;
+  --text-2xs: 0.6875rem; /* 11px — dense metadata */
+  --text-xs: 0.75rem; /*    12px — labels, chips */
+  --text-sm: 0.8125rem; /*  13px — body default */
+  --text-base: 0.875rem; /* 14px */
+  --text-md: 0.9375rem; /*  15px — headings in panels */
+  --text-lg: 1.125rem; /*   18px — page titles */
+  --text-xl: 1.375rem; /*   22px */
+  --text-2xl: 1.75rem; /*   28px */
+
+  --radius-*: initial;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 999px;
+
+  /* 4px grid: `p-1` is 4px, `gap-4` is 16px. */
+  --spacing: 4px;
+
+  --font-sans:
+    "Inter var", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR",
+    "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+@theme inline {
+  --ease-ssat: var(--ease);
+}
+
+/* ---------------------------------------------------------------------------
+   2. Roles, per theme
+   ------------------------------------------------------------------------ */
 
 /* ---- dark (default) ------------------------------------------------------ */
 :root,
@@ -168,72 +232,180 @@
   --sev-info: var(--n-400);
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+/* ---------------------------------------------------------------------------
+   3. Roles -> Tailwind namespace
+   ------------------------------------------------------------------------ */
+@theme inline {
+  /* ---- SSAT's own vocabulary ------------------------------------------- */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-field: var(--field);
+
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-line-3: var(--line-3);
+
+  --color-ink: var(--ink);
+  --color-ink-strong: var(--ink-strong);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-wash: var(--accent-wash);
+
+  --color-alt: var(--alt);
+  --color-alt-wash: var(--alt-wash);
+
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+  --color-warn: var(--warn);
+  --color-warn-wash: var(--warn-wash);
+  --color-ok: var(--ok);
+  --color-ok-wash: var(--ok-wash);
+
+  --color-sev-critical: var(--sev-critical);
+  --color-sev-high: var(--sev-high);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-low: var(--sev-low);
+  --color-sev-info: var(--sev-info);
+
+  /* Named apart from the `--shadow-1`/`--shadow-2` roles on purpose. Tailwind
+     keeps any theme key that plain CSS also references, so `--shadow-1:
+     var(--shadow-1)` would be emitted as a tautology -- harmless only for as
+     long as the role stays unlayered and outranks it. Distinct names, and the
+     utilities say what they are for. */
+  --shadow-pane: var(--shadow-1);
+  --shadow-pop: var(--shadow-2);
+
+  /* ---- the contract vendored shadcn components expect -------------------
+     Deliberately NOT shadcn's raw `:root { --background; --muted; ... }`
+     block. Three of those names already exist here meaning something else --
+     `--muted` is a foreground, `--input` is a fill, `--accent` is the brand
+     hue -- and adopting theirs would silently repaint every legacy rule that
+     reads them.
+
+     It works because shadcn components reference *utilities* (`bg-muted`,
+     `border-input`), which resolve through `--color-*`. `--color-muted` and
+     `--muted` are different variables, so both vocabularies coexist over one
+     palette.
+
+     Read these three carefully; they are the traps:
+       --color-accent  is the grey a menu item goes on HOVER, not the brand.
+                       For the brand, use `text-accent-ink` / `bg-accent-wash`
+                       / `bg-accent-solid`.
+       --color-muted   is a BACKGROUND; its text is --color-muted-foreground.
+       --color-input   is a BORDER, so it maps to --line-2, not --field. The
+                       field fill is reachable as `bg-field`. */
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface-2);
+  --color-popover-foreground: var(--ink);
+
+  --color-primary: var(--accent-solid);
+  --color-primary-foreground: var(--n-0);
+  --color-secondary: var(--surface-3);
+  --color-secondary-foreground: var(--ink);
+
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--ink-muted);
+  --color-accent: var(--surface-3);
+  --color-accent-foreground: var(--ink-strong);
+
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--n-0);
+
+  --color-border: var(--line-2);
+  --color-input: var(--line-2);
+  --color-ring: var(--accent);
 }
 
-html,
-body {
-  height: 100%;
-  margin: 0;
+/* shadcn interpolates this one directly rather than through a utility. */
+:root {
+  --radius: var(--radius-md);
 }
 
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
-}
-
-::selection {
-  background: var(--accent-wash);
-  color: var(--ink-strong);
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-radius: var(--r-xs);
-}
-
-/* Scrollbars, so panes do not each look like a different application. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-3) transparent;
-}
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--line-2);
-  border: 3px solid transparent;
-  background-clip: content-box;
-  border-radius: var(--r-full);
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--line-3);
-  background-clip: content-box;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
-
-@media (prefers-reduced-motion: reduce) {
+/* ---------------------------------------------------------------------------
+   Base
+   ---------------------------------------------------------------------------
+   In `@layer base` so utilities outrank them. Unlayered, `button { font:
+   inherit }` beats `.text-sm` outright -- layer order is consulted before
+   specificity -- and every vendored component that sets its own type would
+   silently inherit instead.
+   ------------------------------------------------------------------------ */
+@layer base {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--accent-wash);
+    color: var(--ink-strong);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: var(--radius-xs);
+  }
+
+  /* Scrollbars, so panes do not each look like a different application. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-3) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--line-2);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-full);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--line-3);
+    background-clip: content-box;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -243,7 +415,10 @@ textarea {
    The graph explorer, the F2-A report and the decision cards were written
    against the previous token names. Aliasing them onto the new roles re-skins
    all of it from here instead of touching several hundred rules, and keeps one
-   palette rather than two drifting ones. New code uses the names above.
+   palette rather than two drifting ones.
+
+   Deleted together with globals.css and studio.css, in the commit that turns
+   preflight on. Nothing new may read these.
    -------------------------------------------------------------------------- */
 :root,
 [data-theme="dark"],

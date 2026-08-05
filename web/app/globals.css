@@ -7,16 +7,19 @@
  * once. It gets turned on in the commit that deletes the last of them --
  * `@import "tailwindcss/preflight.css" layer(base);` goes between these two.
  *
- * Note the layer ordering above is what makes this safe in the meantime:
- * unlayered rules beat layered ones outright, so the legacy sheets keep
- * winning on the elements they already style, and utilities only have to
- * agree with each other on new markup. */
+ * Both legacy sheets go into `components` so utilities still outrank them.
+ * Left unlayered they would win outright -- layer order is consulted before
+ * specificity -- and `select { appearance: none }`, `a { color: ... }` and
+ * `:focus-visible { outline: ... }` below would fight every vendored
+ * component. Ordering inside the layer is source order, so the legacy rules
+ * keep beating each other exactly as they do today. */
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
 @import "./theme.css";
-@import "./studio.css";
+@import "./studio.css" layer(components);
 
+@layer components {
 
 * { box-sizing: border-box; }
 
@@ -582,6 +585,10 @@ table.checks tr:last-child td { border-bottom: none; }
 .rail-label { line-height: 1.1; }
 .rail-spacer { flex: 1; }
 .rail-toggle { font-size: 15px; }
+/* The glyph follows the attribute, not React state: no mounted flag, and
+   nothing for hydration to disagree about. */
+[data-theme="dark"] .rail-glyph-light,
+[data-theme="light"] .rail-glyph-dark { display: none; }
 
 .section-head { display: flex; align-items: center; gap: var(--gap-3); flex-wrap: wrap; min-height: 52px; padding: var(--gap-2) var(--gap-4); background: var(--surface); border-bottom: 1px solid var(--line); }
 .section-id { display: flex; align-items: baseline; gap: var(--gap-2); }
@@ -595,3 +602,5 @@ table.checks tr:last-child td { border-bottom: none; }
 .ws-pane-title { justify-content: space-between; }
 .ws-pane-action { padding: 2px 7px; border: 0; border-radius: var(--r-xs); background: transparent; color: var(--ink-faint); font-size: 10px; font-weight: 600; letter-spacing: 0; text-transform: none; cursor: pointer; }
 .ws-pane-action:hover { background: var(--danger-wash); color: var(--danger); }
+
+}

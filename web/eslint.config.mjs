@@ -16,7 +16,6 @@ const REPLACED_BY_THE_WORKBENCH_REWRITE = [
   "app/agent/studio/page.tsx",
   "components/GraphExplorer.tsx",
   "components/PipelineExplorer.tsx",
-  "components/shell/SectionRail.tsx",
   "components/studio/SpanDetail.tsx",
   "components/studio/StepCard.tsx",
   "components/workspace/CodeCanvas.tsx",

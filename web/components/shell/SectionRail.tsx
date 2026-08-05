@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 
 /**
  * Three sections, down the side.
@@ -53,24 +53,16 @@ const SECTIONS = [
   },
 ];
 
-type Theme = "dark" | "light";
-
 export default function SectionRail() {
   const pathname = usePathname();
-  const [theme, setTheme] = useState<Theme>("dark");
+  const { setTheme } = useTheme();
 
-  useEffect(() => {
-    const stored = (localStorage.getItem("ssat-theme") as Theme | null) ?? "dark";
-    setTheme(stored);
-    document.documentElement.dataset.theme = stored;
-  }, []);
-
-  const toggle = () => {
-    const next: Theme = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem("ssat-theme", next);
-  };
+  // Read the live attribute rather than next-themes' `theme`, which is
+  // undefined until it mounts. That avoids the usual mounted-flag dance --
+  // and the effect-then-setState it needs, which is the pattern this rewrite
+  // is removing. The glyph swaps in CSS off the same attribute, so there is no
+  // hydration mismatch to suppress either.
+  const toggle = () => setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
 
   return (
     <nav className="rail" aria-label="섹션">
@@ -94,7 +86,12 @@ export default function SectionRail() {
 
       <span className="rail-spacer" />
       <button type="button" className="rail-item rail-toggle" onClick={toggle} aria-label="테마 전환">
-        <span aria-hidden>{theme === "dark" ? "◐" : "◑"}</span>
+        <span aria-hidden className="rail-glyph-dark">
+          ◐
+        </span>
+        <span aria-hidden className="rail-glyph-light">
+          ◑
+        </span>
       </button>
     </nav>
   );
