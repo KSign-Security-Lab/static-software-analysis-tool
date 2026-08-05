@@ -1,19 +1,22 @@
 @layer theme, base, components, utilities;
 
-/* Tailwind v4, deliberately without preflight.
+/* Tailwind v4.
  *
- * The two stylesheets below are ~1,470 lines written against bare element
- * selectors and eight class families; preflight would restyle all of it at
- * once. It gets turned on in the commit that deletes the last of them --
- * `@import "tailwindcss/preflight.css" layer(base);` goes between these two.
+ * Preflight is on, which it could not be until the legacy sheets moved into
+ * `components`: from there they outrank anything in `base`, so the reset
+ * cannot reach them. Turning it off instead was the earlier plan, and it cost
+ * two rounds of chasing the same bug -- vendored components rely on preflight,
+ * so without it a <button> fell back to the UA's grey `buttonface` and its 2px
+ * outset border, and every <ul> grew disc bullets.
  *
- * Both legacy sheets go into `components` so utilities still outrank them.
+ * Both legacy sheets go into `components` so utilities still outrank *them*.
  * Left unlayered they would win outright -- layer order is consulted before
  * specificity -- and `select { appearance: none }`, `a { color: ... }` and
  * `:focus-visible { outline: ... }` below would fight every vendored
  * component. Ordering inside the layer is source order, so the legacy rules
- * keep beating each other exactly as they do today. */
+ * keep beating each other exactly as they did. */
 @import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
 
 @import "./theme.css";

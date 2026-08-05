@@ -36,7 +36,14 @@ export default defineConfig({
         test: {
           name: "ui",
           environment: "jsdom",
-          include: ["components/**/*.test.{ts,tsx}", "app/**/*.test.{ts,tsx}"],
+          // `features/` belongs here too. Leaving a directory out does not
+          // fail, it silently runs nothing -- which is how a suite ends up
+          // green while covering less than it did.
+          include: [
+            "components/**/*.test.{ts,tsx}",
+            "features/**/*.test.{ts,tsx}",
+            "app/**/*.test.{ts,tsx}",
+          ],
         },
       },
     ],

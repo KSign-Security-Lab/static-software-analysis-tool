@@ -411,25 +411,9 @@
     color: inherit;
   }
 
-  /* The part of preflight the vendored components actually depend on.
-     Preflight itself stays off until the legacy sheets are gone, but without
-     this a <button> that sets no background of its own gets the UA's
-     `buttonface` -- a flat neutral #efefef in light and #6b6b6b in dark, which
-     is nothing like this palette and is exactly what the accordion and tab
-     triggers were rendering as. Legacy buttons are unaffected: they set their
-     own background, and `components` outranks `base`.
-
-     The border goes with it: a UA button also carries `2px outset
-     buttonborder`, which draws light on the top edge and dark on the bottom
-     and reads as an embossed 3D box against a flat design system. */
-  button,
-  [type="button"],
-  [type="reset"],
-  [type="submit"] {
-    background-color: transparent;
-    background-image: none;
-    border: 0 solid;
-  }
+  /* Preflight now handles the button and list resets these rules used to
+     stand in for; see the note at the top of globals.css. What is left here is
+     only what preflight does not say. */
 
   @media (prefers-reduced-motion: reduce) {
     *,

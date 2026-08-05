@@ -46,6 +46,16 @@ export function deleteRun(runId: string): Promise<{ deleted: string }> {
   return del<{ deleted: string }>(`/agent/runs/${seg(runId)}`);
 }
 
+/**
+ * Every file in the run.
+ *
+ * `RunSummary.files` is at most two names -- a label, not a tree -- so this is
+ * the only way to populate an explorer for a run this tab did not just upload.
+ */
+export function fetchFiles(runId: string, options?: RequestOptions): Promise<{ run_id: string; files: string[] }> {
+  return get<{ run_id: string; files: string[] }>(`/agent/runs/${seg(runId)}/files`, options);
+}
+
 export function fetchFile(runId: string, path: string, options?: RequestOptions): Promise<FileContents> {
   return get<FileContents>(`/agent/runs/${seg(runId)}/file?path=${encodeURIComponent(path)}`, options);
 }
