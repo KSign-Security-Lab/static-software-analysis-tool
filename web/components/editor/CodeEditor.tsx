@@ -5,7 +5,9 @@ import type * as Monaco from "monaco-editor";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { applyMarkers, evidenceDecorations } from "./markers";
-import { setupMonaco } from "./monaco-setup";
+// Imported for its side effect: it configures the loader at module time,
+// which is the only point early enough. See monaco-setup.ts.
+import "./monaco-setup";
 import { followTheme } from "./theme";
 import type { UiFinding } from "@/lib/model/finding";
 
@@ -125,7 +127,6 @@ export default function CodeEditor({
       language={language}
       onChange={(next) => onChange?.(next ?? "")}
       onMount={onMount}
-      beforeMount={setupMonaco}
       loading={<p className="p-4 text-sm text-ink-faint">편집기를 불러오는 중…</p>}
       options={{
         readOnly,

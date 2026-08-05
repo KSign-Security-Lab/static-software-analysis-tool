@@ -4,7 +4,9 @@ import { DiffEditor } from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
 import type * as Monaco from "monaco-editor";
 
-import { setupMonaco } from "./monaco-setup";
+// Imported for its side effect: it configures the loader at module time,
+// which is the only point early enough. See monaco-setup.ts.
+import "./monaco-setup";
 import { followTheme } from "./theme";
 
 /**
@@ -36,7 +38,6 @@ export default function DiffView({
       original={original}
       modified={modified}
       language={language}
-      beforeMount={setupMonaco}
       onMount={(_editor, monaco) => {
         monacoRef.current = monaco;
         setReady(true);
