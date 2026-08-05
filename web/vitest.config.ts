@@ -10,7 +10,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["lib/**/*.test.ts", "components/**/*.test.tsx"],
+    // Both extensions in both places: a component's pure helpers are worth
+    // testing without dragging in JSX, and the old pattern silently skipped
+    // any such file rather than failing.
+    include: ["lib/**/*.test.{ts,tsx}", "components/**/*.test.{ts,tsx}"],
   },
   // App tsconfig uses jsx:"preserve" (Next compiles it); compile JSX to the
   // automatic runtime for the vitest (rolldown/oxc) transform instead.

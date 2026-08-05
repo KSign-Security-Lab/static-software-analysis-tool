@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import SectionHeader from "@/components/shell/SectionHeader";
@@ -19,10 +20,11 @@ import {
   type IndexStats,
 } from "@/lib/api/agent";
 import { fromAgent, type UiFinding } from "@/lib/model/finding";
+import { setCurrentRun } from "@/lib/studio/session";
 
 const SECTION_VIEWS = [
   { href: "/agent", label: "검사" },
-  { href: "/agent/traces", label: "실행 기록" },
+  { href: "/agent/studio", label: "트레이스" },
 ];
 
 const STARTER = `#include <stdlib.h>
@@ -44,8 +46,13 @@ void handle(const char *url) {
  * content-derived a re-run only pays for the chunks that changed.
  */
 export default function AgentPage() {
+  const router = useRouter();
   const [health, setHealth] = useState<AgentHealth | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
+
+  // Handed to the trace view, which traces this session's run rather than
+  // every run on the server -- those belong to whoever else is using it.
+  useEffect(() => setCurrentRun(runId), [runId]);
   const [files, setFiles] = useState<string[]>([]);
   const [index, setIndex] = useState<IndexStats | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -202,6 +209,13 @@ export default function AgentPage() {
       return;
     }
 
+    // Straight to the trace, which is already streaming by the time it paints.
+    // The run is now several things at once -- a wave of chunks, four
+    // specialists on each -- and watching that happen is the point of having
+    // built the view. The subscription below stays attached, so coming back
+    // here mid-run still shows the progress bar and the findings as they land.
+    router.push("/agent/studio");
+
     unsubscribe.current?.();
     unsubscribe.current = subscribeToRun(runId, {
       onChunkStarted: ({ total }) => setProgress((p) => ({ ...p, total: total || p.total })),
@@ -229,7 +243,7 @@ export default function AgentPage() {
         setError(message);
       },
     });
-  }, [runId, index, dirty, save]);
+  }, [runId, index, dirty, save, router]);
 
   // Ctrl/Cmd-S: an editor that only saves from a button is annoying.
   useEffect(() => {
@@ -267,9 +281,9 @@ export default function AgentPage() {
           </span>
         )}
         {runId && (
-          // Watchable while the run is still going: the trace fills in live.
-          <a className="btn btn-ghost" href={`/agent/traces?run=${runId}`}>
-            실행 기록 ↗
+          // Watchable while the run is still going: the studio fills in live.
+          <a className="btn btn-ghost" href={`/agent/studio?run=${runId}`}>
+            트레이스 ↗
           </a>
         )}
         {health && !health.configured && <span className="target-warn">모델 미설정 (AGENT_MODEL)</span>}
