@@ -9,6 +9,7 @@ import BuiltinCommands from "@/components/workbench/BuiltinCommands";
 import CommandPalette from "@/components/workbench/CommandPalette";
 import KeyboardLayer from "@/components/workbench/KeyboardLayer";
 import StatusBar from "@/components/workbench/StatusBar";
+import { CpgSourceProvider } from "@/features/cpg/provider";
 import { RunStreamProvider } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cookieValue, layoutFor, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
@@ -139,76 +140,78 @@ export default function Workbench({ perspective, stored, children, side, dock, i
     // EventSource exists per tab and it survives navigation between
     // perspectives. See lib/run/stream.tsx for why that is load-bearing.
     <RunStreamProvider runId={runId}>
-      <KeyboardLayer />
-      <BuiltinCommands />
-      <CommandPalette />
+      <CpgSourceProvider>
+        <KeyboardLayer />
+        <BuiltinCommands />
+        <CommandPalette />
 
-      <div className="grid h-dvh grid-rows-[1fr_auto] overflow-hidden bg-bg text-ink">
-        <div className="flex min-h-0">
-          <ActivityBar />
+        <div className="grid h-dvh grid-rows-[1fr_auto] overflow-hidden bg-bg text-ink">
+          <div className="flex min-h-0">
+            <ActivityBar />
 
-          <ResizablePanelGroup
-            orientation="horizontal"
-            defaultLayout={initial.h}
-            onLayoutChanged={(sizes) => persist("h", sizes)}
-          >
-            <ResizablePanel
-              id="side"
-              collapsible
-              collapsedSize={SIZE.collapsed}
-              minSize={SIZE.sideMin}
-              maxSize={SIZE.sideMax}
-              panelRef={sidePane.panelRef}
-              onResize={sidePane.onResize}
+            <ResizablePanelGroup
+              orientation="horizontal"
+              defaultLayout={initial.h}
+              onLayoutChanged={(sizes) => persist("h", sizes)}
             >
-              {side}
-            </ResizablePanel>
-
-            <ResizableHandle />
-
-            <ResizablePanel id="main" minSize={SIZE.mainMin}>
-              <ResizablePanelGroup
-                orientation="vertical"
-                defaultLayout={initial.v}
-                onLayoutChanged={(sizes) => persist("v", sizes)}
+              <ResizablePanel
+                id="side"
+                collapsible
+                collapsedSize={SIZE.collapsed}
+                minSize={SIZE.sideMin}
+                maxSize={SIZE.sideMax}
+                panelRef={sidePane.panelRef}
+                onResize={sidePane.onResize}
               >
-                <ResizablePanel id="centre" minSize={SIZE.centreMin}>
-                  {children}
-                </ResizablePanel>
+                {side}
+              </ResizablePanel>
 
-                <ResizableHandle />
+              <ResizableHandle />
 
-                <ResizablePanel
-                  id="dock"
-                  collapsible
-                  collapsedSize={SIZE.collapsed}
-                  minSize={SIZE.dockMin}
-                  panelRef={dockPane.panelRef}
-                  onResize={dockPane.onResize}
+              <ResizablePanel id="main" minSize={SIZE.mainMin}>
+                <ResizablePanelGroup
+                  orientation="vertical"
+                  defaultLayout={initial.v}
+                  onLayoutChanged={(sizes) => persist("v", sizes)}
                 >
-                  {dock}
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
+                  <ResizablePanel id="centre" minSize={SIZE.centreMin}>
+                    {children}
+                  </ResizablePanel>
 
-            <ResizableHandle />
+                  <ResizableHandle />
 
-            <ResizablePanel
-              id="inspector"
-              collapsible
-              collapsedSize={SIZE.collapsed}
-              minSize={SIZE.inspectorMin}
-              maxSize={SIZE.inspectorMax}
-              panelRef={inspectorPane.panelRef}
-              onResize={inspectorPane.onResize}
-            >
-              {inspector}
-            </ResizablePanel>
-          </ResizablePanelGroup>
+                  <ResizablePanel
+                    id="dock"
+                    collapsible
+                    collapsedSize={SIZE.collapsed}
+                    minSize={SIZE.dockMin}
+                    panelRef={dockPane.panelRef}
+                    onResize={dockPane.onResize}
+                  >
+                    {dock}
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              </ResizablePanel>
+
+              <ResizableHandle />
+
+              <ResizablePanel
+                id="inspector"
+                collapsible
+                collapsedSize={SIZE.collapsed}
+                minSize={SIZE.inspectorMin}
+                maxSize={SIZE.inspectorMax}
+                panelRef={inspectorPane.panelRef}
+                onResize={inspectorPane.onResize}
+              >
+                {inspector}
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+
+          <StatusBar />
         </div>
-
-        <StatusBar />
-      </div>
+      </CpgSourceProvider>
     </RunStreamProvider>
   );
 }
