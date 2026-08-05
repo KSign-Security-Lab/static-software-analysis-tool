@@ -2,6 +2,7 @@
   "name": "ssat-web",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "SSAT web UI — CPG views, SSAT pipeline artifacts, and F2-A evidence",
   "scripts": {
     "dev": "next dev -p 3000",
@@ -9,25 +10,35 @@
     "start": "next start -p 3000",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "licenses": "node scripts/licenses.mjs",
+    "licenses:notices": "node scripts/licenses.mjs --write-notices",
+    "licenses:check": "node scripts/licenses.mjs --check-notices"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@xyflow/react": "^12.3.5",
     "dagre": "^0.8.5",
     "monaco-editor": "^0.56.0",
-    "next": "15.5.2",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "next": "^16.3.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
     "@types/dagre": "^0.7.52",
-    "@types/node": "^20",
+    "@types/node": "^22.20.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.5.2",
-    "typescript": "^5",
+    "eslint-config-next": "^16.3.0",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }
 }

@@ -1,0 +1,69 @@
+{
+  "$comment": [
+    "Policy for scripts/licenses.mjs. Three tiers, because the obligations differ:",
+    "  production (!dev, !optional) ships in the bundle      -> must satisfy `allow`",
+    "  dev                          is a build tool          -> only `denyAlways` applies",
+    "  optional                     is a platform binary     -> `allow`, or a named exception",
+    "A build tool's licence does not attach to its output, which is why the dev tier",
+    "is looser. Anything not covered by a tier rule fails closed."
+  ],
+
+  "allow": [
+    "0BSD",
+    "Apache-2.0",
+    "BlueOak-1.0.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "OFL-1.1",
+    "Python-2.0",
+    "Unlicense"
+  ],
+
+  "denyAlways": [
+    "AGPL-1.0",
+    "AGPL-1.0-only",
+    "AGPL-1.0-or-later",
+    "AGPL-3.0",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "BUSL-1.1",
+    "CC-BY-NC-4.0",
+    "CC-BY-NC-SA-4.0",
+    "CC-BY-SA-4.0",
+    "Elastic-2.0",
+    "SSPL-1.0",
+    "UNLICENSED"
+  ],
+
+  "exceptions": {
+    "@img/sharp-libvips-linux-x64@1.3.2": {
+      "license": "LGPL-3.0-or-later",
+      "reason": "Prebuilt libvips binary, an optional dependency of sharp, itself an optional dependency of next, present only for the next/image optimizer. This app imports next/image zero times and next.config.ts sets images.unoptimized, so it is never loaded. Unmodified, dynamically linked by sharp, not statically linked into our code; LGPL-3.0 s4/s5 are satisfied by shipping the licence text and pointing at upstream source. Cannot be excluded at install time: --omit=optional would also drop @next/swc-*, @rolldown/binding-* and @unrs/resolver-binding-*, which the build genuinely needs.",
+      "platformConditional": true,
+      "reviewedBy": "unassigned",
+      "reviewedOn": "2026-08-05",
+      "expires": "2027-08-05"
+    },
+    "@img/sharp-libvips-linuxmusl-x64@1.3.2": {
+      "license": "LGPL-3.0-or-later",
+      "reason": "As @img/sharp-libvips-linux-x64 above; the musl build of the same binary.",
+      "platformConditional": true,
+      "reviewedBy": "unassigned",
+      "reviewedOn": "2026-08-05",
+      "expires": "2027-08-05"
+    },
+    "@img/sharp-wasm32@0.35.3": {
+      "license": "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
+      "reason": "sharp's wasm fallback, carrying the same libvips as the native binaries. npm leaves it in the tree as extraneous even after a clean `npm ci`, because it is an optional dependency for a platform we are not on; the gate treats anything undeclared as production, which is how this surfaced at all. Same standing as the two libvips entries above: never loaded (next/image is unused and images.unoptimized is set), unmodified, and the conjunction is only unallowed because of the LGPL term.",
+      "platformConditional": true,
+      "reviewedBy": "unassigned",
+      "reviewedOn": "2026-08-05",
+      "expires": "2027-08-05"
+    }
+  }
+}

@@ -1,3 +1,19 @@
+@layer theme, base, components, utilities;
+
+/* Tailwind v4, deliberately without preflight.
+ *
+ * The two stylesheets below are ~1,470 lines written against bare element
+ * selectors and eight class families; preflight would restyle all of it at
+ * once. It gets turned on in the commit that deletes the last of them --
+ * `@import "tailwindcss/preflight.css" layer(base);` goes between these two.
+ *
+ * Note the layer ordering above is what makes this safe in the meantime:
+ * unlayered rules beat layered ones outright, so the legacy sheets keep
+ * winning on the elements they already style, and utilities only have to
+ * agree with each other on new markup. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
 @import "./theme.css";
 @import "./studio.css";
 

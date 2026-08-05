@@ -6,6 +6,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // This app renders code, graphs and findings -- it has no bitmap assets and
+  // imports next/image nowhere. Turning the optimizer off means sharp, and the
+  // LGPL libvips binary underneath it, is never loaded. (It cannot be dropped
+  // at install time: it is an optional dependency of next, and --omit=optional
+  // would take @next/swc-* with it. See web/licenses.config.json.)
+  images: { unoptimized: true },
   // Keep the dev-only indicator out of the sidebar's bottom-left corner.
   devIndicators: { position: "bottom-right" },
   // This app is self-contained; pin the tracing root so the repo-root

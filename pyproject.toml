@@ -67,7 +67,7 @@ testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/t
 # Install the Python workspace and the web dependencies
 setup = "uv sync && cd web && npm install"
 # Everything CI runs: lint, format, types, Python tests, web checks
-check = ".venv/bin/ruff check && .venv/bin/ruff format --check && .venv/bin/mypy && .venv/bin/python -m pytest -q && cd web && npm run --silent type-check && npm run --silent lint && npm run --silent test"
+check = ".venv/bin/ruff check && .venv/bin/ruff format --check && .venv/bin/mypy && .venv/bin/python -m pytest -q && cd web && npm run --silent type-check && npm run --silent lint && npm run --silent test && npm run --silent licenses && npm run --silent licenses:check"
 # Python tests
 test = ".venv/bin/python -m pytest -q"
 # ruff check plus a format check, no writes
