@@ -1,14 +1,17 @@
-import { describe, it, expect } from "vitest";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import ResultCard from "@/components/ResultCard";
-import DecisionView from "@/components/DecisionView";
+import { describe, expect, it } from "vitest";
+
 import { buildDecisions } from "@/lib/decision";
 import type { F2AResult, HandlerResolution } from "@/lib/types";
 
-// createElement (not JSX) so the test file needs no JSX transform; the imported
-// .tsx components still exercise the real render path.
-const h = createElement;
+/**
+ * The F2-A result model, as `lib/decision.ts` builds it.
+ *
+ * These moved out of components/ResultCard.test.tsx when that component was
+ * replaced. They were never really about the rendering: they assert that a
+ * pipeline status becomes an analysis-specific verdict, and that a
+ * resolution's evidence records become a numbered trace -- the translation the
+ * whole F2-A surface depends on, which no longer has a component to hide in.
+ */
 
 const resolutions: HandlerResolution[] = [
   {
@@ -162,66 +165,5 @@ describe("buildDecisions (handler resolutions → common result model)", () => {
     // UNRESOLVED has no candidate → no trace
     const unresolved = decisions[3];
     expect(unresolved.trace.length).toBe(0);
-  });
-});
-
-describe("ResultCard (handler decision)", () => {
-  const decisions = buildDecisions(baseResult({ handler_resolutions: resolutions }));
-
-  it("leads with the conclusion, then the registrar chain and friendly detail", () => {
-    const html = renderToStaticMarkup(h(ResultCard, { d: decisions[0], source: "" }));
-    expect(html).toContain("핸들러 확인"); // verdict badge (analysis-specific)
-    expect(html).toContain("핸들러를 확인했습니다"); // conclusion headline
-    expect(html).toContain("RemoteStartTransaction"); // action as eyebrow
-    expect(html).toContain("판정 근거"); // trace section label
-    expect(html).toContain("등록 함수 호출"); // koRecordType(DISPATCH_REGISTRAR_CALL)
-    expect(html).toContain("store_handler(0, action, callback)");
-    expect(html).toContain("remote_handler");
-    // implementation terms rendered user-friendly, raw term kept in the tooltip
-    expect(html).toContain("식별자 정확 일치"); // koMatchStrength(EXACT_IDENTIFIER)
-    expect(html).toContain('title="EXACT_IDENTIFIER"'); // raw term available on hover
-  });
-
-  it("renders each AMBIGUOUS candidate's paired field-store trail separately", () => {
-    const a = renderToStaticMarkup(h(ResultCard, { d: decisions[1], source: "" }));
-    expect(a).toContain("복수 후보");
-    expect(a).toContain("핸들러 후보가 여러 개입니다");
-    expect(a).toContain("액션 저장"); // koRecordType(ACTION_STORE)
-    expect(a).toContain("table_a[0].action = ACTION_DATA_TRANSFER");
-    expect(a).toContain("슬롯"); // koRecordType(SLOT)
-    expect(a).toContain("handle_a");
-    const b = renderToStaticMarkup(h(ResultCard, { d: decisions[2], source: "" }));
-    expect(b).toContain("table_b[0].action = ACTION_DATA_TRANSFER");
-    expect(b).toContain("handle_b");
-  });
-
-  it("renders 판정 불가 with a plain-language reason and no trace", () => {
-    const html = renderToStaticMarkup(h(ResultCard, { d: decisions[3], source: "" }));
-    expect(html).toContain("판정 불가"); // verdict badge
-    expect(html).toContain("핸들러를 확정하지 못했습니다"); // conclusion headline
-    expect(html).toContain("근거 없음"); // koReason(NO_EVIDENCE)
-    expect(html).toContain("NO_EVIDENCE"); // raw code still shown for auditability
-    expect(html).not.toContain("판정 근거"); // no trace section
-  });
-});
-
-describe("DecisionView routing (the default 판단 tab)", () => {
-  it("renders a handler-resolution report when packages are empty but resolutions exist", () => {
-    const html = renderToStaticMarkup(
-      h(DecisionView, { result: baseResult({ handler_resolutions: resolutions }), source: "" }),
-    );
-    // single coherent report: summary line + chip row + first result card
-    expect(html).toContain("액션별 핸들러 분석을 완료했습니다");
-    expect(html).toContain("핸들러 확인 1"); // per-action count
-    expect(html).toContain("판정 불가 1");
-    expect(html).toContain("remote_handler"); // first (RESOLVED) card
-  });
-
-  it("falls back to the no-finding card when there are no resolutions", () => {
-    const html = renderToStaticMarkup(
-      h(DecisionView, { result: baseResult({ handler_resolutions: [] }), source: "" }),
-    );
-    expect(html).toContain("발견 없음");
-    expect(html).not.toContain("액션별 핸들러 분석을 완료했습니다");
   });
 });

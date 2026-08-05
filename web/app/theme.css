@@ -75,32 +75,14 @@
   --green-400: oklch(78% 0.15 155);
   --green-500: oklch(66% 0.15 155);
 
-  /* ---- motion and layout, still read by the sheets being replaced ------- */
+  /* ---- motion -----------------------------------------------------------
+     The `--gap-*`, `--r-*`, `--rail`, `--aside` and `--bar` sets that used to
+     live here went with the stylesheets that read them. Spacing and radii are
+     Tailwind's `--spacing` / `--radius-*` now, and panel sizes belong to the
+     panel group, which measures rather than being told. */
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --fast: 120ms;
   --slow: 240ms;
-
-  --rail: 248px; /* file rail */
-  --aside: 392px; /* findings rail */
-  --bar: 44px; /* nav + toolbar height */
-
-  /* A 4px grid, named by use not by number. Superseded by Tailwind's
-     `--spacing` below for new work; kept while the legacy sheets read it.
-     The mapping is NOT 1:1 -- `--gap-5` is `gap-6` and `--gap-6` is `gap-8`,
-     because Tailwind counts 4px steps and this counts positions. */
-  --gap-1: 4px;
-  --gap-2: 8px;
-  --gap-3: 12px;
-  --gap-4: 16px;
-  --gap-5: 24px;
-  --gap-6: 32px;
-
-  /* Likewise: the `--radius-*` scale below is the one new code uses. */
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-full: 999px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -423,41 +405,4 @@
       transition-duration: 0.01ms !important;
     }
   }
-}
-
-/* ----------------------------------------------------------------------------
-   Legacy aliases.
-
-   The graph explorer, the F2-A report and the decision cards were written
-   against the previous token names. Aliasing them onto the new roles re-skins
-   all of it from here instead of touching several hundred rules, and keeps one
-   palette rather than two drifting ones.
-
-   Deleted together with globals.css and studio.css, in the commit that turns
-   preflight on. Nothing new may read these.
-   -------------------------------------------------------------------------- */
-:root,
-[data-theme="dark"],
-[data-theme="light"] {
-  --fg: var(--ink);
-  --fg-strong: var(--ink-strong);
-  --muted: var(--ink-muted);
-  --faint: var(--ink-faint);
-  --input: var(--field);
-  --line-strong: var(--line-3);
-
-  --accent-2: var(--accent-solid);
-  --accent-weak: var(--accent-wash);
-  --meter: linear-gradient(90deg, var(--accent-solid), var(--accent));
-
-  --good: var(--ok);
-  --good-weak: var(--ok-wash);
-  --warn-weak: var(--warn-wash);
-  --serious: var(--sev-high);
-  --danger-weak: var(--danger-wash);
-
-  --sans: var(--font-sans);
-  --mono: var(--font-mono);
-  --bg-grad: none;
-  --shadow-3: var(--shadow-2);
 }
