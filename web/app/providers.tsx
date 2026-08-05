@@ -3,6 +3,8 @@
 import { ThemeProvider } from "next-themes";
 import type { ReactNode } from "react";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 /**
  * Client providers, mounted once at the root.
  *
@@ -24,7 +26,12 @@ export default function Providers({ children }: { children: ReactNode }) {
       disableTransitionOnChange
       storageKey="ssat-theme"
     >
-      {children}
+      {/* One provider for the whole app: Radix tooltips share a delay timer
+          through it, so moving between adjacent activity-bar items shows the
+          next tooltip immediately instead of waiting out the delay again. */}
+      <TooltipProvider delayDuration={400} skipDelayDuration={200}>
+        {children}
+      </TooltipProvider>
     </ThemeProvider>
   );
 }

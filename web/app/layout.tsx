@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import SectionRail from "@/components/shell/SectionRail";
 import { inter, jetbrainsMono } from "./fonts";
 import Providers from "./providers";
 
@@ -27,13 +26,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
       className={`${inter.variable} ${jetbrainsMono.variable}`}
     >
+      {/* No chrome here: the workbench route group owns the shell, so the
+          panel tree mounts once and survives navigation between perspectives.
+          Routes outside it (/dev/*) get a bare page, which is what they want. */}
       <body>
-        <Providers>
-          <div className="app">
-            <SectionRail />
-            <main className="app-main">{children}</main>
-          </div>
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
