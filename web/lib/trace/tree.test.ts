@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { order, scopeTo } from "./TraceTree";
-import type { Span } from "@/lib/api/studio";
+import { order, scopeTo } from "./tree";
+import type { TraceSpan } from "@/lib/api/types";
 
-function span(id: string, parent: string | null, name = id): Span {
+function span(id: string, parent: string | null, name = id): TraceSpan {
   return {
     id,
     parent_id: parent,

@@ -1,5 +1,5 @@
-import InspectorPane from "@/features/agent/InspectorPane";
+import TraceInspectorPane from "@/features/trace/TraceInspectorPane";
 
-export default function TraceInspector() {
-  return <InspectorPane />;
+export default function TraceInspectorSlot() {
+  return <TraceInspectorPane />;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { backEdges, layoutGraph, statsFromSpans } from "./layout";
-import type { GraphShape } from "@/lib/api/studio";
+import type { GraphShape } from "@/lib/api/types";
 
 const LOOP: GraphShape = {
   nodes: ["__start__", "plan", "context", "analyse", "__end__"],

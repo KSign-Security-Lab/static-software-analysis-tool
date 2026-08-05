@@ -29,6 +29,7 @@ export default function ProblemsDock() {
 
   return (
     <DockTabs
+      scope="agent"
       tabs={[
         {
           id: "problems",

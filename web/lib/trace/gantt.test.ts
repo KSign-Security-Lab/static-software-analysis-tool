@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { Span } from "@/lib/api/studio";
+import type { TraceSpan } from "@/lib/api/types";
 import { place, timeline } from "./gantt";
 
-function span(id: string, startedAt: number, ms: number | null): Span {
+function span(id: string, startedAt: number, ms: number | null): TraceSpan {
   return {
     id,
     parent_id: null,

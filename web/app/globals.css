@@ -19,6 +19,14 @@
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
 
+/* React Flow's own rules, below utilities so the node styling wins.
+ *
+ * Not optional decoration: it positions the viewport and sets its
+ * transform-origin to 0 0. Without it the origin defaults to the centre, so
+ * scaling a laid-out graph pushes it down by half its own height -- the canvas
+ * renders every node correctly and none of them on screen. */
+@import "@xyflow/react/dist/style.css" layer(components);
+
 @import "./theme.css";
 @import "./studio.css" layer(components);
 

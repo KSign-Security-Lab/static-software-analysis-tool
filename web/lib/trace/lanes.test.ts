@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { byId, changedKeys, lanesOf } from "./lanes";
-import type { Checkpoint } from "@/lib/api/studio";
+import type { Checkpoint } from "@/lib/api/types";
 
 function point(id: string, parent: string | null, step: number, values: Record<string, unknown> = {}): Checkpoint {
   return {

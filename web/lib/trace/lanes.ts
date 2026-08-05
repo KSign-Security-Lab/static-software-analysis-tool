@@ -1,4 +1,4 @@
-import type { Checkpoint } from "@/lib/api/studio";
+import type { Checkpoint } from "@/lib/api/types";
 
 /**
  * Reading a thread's history as a tree.

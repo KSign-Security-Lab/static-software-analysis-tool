@@ -14,7 +14,7 @@
 import dagre from "dagre";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 
-import type { GraphShape } from "@/lib/api/studio";
+import type { GraphShape } from "@/lib/api/types";
 
 // Must match `.gx-node` in studio.css. dagre lays out against these numbers
 // and the DOM renders against those, so a disagreement is nodes that overlap

@@ -1,4 +1,4 @@
-import type { Span } from "@/lib/api/studio";
+import type { TraceSpan } from "@/lib/api/types";
 
 /**
  * Where each call sits on the wall clock.
@@ -21,7 +21,7 @@ export interface Placed {
 /** Narrow enough to read as an instant, wide enough to still be a mark. */
 const MIN_WIDTH = 0.004;
 
-export function timeline(spans: Span[]): { start: number; span: number } {
+export function timeline(spans: TraceSpan[]): { start: number; span: number } {
   const starts = spans.map((s) => s.started_at).filter((t) => Number.isFinite(t) && t > 0);
   if (starts.length === 0) return { start: 0, span: 1 };
 
@@ -32,7 +32,7 @@ export function timeline(spans: Span[]): { start: number; span: number } {
   return { start, span: Math.max(end - start, 0.001) };
 }
 
-export function place(span: Span, scale: { start: number; span: number }): Placed {
+export function place(span: TraceSpan, scale: { start: number; span: number }): Placed {
   const started = Number.isFinite(span.started_at) && span.started_at > 0 ? span.started_at : scale.start;
   const offset = Math.min(1, Math.max(0, (started - scale.start) / scale.span));
   const width = Math.max(MIN_WIDTH, Math.min(1 - offset, (span.latency_ms ?? 0) / 1000 / scale.span));

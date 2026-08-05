@@ -27,10 +27,18 @@ export const PANE_LABEL: Record<PaneId, string> = {
 
 export interface WorkbenchState {
   collapsed: Record<PaneId, boolean>;
-  dockTab: string;
+  /**
+   * The chosen dock tab, per perspective.
+   *
+   * Not one value shared by all of them: the surfaces have different tab sets,
+   * so a single string means opening the trace view lands on 문제 because that
+   * is what you last looked at on the inspect view -- past the call record
+   * that is the whole reason for being there.
+   */
+  dockTab: Record<string, string>;
 
   setCollapsed: (id: PaneId, value: boolean) => void;
-  setDockTab: (tab: string) => void;
+  setDockTab: (scope: string, tab: string) => void;
   registerPanel: (id: PaneId, handle: PanelImperativeHandle | null) => void;
   togglePane: (id: PaneId) => void;
   isFolded: (id: PaneId) => boolean;
@@ -38,7 +46,7 @@ export interface WorkbenchState {
 
 export interface WorkbenchInit {
   collapsed?: Partial<Record<PaneId, boolean>>;
-  dockTab?: string;
+  dockTab?: Record<string, string>;
 }
 
 export type WorkbenchStore = ReturnType<typeof createWorkbenchStore>;
@@ -50,12 +58,12 @@ export function createWorkbenchStore(init: WorkbenchInit = {}) {
 
   return createStore<WorkbenchState>()((set, get) => ({
     collapsed: { side: false, dock: false, inspector: false, ...init.collapsed },
-    dockTab: init.dockTab ?? "problems",
+    dockTab: init.dockTab ?? {},
 
     setCollapsed: (id, value) =>
       set((state) => (state.collapsed[id] === value ? state : { collapsed: { ...state.collapsed, [id]: value } })),
 
-    setDockTab: (tab) => set({ dockTab: tab }),
+    setDockTab: (scope, tab) => set((state) => ({ dockTab: { ...state.dockTab, [scope]: tab } })),
 
     registerPanel: (id, handle) => {
       if (handle) panels.set(id, handle);

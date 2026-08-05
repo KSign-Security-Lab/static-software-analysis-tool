@@ -13,13 +13,9 @@ import typescript from "eslint-config-next/typescript";
  * outlives the file it names is how a temporary exemption becomes permanent.
  */
 const REPLACED_BY_THE_WORKBENCH_REWRITE = [
-  "app/agent/studio/page.tsx",
   "components/GraphExplorer.tsx",
   "components/PipelineExplorer.tsx",
-  "components/studio/SpanDetail.tsx",
-  "components/studio/StepCard.tsx",
   "components/workspace/CodeCanvas.tsx",
-  "lib/studio/panes.ts",
 ];
 
 // eslint-config-next 16 ships native flat configs, so the FlatCompat shim that
