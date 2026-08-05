@@ -1,9 +1,14 @@
 "use client";
 
+import { QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
-import type { ReactNode } from "react";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
+import { useState, type ReactNode } from "react";
 
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { CommandProvider } from "@/lib/commands/provider";
+import { createQueryClient } from "@/lib/query/client";
 
 /**
  * Client providers, mounted once at the root.
@@ -18,6 +23,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
  * `prefers-color-scheme` clause guarded to it.
  */
 export default function Providers({ children }: { children: ReactNode }) {
+  // Lazily, and per tab: a module-level QueryClient is shared across requests
+  // on the Node server, which would leak one user's cache into another's HTML.
+  const [queryClient] = useState(createQueryClient);
+
   return (
     <ThemeProvider
       attribute="data-theme"
@@ -26,12 +35,20 @@ export default function Providers({ children }: { children: ReactNode }) {
       disableTransitionOnChange
       storageKey="ssat-theme"
     >
-      {/* One provider for the whole app: Radix tooltips share a delay timer
-          through it, so moving between adjacent activity-bar items shows the
-          next tooltip immediately instead of waiting out the delay again. */}
-      <TooltipProvider delayDuration={400} skipDelayDuration={200}>
-        {children}
-      </TooltipProvider>
+      <QueryClientProvider client={queryClient}>
+        <NuqsAdapter>
+          <CommandProvider>
+            {/* One provider for the whole app: Radix tooltips share a delay
+                timer through it, so moving between adjacent activity-bar items
+                shows the next tooltip immediately rather than waiting out the
+                delay again. */}
+            <TooltipProvider delayDuration={400} skipDelayDuration={200}>
+              {children}
+              <Toaster position="bottom-right" closeButton richColors />
+            </TooltipProvider>
+          </CommandProvider>
+        </NuqsAdapter>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }
