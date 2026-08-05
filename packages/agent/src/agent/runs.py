@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterator
 
 from .config import AgentConfig
-from .index import ChunkStore, IndexResult, build_index, iter_source_files
+from .index import ChunkStore, IndexResult, build_index
 from .knowledge import GRAPH_FILE
 from .schema import Finding, FindingDiff, Report
 from .graph.checkpoints import read_history, read_state, write_state
@@ -345,12 +345,6 @@ def index_run(paths: RunPaths) -> IndexResult:
         store.close()
     paths.write_meta(index=result.as_dict())
     return result
-
-
-def file_tree(paths: RunPaths) -> list[str]:
-    """Run-relative paths of every indexable file, for the editor's file list."""
-    root = paths.source
-    return [str(PurePosixPath(*p.relative_to(root).parts)) for p in iter_source_files(root)]
 
 
 def iter_all_files(paths: RunPaths) -> Iterator[str]:

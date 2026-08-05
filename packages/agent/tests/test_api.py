@@ -117,6 +117,32 @@ def test_an_empty_upload_is_rejected(client: TestClient) -> None:
 # -- reading the tree --------------------------------------------------------
 
 
+def test_files_endpoint_lists_the_whole_tree(client: TestClient) -> None:
+    """The run record carries at most two names, which is a label, not a tree.
+
+    Without this the editor could not populate its explorer for a run it had
+    not just uploaded -- opening a shared ``?run=`` link showed nothing.
+    """
+    run_id = _upload(client)["run_id"]
+    response = client.get(f"/agent/runs/{run_id}/files")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_id"] == run_id
+    assert "src/app.c" in body["files"]
+    assert body["files"] == sorted(body["files"])
+
+
+def test_files_endpoint_includes_files_the_indexer_skipped(client: TestClient) -> None:
+    """The editor can open a README even though no chunk was ever made of it."""
+    run_id = _upload(client)["run_id"]
+    client.put(f"/agent/runs/{run_id}/file", json={"path": "notes.txt", "content": "hello\n"})
+    assert "notes.txt" in client.get(f"/agent/runs/{run_id}/files").json()["files"]
+
+
+def test_files_endpoint_404s_for_an_unknown_run(client: TestClient) -> None:
+    assert client.get("/agent/runs/nosuchrun/files").status_code == 404
+
+
 def test_file_endpoint_returns_content_and_a_monaco_language(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
     response = client.get(f"/agent/runs/{run_id}/file", params={"path": "src/app.c"})
@@ -647,17 +673,63 @@ def test_reclaiming_a_channel_drops_the_last_attempt(client: TestClient) -> None
     from api.agent_routes import RunChannel
 
     channel = RunChannel()
-    channel.events.put({"event": "stale", "data": {}})
-    channel.commands.put({"action": "resume"})
-    channel.finished.set()
-    channel.waiting.set()
-    channel.error = "the last one blew up"
+    with channel.listen() as events:
+        channel.publish({"event": "stale", "data": {}})
+        channel.commands.put({"action": "resume"})
+        channel.finished.set()
+        channel.waiting.set()
+        channel.error = "the last one blew up"
 
-    channel.reclaim()
+        channel.reclaim()
 
-    assert channel.events.empty() and channel.commands.empty()
+        assert events.empty() and channel.commands.empty()
     assert not channel.finished.is_set() and not channel.waiting.is_set()
     assert channel.error is None and channel.claimed is True
+
+
+def test_every_listener_gets_every_event(client: TestClient) -> None:
+    """Two readers must each see the whole run, not half of it each.
+
+    The channel used to be one queue that each reader popped from, so a second
+    browser tab watching the same run silently took frames away from the first.
+    """
+    from api.agent_routes import RunChannel
+
+    channel = RunChannel()
+    with channel.listen() as first, channel.listen() as second:
+        channel.publish({"event": "node_started", "data": {"node": "plan"}})
+        channel.publish({"event": "node_finished", "data": {"node": "plan"}})
+
+        for events in (first, second):
+            assert [events.get_nowait()["event"] for _ in range(2)] == ["node_started", "node_finished"]
+            assert events.empty()
+
+
+def test_a_listener_stops_receiving_once_it_detaches(client: TestClient) -> None:
+    from api.agent_routes import RunChannel
+
+    channel = RunChannel()
+    with channel.listen() as first:
+        with channel.listen():
+            assert channel.listeners == 2
+        assert channel.listeners == 1
+
+        channel.publish({"event": "checkpoint", "data": {}})
+        assert first.get_nowait()["event"] == "checkpoint"
+    assert channel.listeners == 0
+
+
+def test_publishing_with_nobody_attached_is_dropped(client: TestClient) -> None:
+    """Not buffered: the stream is documented as unreplayable, clients read
+    their state over REST, and an unbounded backlog for a listener that may
+    never arrive is a leak."""
+    from api.agent_routes import RunChannel
+
+    channel = RunChannel()
+    channel.publish({"event": "node_started", "data": {}})
+
+    with channel.listen() as events:
+        assert events.empty()
 
 
 # -- tuning a prompt against a real trace -------------------------------------

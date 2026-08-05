@@ -21,7 +21,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from contextlib import contextmanager
+from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -82,11 +83,16 @@ class RunChannel:
 
     Plain thread-safe queues rather than asyncio ones: the run is on a worker
     thread and the requests are on the event loop, so both have to work across
-    that boundary. ``events`` carries progress out; ``commands`` carries the
+    that boundary. ``publish`` carries progress out; ``commands`` carries the
     answer back in when the run stops at a breakpoint and waits.
+
+    Progress fans out: every listener gets its own queue and every event is
+    copied into all of them. There used to be a single queue that each reader
+    popped from, which meant two readers on one run *split* its events -- each
+    frame reaching exactly one of them, and neither seeing a whole run. Two
+    browser tabs was enough to trigger it.
     """
 
-    events: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
     commands: "queue.Queue[dict[str, Any]]" = field(default_factory=queue.Queue)
     finished: threading.Event = field(default_factory=threading.Event)
     #: Set while the run is stopped at a breakpoint, so a resume request knows
@@ -98,6 +104,39 @@ class RunChannel:
     claimed: bool = False
     error: Optional[str] = None
 
+    _listeners: "set[queue.Queue[dict[str, Any]]]" = field(default_factory=set)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def publish(self, message: Dict[str, Any]) -> None:
+        """Hand one event to every listener.
+
+        Events published with nobody attached are dropped rather than buffered.
+        That is deliberate: the stream is documented as not replayable, clients
+        read their state over REST and use this only as a signal, and an
+        unbounded backlog for a listener that may never arrive is a leak.
+        """
+        with self._lock:
+            listeners = list(self._listeners)
+        for listener in listeners:
+            listener.put(message)
+
+    @contextmanager
+    def listen(self) -> "Iterator[queue.Queue[dict[str, Any]]]":
+        """Attach a queue for as long as one reader is reading it."""
+        mine: "queue.Queue[dict[str, Any]]" = queue.Queue()
+        with self._lock:
+            self._listeners.add(mine)
+        try:
+            yield mine
+        finally:
+            with self._lock:
+                self._listeners.discard(mine)
+
+    @property
+    def listeners(self) -> int:
+        with self._lock:
+            return len(self._listeners)
+
     def reclaim(self) -> None:
         """Ready this channel for another worker, keeping listeners attached.
 
@@ -105,16 +144,14 @@ class RunChannel:
         swapping it would leave whoever is watching listening to a queue nothing
         writes to any more.
         """
-        while True:
-            try:
-                self.events.get_nowait()
-            except queue.Empty:
-                break
-        while True:
-            try:
-                self.commands.get_nowait()
-            except queue.Empty:
-                break
+        with self._lock:
+            stale = list(self._listeners)
+        for listener in [*stale, self.commands]:
+            while True:
+                try:
+                    listener.get_nowait()
+                except queue.Empty:
+                    break
         self.finished.clear()
         self.waiting.clear()
         self.error = None
@@ -731,6 +768,20 @@ def run_input(run_id: str) -> Dict[str, Any]:
     return {"run_id": run_id, "values": dict(initial_state(order, len(order), stats))}
 
 
+@router.get("/runs/{run_id}/files")
+def run_files(run_id: str) -> Dict[str, Any]:
+    """Every file in the run.
+
+    The run record deliberately carries at most ``LABEL_FILES`` names, because
+    it is a label -- but that left no way at all to list a run's tree. Reopening
+    a shared ``?run=`` link gave the editor an empty explorer, and the client
+    had to reconstruct the list from whichever mutation it happened to perform
+    last. Same helper the upload and write endpoints already return.
+    """
+    paths = _require_run(run_id)
+    return {"run_id": run_id, "files": sorted(iter_all_files(paths))}
+
+
 @router.get("/runs/{run_id}/file")
 def run_file(run_id: str, path: str) -> Dict[str, Any]:
     """One file's text, for the editor.
@@ -820,7 +871,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
     spans = paths.spans()
 
     def emit(event: str, payload: dict[str, Any]) -> None:
-        channel.events.put({"event": event, "data": payload})
+        channel.publish({"event": event, "data": payload})
 
     session: InspectionSession | None = None
     try:
@@ -887,7 +938,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
         log.exception("inspection failed for run %s", paths.run_id)
         channel.error = str(err)
         paths.set_status(STATUS_FAILED, error=str(err))
-        channel.events.put({"event": "run_failed", "data": {"error": str(err)}})
+        channel.publish({"event": "run_failed", "data": {"error": str(err)}})
     finally:
         if session is not None:
             session.close()
@@ -1031,20 +1082,24 @@ async def run_events(run_id: str) -> StreamingResponse:
     channel = _channel(run_id)
 
     async def stream() -> AsyncIterator[str]:
-        idle = 0.0
-        while True:
-            try:
-                message = await asyncio.to_thread(channel.events.get, True, SSE_POLL_SECONDS)
-            except queue.Empty:
-                if channel.finished.is_set():
-                    break
-                idle += SSE_POLL_SECONDS
-                if idle >= SSE_KEEPALIVE_SECONDS:
-                    idle = 0.0
-                    yield ": keep-alive\n\n"
-                continue
+        # This reader's own queue. Every listener gets a copy of every event,
+        # so a second tab watching the same run no longer takes frames away
+        # from the first one.
+        with channel.listen() as events:
             idle = 0.0
-            yield f"event: {message['event']}\ndata: {json.dumps(message['data'])}\n\n"
+            while True:
+                try:
+                    message = await asyncio.to_thread(events.get, True, SSE_POLL_SECONDS)
+                except queue.Empty:
+                    if channel.finished.is_set():
+                        break
+                    idle += SSE_POLL_SECONDS
+                    if idle >= SSE_KEEPALIVE_SECONDS:
+                        idle = 0.0
+                        yield ": keep-alive\n\n"
+                    continue
+                idle = 0.0
+                yield f"event: {message['event']}\ndata: {json.dumps(message['data'])}\n\n"
 
         yield f"event: stream_closed\ndata: {json.dumps({'run_id': run_id})}\n\n"
 
