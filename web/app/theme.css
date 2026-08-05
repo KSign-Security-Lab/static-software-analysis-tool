@@ -132,10 +132,22 @@
   /* 4px grid: `p-1` is 4px, `gap-4` is 16px. */
   --spacing: 4px;
 
+  /* Names come from the loaders in app/fonts.ts, never as literals: a literal
+     is how this stack spent months asking for "Inter var" with no @font-face
+     anywhere and silently rendering in the system face.
+
+     Hangul is not subsetted by us. Inter carries no Hangul, so the browser's
+     own per-glyph fallback routes Korean to Noto Sans KR Variable and keeps
+     identifiers, CWE ids, paths and line numbers in Inter -- which is also why
+     subsetting to the UI strings would be wrong: decision.ts generates Korean
+     prose from enums and the agent returns free-form Korean, so a fixed subset
+     would render user content as tofu. */
   --font-sans:
-    "Inter var", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR",
-    "Apple SD Gothic Neo", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR Variable",
+    "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono:
+    var(--font-jetbrains), "SF Mono", ui-monospace, "Cascadia Code", Consolas, "Noto Sans KR Variable",
+    monospace;
 }
 
 @theme inline {
