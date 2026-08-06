@@ -903,20 +903,19 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
 
         aborted = False
         while session.interrupted and not aborted:
-            paths.set_status(STATUS_INTERRUPTED)
-            emit(
-                "run_interrupted",
-                {
-                    "run_id": paths.run_id,
-                    "next": session.next_nodes,
-                    "checkpoint_id": session.checkpoint_id,
-                },
-            )
+            # Recorded, not only emitted. The event stream is in-process and
+            # cannot be replayed, so a tab opened -- or reloaded -- while the
+            # run sits at a breakpoint never hears about it, and would offer to
+            # start the run over rather than to carry it on. This is the same
+            # fact on disk, where a reload can find it.
+            parked = {"next": session.next_nodes, "checkpoint_id": session.checkpoint_id}
+            paths.set_status(STATUS_INTERRUPTED, parked=parked)
+            emit("run_interrupted", {"run_id": paths.run_id, **parked})
             command = _await_command(channel)
             if command.get("action") == "abort":
                 aborted = True
                 break
-            paths.set_status(STATUS_INSPECTING)
+            paths.set_status(STATUS_INSPECTING, parked=None)
             emit("run_resumed", {"run_id": paths.run_id})
             try:
                 session.resume(values=command.get("values"), checkpoint_id=command.get("checkpoint_id"))
@@ -929,7 +928,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
 
         report = session.report()
         paths.save_report(report)
-        paths.set_status(STATUS_DONE, findings=len(report.findings))
+        paths.set_status(STATUS_DONE, findings=len(report.findings), parked=None)
         emit(
             "run_finished",
             {"run_id": paths.run_id, "findings": len(report.findings), "aborted": aborted},
@@ -937,7 +936,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
     except Exception as err:  # noqa: BLE001 - the failure is reported, not raised into the loop
         log.exception("inspection failed for run %s", paths.run_id)
         channel.error = str(err)
-        paths.set_status(STATUS_FAILED, error=str(err))
+        paths.set_status(STATUS_FAILED, error=str(err), parked=None)
         channel.publish({"event": "run_failed", "data": {"error": str(err)}})
     finally:
         if session is not None:

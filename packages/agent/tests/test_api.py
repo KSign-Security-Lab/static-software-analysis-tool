@@ -958,3 +958,48 @@ def test_a_run_in_flight_is_not_deleted_from_under_its_worker(client: TestClient
     response = client.delete(f"/agent/runs/{run_id}")
     assert response.status_code == 409
     assert "in flight" in response.json()["detail"]
+
+
+def _run_with_status(status: str) -> str:
+    """A run workspace recorded in one state, with nothing behind it."""
+    from agent.runs import new_run
+
+    paths = new_run()
+    paths.write_meta(status=status, index={}, uploaded=0)
+    return paths.run_id
+
+
+def test_startup_fails_the_runs_no_process_is_left_to_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run recorded as in flight at startup belongs to a process that is gone.
+
+    Its worker was a thread here and its progress channel was in-process, so
+    nothing can resume it and nothing will ever finish it. Left alone it reads
+    as running for ever -- which is the one thing a status is for.
+    """
+    monkeypatch.setenv(ENV_RUNS_DIR, str(tmp_path / "runs"))
+    monkeypatch.delenv(ENV_MODEL, raising=False)
+
+    from agent.runs import get_run
+
+    inspecting = _run_with_status("inspecting")
+    interrupted = _run_with_status("interrupted")
+    finished = _run_with_status("done")
+
+    from api.main import app
+
+    with TestClient(app) as client:
+        statuses = {run["run_id"]: run["status"] for run in client.get("/agent/runs").json()["runs"]}
+
+    assert statuses[inspecting] == "failed"
+    assert statuses[interrupted] == "failed"
+    # Anything already settled is left exactly as it was.
+    assert statuses[finished] == "done"
+
+    paths = get_run(interrupted)
+    assert paths is not None
+    meta = paths.read_meta()
+    assert "다시 시작" in meta["error"]
+    # The breakpoint position goes with it: there is no worker parked there.
+    assert meta["parked"] is None

@@ -26,11 +26,16 @@ export function setupMonaco(): typeof monaco {
 
   loader.config({ monaco });
 
-  // One generic worker. The language-specific ones (ts, css, html, json)
-  // exist to *edit* those languages; this app shows C, C++, Java and JSON
-  // payloads, and json's worker only adds schema validation nobody asked for.
+  // Routed by label, because Monaco routes by label. The generic worker covers
+  // C, C++ and Java -- languages with no service beyond tokenising -- but a
+  // model whose language is `json` asks its worker for validation, symbols,
+  // colours and folding ranges whether or not anyone wanted them, and a worker
+  // without those handlers answers by throwing. The replay diff is JSON.
   self.MonacoEnvironment = {
-    getWorker: () => new Worker(new URL("./monaco.worker.ts", import.meta.url), { type: "module" }),
+    getWorker: (_workerId: string, label: string) =>
+      label === "json"
+        ? new Worker(new URL("./json.worker.ts", import.meta.url), { type: "module" })
+        : new Worker(new URL("./monaco.worker.ts", import.meta.url), { type: "module" }),
   };
 
   return monaco;

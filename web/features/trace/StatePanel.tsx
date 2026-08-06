@@ -1,6 +1,6 @@
 "use client";
 
-import { GitFork, Info, RefreshCw } from "lucide-react";
+import { GitFork, Info, Pencil, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,26 @@ import { isFanOut } from "@/lib/api/control";
 import type { Checkpoint } from "@/lib/api/types";
 import { byId, changedKeys, lanesOf } from "@/lib/trace/lanes";
 import { cn } from "@/lib/utils";
+
+/**
+ * A patch as the fork will send it: the text, and what it parses to.
+ *
+ * Parsed on every keystroke rather than on submit, because the button is
+ * disabled on the result -- a fork that fails to parse should never be
+ * pressable, and finding that out from a toast after the request is a worse
+ * way to learn it.
+ */
+export function parsePatch(text: string): { values?: Record<string, unknown>; error?: string } {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { error: "객체여야 합니다 — { \"키\": 값 }" };
+    }
+    return { values: parsed as Record<string, unknown> };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "JSON을 읽을 수 없습니다" };
+  }
+}
 
 /**
  * The run's history, as lanes.
@@ -39,12 +59,17 @@ export default function StatePanel({
   interrupted?: boolean;
   onSelect: (checkpointId: string | null) => void;
   onFull: (full: boolean) => void;
-  onFork: (checkpointId: string) => void;
+  onFork: (checkpointId: string, values: Record<string, unknown>) => void;
   onRerun: (checkpointId: string) => void;
 }) {
   const lanes = useMemo(() => lanesOf(checkpoints), [checkpoints]);
   const parents = useMemo(() => byId(checkpoints), [checkpoints]);
   const [open, setOpen] = useState<string | null>(null);
+  // Keyed by the checkpoint it was seeded from, so selecting another step
+  // reseeds rather than carrying one step's patch onto the next.
+  const [draft, setDraft] = useState<{ id: string; text: string } | null>(null);
+  // One draft at a time, so one parse -- the rows read the same result.
+  const patch = useMemo(() => (draft ? parsePatch(draft.text) : {}), [draft]);
 
   if (checkpoints.length === 0) {
     return <p className="p-4 text-xs text-ink-faint">아직 기록된 단계가 없습니다.</p>;
@@ -125,39 +150,99 @@ export default function StatePanel({
                 )}
 
                 {selected === id && (
-                  <div className="mt-1.5 flex items-center gap-1.5">
-                    <Button size="xs" variant="outline" disabled={busy || !interrupted} onClick={() => onRerun(id)}>
-                      <RefreshCw />
-                      여기서 다시
-                    </Button>
-
-                    {fanOut ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <Button size="xs" variant="outline" disabled>
-                              <GitFork />
-                              갈라 실행
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-64">
-                          이 단계는 여러 갈래가 동시에 실행된 지점이라 상태를 쓸 곳이 하나로 정해지지 않습니다. locate ·
-                          reduce · plan 에서 편집하세요.
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <Button size="xs" variant="outline" disabled={busy || !interrupted} onClick={() => onFork(id)}>
-                        <GitFork />
-                        갈라 실행
+                  <div className="mt-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Button size="xs" variant="outline" disabled={busy || !interrupted} onClick={() => onRerun(id)}>
+                        <RefreshCw />
+                        여기서 다시
                       </Button>
-                    )}
 
-                    {!interrupted && (
-                      <span className="flex items-center gap-1 text-2xs text-ink-faint">
-                        <Info className="size-3" />
-                        중단점에 멈춰 있을 때만 가능합니다
-                      </span>
+                      {fanOut ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <Button size="xs" variant="outline" disabled>
+                                <Pencil />
+                                고쳐서 갈라 실행
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-64">
+                            이 단계는 여러 갈래가 동시에 실행된 지점이라 상태를 쓸 곳이 하나로 정해지지 않습니다.
+                            locate · reduce · plan 에서 편집하세요.
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={busy || !interrupted}
+                          onClick={() =>
+                            setDraft(
+                              draft?.id === id
+                                ? null
+                                : {
+                                    id,
+                                    // Seeded with what this step wrote, which is
+                                    // the thing anyone stopping here came to
+                                    // change. Only meaningful in 전체 상태: the
+                                    // summary counts the bulky channels, and a
+                                    // count cannot be written back as a list.
+                                    text: JSON.stringify(
+                                      Object.fromEntries(changed.map((key) => [key, point.values[key]])),
+                                      null,
+                                      2,
+                                    ),
+                                  },
+                            )
+                          }
+                        >
+                          <Pencil />
+                          고쳐서 갈라 실행
+                        </Button>
+                      )}
+
+                      {!interrupted && (
+                        <span className="flex items-center gap-1 text-2xs text-ink-faint">
+                          <Info className="size-3" />
+                          중단점에 멈춰 있을 때만 가능합니다
+                        </span>
+                      )}
+                    </div>
+
+                    {draft?.id === id && (
+                      <div className="mt-1.5">
+                        {!full && (
+                          <p className="mb-1 flex items-start gap-1 text-2xs text-warn">
+                            <Info className="mt-px size-3 shrink-0" />
+                            요약 보기에서는 긴 값이 개수로 줄어 있습니다. 위에서 전체 상태로 바꾼 뒤 편집하세요.
+                          </p>
+                        )}
+                        <textarea
+                          value={draft.text}
+                          spellCheck={false}
+                          rows={8}
+                          aria-label="상태 편집"
+                          onChange={(event) => setDraft({ id, text: event.target.value })}
+                          className="w-full resize-y rounded-sm border border-line bg-field p-2 font-mono text-2xs text-ink outline-none focus-visible:border-accent"
+                        />
+                        <div className="mt-1 flex items-center gap-2">
+                          <Button
+                            size="xs"
+                            disabled={busy || !interrupted || !patch.values}
+                            onClick={() => patch.values && onFork(id, patch.values)}
+                          >
+                            <GitFork />
+                            여기서 갈라 실행
+                          </Button>
+                          <Button size="xs" variant="ghost" onClick={() => setDraft(null)}>
+                            취소
+                          </Button>
+                          <span className={cn("truncate text-2xs", patch.error ? "text-danger" : "text-ink-faint")}>
+                            {patch.error ?? "적은 키만 덮어씁니다. 원래 갈래는 그대로 남습니다."}
+                          </span>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}

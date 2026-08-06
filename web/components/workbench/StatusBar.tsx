@@ -62,8 +62,11 @@ export default function StatusBar() {
       {progress && <span className="font-mono">{progress} 청크</span>}
 
       {/* A run whose stream dropped keeps its last known phase, which would
-          otherwise read as "still running" forever. */}
-      {runId && !live.attached && live.active && <span className="text-warn">연결 끊김</span>}
+          otherwise read as "still running" forever. The browser retries by
+          itself, so this says what is happening rather than only what broke. */}
+      {runId && !live.attached && live.active && (
+        <span className="text-warn">연결 끊김 · 다시 연결 중</span>
+      )}
 
       <span className="ml-auto">로컬 기록 · 외부 전송 없음</span>
     </footer>

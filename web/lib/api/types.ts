@@ -47,6 +47,14 @@ export interface RunSummary {
   updated_at: number;
   /** A trace database exists, so this run was inspected at least once. */
   started: boolean;
+  /**
+   * Where a stopped run is waiting, when `status` is `interrupted`.
+   *
+   * The event stream cannot be replayed, so a tab opened -- or reloaded --
+   * while a run sits at a breakpoint never hears `run_interrupted` and would
+   * offer to start it over. This is the same fact, read rather than heard.
+   */
+  parked?: { next: string[]; checkpoint_id: string | null } | null;
 }
 
 export interface FileContents {

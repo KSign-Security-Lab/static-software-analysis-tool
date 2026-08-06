@@ -250,6 +250,33 @@ def list_runs(config: AgentConfig | None = None) -> list[dict[str, Any]]:
     return out
 
 
+def abandon_live_runs(config: AgentConfig | None = None) -> list[str]:
+    """Mark every run still claiming to be in flight as failed.
+
+    Called once on startup. A run lives on a worker thread in this process and
+    its progress channel is in-process only, so a run recorded as ``inspecting``
+    or ``interrupted`` when the server starts is a run whose process is gone --
+    there is nothing left to resume it, and nothing that will ever finish it.
+    Left alone it reads as "실행 중" for ever, which is the one thing a status
+    is for.
+    """
+    abandoned: list[str] = []
+    root = runs_root(config)
+    if not root.is_dir():
+        return abandoned
+
+    for child in sorted(root.iterdir()):
+        if not child.is_dir():
+            continue
+        paths = RunPaths(child.name, child)
+        if paths.read_meta().get("status") not in (STATUS_INSPECTING, STATUS_INTERRUPTED):
+            continue
+        paths.set_status(STATUS_FAILED, error="서버가 다시 시작되어 실행이 끊겼습니다", parked=None)
+        abandoned.append(child.name)
+
+    return abandoned
+
+
 def delete_run(paths: RunPaths) -> None:
     """Remove a run and everything in it.
 

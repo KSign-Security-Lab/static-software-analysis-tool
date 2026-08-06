@@ -113,7 +113,7 @@ export default function TraceDock() {
               interrupted={phase === "paused"}
               onSelect={(id) => void setCheckpointId(id)}
               onFull={(next) => void setFull(next)}
-              onFork={(id) => resume.mutate({ checkpointId: id })}
+              onFork={(id, values) => resume.mutate({ checkpointId: id, values })}
               onRerun={(id) => resume.mutate({ checkpointId: id })}
             />
           ),

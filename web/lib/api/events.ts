@@ -12,11 +12,10 @@ import type { Finding, IndexStats } from "./types";
  *
  *  - It ends the stream when a run finishes. Starting another run has to
  *    reattach first, or the second run executes with nobody listening.
- *  - The channel is a queue and `get` pops. Two readers on one run therefore
- *    *split* its events -- each frame reaches exactly one of them. That is a
- *    server-side defect (RunChannel needs to fan out per listener); until it
- *    is fixed, the client's job is to guarantee exactly one EventSource per
- *    tab, which is why this module is only ever used by the run provider.
+ *  - Every listener now gets its own queue server-side, so a second tab no
+ *    longer takes frames away from the first. One EventSource per tab is still
+ *    the rule -- two streams in one tab would double every patch this module
+ *    applies to the cache -- which is why it is only used by the run provider.
  */
 
 export interface RunStartedEvent extends IndexStats {
@@ -87,6 +86,14 @@ export interface RunHandlers {
   onClosed?: () => void;
   /** The socket dropped rather than the server closing it. */
   onDropped?: () => void;
+  /**
+   * The connection failed and the browser is retrying by itself.
+   *
+   * Reported rather than left to EventSource, because the retry is invisible:
+   * the last events received stay on screen and a run whose server has gone
+   * away reads as still running, for as long as anyone watches it.
+   */
+  onRetrying?: () => void;
 }
 
 const NAMES = [
@@ -136,8 +143,12 @@ export function watchRun(runId: string, handlers: RunHandlers): () => void {
     if (source.readyState === EventSource.CLOSED) {
       handlers.onClosed?.();
       handlers.onDropped?.();
+      return;
     }
-    // readyState CONNECTING is the browser retrying on its own; leave it.
+    // CONNECTING: the browser retries on its own, so there is nothing to do
+    // about the socket -- but somebody has to say so, or the view keeps
+    // showing the last frame it got as though it were current.
+    handlers.onRetrying?.();
   };
 
   return () => {

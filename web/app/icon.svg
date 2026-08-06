@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The activity bar's mark, at tab size: a bracketed unit under inspection.
+       Flat colours rather than the theme tokens, because a favicon is rendered
+       outside the page and gets none of them. Also the file that stops the
+       /favicon.ico 404 -- Chrome only guesses at that path when nothing is
+       declared. -->
+  <rect width="32" height="32" rx="7" fill="oklch(24% 0.012 240)"/>
+  <g fill="none" stroke="oklch(76% 0.13 186)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11.5 8.5 7.5 12.5v7l4 4"/>
+    <path d="M20.5 8.5l4 4v7l-4 4"/>
+  </g>
+  <circle cx="16" cy="16" r="2.6" fill="oklch(76% 0.13 186)"/>
+</svg>

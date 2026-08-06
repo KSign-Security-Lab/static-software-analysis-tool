@@ -8,18 +8,19 @@ import { watchRun } from "@/lib/api/events";
 import type { Report } from "@/lib/api/types";
 import { InvalidationQueue } from "@/lib/query/invalidation";
 import { keys, recordedKeys } from "@/lib/query/keys";
+import { useRun } from "./queries";
 import { IDLE, phaseOf, reduceRun, type RunLive, type RunPhase } from "./reduce";
 
 /**
  * One EventSource per tab, owned by the shell.
  *
- * Not a nicety. The server's channel is a `queue.Queue` and its reader pops,
- * so two subscribers on one run *split* its events -- each frame reaches
- * exactly one of them. The previous app had the inspect page and the trace
- * page each open their own, and navigated from one to the other while both
- * were attached. Mounting this once, above the routes, is the only thing the
- * client can do about it; the real fix is a per-listener fan-out in
- * `RunChannel`.
+ * Not a nicety. The server's channel used to be one `queue.Queue` whose reader
+ * pops, so two subscribers on one run *split* its events -- each frame reaching
+ * exactly one of them. The previous app had the inspect page and the trace page
+ * each open their own, and navigated from one to the other while both were
+ * attached. `RunChannel` fans out per listener now, but this still mounts once
+ * above the routes: two streams in one tab would apply every cache patch below
+ * twice.
  *
  * The stream is a signal, not a source of truth: it is in-process and cannot
  * be replayed, so a page opened mid-run has missed everything before it. REST
@@ -53,6 +54,7 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
 
   const close = useRef<(() => void) | null>(null);
   const opened = useRef(false);
+  const dropped = useRef(false);
   const waiting = useRef<(() => void)[]>([]);
 
   const invalidations = useMemo(() => new InvalidationQueue(client), [client]);
@@ -72,6 +74,14 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
           opened.current = true;
           dispatch({ type: "attached", open: true });
           resolveWaiters();
+          // Everything that happened while the socket was down is gone -- the
+          // stream is in-process and does not replay -- so the only way back
+          // to the truth is to read it.
+          if (dropped.current) {
+            dropped.current = false;
+            invalidations.add(keys.run(id));
+            invalidations.flush();
+          }
         },
 
         /* -- patched straight into the cache: the payload IS the delta ------ */
@@ -171,6 +181,15 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
           invalidations.add(keys.run(id));
           invalidations.flush();
         },
+
+        onRetrying: () => {
+          // Not attached, and not finished either: the phase stands, and the
+          // status bar says the picture is stale rather than pretending a run
+          // with no server behind it is still moving.
+          opened.current = false;
+          dropped.current = true;
+          dispatch({ type: "attached", open: false });
+        },
       });
     },
     [client, invalidations, resolveWaiters],
@@ -181,6 +200,7 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
     close.current?.();
     close.current = null;
     opened.current = false;
+    dropped.current = false;
     if (!runId) return;
 
     attach(runId);
@@ -191,6 +211,20 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
       invalidations.cancel();
     };
   }, [runId, attach, invalidations]);
+
+  // What the run record says, for the one fact the stream cannot tell a tab
+  // that arrived late. Only ever read when nothing has been heard: once an
+  // event lands, the stream is ahead of anything REST would say.
+  const parked = useRun(runId).data?.parked;
+  const heard = live.revision > 0 || live.active || live.finished;
+
+  useEffect(() => {
+    if (!runId || heard || !parked) return;
+    dispatch({
+      type: "interrupted",
+      event: { run_id: runId, next: parked.next, checkpoint_id: parked.checkpoint_id },
+    });
+  }, [runId, heard, parked]);
 
   const ensureAttached = useCallback(async () => {
     if (!runId || opened.current) return;
