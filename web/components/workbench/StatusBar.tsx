@@ -40,15 +40,16 @@ export default function StatusBar() {
   const progress = live.chunk && live.chunk.total > 0 ? `${live.chunk.total - live.chunk.remaining}/${live.chunk.total}` : null;
 
   return (
-    <footer className="flex h-[22px] shrink-0 items-center gap-3 border-t border-line bg-surface px-2.5 text-2xs text-ink-faint">
-      <span className="text-ink-muted">{current?.label ?? "SSAT"}</span>
-      <span className="truncate">{current?.note}</span>
-
-      {runId && (
-        <>
-          <span className="text-line-3">|</span>
-          <span className="font-mono text-ink-muted">{runId}</span>
-        </>
+    <footer className="flex h-[26px] shrink-0 items-center gap-3 border-t border-line bg-surface px-2.5 text-2xs text-ink-faint">
+      {/* The name and the sentence live in the header now. Repeating them here
+          spent the only always-visible strip on something already on screen. */}
+      {runId ? (
+        <span className="font-mono text-ink-muted">{runId}</span>
+      ) : (
+        // Only where a run is the thing being looked at. F2-A and 추출 analyse
+        // a buffer and have no runs, so "no run selected" would be a state
+        // they can never leave.
+        <span>{current?.carries.includes("run") ? "아직 선택한 실행이 없습니다" : "SSAT"}</span>
       )}
 
       {label && (

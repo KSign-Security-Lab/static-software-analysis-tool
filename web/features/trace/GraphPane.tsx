@@ -157,7 +157,7 @@ export default function GraphPane() {
           direction="LR"
         />
       ) : (
-        <p className="p-4 text-xs text-ink-faint">구조를 불러오는 중…</p>
+        <p className="p-4 text-xs text-ink-faint">에이전트 구조를 불러오는 중…</p>
       )}
     </PanelShell>
   );

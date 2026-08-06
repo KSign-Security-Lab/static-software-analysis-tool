@@ -51,7 +51,7 @@ export default function SpanInspector({
 
   if (!span) {
     return (
-      <PanelShell title="호출 상세">
+      <PanelShell title="호출 상세" note="프롬프트를 고쳐 다시 돌려볼 수 있습니다">
         <div className="grid h-full place-items-center p-6 text-center">
           <p className="max-w-64 text-sm text-ink-faint">호출을 선택하면 여기에서 읽고 다시 실행할 수 있습니다.</p>
         </div>

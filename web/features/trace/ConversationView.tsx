@@ -87,7 +87,7 @@ export default function ConversationView({ threads, node }: { threads: Thread[];
   );
 
   if (shown.length === 0) {
-    return <p className="p-4 text-xs text-ink-faint">기록된 대화가 없습니다.</p>;
+    return <p className="p-4 text-xs text-ink-faint">모델과 주고받은 대화가 아직 없습니다. 검사를 실행하면 호출 순서대로 여기 쌓입니다.</p>;
   }
 
   return (

@@ -25,10 +25,10 @@ export function PanelShell({
   return (
     <section className={cn("flex h-full min-h-0 flex-col bg-surface", className)}>
       {(title || actions) && (
-        <header className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-2.5">
-          {title && (
-            <h2 className="truncate text-2xs font-semibold tracking-wide text-ink-muted uppercase">{title}</h2>
-          )}
+        <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-2.5">
+          {/* Not uppercase. Korean has no case, so it only ever shouted the
+              Latin ones -- and it cost the title the shape a reader scans by. */}
+          {title && <h2 className="shrink-0 truncate text-xs font-semibold text-ink-strong">{title}</h2>}
           {note && <span className="truncate text-2xs text-ink-faint">{note}</span>}
           {actions && <div className="ml-auto flex items-center gap-1">{actions}</div>}
         </header>

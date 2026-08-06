@@ -16,7 +16,7 @@ export default function NodeInspector() {
 
   if (!cpg.response) {
     return (
-      <PanelShell title="추출 결과">
+      <PanelShell title="추출 결과" note="노드를 누르면 속성이 여기에">
         <div className="grid h-full place-items-center p-6 text-center">
           <p className="max-w-64 text-sm text-ink-faint">‘분석’을 누르면 추출 결과가 여기 요약됩니다.</p>
         </div>

@@ -8,6 +8,7 @@ import ActivityBar from "@/components/workbench/ActivityBar";
 import BuiltinCommands from "@/components/workbench/BuiltinCommands";
 import CommandPalette from "@/components/workbench/CommandPalette";
 import KeyboardLayer from "@/components/workbench/KeyboardLayer";
+import PerspectiveHeader from "@/components/workbench/PerspectiveHeader";
 import StatusBar from "@/components/workbench/StatusBar";
 import { CpgSourceProvider } from "@/features/cpg/provider";
 import { RunStreamProvider } from "@/lib/run/stream";
@@ -145,7 +146,9 @@ export default function Workbench({ perspective, stored, children, side, dock, i
         <BuiltinCommands />
         <CommandPalette />
 
-        <div className="grid h-dvh grid-rows-[1fr_auto] overflow-hidden bg-bg text-ink">
+        <div className="grid h-dvh grid-rows-[auto_1fr_auto] overflow-hidden bg-bg text-ink">
+          <PerspectiveHeader />
+
           <div className="flex min-h-0">
             <ActivityBar />
 

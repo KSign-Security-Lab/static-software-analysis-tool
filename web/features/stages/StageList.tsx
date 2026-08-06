@@ -10,7 +10,7 @@ export default function StageList() {
   const [stage, setStage] = useQueryState("stage", parseAsString.withDefault("cpg-jpype"));
 
   return (
-    <PanelShell title="단계">
+    <PanelShell title="단계" note="호출할 엔드포인트 하나">
       <ul className="py-1">
         {STAGES.map((each) => (
           <li key={each.key}>

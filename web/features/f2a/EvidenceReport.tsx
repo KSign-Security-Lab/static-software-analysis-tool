@@ -180,13 +180,13 @@ export default function EvidenceReport({ result }: { result: F2AResult }) {
           value={kind}
           onValueChange={(next) => next && setKind(next as typeof kind)}
         >
-          <ToggleGroupItem value="all" className="h-6 px-2 text-2xs">
+          <ToggleGroupItem value="all" className="h-7 px-2 text-2xs">
             전체 {decisions.length}
           </ToggleGroupItem>
-          <ToggleGroupItem value="vuln" className="h-6 px-2 text-2xs">
+          <ToggleGroupItem value="vuln" className="h-7 px-2 text-2xs">
             취약 후보
           </ToggleGroupItem>
-          <ToggleGroupItem value="handler" className="h-6 px-2 text-2xs">
+          <ToggleGroupItem value="handler" className="h-7 px-2 text-2xs">
             핸들러
           </ToggleGroupItem>
         </ToggleGroup>

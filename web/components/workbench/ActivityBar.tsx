@@ -60,7 +60,13 @@ function Item({
 }
 
 /**
- * The 48px rail. Perspectives on top, panel folds and the theme underneath.
+ * The 68px rail. Perspectives on top, panel folds and the theme underneath.
+ *
+ * The perspectives are named, not only drawn. Five glyphs and a tooltip is a
+ * navigation you can use once you know it, and this app is five quite
+ * different tools sharing a shell -- an icon cannot say which one inspects
+ * code and which one reads a finished run's reasoning. The tooltips stay for
+ * the sentence that will not fit.
  *
  * Fixed width and a flex sibling of the panel group, not a zero-min panel:
  * the group sizes in percentages, so a rail expressed as one would breathe
@@ -79,12 +85,10 @@ export default function ActivityBar() {
   return (
     <nav
       aria-label="화면"
-      className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-surface py-2"
+      className="flex w-[68px] shrink-0 flex-col items-center gap-0.5 border-r border-line bg-surface py-2"
     >
-      <span className="mb-1 font-mono text-2xs leading-none font-bold tracking-tight text-accent-ink" aria-hidden>
-        SS
-        <br />
-        AT
+      <span className="mb-2 font-mono text-sm leading-none font-bold tracking-tight text-accent-ink" aria-hidden>
+        SSAT
       </span>
 
       {PERSPECTIVES.map((p) => {
@@ -96,16 +100,17 @@ export default function ActivityBar() {
                 href={hrefFor(p.id, params)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative grid size-10 place-items-center rounded-md text-ink-muted transition-colors",
+                  "relative grid w-[60px] justify-items-center gap-0.5 rounded-md py-1.5 text-ink-muted transition-colors",
                   "hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring",
                   active && "bg-accent-wash text-accent-ink",
                 )}
               >
                 {/* The active marker is a bar, not only a colour. */}
                 {active && (
-                  <span aria-hidden className="absolute top-1.5 -left-2 h-7 w-0.5 rounded-full bg-accent-ink" />
+                  <span aria-hidden className="absolute top-1.5 -left-1 h-8 w-0.5 rounded-full bg-accent-ink" />
                 )}
                 <p.icon className="size-[18px]" />
+                <span className="text-[11px] leading-tight font-medium">{p.label}</span>
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right">

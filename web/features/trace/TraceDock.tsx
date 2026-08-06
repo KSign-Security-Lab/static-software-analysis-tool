@@ -73,10 +73,10 @@ export default function TraceDock() {
                   value={view}
                   onValueChange={(next) => next && void setView(next as (typeof VIEWS)[number])}
                 >
-                  <ToggleGroupItem value="tree" className="h-6 px-2 text-2xs">
+                  <ToggleGroupItem value="tree" className="h-7 px-2 text-2xs">
                     호출 순서
                   </ToggleGroupItem>
-                  <ToggleGroupItem value="chat" className="h-6 px-2 text-2xs">
+                  <ToggleGroupItem value="chat" className="h-7 px-2 text-2xs">
                     대화로 보기
                   </ToggleGroupItem>
                 </ToggleGroup>

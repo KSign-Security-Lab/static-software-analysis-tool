@@ -143,7 +143,7 @@ export default function ExtractPane() {
       ) : graph ? (
         <CpgCanvas view={graph} selected={selected} onSelect={setSelected} />
       ) : (
-        <p className="p-4 text-xs text-ink-faint">이 뷰에 표시할 노드가 없습니다.</p>
+        <p className="p-4 text-xs text-ink-faint">이 뷰에 표시할 노드가 없습니다. 위 선택기에서 다른 그래프를 골라 보세요.</p>
       )}
     </PanelShell>
   );

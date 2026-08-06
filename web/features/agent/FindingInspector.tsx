@@ -37,7 +37,7 @@ export default function FindingInspector({
 }) {
   if (!finding) {
     return (
-      <PanelShell title="인스펙터">
+      <PanelShell title="판단 근거" note="에이전트가 왜 그렇게 봤는지">
         <div className="grid h-full place-items-center p-6 text-center">
           <p className="max-w-64 text-sm text-ink-faint">결과를 선택하면 근거가 여기에 표시됩니다.</p>
         </div>
@@ -54,7 +54,7 @@ export default function FindingInspector({
   const related = knowledge && finding.chunkId ? neighbours(knowledge, finding.chunkId, 1) : [];
 
   return (
-    <PanelShell title="인스펙터" note={finding.cwe ?? undefined}>
+    <PanelShell title="판단 근거" note={finding.cwe ?? undefined}>
       <div className="space-y-4 p-3">
         <header className="space-y-1.5">
           <h3 className="text-sm leading-snug font-medium text-ink-strong">{finding.title}</h3>

@@ -90,7 +90,7 @@ export default function FileExplorer({
   return (
     <PanelShell
       title="탐색기"
-      note={files.length ? `${files.length}` : undefined}
+      note={files.length ? `${files.length}개 파일` : "검사할 파일을 여기에 넣습니다"}
       actions={
         <>
           <Tooltip>

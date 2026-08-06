@@ -74,7 +74,7 @@ export default function ProblemsPanel({
             onValueChange={(next) => next.length && setEngines(next as Engine[])}
           >
             {(["structural", "agent"] as Engine[]).map((engine) => (
-              <ToggleGroupItem key={engine} value={engine} className="h-6 px-2 text-2xs">
+              <ToggleGroupItem key={engine} value={engine} className="h-7 px-2 text-2xs">
                 {ENGINE_LABEL[engine]}
               </ToggleGroupItem>
             ))}

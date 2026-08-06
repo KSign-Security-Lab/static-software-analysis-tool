@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
  * every invalidation.
  */
 
-const ROW = 24;
+const ROW = 28;
 
 const KIND_TONE: Record<string, string> = {
   llm: "text-accent-ink",

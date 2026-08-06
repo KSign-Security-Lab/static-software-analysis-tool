@@ -20,6 +20,7 @@ export default function SourcePane() {
   return (
     <PanelShell
       title="소스"
+      note="예제 또는 붙여넣기"
       actions={
         <>
           <Button variant="ghost" size="icon-xs" aria-label="파일 열기" onClick={() => input.current?.click()}>
