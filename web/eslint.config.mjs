@@ -21,7 +21,7 @@ const eslintConfig = [
     // `next lint` applied these implicitly. The lint script calls the ESLint
     // CLI directly (next lint was removed in Next.js 16), so the ignores have
     // to be declared here or build output and deps get linted too.
-    ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts"],
+    ignores: ["node_modules/**", ".next/**", ".next-*/**", "out/**", "build/**", "next-env.d.ts"],
   },
   ...coreWebVitals,
   ...typescript,

@@ -50,13 +50,25 @@ function usePane(id: PaneId) {
   const setCollapsed = useWorkbench((s) => s.setCollapsed);
   const handle = useRef<PanelImperativeHandle | null>(null);
 
+  // Registration only. Asking the handle anything here crashes the app.
+  //
+  // A ref callback runs during commit, and on React's StrictMode remount --
+  // effects destroyed, then re-created -- that is *before* the group has
+  // registered itself again. `isCollapsed()` looks the group up by id, so it
+  // threw `Group … not found` out of the commit phase, which React cannot
+  // recover from: the whole tree unmounted to the error boundary. The page
+  // still server-rendered perfectly and then sat there, hydrated by nothing,
+  // with every button inert. Only in dev, which is why a production build
+  // never showed it.
+  //
+  // The mirror does not need the handle anyway: the fold state came from the
+  // cookie on the server, and `onResize` keeps it true from then on.
   const panelRef = useCallback(
     (next: PanelImperativeHandle | null) => {
       handle.current = next;
       registerPanel(id, next);
-      if (next) setCollapsed(id, next.isCollapsed());
     },
-    [id, registerPanel, setCollapsed],
+    [id, registerPanel],
   );
 
   const collapse = useCallback(() => {
