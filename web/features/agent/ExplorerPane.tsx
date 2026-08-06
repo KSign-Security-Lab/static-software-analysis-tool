@@ -58,7 +58,15 @@ export default function ExplorerPane() {
   const onCreate = async (name: string, content = "") => {
     const id = await withRun();
     if (!id) return;
-    await write.mutateAsync({ path: name, content }).catch(() => null);
+    // `id`, not the hook's runId: on a cold start the run was created a moment
+    // ago and this render still closes over `null`.
+    try {
+      await write.mutateAsync({ path: name, content, runId: id });
+    } catch {
+      // Reported by the mutation's own onError. Swallowed here only so an
+      // opened-but-empty editor is not the next thing that happens.
+      return;
+    }
     void setPath(name);
   };
 

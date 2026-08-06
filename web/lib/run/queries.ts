@@ -102,15 +102,27 @@ export function useUpload() {
   });
 }
 
+/**
+ * Write one file.
+ *
+ * The run id may be passed per call, and has to be: creating a run and writing
+ * the first file into it happens in one handler, and the hook was bound to the
+ * run id from the render that is still executing -- which is `null`, because
+ * the run did not exist when it started. That sent the first file of every
+ * fresh session to `/agent/runs/null/file`, and the caller's `.catch` swallowed
+ * the 404, so what you saw was an empty editor and no reason for it.
+ */
 export function useWriteFile(runId: string | null) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ path, content }: { path: string; content: string }) => writeFile(runId!, path, content),
-    onSuccess: (result, { content }) => {
-      applyTree(client, runId!, result);
+    mutationFn: ({ path, content, runId: override }: { path: string; content: string; runId?: string }) =>
+      writeFile(override ?? runId!, path, content),
+    onSuccess: (result, { content, runId: override }) => {
+      const id = override ?? runId!;
+      applyTree(client, id, result);
       // The editor already holds this text; re-fetching it would be a round
       // trip to be told what we just sent.
-      client.setQueryData(keys.file(runId!, result.path), (previous: unknown) =>
+      client.setQueryData(keys.file(id, result.path), (previous: unknown) =>
         previous ? { ...(previous as object), content } : previous,
       );
     },

@@ -38,6 +38,35 @@ export function PanelShell({
   );
 }
 
+/**
+ * A panel with nothing in it yet, and what would put something there.
+ *
+ * Anchored to the top rather than centred. These panels are as tall as the
+ * window, so centring put one grey sentence at the vertical middle of eight
+ * hundred empty pixels -- which reads as a void with a caption rather than as
+ * a panel waiting for input. Against the top it reads as a placeholder, and
+ * the eye finds it where it looks for everything else.
+ */
+export function EmptyState({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-start gap-2 px-3 py-4">
+      <span className="grid size-8 place-items-center rounded-md bg-surface-2 text-ink-faint">
+        <Icon className="size-4" />
+      </span>
+      <p className="text-sm font-medium text-ink-muted">{title}</p>
+      {children && <p className="max-w-72 text-xs leading-relaxed text-ink-faint">{children}</p>}
+    </div>
+  );
+}
+
 /** Not built yet. Says which commit fills it in, so it reads as staging. */
 export function Placeholder({ what }: { what: string }) {
   return (

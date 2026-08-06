@@ -1,5 +1,6 @@
 "use client";
 
+import { Network } from "lucide-react";
 import dynamic from "next/dynamic";
 import { parseAsString, useQueryState } from "nuqs";
 import { useMemo, useState } from "react";
@@ -8,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { PanelShell } from "@/components/workbench/PanelShell";
+import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 import { parseCpg } from "@/lib/cpg";
 import { contract, internalMethods, isNoise, scopeCallGraph, scopeToMethod } from "@/lib/graphops";
 import { nonEmptyFunctions, pipelineAstView, pipelineDfgView } from "@/lib/pipeline";
@@ -133,9 +134,10 @@ export default function ExtractPane() {
       bodyClassName="overflow-hidden"
     >
       {!cpg.response ? (
-        <div className="grid h-full place-items-center p-6 text-center">
-          <p className="max-w-72 text-sm text-ink-faint">‘분석’을 눌러 CPG를 만들면 그래프가 여기 표시됩니다.</p>
-        </div>
+        <EmptyState icon={Network} title="아직 그래프가 없습니다">
+          왼쪽 ‘소스’에서 예제를 고르거나 파일을 열고 ‘분석’을 누르세요. CPG를 만든 뒤 AST · CFG · DFG · 호출
+          그래프로 나눠 볼 수 있습니다.
+        </EmptyState>
       ) : isPipeline && pipeline.isPending ? (
         <div className="grid h-full place-items-center p-4">
           <p className="text-xs text-ink-faint">파이프라인 산출물을 불러오는 중…</p>

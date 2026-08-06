@@ -1,13 +1,30 @@
-import DockTabs from "@/components/workbench/DockTabs";
-import { Placeholder } from "@/components/workbench/PanelShell";
+import { PanelBottom } from "lucide-react";
 
+import DockTabs from "@/components/workbench/DockTabs";
+import { EmptyState } from "@/components/workbench/PanelShell";
+
+/**
+ * For surfaces with no bottom panel of their own: 추출 and 스테이지.
+ *
+ * It used to render two staging placeholders reading 준비 중, one of them a
+ * "문제" tab on screens that do not look for problems. Both surfaces start
+ * with this pane collapsed now (see layout-cookie.ts), so this is what is
+ * behind ⌘J rather than what anyone is shown.
+ */
 export default function DockDefault() {
   return (
     <DockTabs
       scope="default"
       tabs={[
-        { id: "problems", label: "문제", content: <Placeholder what="발견된 결과 목록이 여기 들어갑니다." /> },
-        { id: "graph", label: "구조 지도", content: <Placeholder what="코드의 지식 그래프가 여기 들어갑니다." /> },
+        {
+          id: "none",
+          label: "아래 패널",
+          content: (
+            <EmptyState icon={PanelBottom} title="이 화면에는 아래 패널이 없습니다">
+              ⌘J 로 이 칸을 다시 접을 수 있습니다.
+            </EmptyState>
+          ),
+        },
       ]}
     />
   );

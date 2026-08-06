@@ -137,9 +137,14 @@ export default function FileExplorer({
                   type="button"
                   onClick={() => onOpen(path)}
                   className={cn(
-                    "flex w-full items-center gap-1.5 py-1 pr-7 pl-2.5 text-left text-xs transition-colors",
+                    "flex w-full items-center gap-1.5 border-l-2 py-1.5 pr-7 pl-2 text-left text-xs transition-colors",
                     "hover:bg-surface-2",
-                    active === path ? "bg-accent-wash text-ink-strong" : "text-ink-muted",
+                    // Selection is a marker and a weight, not a coloured slab
+                    // running the width of the panel: an open file is a place
+                    // you are, not a result you were meant to look at.
+                    active === path
+                      ? "border-l-accent bg-surface-2 font-medium text-ink-strong"
+                      : "border-l-transparent text-ink-muted",
                   )}
                 >
                   <FileCode className="size-3.5 shrink-0 opacity-60" />

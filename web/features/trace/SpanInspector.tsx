@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, RotateCcw, Save } from "lucide-react";
+import { MessageSquareCode, Play, RotateCcw, Save } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import DiffView from "@/components/editor/DiffView.lazy";
@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { PanelShell } from "@/components/workbench/PanelShell";
+import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 import type { PromptRow, TraceSpan } from "@/lib/api/types";
 import { useReplay, useResetPrompt, useSavePrompt } from "@/lib/run/trace-queries";
 import { seconds } from "@/lib/trace/tree";
@@ -52,9 +52,10 @@ export default function SpanInspector({
   if (!span) {
     return (
       <PanelShell title="호출 상세" note="프롬프트를 고쳐 다시 돌려볼 수 있습니다">
-        <div className="grid h-full place-items-center p-6 text-center">
-          <p className="max-w-64 text-sm text-ink-faint">호출을 선택하면 여기에서 읽고 다시 실행할 수 있습니다.</p>
-        </div>
+        <EmptyState icon={MessageSquareCode} title="선택한 호출이 없습니다">
+          아래 ‘호출 기록’에서 모델 호출을 고르면 주고받은 프롬프트를 그대로 읽을 수 있고, 고쳐서 다시 실행해 결과를
+          비교할 수 있습니다.
+        </EmptyState>
       </PanelShell>
     );
   }

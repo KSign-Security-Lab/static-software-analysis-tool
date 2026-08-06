@@ -1,6 +1,7 @@
 "use client";
 
-import { PanelShell } from "@/components/workbench/PanelShell";
+import { Boxes } from "lucide-react";
+import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 import { useCpgSource } from "../cpg/provider";
 
 /**
@@ -17,9 +18,10 @@ export default function NodeInspector() {
   if (!cpg.response) {
     return (
       <PanelShell title="추출 결과" note="노드를 누르면 속성이 여기에">
-        <div className="grid h-full place-items-center p-6 text-center">
-          <p className="max-w-64 text-sm text-ink-faint">‘분석’을 누르면 추출 결과가 여기 요약됩니다.</p>
-        </div>
+        <EmptyState icon={Boxes} title="아직 추출한 것이 없습니다">
+          왼쪽 ‘소스’에서 코드를 고르고 ‘분석’을 누르면 그래프의 규모가, 노드를 누르면 그 노드의 속성이 여기에
+          표시됩니다.
+        </EmptyState>
       </PanelShell>
     );
   }

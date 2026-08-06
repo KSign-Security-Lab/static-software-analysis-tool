@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import DockTabs from "@/components/workbench/DockTabs";
 import KnowledgePanel from "@/features/knowledge/KnowledgePanel";
 import { fromAgent } from "@/lib/model/finding";
-import { useFindings } from "@/lib/run/queries";
+import { useFindings, useRun } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import ProblemsPanel from "./ProblemsPanel";
@@ -21,11 +21,18 @@ export default function ProblemsDock() {
   const findings = useFindings(runId);
   const ui = useMemo(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
 
+  // "발견된 결과가 없습니다" is a *result*, and claiming it before anything has
+  // been inspected reads as a clean bill of health for code nobody has looked
+  // at. A run that has not started yet is told apart by `started`.
+  const run = useRun(runId);
+
   const hint = !runId
     ? "코드를 넣고 ‘검사 실행’을 누르세요."
     : phase === "running" || phase === "starting"
       ? "검사 중… 결과는 도착하는 대로 나타납니다."
-      : "이 코드에서 발견된 결과가 없습니다.";
+      : run.data?.started
+        ? "이 코드에서 발견된 결과가 없습니다."
+        : "아직 검사하지 않았습니다. 위 ‘검사 실행’을 누르세요.";
 
   return (
     <DockTabs

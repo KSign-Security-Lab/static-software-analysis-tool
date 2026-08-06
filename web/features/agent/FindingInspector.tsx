@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowRight, Waypoints } from "lucide-react";
+import { ArrowRight, ClipboardList, Waypoints } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { PanelShell } from "@/components/workbench/PanelShell";
+import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 import { neighbours } from "@/lib/api/knowledge";
 import type { KnowledgeGraph } from "@/lib/api/types";
 import { ROLE_LABEL, SEVERITY_LABEL, type UiFinding } from "@/lib/model/finding";
@@ -38,9 +38,10 @@ export default function FindingInspector({
   if (!finding) {
     return (
       <PanelShell title="판단 근거" note="에이전트가 왜 그렇게 봤는지">
-        <div className="grid h-full place-items-center p-6 text-center">
-          <p className="max-w-64 text-sm text-ink-faint">결과를 선택하면 근거가 여기에 표시됩니다.</p>
-        </div>
+        <EmptyState icon={ClipboardList} title="선택한 결과가 없습니다">
+          아래 ‘문제’에서 결과를 하나 고르면, 에이전트가 무엇을 보고 그렇게 판단했는지와 그 근거가 된 코드가 여기에
+          표시됩니다.
+        </EmptyState>
       </PanelShell>
     );
   }

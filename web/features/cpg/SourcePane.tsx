@@ -88,7 +88,8 @@ export default function SourcePane() {
         </dl>
 
         <p className="border-t border-line pt-2 text-2xs leading-relaxed text-ink-faint">
-          소스 또는 CPG JSON 을 열 수 있습니다. 편집기에서 바로 수정한 뒤 ‘분석’을 누르세요.
+          예제 대신 소스나 CPG JSON 파일을 열어도 됩니다. 여기서 고른 코드는 F2-A 와 추출 두 화면이 함께
+          씁니다 — F2-A 에서는 편집기로 바로 고칠 수도 있습니다.
         </p>
       </div>
     </PanelShell>

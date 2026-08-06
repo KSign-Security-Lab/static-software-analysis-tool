@@ -1,12 +1,12 @@
 "use client";
 
-import { Play, Save } from "lucide-react";
+import { FileCode, FilePlus, Play, Save } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import CodeEditor from "@/components/editor/CodeEditor.lazy";
 import { Button } from "@/components/ui/button";
 import { PanelShell } from "@/components/workbench/PanelShell";
-import { useCommands } from "@/lib/commands/provider";
+import { useCommands, useRegistry } from "@/lib/commands/provider";
 import { fromAgent, type UiFinding } from "@/lib/model/finding";
 import { useFile, useFindings, useStartRun, useWriteFile } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
@@ -24,6 +24,7 @@ export default function EditorPane({ runId }: { runId: string | null }) {
   const [path] = useOpenFile();
   const [selectedId, setSelectedId] = useSelectedFinding();
   const { ensureAttached, phase } = useRunStream();
+  const registry = useRegistry();
 
   const file = useFile(runId, path);
   const findings = useFindings(runId);
@@ -120,9 +121,27 @@ export default function EditorPane({ runId }: { runId: string | null }) {
           onRevealFinding={(finding) => void setSelectedId(finding.id)}
         />
       ) : (
-        <p className="max-w-72 p-6 text-center text-sm text-ink-faint">
-          왼쪽에서 파일을 고르거나, 새로 만들거나, 트리를 업로드하세요.
-        </p>
+        /* The first thing anyone sees, so it offers the first move rather than
+           describing it. The two buttons run the same commands the explorer's
+           icons and ⌘N do -- one registry, so this cannot drift from them. */
+        <div className="max-w-96 space-y-4 p-6 text-center">
+          <div className="space-y-1.5">
+            <p className="text-md font-semibold text-ink-strong">검사할 코드를 넣어 주세요</p>
+            <p className="text-sm leading-relaxed text-ink-faint">
+              왼쪽 탐색기에서 파일을 고르거나, 여기서 바로 시작할 수 있습니다. 넣은 코드는 이 컴퓨터를 벗어나지
+              않습니다.
+            </p>
+          </div>
+          <div className="flex justify-center gap-2">
+            <Button size="sm" onClick={() => void registry.run("file.starter")}>
+              <FileCode />
+              예제로 시작
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void registry.run("file.new")}>
+              <FilePlus />빈 파일 만들기
+            </Button>
+          </div>
+        </div>
       )}
     </PanelShell>
   );

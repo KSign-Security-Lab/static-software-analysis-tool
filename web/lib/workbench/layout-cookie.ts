@@ -55,7 +55,15 @@ export const DEFAULT_LAYOUT: PaneLayout = {
 /** The trace view leads with the graph, so the record under it wants room. */
 const PER_PERSPECTIVE: Partial<Record<PerspectiveId, PaneLayout>> = {
   trace: { h: { side: 15, main: 57, inspector: 28 }, v: { centre: 46, dock: 54 } },
-  stages: { h: { side: 16, main: 62, inspector: 22 }, v: { centre: 42, dock: 58 } },
+  // 스테이지 is a side list and one editor over its raw response: it has
+  // neither a bottom panel nor an inspector, and was showing a staging
+  // placeholder in each of them.
+  stages: { h: { side: 16, main: 84, inspector: 0 }, v: { centre: 100, dock: 0 } },
+  // 추출 has no bottom panel of its own: the graph and the node inspector are
+  // the whole surface. Collapsed rather than filled with a placeholder, which
+  // is what it showed before -- a "문제" tab reading 준비 중, on a screen that
+  // does not look for problems.
+  extract: { h: { side: 18, main: 60, inspector: 22 }, v: { centre: 100, dock: 0 } },
 };
 
 export function defaultLayoutFor(id: PerspectiveId): PaneLayout {
