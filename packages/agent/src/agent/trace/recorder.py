@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from contextvars import ContextVar
 from typing import Any, Sequence
 from uuid import UUID
 
@@ -63,25 +64,38 @@ def _is_step(given: str | None, parent: UUID | None, metadata: dict[str, Any] | 
     return bool(node) and given == node
 
 
+#: The model call currently open on this branch of the run.
+#:
+#: A tool runs after the model that asked for it has already closed, and
+#: LangChain reports it under the graph node instead. Filing it under the model
+#: call is what makes a verify step readable as one exchange: what was asked,
+#: what was run, what came back.
+#:
+#: A ContextVar rather than a ``threading.local``, and that distinction is the
+#: whole reason tools were landing under the node. Two threads are involved: the
+#: graph thread runs the model call, and the tool itself runs on the MCP
+#: session's event loop, because ``ToolSession.call`` hands the coroutine to
+#: another thread. ``call_soon_threadsafe`` copies the calling context over with
+#: it, so a ContextVar survives that hop; thread-local state does not, and every
+#: tool call read an empty field and fell back to the enclosing node.
+#:
+#: Still isolated per branch, which was the point of the thread-local: a fresh
+#: thread starts from the default, and a copied context is a copy -- so four
+#: specialists in flight cannot file each other's tool calls.
+_open_llm: ContextVar[str | None] = ContextVar("agent_trace_open_llm", default=None)
+
+
 class SpanRecorder(BaseCallbackHandler):
     """Persist the call tree of one inspection.
 
     Called from several threads at once, now that a wave of chunks is analysed
     concurrently. The maps below are shared and locked; the "model call that is
-    currently open" is emphatically not shared -- it is per thread, because that
-    is the only sense in which the question has an answer.
+    currently open" is emphatically not shared -- it is per branch of the run,
+    because that is the only sense in which the question has an answer.
     """
 
     def __init__(self, store: SpanStore) -> None:
         self.store = store
-        # A tool runs after the model that asked for it has already closed, and
-        # LangChain reports it under the graph node instead. Filing it under the
-        # model call is what makes a verify step readable as one exchange.
-        #
-        # Thread-local: with four specialists in flight, one shared field would
-        # file a tool call under whichever model happened to answer last, on any
-        # thread, and the trace would quietly describe a run that never happened.
-        self._local = threading.local()
         # Dropped spans, and the parent their children should attach to
         # instead, so skipping plumbing does not orphan what ran inside it.
         self._skipped: dict[str, str | None] = {}
@@ -94,12 +108,12 @@ class SpanRecorder(BaseCallbackHandler):
 
     @property
     def _last_llm(self) -> str | None:
-        """The model call this thread most recently opened."""
-        return getattr(self._local, "last_llm", None)
+        """The model call this branch of the run most recently opened."""
+        return _open_llm.get()
 
     @_last_llm.setter
     def _last_llm(self, span_id: str | None) -> None:
-        self._local.last_llm = span_id
+        _open_llm.set(span_id)
 
     def _parent_of(self, parent: UUID | None) -> str | None:
         """The nearest ancestor that was actually recorded."""

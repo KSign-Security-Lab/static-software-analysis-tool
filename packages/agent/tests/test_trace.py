@@ -306,3 +306,44 @@ def test_a_tool_stays_with_its_own_model_call_across_threads(store: SpanStore) -
     by_id = {span.id: span for span in store.spans()}
     for lens, (llm, tool) in pairs.items():
         assert by_id[str(tool)].parent_id == str(llm), f"{lens}'s tool wandered onto another thread's call"
+
+
+def test_a_tool_run_on_the_mcp_loop_stays_with_the_call_that_asked(store: SpanStore) -> None:
+    """The shape a real run has, and the one thread-local state got wrong.
+
+    ``ToolSession.call`` hands the coroutine to the MCP session's event loop, so
+    the tool's callbacks fire on *that* thread while the graph thread waits.
+    ``call_soon_threadsafe`` copies the calling context across, which is what a
+    ContextVar rides on and what a ``threading.local`` cannot: every tool call
+    read an empty field there and was filed under the enclosing node instead,
+    leaving the exchange with no tools on it at all.
+    """
+    import contextvars
+    import threading
+
+    recorder = SpanRecorder(store)
+    node, llm, tool = _uuid(), _uuid(), _uuid()
+
+    recorder.on_chain_start({}, {}, run_id=node, name="verify", metadata=_in_node("verify"))
+    recorder.on_chat_model_start(
+        {"name": "ChatOpenAI"},
+        [[HumanMessage(content="go")]],
+        run_id=llm,
+        parent_run_id=node,
+        name="gather:CWE-78",
+        metadata=_in_node("verify"),
+    )
+
+    def on_loop_thread() -> None:
+        recorder.on_tool_start({"name": "search_text"}, "{}", run_id=tool, parent_run_id=node)
+        recorder.on_tool_end("fw.c:12:strcpy", run_id=tool)
+
+    # Exactly what the loop does with the work it is handed: run it on another
+    # thread, in a copy of the caller's context.
+    context = contextvars.copy_context()
+    worker = threading.Thread(target=context.run, args=(on_loop_thread,))
+    worker.start()
+    worker.join(timeout=10)
+
+    recorded = next(span for span in store.spans() if span.kind == "tool")
+    assert recorded.parent_id == str(llm), "the tool was filed under the node, not the call that asked for it"
