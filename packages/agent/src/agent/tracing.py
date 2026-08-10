@@ -102,9 +102,16 @@ def call_config(
     file: str | None = None,
     symbol: str | None = None,
     subject: str | None = None,
+    lens: str | None = None,
 ) -> RunnableConfig:
     """Names and tags one model call. ``step`` is analyse/gather/verify;
-    ``subject`` lands in the span name so the trace list reads at a glance."""
+    ``subject`` lands in the span name so the trace list reads at a glance.
+
+    ``lens`` is which specialist raised the claim this call is about. Only
+    gather and verify have one, and without it a reader can see that a claim was
+    investigated and refuted but not who made it -- the hand-off from analysis to
+    verification was the one edge in the run that left no record.
+    """
     name = f"{step}:{subject}" if subject else step
     metadata = {
         key: value
@@ -114,6 +121,7 @@ def call_config(
             "file": file,
             "symbol": symbol,
             "step": step,
+            "lens": lens,
         }.items()
         if value is not None
     }

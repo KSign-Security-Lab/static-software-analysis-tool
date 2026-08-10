@@ -484,6 +484,7 @@ def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestC
         "symbol": "run",
         "file": "src/app.c",
         "langgraph_node": "verify",
+        "lens": "injection",
     }
     spans.start(span_id="node", parent_id=None, name="verify", kind="chain", started_at=0.0)
     spans.start(
@@ -508,6 +509,7 @@ def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestC
     assert turn["step"] == "gather"
     assert [m["role"] for m in turn["messages"]] == ["system", "human"]
     assert turn["node"] == "verify", "the node, so narrowing the record is not a guess at the name"
+    assert turn["raised_by"] == "injection", "which specialist raised the claim this call is about"
     # The tool the model asked for, and what running it returned -- the pair is
     # what makes a verify step readable.
     assert turn["tool_calls"][0]["name"] == "read_source"

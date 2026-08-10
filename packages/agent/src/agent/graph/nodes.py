@@ -405,6 +405,8 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         finding = Finding.model_validate(payload)
         pack = deps.pack_for(chunk)
+        # Which specialist raised this, so the trace records the hand-off.
+        raised_by = state.get("lens")
 
         # Check the claim before ruling on it. Empty without tools.
         gathered = ""
@@ -421,6 +423,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     file=chunk.file,
                     symbol=chunk.symbol,
                     subject=_finding_subject(finding),
+                    lens=raised_by,
                 ),
             )
 
@@ -435,6 +438,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                 file=chunk.file,
                 symbol=chunk.symbol,
                 subject=_finding_subject(finding),
+                lens=raised_by,
             ),
         )
 
@@ -575,9 +579,17 @@ def specialists(state: Any) -> Any:
 
 
 def claims(state: InspectionState) -> Any:
-    """From `locate`: one verifier per finding worth the cost."""
+    """From `locate`: one verifier per finding worth the cost.
+
+    Carries the lens through. `locate` knows which specialist raised each claim
+    and used to drop it here, which left the trace unable to say who a verifier
+    was arguing with.
+    """
     sends = [
-        Send("verify", {"chunk_id": item["chunk_id"], "finding": item["finding"]})
+        Send(
+            "verify",
+            {"chunk_id": item["chunk_id"], "finding": item["finding"], "lens": item.get("lens")},
+        )
         for item in state.get("located", [])
         if not item.get("over_cap")
     ]

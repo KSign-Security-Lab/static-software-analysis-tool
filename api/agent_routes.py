@@ -604,6 +604,11 @@ def _turn(span: Any, by_id: Dict[str, Any]) -> Dict[str, Any]:
         # graph is a comparison rather than a guess at the span's name -- `gather`
         # and `verify` are both the `verify` node and neither is called that.
         "node": span.meta.get("langgraph_node"),
+        # Which specialist raised the claim this call is about. gather and verify
+        # only; it is what makes the hand-off from analysis to verification
+        # readable as one chain rather than as unrelated calls that happen to
+        # mention the same CWE.
+        "raised_by": span.meta.get("lens"),
         "messages": messages,
         "reply": "\n".join(outputs.get("text", [])) or None,
         "tool_calls": outputs.get("tool_calls") or [],

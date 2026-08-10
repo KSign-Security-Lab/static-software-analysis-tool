@@ -1038,3 +1038,60 @@ def test_a_wave_closes_exactly_once_when_a_chunk_is_screened_out(indexed) -> Non
     assert report.stats.chunks_inspected == report.stats.chunks_total
     assert len(report.findings) == 1, "the surviving specialist's finding was lost"
     store.close()
+
+
+def test_the_verifier_is_told_which_specialist_raised_the_claim() -> None:
+    """The one edge in the run that used to leave no record.
+
+    `locate` knows which lens produced each candidate and `claims` dropped it, so
+    a trace could show a claim being refuted without showing who had made it.
+    """
+    from agent.graph.nodes import claims
+
+    state = {
+        "located": [
+            {"chunk_id": "c1", "lens": "injection", "finding": {"id": "f1"}},
+            {"chunk_id": "c1", "lens": "memory", "finding": {"id": "f2"}, "over_cap": True},
+        ]
+    }
+    sends = claims(state)
+
+    assert [send.arg["lens"] for send in sends] == ["injection"], "capped claims are not verified at all"
+    assert sends[0].arg["finding"] == {"id": "f1"}
+
+
+def test_call_config_carries_the_lens_into_the_trace() -> None:
+    from agent.tracing import call_config
+
+    config = call_config(step="verify", subject="CWE-78 net.c:12", lens="injection")
+    assert config["metadata"]["lens"] == "injection"
+    # Absent rather than null where the notion does not apply -- triage and the
+    # specialists are not about anybody else's claim.
+    assert "lens" not in call_config(step="triage")["metadata"]
+
+
+def test_every_verifier_call_is_told_which_specialist_it_is_arguing_with(indexed) -> None:
+    """Through the real graph, on the config the model call is actually given.
+
+    The hand-off from analysis to verification was the one edge in the run that
+    left no record: a reader could see a claim investigated and refuted without
+    seeing who had made it. `locate` knew and `claims` dropped it. Asserted on the
+    `RunnableConfig` each call receives, because that is what carries the metadata
+    into the trace -- a scripted caller never reaches LangChain, so there is no
+    span to read here.
+    """
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+
+    _run(root, store, caller, tools=FakeToolSession())
+
+    lens_of = {
+        trace["metadata"]["step"]: trace["metadata"].get("lens")
+        for trace in caller.traces
+        if trace is not None
+    }
+    assert lens_of["gather"] == "injection", "gathering evidence is about somebody's claim"
+    assert lens_of["verify"] == "injection"
+    # Absent on the calls that are nobody else's claim.
+    assert lens_of.get("triage") is None
+    assert lens_of.get("lens:injection") is None
