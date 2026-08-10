@@ -8,6 +8,13 @@ from ..knowledge.c_stdlib import (
     UNBOUNDED_CALLS,
     call_sem_cat_id_from_name,
 )
+from ..nodes import (
+    fullname_from_expr,
+    guards_from_condition_ast,
+    guards_from_for_header,
+    unwrap_ast,
+    unwrap_cast_typeref,
+)
 
 # ----------------------------
 # Modifications
@@ -437,7 +444,7 @@ class ASTExtractor:
                 sb_prev = sid_if
 
                 # 3) Aggregate guard context
-                cond_guards = self._guards_from_condition_ast(cond)
+                cond_guards = guards_from_condition_ast(cond)
 
                 def _push_guards(base: Dict[str, Any], add: Dict[str, Any]) -> Dict[str, Any]:
                     pushed = dict(base)
@@ -496,8 +503,8 @@ class ASTExtractor:
                 cond_ast = kids[1] if len(kids) > 1 else None
 
                 # Parse condition (AST) and also infer lower-bound from init/inc header
-                guards_cond = self._guards_from_condition_ast(cond_ast) if isinstance(cond_ast, dict) else {}
-                guards_hdr = self._guards_from_for_header(ch) or {}
+                guards_cond = guards_from_condition_ast(cond_ast) if isinstance(cond_ast, dict) else {}
+                guards_hdr = guards_from_for_header(ch) or {}
 
                 # Merge guards: OR for lower/upper, max for upper_const
                 lguards = dict(guards_cond)
@@ -538,7 +545,7 @@ class ASTExtractor:
                 kids = ch.get("children", []) or []
                 cond = kids[0] if len(kids) > 0 else None
                 # cond_code = cond.get("code","") if isinstance(cond, dict) else ""
-                lguards = self._guards_from_condition_ast(cond)
+                lguards = guards_from_condition_ast(cond)
 
                 pushed = dict(active_guards)
                 for v, g in lguards.items():
@@ -575,7 +582,7 @@ class ASTExtractor:
                 sb_prev = sid_do
 
                 # build context for guard (loop) evidence injection
-                lguards = self._guards_from_condition_ast(cond) if cond_code else {}
+                lguards = guards_from_condition_ast(cond) if cond_code else {}
                 pushed = dict(active_guards)
                 for v, g in lguards.items():
                     pushed[v] = {
@@ -658,7 +665,7 @@ class ASTExtractor:
 
                 # RHS에서 첫 호출 탐색 (캐스트/괄호 벗겨 핵심만 검사)
                 rhs_core = (
-                    self._unwrap_ast(rhs, strip_addr=False, strip_cast=True, strip_paren=True)
+                    unwrap_ast(rhs, strip_addr=False, strip_cast=True, strip_paren=True)
                     if isinstance(rhs, dict)
                     else None
                 )
@@ -859,7 +866,7 @@ class ASTExtractor:
 
             if isinstance(dst_node, dict) and isinstance(size_node, dict):
                 # & / () / cast 를 옵션대로 제거하여 '실제 dst' 추출
-                dst_core = self._unwrap_ast(dst_node, strip_addr=True, strip_cast=True, strip_paren=True) or dst_node
+                dst_core = unwrap_ast(dst_node, strip_addr=True, strip_cast=True, strip_paren=True) or dst_node
 
                 # 매크로/중첩에서도 동작하도록 AST 재귀로 sizeof 존재 여부 판정
                 sizeof_present = self._contains_sizeof_node(size_node)
@@ -1043,284 +1050,6 @@ class ASTExtractor:
         except Exception:
             pass
         return str(code)
-
-    def _guards_from_condition_ast(self, cond_ast: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        조건식 AST에서 변수별 가드 증거를 추출한다.
-        반환 예:
-        {"data": {"lower":1, "upper":1, "upper_const":0.1}}
-        규칙:
-        - x>=0, x>0 -> lower=1
-        - x<=K, x<K (K=정수리터럴) -> upper=1, upper_const=norm_val(K)
-        - AND(&&)는 양쪽 모두 병합, OR(||)는 보수적으로 '합집합' 병합
-        - 좌변/우변 뒤집힘(예: 0 < x, 10 > x)도 처리
-        - 식별자는 Identifier 또는 MemberAccess(base.field) 허용
-        - 비상수 상계(예: x < N)는 upper=1만 줄지, upper_const는 0.0 유지(정규화 불가)
-        """
-        out: Dict[str, Dict[str, Any]] = {}
-
-        # ---------- helpers ----------
-        def _norm_val(k: int) -> float:
-            try:
-                k = int(k)
-                if k <= 0:
-                    return 0.0
-                # 프로젝트 일관: 10 -> 0.1 로 보이니 1/k 채택
-                return 1.0 / float(k)
-            except Exception:
-                return 0.0
-
-        def _is_int_literal(n: Dict[str, Any]) -> bool:
-            if not isinstance(n, dict):
-                return False
-            if n.get("nodeType") in {"Literal", "IntegerLiteral", "NumberLiteral"}:
-                t = (n.get("type") or "").lower()
-                return "int" in t or t == ""  # 일부 파서에서 type 비울 수 있음
-            return False
-
-        def _int_from_node(n: Optional[Dict[str, Any]]) -> int | None:
-            # Literal("10"), 혹은 Unary - Literal("10")
-            if not isinstance(n, dict):
-                return None
-            if _is_int_literal(n):
-                v = n.get("value")
-                try:
-                    return int(str(v).strip())
-                except Exception:
-                    # fallback: 코드에서 추출
-                    code = n.get("code", "")
-                    import re
-
-                    m = re.search(r"-?\d+", code)
-                    return int(m.group(0)) if m else None
-            # Unary - <literal>
-            if n.get("nodeType") in {"UnaryOperator", "UnaryExpression"} and n.get("operator") == "-":
-                kids = n.get("children") or []
-                k0 = kids[0] if kids else None
-                val = _int_from_node(k0)
-                return -val if isinstance(val, int) else None
-            # 괄호로 감싼 케이스 (ParenthesizedExpression 류)
-            if n.get("nodeType") in {"ParenExpression", "ParenthesizedExpression"}:
-                ks = n.get("children") or []
-                return _int_from_node(ks[0]) if ks else None
-            return None
-
-        def _ident_name(n: Optional[Dict[str, Any]]) -> str | None:
-            if not isinstance(n, dict):
-                return None
-            nt = n.get("nodeType")
-            if nt == "Identifier":
-                nm = n.get("name")
-                return nm if isinstance(nm, str) and nm else None
-            if nt == "MemberAccess":
-                kids = n.get("children") or []
-                base = kids[0] if len(kids) > 0 else None
-                field = kids[1] if len(kids) > 1 else None
-                b = _ident_name(base)
-                f = _ident_name(field)
-                if b and f:
-                    return f"{b}.{f}"
-                return b or f
-            # 괄호/캐스트로 감싼 경우 풀어주기
-            if nt in {
-                "ParenExpression",
-                "ParenthesizedExpression",
-                "CStyleCastExpression",
-                "CXXStaticCastExpr",
-                "UnaryOperator",
-                "UnaryExpression",
-            }:
-                kids = n.get("children") or []
-                return _ident_name(kids[0]) if kids else None
-            return None
-
-        def _emit_lower(var: str) -> None:
-            if not var:
-                return
-            e = out.setdefault(var, {"lower": 0, "upper": 0, "upper_const": 0.0})
-            e["lower"] = 1
-
-        def _emit_upper(var: str, k: int | None) -> None:
-            if not var:
-                return
-            e = out.setdefault(var, {"lower": 0, "upper": 0, "upper_const": 0.0})
-            e["upper"] = 1
-            if isinstance(k, int):
-                e["upper_const"] = max(e["upper_const"], _norm_val(k))  # 최대값 유지
-
-        # ---------- recursive visit ----------
-        def visit(n: Optional[Dict[str, Any]]) -> None:
-            if not isinstance(n, dict):
-                return
-            nt = n.get("nodeType")
-            if nt == "BinaryExpression":
-                op = n.get("operator")
-                ch = n.get("children") or []
-                a = ch[0] if len(ch) > 0 else None
-                b = ch[1] if len(ch) > 1 else None
-
-                # 논리연산: && / ||
-                if op in {"&&", "and", "AND"}:
-                    visit(a)
-                    visit(b)
-                    return
-                if op in {"||", "or", "OR"}:
-                    # 보수적으로 두 쪽 모두 반영(합집합)
-                    visit(a)
-                    visit(b)
-                    return
-
-                # 비교연산
-                if op in {"<", "<=", ">", ">="}:
-                    # 케이스 1) var ? const
-                    v_left = _ident_name(a)
-                    k_right = _int_from_node(b)
-
-                    # 케이스 2) const ? var  (좌우 뒤집힘)
-                    k_left = _int_from_node(a)
-                    v_right = _ident_name(b)
-
-                    if v_left:
-                        if op in {">", ">="}:
-                            # x > 0, x >= 0 → lower
-                            if (k_right is not None) and k_right == 0:
-                                _emit_lower(v_left)
-                        elif op in {"<", "<="}:
-                            # x < K, x <= K → upper(+const)
-                            _emit_upper(v_left, k_right)
-                        return
-
-                    if v_right:
-                        # 뒤집힌 비교는 연산자 방향 반대로 해석
-                        if op in {">", ">="}:
-                            # K > x ⇒ x < K
-                            _emit_upper(v_right, k_left)
-                        elif op in {"<", "<="}:
-                            # K < x ⇒ x > K  (K가 0일 때만 lower 인정; 일반 K는 무시)
-                            if (k_left is not None) and k_left == 0:
-                                _emit_lower(v_right)
-                        return
-
-                    # 둘 다 변수/상수 아니면 스킵
-                    return
-
-            # 괄호/캐스트/단항은 내부로
-            if nt in {
-                "ParenExpression",
-                "ParenthesizedExpression",
-                "CStyleCastExpression",
-                "CXXStaticCastExpr",
-                "UnaryOperator",
-                "UnaryExpression",
-            }:
-                for c in n.get("children") or []:
-                    visit(c)
-                return
-
-            # 논리식이 다른 노드(예: ConditionalOperator 등)면 하위 탐색
-            for c in n.get("children") or []:
-                visit(c)
-
-        visit(cond_ast)
-
-        return out
-
-    def _guards_from_for_header(self, for_ast: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        for (init; cond; inc) 에서 init/inc를 읽어 하한 가드(lower)를 보강.
-        - init:  i = K (K가 정수리터럴이며 K>=0)
-        - inc :  i++, ++i, i += k (k>=0)  → 단조 증가가 보장될 때만 lower=1 부여
-        반환 예: {"i": {"lower":1, "upper":0, "upper_const":0.0}}
-        """
-        out: Dict[str, Dict[str, Any]] = {}
-
-        def _emit_lower(v: Optional[str]) -> None:
-            if not v:
-                return
-            e = out.setdefault(v, {"lower": 0, "upper": 0, "upper_const": 0.0})
-            e["lower"] = 1
-
-        if not isinstance(for_ast, dict) or for_ast.get("nodeType") != "ForStatement":
-            return out
-
-        kids = for_ast.get("children") or []
-        init = kids[0] if len(kids) >= 1 else None
-        inc = kids[2] if len(kids) >= 3 else None
-
-        # helper: 정수리터럴 추출
-        def _int_from(n: Any) -> Optional[int]:
-            if not isinstance(n, dict):
-                return None
-            if n.get("nodeType") in {"Literal", "IntegerLiteral", "NumberLiteral"}:
-                try:
-                    return int(str(n.get("value")).strip())
-                except TypeError, ValueError:
-                    return None
-            if n.get("nodeType") in {"UnaryOperator", "UnaryExpression"} and n.get("operator") == "-":
-                ks = n.get("children") or []
-                v = _int_from(ks[0]) if ks else None
-                return -v if isinstance(v, int) else None
-            if n.get("nodeType") in {"ParenExpression", "ParenthesizedExpression"}:
-                ks = n.get("children") or []
-                return _int_from(ks[0]) if ks else None
-            return None
-
-        # helper: 식별자 이름 추출 (Identifier/MemberAccess)
-        def _ident(n: Any) -> Optional[str]:
-            if not isinstance(n, dict):
-                return None
-            nt = n.get("nodeType")
-            if nt == "Identifier":
-                nm = n.get("name")
-                return nm if isinstance(nm, str) and nm else None
-            if nt == "MemberAccess":
-                ks = n.get("children") or []
-                b = _ident(ks[0] if len(ks) > 0 else None)
-                f = _ident(ks[1] if len(ks) > 1 else None)
-                return f"{b}.{f}" if b and f else (b or f)
-            if nt in {
-                "ParenExpression",
-                "ParenthesizedExpression",
-                "CStyleCastExpression",
-                "CXXStaticCastExpr",
-                "UnaryOperator",
-                "UnaryExpression",
-            }:
-                ks = n.get("children") or []
-                return _ident(ks[0]) if ks else None
-            return None
-
-        # 1) init: i = K (K>=0)
-        init_var = None
-        init_nonneg = False
-        if isinstance(init, dict) and init.get("nodeType") == "AssignmentExpression" and init.get("operator") == "=":
-            ch = init.get("children") or []
-            lhs, rhs = (ch[0] if len(ch) > 0 else None), (ch[1] if len(ch) > 1 else None)
-            init_var = _ident(lhs)
-            kv = _int_from(rhs)
-            init_nonneg = isinstance(kv, int) and kv >= 0
-
-        # 2) inc: ++i / i++ / i += k (k>=0)
-        inc_var = None
-        inc_nondecreasing = False
-        if isinstance(inc, dict):
-            nt = inc.get("nodeType")
-            if nt in {"UnaryOperator", "UnaryExpression"} and inc.get("operator") in {"++"}:
-                ks = inc.get("children") or []
-                inc_var = _ident(ks[0]) if ks else None
-                inc_nondecreasing = True
-            elif nt == "AssignmentExpression" and inc.get("operator") in {"+="}:
-                ch = inc.get("children") or []
-                lhs, rhs = (ch[0] if len(ch) > 0 else None), (ch[1] if len(ch) > 1 else None)
-                inc_var = _ident(lhs)
-                step = _int_from(rhs)
-                inc_nondecreasing = isinstance(step, int) and step >= 0
-
-        # 3) 결론: init와 inc가 같은 변수이고 init_nonneg & inc_nondecreasing면 lower=1
-        if init_var and inc_var and init_var == inc_var and init_nonneg and inc_nondecreasing:
-            _emit_lower(init_var)
-
-        return out
 
     def _make_node(
         self,
@@ -1509,7 +1238,7 @@ class ASTExtractor:
         def _unwrap_dst(node: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
             """&/캐스트/괄호 제거해 실제 dst를 얻음."""
             try:
-                return self._unwrap_ast(node, strip_addr=True, strip_cast=True, strip_paren=True)
+                return unwrap_ast(node, strip_addr=True, strip_cast=True, strip_paren=True)
             except Exception:
                 return node
 
@@ -1798,38 +1527,6 @@ class ASTExtractor:
                     return m.group(1)
             stack.extend([c for c in (n.get("children") or []) if isinstance(c, dict)])
         return None
-
-    def _unwrap_ast(
-        self,
-        node: Optional[Dict[str, Any]],
-        strip_addr: bool = False,
-        strip_cast: bool = True,
-        strip_paren: bool = True,
-    ) -> Optional[Dict[str, Any]]:
-        """AST 표현식에서 바깥 래핑을 옵션대로 벗겨 내부 '핵심' 표현식을 반환."""
-        n = node
-        while isinstance(n, dict):
-            nt = n.get("nodeType")
-
-            # 우리 AST 스키마에서는 이런 타입이 없음
-            # if strip_paren and nt in {"ParenExpression","ParenExpr"}:
-            #    kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
-            #    n = kids[0] if kids else None
-            #    continue
-
-            if strip_cast and nt in {"CastExpression", "CStyleCastExpr"}:
-                kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
-                n = next((c for c in kids if c.get("nodeType") not in {"TypeRef", "TypeName", "TypeSpecifier"}), None)
-                continue
-
-            if strip_addr and (
-                nt == "AddressOfExpression" or (nt == "UnaryOperator" and n.get("operator") in {"&", "&amp;"})
-            ):
-                kids = [c for c in (n.get("children") or []) if isinstance(c, dict)]
-                n = kids[0] if kids else None
-                continue
-            break
-        return n
 
     # 헬퍼: 주어진 AST id 아래에서 평탄화된 "첫 문장" sid 찾기
     def _first_stmt_sid_under(self, ast_id: int) -> int | None:
@@ -2141,59 +1838,12 @@ class ASTExtractor:
         return out
 
     def _fullname_from_expr(self, n: Any) -> Optional[str]:
-        """Return identifier (with field-sensitivity, e.g., 's.charFirst') from an expression.
-        Handles PointerDereference/Unary '*'/'&', Cast/Paren, and ArraySubscript base.
+        """The identifier this expression names. See :func:`ssat.nodes.fullname_from_expr`.
+
+        The peeling strategy is bound here because the two extractors do not
+        agree on it; this one keeps ast's, which skips a cast's type child.
         """
-        # 0) null/primitive guard
-        if n is None:
-            return None
-
-        # 1) unwrap cast/paren first
-        n = self._unwrap_ast(n, strip_cast=True)
-
-        # 2) if array subscript, resolve its base first-child
-        if isinstance(n, dict) and n.get("nodeType") == "ArraySubscriptExpression":
-            kids = n.get("children") or []
-            n = kids[0] if kids else n
-            n = self._unwrap_ast(n, strip_cast=True)
-
-        # 3) peel pointer dereference or address-of to reach the underlying lvalue
-        while isinstance(n, dict) and (
-            n.get("nodeType") == "PointerDereference"
-            or (n.get("nodeType") in {"UnaryOperator", "UnaryExpression"} and n.get("operator") in {"*", "&"})
-        ):
-            kids = n.get("children") or []
-            n = kids[0] if kids else n
-            n = self._unwrap_ast(n, strip_cast=True)
-
-        # 4) member access wins (field-sensitivity)
-        if self._is_member_access(n):
-            return self._member_parts(n)[2]
-
-        # 5) plain identifier
-        if isinstance(n, dict) and n.get("nodeType") == "Identifier":
-            return n.get("name")
-
-        return None
-
-    # --------------------------------------------------------------------
-    # Field-sensitive helpers (MemberAccess / MemberExpression)
-    # --------------------------------------------------------------------
-
-    def _is_member_access(self, n: Any) -> bool:
-        return isinstance(n, dict) and n.get("nodeType") == "MemberAccess"
-
-    def _member_parts(self, n: Any) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """Return (base_name, field_name, full_name='base.field') for a member access node."""
-        if not self._is_member_access(n):
-            return None, None, None
-        kids = n.get("children") or []
-        base = kids[0] if len(kids) > 0 else None
-        field = kids[1] if len(kids) > 1 else None
-        base_name = base.get("name") if isinstance(base, dict) and base.get("nodeType") == "Identifier" else None
-        field_name = field.get("name") if isinstance(field, dict) and field.get("nodeType") == "Identifier" else None
-        full = f"{base_name}.{field_name}" if base_name and field_name else None
-        return base_name, field_name, full
+        return fullname_from_expr(n, unwrap=unwrap_cast_typeref)
 
     # --- Added: emit ParameterDeclaration as prologue statements (statement-level nodes) ---
     def _emit_param_statements_prologue(self) -> None:
