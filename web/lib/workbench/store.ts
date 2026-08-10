@@ -31,7 +31,7 @@ export interface WorkbenchState {
    * The chosen dock tab, per perspective.
    *
    * Not one value shared by all of them: the surfaces have different tab sets,
-   * so a single string means opening the trace view lands on 문제 because that
+   * so a single string means opening 추출 lands on 문제 because that
    * is what you last looked at on the inspect view -- past the call record
    * that is the whole reason for being there.
    */

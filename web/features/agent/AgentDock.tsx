@@ -6,22 +6,29 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import DockTabs from "@/components/workbench/DockTabs";
 import KnowledgePanel from "@/features/knowledge/KnowledgePanel";
 import { fromAgent } from "@/lib/model/finding";
-import { useFindings } from "@/lib/run/queries";
+import { useFindings, useRun } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useCheckpoints, useResume, useSpans, useThreads } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
-import ConversationView from "./ConversationView";
-import ProblemsPanel from "../agent/ProblemsPanel";
-import SpanTree from "./SpanTree";
-import StatePanel from "./StatePanel";
-import { useFullState, useScopedNode, useSelectedCheckpoint, useSelectedSpan } from "./state";
-import { useOpenFile, useSelectedFinding } from "../agent/state";
+import ConversationView from "../trace/ConversationView";
+import ProblemsPanel from "./ProblemsPanel";
+import SpanTree from "../trace/SpanTree";
+import StatePanel from "../trace/StatePanel";
+import { useFullState, useScopedNode, useSelectedCheckpoint, useSelectedSpan } from "../trace/state";
+import { useCentreView, useInspectorView, useOpenFile, useSelectedFinding } from "./state";
 
 const VIEWS = ["tree", "chat"] as const;
 
-/** TRACE, STATE, PROBLEMS and the structure map, under the graph. */
-export default function TraceDock() {
+/**
+ * Everything about the run, under whichever centre view is showing.
+ *
+ * One dock for both halves of the surface: 문제 is what the agent concluded,
+ * 호출 기록 and 상태 단계 are how it got there. They were split across two
+ * routes and duplicated 문제 and 구조 지도 between them, which is the clearest
+ * sign they were one panel all along.
+ */
+export default function AgentDock() {
   const [runId] = useRunId();
   const [spanId, setSpanId] = useSelectedSpan();
   const [node] = useScopedNode();
@@ -34,12 +41,15 @@ export default function TraceDock() {
 
   const [, setPath] = useOpenFile();
   const [findingId, setFindingId] = useSelectedFinding();
+  const [, setCentre] = useCentreView();
+  const [, setInspector] = useInspectorView();
 
   const { live, phase, ensureAttached } = useRunStream();
   const spans = useSpans(runId);
   const threads = useThreads(runId);
   const checkpoints = useCheckpoints(runId, full);
   const findings = useFindings(runId);
+  const run = useRun(runId);
   const resume = useResume(runId, ensureAttached);
 
   // Memoised because the effect below depends on it: `?? []` is a fresh array
@@ -60,8 +70,35 @@ export default function TraceDock() {
 
   return (
     <DockTabs
-      scope="trace"
+      scope="agent"
       tabs={[
+        {
+          id: "problems",
+          label: "문제",
+          badge: ui.length || undefined,
+          content: (
+            <ProblemsPanel
+              findings={ui}
+              selectedId={findingId}
+              emptyHint={
+                !runId
+                  ? "코드를 넣고 ‘검사 실행’을 누르세요."
+                  : starting
+                    ? "검사 중… 결과는 도착하는 대로 나타납니다."
+                    : run.data?.started
+                      ? "이 실행에서 발견된 결과가 없습니다."
+                      : "아직 검사하지 않았습니다. 위 ‘검사 실행’을 누르세요."
+              }
+              onSelect={(finding) => {
+                void setFindingId(finding.id);
+                void setInspector("finding");
+                // A finding is a claim about a line, so show the line.
+                void setCentre("code");
+                if (finding.primary.file) void setPath(finding.primary.file);
+              }}
+            />
+          ),
+        },
         {
           id: "trace",
           label: "호출 기록",
@@ -100,7 +137,10 @@ export default function TraceDock() {
                     selected={spanId}
                     node={node}
                     waiting={starting}
-                    onSelect={(id) => void setSpanId(id)}
+                    onSelect={(id) => {
+                      void setSpanId(id);
+                      void setInspector("span");
+                    }}
                   />
                 ) : (
                   <ConversationView threads={threads.data?.threads ?? []} node={node} />
@@ -125,26 +165,6 @@ export default function TraceDock() {
               onFull={(next) => void setFull(next)}
               onFork={(id, values) => resume.mutate({ checkpointId: id, values })}
               onRerun={(id) => resume.mutate({ checkpointId: id })}
-            />
-          ),
-        },
-        {
-          id: "problems",
-          label: "문제",
-          badge: ui.length || undefined,
-          content: (
-            <ProblemsPanel
-              findings={ui}
-              selectedId={findingId}
-              emptyHint={
-                starting
-                  ? "검사 중… 결과는 도착하는 대로 나타납니다."
-                  : "이 실행에서 발견된 결과가 없습니다."
-              }
-              onSelect={(finding) => {
-                void setFindingId(finding.id);
-                if (finding.primary.file) void setPath(finding.primary.file);
-              }}
             />
           ),
         },

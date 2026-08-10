@@ -71,9 +71,19 @@ describe("decodeLayout", () => {
   });
 
   it("keeps the good perspectives when one is bad", () => {
-    const out = decodeLayout("1~agent:20_58_22_70_30~trace:1_1_1_1_1");
+    const out = decodeLayout("1~agent:20_58_22_70_30~f2a:1_1_1_1_1");
     expect(out.agent).toEqual(valid.agent);
-    expect(out.trace).toBeUndefined();
+    expect(out.f2a).toBeUndefined();
+  });
+});
+
+describe("a perspective that no longer exists", () => {
+  it("is dropped from a cookie written before it went away", () => {
+    // 트레이스 was its own route until it became a tab of 검사. Cookies from
+    // then are still in browsers, and must not resurrect it.
+    const out = decodeLayout("1~agent:20_58_22_70_30~trace:20_58_22_70_30");
+    expect(out.agent).toEqual(valid.agent);
+    expect(Object.keys(out)).toEqual(["agent"]);
   });
 });
 
@@ -81,7 +91,6 @@ describe("encodeLayout", () => {
   it("emits nothing a cookie cannot hold", () => {
     const all: StoredLayout = {
       agent: valid.agent,
-      trace: valid.agent,
       f2a: valid.agent,
       extract: valid.agent,
       stages: valid.agent,
@@ -111,13 +120,14 @@ describe("layoutFor", () => {
   });
 
   it("falls back to the perspective's own default", () => {
-    expect(layoutFor({}, "agent")).toEqual(DEFAULT_LAYOUT);
-    expect(layoutFor({}, "trace")).toEqual(defaultLayoutFor("trace"));
+    expect(layoutFor({}, "f2a")).toEqual(DEFAULT_LAYOUT);
+    expect(layoutFor({}, "agent")).toEqual(defaultLayoutFor("agent"));
   });
 
-  it("gives the trace view a taller dock than the inspect view", () => {
-    // The graph leads there, and the call record under it is the point.
-    expect(defaultLayoutFor("trace").v.dock).toBeGreaterThan(DEFAULT_LAYOUT.v.dock);
+  it("gives 검사 a taller dock than the bare default", () => {
+    // 문제, 호출 기록 and 상태 단계 all live under the centre there now, so
+    // the dock is doing considerably more work than elsewhere.
+    expect(defaultLayoutFor("agent").v.dock).toBeGreaterThan(DEFAULT_LAYOUT.v.dock);
   });
 });
 
@@ -133,7 +143,6 @@ describe("cookieValue", () => {
   it("stays small enough to ride on every asset request", () => {
     const all: StoredLayout = {
       agent: valid.agent,
-      trace: valid.agent,
       f2a: valid.agent,
       extract: valid.agent,
       stages: valid.agent,

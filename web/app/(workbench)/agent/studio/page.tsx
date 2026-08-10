@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** The old name. "Studio" was borrowed from LangGraph; the dock tab says TRACE. */
+/** The old name. "Studio" was borrowed from LangGraph; it is a tab now. */
 export default function StudioRedirect() {
-  redirect("/agent/trace");
+  redirect("/agent?centre=graph");
 }

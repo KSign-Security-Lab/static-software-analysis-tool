@@ -1,5 +1,5 @@
-import EditorPaneRoute from "@/features/agent/EditorPaneRoute";
+import CentrePane from "@/features/agent/CentrePane";
 
 export default function AgentPage() {
-  return <EditorPaneRoute />;
+  return <CentrePane />;
 }

@@ -14,7 +14,7 @@ import type { PerspectiveId } from "./perspectives";
  *
  * The wire format is positional rather than JSON:
  *
- *     1~agent:20_58_22_70_30~trace:15_57_28_46_54
+ *     1~agent:20_58_22_70_30~f2a:15_57_28_46_54
  *     ^ version    ^ side_main_inspector_centre_dock
  *
  * A cookie rides on every request including every asset, and JSON spends most
@@ -52,9 +52,9 @@ export const DEFAULT_LAYOUT: PaneLayout = {
   v: { centre: 68, dock: 32 },
 };
 
-/** The trace view leads with the graph, so the record under it wants room. */
+/** 검사 leads with the code, but the record under it wants real room too. */
 const PER_PERSPECTIVE: Partial<Record<PerspectiveId, PaneLayout>> = {
-  trace: { h: { side: 15, main: 57, inspector: 28 }, v: { centre: 46, dock: 54 } },
+  agent: { h: { side: 16, main: 60, inspector: 24 }, v: { centre: 58, dock: 42 } },
   // 스테이지 is a side list and one editor over its raw response: it has
   // neither a bottom panel nor an inspector, and was showing a staging
   // placeholder in each of them.
@@ -70,7 +70,7 @@ export function defaultLayoutFor(id: PerspectiveId): PaneLayout {
   return PER_PERSPECTIVE[id] ?? DEFAULT_LAYOUT;
 }
 
-const VALID_ID = new Set<string>(["agent", "trace", "f2a", "extract", "stages"]);
+const VALID_ID = new Set<string>(["agent", "f2a", "extract", "stages"]);
 
 function sums(values: number[], from: number, to: number): boolean {
   let total = 0;

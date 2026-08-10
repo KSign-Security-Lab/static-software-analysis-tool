@@ -1,16 +1,19 @@
-import { Network, ScanSearch, ShieldCheck, TerminalSquare, Waypoints, type LucideIcon } from "lucide-react";
+import { Network, ScanSearch, ShieldCheck, TerminalSquare, type LucideIcon } from "lucide-react";
 
 /**
- * The five surfaces, declared once.
+ * The four surfaces, declared once.
  *
  * The activity bar, the command palette and the status bar all read this, so
- * a route cannot be added in one place and forgotten in another -- and `href`
- * carries the params that must survive a switch. Today only one place does
- * that, by hand, so navigating via the rail loses `?run=` and the trace view
- * silently forgets which run you were looking at.
+ * a route cannot be added in one place and forgotten in another -- and
+ * `carries` names the params that must survive a switch, which is what stops
+ * the rail dropping `?run=` on the way past.
+ *
+ * 트레이스 was a fifth until it turned out not to be a place: it is the other
+ * centre tab of 검사, over the same dock, and `carries` brings `centre` along
+ * so leaving and coming back keeps the view you were on.
  */
 
-export type PerspectiveId = "agent" | "trace" | "f2a" | "extract" | "stages";
+export type PerspectiveId = "agent" | "f2a" | "extract" | "stages";
 
 export interface Perspective {
   id: PerspectiveId;
@@ -40,31 +43,15 @@ export const PERSPECTIVES: readonly Perspective[] = [
     id: "agent",
     href: "/agent",
     label: "검사",
-    note: "코드를 올리고 LLM 에이전트로 취약점을 찾습니다",
+    note: "코드를 올려 취약점을 찾고, 그 판단 과정을 그대로 열어 봅니다",
     icon: ScanSearch,
-    carries: ["run", "file"],
-    purpose: "이 코드에 취약점이 있는가 — 에이전트가 청크 단위로 읽고, 찾은 것마다 근거를 남깁니다.",
+    carries: ["run", "file", "centre"],
+    purpose:
+      "이 코드에 취약점이 있는가, 그리고 에이전트는 왜 그렇게 판단했는가 — 결과와 과정을 한 화면에서 오갑니다.",
     steps: [
       "왼쪽 탐색기에서 파일을 추가하거나 폴더를 통째로 올립니다. 빈 파일에 붙여넣어도 됩니다.",
-      "오른쪽 위 ‘검사 실행’을 누릅니다. 진행 상황은 맨 아래 상태 표시줄에 나옵니다.",
-      "아래 ‘문제’ 탭에서 발견된 결과를 고르면 편집기가 해당 줄로 이동하고, 오른쪽에 판단 근거가 표시됩니다.",
-    ],
-  },
-  {
-    id: "trace",
-    href: "/agent/trace",
-    label: "트레이스",
-    note: "검사가 그 답에 이른 과정을 열어 보고, 고쳐서 다시 돌립니다",
-    icon: Waypoints,
-    // `file` is carried but unused here: the side panel is the same explorer,
-    // and 검사 실행 now lands on this surface -- without it, starting a run
-    // would quietly close the file you started it from.
-    carries: ["run", "file", "span", "node", "cp"],
-    purpose: "에이전트가 왜 그렇게 판단했는가 — 호출 하나하나와 각 단계의 상태를 그대로 보여줍니다.",
-    steps: [
-      "‘중단점’에서 멈출 노드를 고른 뒤 검사를 실행하면 그 앞뒤에서 멈춥니다.",
-      "아래 ‘호출 기록’에서 모델 호출을 고르면 오른쪽에서 프롬프트를 읽고, 고쳐서 ‘다시 실행’해 결과를 비교할 수 있습니다.",
-      "‘상태 단계’에서는 어느 지점이든 골라 상태를 고친 뒤 갈라 실행할 수 있습니다. 원래 갈래는 그대로 남습니다.",
+      "‘검사 실행’을 누르면 가운데가 ‘에이전트 구조’로 바뀌어 실행 중인 노드가 그려집니다. 아래 ‘호출 기록’에는 모델 호출이 끝나는 대로 쌓입니다.",
+      "아래 ‘문제’에서 결과를 고르면 가운데가 다시 코드로 돌아가 해당 줄을 비추고, 오른쪽에 판단 근거가 표시됩니다. 모델 호출을 고르면 그 프롬프트를 읽고 고쳐서 다시 돌릴 수 있습니다.",
     ],
   },
   {
@@ -122,8 +109,8 @@ export function perspective(id: PerspectiveId): Perspective {
 /**
  * Which perspective a path belongs to.
  *
- * Longest match wins, so `/agent/trace` is the trace view rather than the
- * inspect view that merely shares its prefix.
+ * Longest match wins, so `/extract/stages` is 스테이지 rather than the 추출
+ * view that merely shares its prefix.
  */
 export function perspectiveFor(pathname: string): Perspective | undefined {
   let best: Perspective | undefined;

@@ -21,6 +21,9 @@ import { useScopedNode } from "./state";
 /**
  * The agent's structure, with the run painted on, and the controls that drive it.
  *
+ * A centre tab of 검사 rather than a route of its own: this and the editor are
+ * two views of one run, over one dock.
+ *
  * Breakpoints are set on the node itself rather than in a list elsewhere, and
  * are locked once a run is going: they are compiled in when the graph is built,
  * so changing one mid-run would be a lie.
