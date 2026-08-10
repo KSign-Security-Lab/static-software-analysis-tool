@@ -310,6 +310,17 @@ class ChunkStore:
     def is_inspected(self, chunk_id: str) -> bool:
         return bool(self._rows("SELECT 1 FROM inspected WHERE chunk_id = ?", (chunk_id,)))
 
+    def uninspected(self) -> list[str]:
+        """Chunks with no stored result, in the order a run would take them.
+
+        A chunk id is derived from its content, so a tree that has not changed
+        since the last run has none of these -- and a run started over it would
+        call no model, find nothing, and still reset the record of the run that
+        did. Asking first is what lets the caller decline.
+        """
+        done = {row["chunk_id"] for row in self._rows("SELECT chunk_id FROM inspected")}
+        return [chunk_id for chunk_id in self.order() if chunk_id not in done]
+
     def findings(self) -> list[dict[str, Any]]:
         rows = self._rows("SELECT payload FROM findings ORDER BY file, id")
         return [json.loads(row["payload"]) for row in rows]

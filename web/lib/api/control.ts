@@ -28,8 +28,20 @@ export interface StartOptions {
  * record. Anything reading this as "it worked" will be wrong for the length of
  * a model call.
  */
+export interface StartResult {
+  run_id: string;
+  status: string;
+  already_running: boolean;
+  /**
+   * The server declined: every chunk already has a result, so this run would
+   * have called no model and reset the previous run's trace to prove it. Ask
+   * again with `force` to do the work anyway.
+   */
+  nothing_to_do?: boolean;
+}
+
 export function startRun(runId: string, { force = false, breakpoints = NO_BREAKPOINTS, values }: StartOptions = {}) {
-  return post<{ run_id: string; status: string; already_running: boolean }>(`/agent/runs/${seg(runId)}/inspect`, {
+  return post<StartResult>(`/agent/runs/${seg(runId)}/inspect`, {
     force,
     breakpoints: breakpoints.before,
     breakpoints_after: breakpoints.after,

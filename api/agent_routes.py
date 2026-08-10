@@ -1019,6 +1019,31 @@ def start_inspection(run_id: str, request: InspectRequest | None = None) -> Dict
     if _live_channel(run_id) is not None:
         return {"run_id": run_id, "status": STATUS_INSPECTING, "already_running": True}
 
+    # Nothing to do is not the same as doing nothing.
+    #
+    # A chunk id is derived from its content, so pressing 검사 실행 again over an
+    # unchanged tree analyses none of them: no model call, no finding, done in
+    # milliseconds -- and a fresh start resets the debug record first, so the
+    # call history of the run that *did* the work is thrown away to achieve it.
+    # From the outside that is a button that destroys the trace and says 완료.
+    #
+    # So the run does not start. `force` is how you ask for the work anyway.
+    if not options.force:
+        store = paths.store()
+        try:
+            pending = store.uninspected()
+        finally:
+            store.close()
+        if not pending and paths.trace_db.exists():
+            return {
+                "run_id": run_id,
+                "status": paths.read_meta().get("status", STATUS_DONE),
+                "already_running": False,
+                "nothing_to_do": True,
+                "breakpoints": breakpoints,
+                "breakpoints_after": after,
+            }
+
     _spawn(
         paths,
         WorkOrder(

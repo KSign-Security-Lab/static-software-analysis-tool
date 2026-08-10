@@ -1003,3 +1003,45 @@ def test_startup_fails_the_runs_no_process_is_left_to_finish(
     assert "다시 시작" in meta["error"]
     # The breakpoint position goes with it: there is no worker parked there.
     assert meta["parked"] is None
+
+
+def test_a_second_inspection_of_unchanged_code_is_declined(client: TestClient) -> None:
+    """Pressing 검사 실행 again must not throw away the trace to do nothing.
+
+    A chunk id is derived from its content, so an unchanged tree has nothing
+    left to analyse -- and a fresh start resets the debug record first. The run
+    therefore called no model, found nothing, and destroyed the call history of
+    the run that did the work. Declining is the whole fix; `force` is how you
+    ask for the work anyway.
+    """
+    from agent.runs import get_run
+
+    run_id = _upload(client)["run_id"]
+    paths = get_run(run_id)
+    assert paths is not None
+
+    # Stand in for a completed inspection: every chunk has a result, and a
+    # trace exists. Both are what the route reads.
+    store = paths.store()
+    chunk_ids = store.order()
+    assert chunk_ids, "the fixture upload should index at least one chunk"
+    for chunk_id in chunk_ids:
+        store.mark_inspected(chunk_id)
+    assert store.uninspected() == []
+    store.close()
+    paths.spans().close()  # creates the trace database
+
+    declined = client.post(f"/agent/runs/{run_id}/inspect").json()
+    assert declined["nothing_to_do"] is True
+    assert declined["already_running"] is False
+
+    # `force` is not declined -- it is the request to do the work regardless.
+    forced = client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).json()
+    assert "nothing_to_do" not in forced
+
+
+def test_an_uninspected_chunk_still_starts_a_run(client: TestClient) -> None:
+    """The decline is about there being nothing to do, not about having run before."""
+    run_id = _upload(client)["run_id"]
+    accepted = client.post(f"/agent/runs/{run_id}/inspect").json()
+    assert "nothing_to_do" not in accepted

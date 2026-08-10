@@ -166,7 +166,26 @@ export function useStartRun(runId: string | null, ensureAttached: () => Promise<
       await ensureAttached();
       return startRun(runId!, options);
     },
-    onSuccess: () => {
+    onSuccess: (result, options) => {
+      // Declined, and nothing has changed: say so rather than let a button
+      // that did nothing look like a button that is broken. The only way to
+      // make it do work is to ask for the work, so offer that.
+      if (result.nothing_to_do) {
+        toast.info("다시 검사할 것이 없습니다", {
+          description: "코드가 지난 검사 이후 그대로입니다. 결과와 호출 기록은 그대로 두었습니다.",
+          duration: 8000,
+          action: {
+            label: "전체 다시 검사",
+            onClick: () => {
+              void ensureAttached().then(() => startRun(runId!, { ...options, force: true }));
+              client.setQueryData(keys.summary(runId!), (previous: unknown) =>
+                previous ? { ...previous, status: "inspecting", error: undefined } : previous,
+              );
+            },
+          },
+        });
+        return;
+      }
       client.setQueryData(keys.summary(runId!), (previous: unknown) =>
         previous ? { ...previous, status: "inspecting", error: undefined } : previous,
       );
