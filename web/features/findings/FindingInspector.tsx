@@ -25,7 +25,13 @@ const ROLE_TONE: Record<string, string> = {
   context: "border-l-line-2",
 };
 
-/** Why this is a finding, and where the evidence for it sits. */
+/**
+ * Why this is a finding, and where the evidence for it sits.
+ *
+ * F2-A's detail pane. 검사 used this too until its findings learned to open in
+ * place; kept here, outside either surface, because both read the same
+ * `UiFinding` and only one of them still wants a separate pane.
+ */
 export default function FindingInspector({
   finding,
   knowledge,

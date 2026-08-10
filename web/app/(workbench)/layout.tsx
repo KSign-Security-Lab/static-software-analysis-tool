@@ -1,23 +1,29 @@
-import { cookies, headers } from "next/headers";
 import type { ReactNode } from "react";
 
-import Workbench from "@/components/workbench/Workbench";
-import { LAYOUT_COOKIE, decodeLayout, layoutFor } from "@/lib/workbench/layout-cookie";
-import { perspectiveFor } from "@/lib/workbench/perspectives";
-import { WorkbenchStoreProvider } from "@/lib/workbench/store-provider";
+import Shell from "@/components/workbench/Shell";
 
 /**
- * One shell for all five perspectives.
+ * One shell for every surface.
  *
- * A server component on purpose: it reads the pane sizes out of a cookie and
- * hands them down as props, so the server's HTML and the client's first render
- * agree and nothing rearranges after paint.
- *
- * Reading cookies opts this route out of static rendering. That is the whole
- * cost and it buys the thing above; the app is client-driven against a
- * localhost backend and has nothing worth prerendering. Do not "optimise" it.
+ * It used to be a server component so it could read a pane layout out of a cookie
+ * before the first paint. There is no layout to read any more -- the regions are
+ * fixed in CSS -- so this is a plain passthrough.
  */
-export default async function WorkbenchLayout({
+
+/**
+ * Rendered per request, as it always was.
+ *
+ * Reading the layout cookie used to opt these routes out of static rendering as a
+ * side effect. Without it they became static, and `useSearchParams` -- which nuqs
+ * calls at the root, for the `?run=` every surface is keyed by -- refuses to be
+ * prerendered without a Suspense boundary above the adapter.
+ *
+ * Wrapping the whole app in one to satisfy that would buy an empty shell in the
+ * static HTML and a client bail-out immediately after. There is nothing here worth
+ * prerendering: it is a local tool that renders from a localhost API on the client.
+ */
+export const dynamic = "force-dynamic";
+export default function WorkbenchLayout({
   children,
   side,
   dock,
@@ -28,26 +34,9 @@ export default async function WorkbenchLayout({
   dock: ReactNode;
   inspector: ReactNode;
 }) {
-  const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
-  const stored = decodeLayout(cookieStore.get(LAYOUT_COOKIE)?.value);
-  const perspective = perspectiveFor(headerStore.get("x-pathname") ?? "")?.id ?? "agent";
-
-  // Seed the fold mirror from the same layout the panels are sized with. It
-  // used to be read off the panel handles as they attached, which threw during
-  // commit and took the whole client tree down; the cookie already says it, on
-  // the server, before anything renders.
-  const layout = layoutFor(stored, perspective);
-  const collapsed = {
-    side: layout.h.side === 0,
-    inspector: layout.h.inspector === 0,
-    dock: layout.v.dock === 0,
-  };
-
   return (
-    <WorkbenchStoreProvider init={{ collapsed }}>
-      <Workbench perspective={perspective} stored={stored} side={side} dock={dock} inspector={inspector}>
-        {children}
-      </Workbench>
-    </WorkbenchStoreProvider>
+    <Shell side={side} dock={dock} inspector={inspector}>
+      {children}
+    </Shell>
   );
 }

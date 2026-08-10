@@ -14,6 +14,7 @@ const LOOP: GraphShape = {
   ],
   mermaid: "",
   steppable: ["plan", "context", "analyse"],
+  steps: [],
 };
 
 /** Two nodes at the same depth, which the old hand-rolled layout could not do. */
@@ -27,6 +28,7 @@ const FAN_OUT: GraphShape = {
   ],
   mermaid: "",
   steppable: ["root", "left", "right", "join"],
+  steps: [],
 };
 
 describe("layoutGraph", () => {
@@ -102,6 +104,7 @@ describe("backEdges", () => {
       ],
       mermaid: "",
       steppable: ["a", "island", "b"],
+      steps: [],
     };
 
     expect([...backEdges(orphaned)]).toEqual(["b->island"]);

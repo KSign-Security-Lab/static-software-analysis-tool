@@ -8,7 +8,6 @@ import { useState, type ReactNode } from "react";
 import { installClipboardFallback } from "@/components/editor/clipboard-fallback";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { CommandProvider } from "@/lib/commands/provider";
 import { createQueryClient } from "@/lib/query/client";
 
 /**
@@ -45,16 +44,13 @@ export default function Providers({ children }: { children: ReactNode }) {
     >
       <QueryClientProvider client={queryClient}>
         <NuqsAdapter>
-          <CommandProvider>
-            {/* One provider for the whole app: Radix tooltips share a delay
-                timer through it, so moving between adjacent activity-bar items
-                shows the next tooltip immediately rather than waiting out the
-                delay again. */}
-            <TooltipProvider delayDuration={400} skipDelayDuration={200}>
-              {children}
-              <Toaster position="bottom-right" closeButton richColors />
-            </TooltipProvider>
-          </CommandProvider>
+          {/* One provider for the whole app: Radix tooltips share a delay timer
+              through it, so moving between adjacent rail items shows the next
+              tooltip immediately rather than waiting out the delay again. */}
+          <TooltipProvider delayDuration={400} skipDelayDuration={200}>
+            {children}
+            <Toaster position="bottom-right" closeButton richColors />
+          </TooltipProvider>
         </NuqsAdapter>
       </QueryClientProvider>
     </ThemeProvider>

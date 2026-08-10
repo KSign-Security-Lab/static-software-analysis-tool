@@ -29,15 +29,6 @@ export function Payload({ value, className }: { value: unknown; className?: stri
   return <pre className={className}>{text}</pre>;
 }
 
-/** The model's reply, whichever shape the recorder wrote it in. */
-export function replyOf(outputs: unknown): string | null {
-  if (!outputs || typeof outputs !== "object") return null;
-  const record = outputs as { text?: unknown };
-  if (Array.isArray(record.text)) return record.text.join("\n");
-  if (typeof record.text === "string") return record.text;
-  return null;
-}
-
 /**
  * The prompt as recorded, whichever shape it was.
  *

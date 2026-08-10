@@ -9,13 +9,13 @@ import { parseAsBoolean, parseAsString, useQueryState } from "nuqs";
  * was not a thing you could send anyone -- which is most of the value of the
  * view existing at all.
  */
-export function useSelectedSpan() {
-  return useQueryState("span", parseAsString.withOptions({ history: "replace" }));
-}
-
-/** Narrows the record to one node of the graph. */
+/** Narrows 진행 to one node of the graph -- what clicking a node means. */
 export function useScopedNode() {
   return useQueryState("node", parseAsString.withOptions({ history: "replace" }));
+}
+
+export function useSelectedSpan() {
+  return useQueryState("span", parseAsString.withOptions({ history: "replace" }));
 }
 
 export function useSelectedCheckpoint() {

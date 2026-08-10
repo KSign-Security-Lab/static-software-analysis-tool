@@ -87,42 +87,8 @@ export default function FileExplorer({
     return [...files].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
   }, [files, counts]);
 
-  return (
-    <PanelShell
-      title="탐색기"
-      note={files.length ? `${files.length}개 파일` : "검사할 파일을 여기에 넣습니다"}
-      actions={
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" onClick={() => setCreating(true)} disabled={busy} aria-label="새 파일">
-                <FilePlus />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>새 파일 ⌘N</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" onClick={() => input.current?.click()} disabled={busy} aria-label="트리 업로드">
-                <FolderUp />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>트리 업로드</TooltipContent>
-          </Tooltip>
-          <input
-            ref={input}
-            type="file"
-            multiple
-            hidden
-            onChange={(event) => {
-              const picked = Array.from(event.target.files ?? []);
-              if (picked.length) onUpload(picked);
-              event.target.value = "";
-            }}
-          />
-        </>
-      }
-    >
+  const body = (
+    <>
       {ordered.length === 0 ? (
         <p className="p-3 text-2xs leading-relaxed text-ink-faint">
           아직 파일이 없습니다. 붙여넣거나, 파일을 추가하거나, 트리를 업로드하세요.
@@ -239,6 +205,46 @@ export default function FileExplorer({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </>
+  );
+
+  return (
+    <PanelShell
+      title="탐색기"
+      note={files.length ? `${files.length}개 파일` : "검사할 파일을 여기에 넣습니다"}
+      actions={
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-xs" onClick={() => setCreating(true)} disabled={busy} aria-label="새 파일">
+                <FilePlus />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>새 파일 ⌘N</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-xs" onClick={() => input.current?.click()} disabled={busy} aria-label="트리 업로드">
+                <FolderUp />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>트리 업로드</TooltipContent>
+          </Tooltip>
+          <input
+            ref={input}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              const picked = Array.from(event.target.files ?? []);
+              if (picked.length) onUpload(picked);
+              event.target.value = "";
+            }}
+          />
+        </>
+      }
+    >
+      {body}
     </PanelShell>
   );
 }

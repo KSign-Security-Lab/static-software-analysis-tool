@@ -1,52 +1,59 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
-import TraceInspectorPane from "@/features/trace/TraceInspectorPane";
-import { fromAgent } from "@/lib/model/finding";
-import { useKnowledge } from "@/lib/run/knowledge-queries";
-import { useFindings } from "@/lib/run/queries";
+import { useRunStream } from "@/lib/run/stream";
+import { useGraphShape, usePrompts, useSpans, useThreads } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
-import FindingInspector from "./FindingInspector";
-import { useInspectorView, useOpenFile, useSelectedFinding } from "./state";
+import { unitsOf } from "@/lib/trace/process";
+import { useScopedNode, useSelectedSpan } from "../trace/state";
+import ChatPane from "./ChatPane";
+import PromptSheet from "./PromptSheet";
 
 /**
- * The right pane: why the agent said it, or what it actually asked.
+ * The right pane: the run, as the conversation it is.
  *
- * Two inspectors, because the two questions have different answers -- a
- * finding's evidence is not a model call's prompt -- and since the merge both
- * of the lists that lead here sit in the same dock.
+ * It used to be two inspectors that swapped by whatever you last clicked -- a
+ * finding's grounds, or one call's prompt -- and it sat empty until you had
+ * clicked something. Neither was a view of the run; both were details of a row in
+ * a list somewhere else.
  *
- * It follows the last thing you clicked rather than offering a tab strip of
- * its own. You only ever arrive by picking something out of 문제 or 호출 기록,
- * so a switcher would be a second row of chrome above a header that already
- * names the pane, to reach a view you would have reached by clicking the thing
- * you wanted. `insp` is in the URL all the same, so a link can still say which
- * one it meant.
+ * A transcript needs nothing selected to be worth reading, so this is simply on.
+ * Editing a prompt is a sheet over the top, because it is an action on one turn
+ * rather than a third thing the pane can be.
  */
 export default function InspectorPane() {
   const [runId] = useRunId();
-  const [, setPath] = useOpenFile();
-  const [selectedId, setSelectedId] = useSelectedFinding();
-  const [view] = useInspectorView();
+  const [spanId, setSpanId] = useSelectedSpan();
+  const [node] = useScopedNode();
+  const { live, phase } = useRunStream();
 
-  const findings = useFindings(runId);
-  const knowledge = useKnowledge(runId);
-  const ui = useMemo(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
-  const selected = useMemo(() => ui.find((each) => each.id === selectedId) ?? null, [ui, selectedId]);
+  const [tuning, setTuning] = useState(false);
 
-  if (view === "span") return <TraceInspectorPane />;
+  const threads = useThreads(runId);
+  const shape = useGraphShape();
+  const spans = useSpans(runId);
+  const prompts = usePrompts();
+
+  const steps = useMemo(() => shape.data?.steps ?? [], [shape.data]);
+  const units = useMemo(() => unitsOf(threads.data?.threads ?? [], steps, node), [threads.data, steps, node]);
+  const span = useMemo(() => spans.data?.spans.find((each) => each.id === spanId) ?? null, [spans.data, spanId]);
 
   return (
-    <FindingInspector
-      finding={selected}
-      knowledge={knowledge.data}
-      onNavigate={(file) => {
-        // Selecting is what moves the editor's caret; this only has to make
-        // sure the right file is open. CodeEditor reveals the line itself.
-        void setPath(file);
-        if (!selectedId) void setSelectedId(null);
-      }}
-    />
+    <>
+      <ChatPane
+        units={units}
+        steps={steps}
+        phase={phase}
+        live={live}
+        node={node}
+        selected={spanId}
+        onTunePrompt={(id) => {
+          void setSpanId(id);
+          setTuning(true);
+        }}
+      />
+      <PromptSheet runId={runId} span={span} prompts={prompts.data ?? []} open={tuning} onOpenChange={setTuning} />
+    </>
   );
 }

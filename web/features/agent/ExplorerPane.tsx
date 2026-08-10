@@ -1,24 +1,13 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { FilePlus } from "lucide-react";
 
-import { useCommands } from "@/lib/commands/provider";
 import { fromAgent } from "@/lib/model/finding";
-import { useCreateRun, useDeleteFile, useFiles, useFindings, useUpload, useWriteFile } from "@/lib/run/queries";
+import { useDeleteFile, useFiles, useFindings, useUpload } from "@/lib/run/queries";
+import { useCreateFile } from "@/lib/run/new-file";
 import { useRunId } from "@/lib/run/use-run-id";
 import FileExplorer from "./FileExplorer";
-import { useOpenFile } from "./state";
-
-const STARTER = `#include <stdlib.h>
-#include <stdio.h>
-
-void handle(const char *url) {
-    char cmd[128];
-    sprintf(cmd, "wget %s", url);
-    system(cmd);
-}
-`;
+import { useOpenFile } from "@/lib/run/selection";
 
 /**
  * The explorer, and the run it belongs to.
@@ -32,9 +21,8 @@ export default function ExplorerPane() {
 
   const files = useFiles(runId);
   const findings = useFindings(runId);
-  const create = useCreateRun();
+  const newFile = useCreateFile();
   const upload = useUpload();
-  const write = useWriteFile(runId);
   const remove = useDeleteFile(runId);
 
   const list = useMemo(() => files.data ?? [], [files.data]);
@@ -48,57 +36,14 @@ export default function ExplorerPane() {
     void setPath(first);
   }, [path, list, setPath]);
 
-  const withRun = async (): Promise<string | null> => {
-    if (runId) return runId;
-    const run = await create.mutateAsync();
-    setRunId(run.run_id);
-    return run.run_id;
-  };
-
-  const onCreate = async (name: string, content = "") => {
-    const id = await withRun();
-    if (!id) return;
-    // `id`, not the hook's runId: on a cold start the run was created a moment
-    // ago and this render still closes over `null`.
-    try {
-      await write.mutateAsync({ path: name, content, runId: id });
-    } catch {
-      // Reported by the mutation's own onError. Swallowed here only so an
-      // opened-but-empty editor is not the next thing that happens.
-      return;
-    }
-    void setPath(name);
-  };
-
-  useCommands(
-    () => [
-      {
-        id: "file.new",
-        title: "새 파일",
-        group: "파일",
-        keybinding: "mod+n",
-        icon: FilePlus,
-        run: () => void onCreate("new.c"),
-      },
-      {
-        id: "file.starter",
-        title: "예제로 시작",
-        group: "파일",
-        when: () => list.length === 0,
-        run: () => void onCreate("main.c", STARTER),
-      },
-    ],
-    [runId, list.length],
-  );
-
   return (
     <FileExplorer
       files={list}
       active={path}
       findings={ui}
-      busy={create.isPending || upload.isPending}
+      busy={newFile.busy || upload.isPending}
       onOpen={(next) => void setPath(next)}
-      onCreate={(name) => void onCreate(name)}
+      onCreate={(name) => void newFile.create(name)}
       onDelete={(target) => {
         remove.mutate(target, {
           onSuccess: (result) => {

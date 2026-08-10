@@ -4,6 +4,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+
 import { applyMarkers, evidenceDecorations } from "./markers";
 // Imported for its side effect: it configures the loader at module time,
 // which is the only point early enough. See monaco-setup.ts.
@@ -145,6 +146,30 @@ export default function CodeEditor({
         padding: { top: 10, bottom: 10 },
         overviewRulerBorder: false,
         tabSize: 4,
+
+        // Nobody writes code here. Code goes in by upload or by paste, and is then
+        // read: the finding is on a line and the line is what you came to look at.
+        // Everything below is an authoring tool, and each one was something that
+        // popped up, moved the text or ate a keystroke while somebody was reading.
+        quickSuggestions: false,
+        suggestOnTriggerCharacters: false,
+        wordBasedSuggestions: "off",
+        parameterHints: { enabled: false },
+        acceptSuggestionOnEnter: "off",
+        tabCompletion: "off",
+        snippetSuggestions: "none",
+        codeLens: false,
+        folding: false,
+        links: false,
+        lightbulb: { enabled: "off" as never },
+        matchBrackets: "never",
+        bracketPairColorization: { enabled: false },
+        occurrencesHighlight: "off",
+        selectionHighlight: false,
+        dragAndDrop: false,
+        contextmenu: false,
+        // The one editing affordance kept: a paste has to be undoable.
+        find: { addExtraSpaceOnTop: false, seedSearchStringFromSelection: "never" },
       }}
     />
   );

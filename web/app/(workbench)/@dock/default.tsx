@@ -14,7 +14,6 @@ import { EmptyState } from "@/components/workbench/PanelShell";
 export default function DockDefault() {
   return (
     <DockTabs
-      scope="default"
       tabs={[
         {
           id: "none",

@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PanelShell } from "@/components/workbench/PanelShell";
 import { fromF2A } from "@/lib/model/finding";
 import { useCpgSource } from "../cpg/provider";
-import { useSelectedFinding } from "../agent/state";
+import { useSelectedFinding } from "@/lib/run/selection";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import EvidenceReport from "./EvidenceReport";
 import JsonLens from "./JsonLens";

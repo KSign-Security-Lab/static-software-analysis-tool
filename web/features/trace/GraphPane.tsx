@@ -11,7 +11,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PanelShell } from "@/components/workbench/PanelShell";
 import { NO_BREAKPOINTS, type Breakpoints } from "@/lib/api/control";
-import { useCommands } from "@/lib/commands/provider";
 import { useStartRun } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useGraphShape, useResume, useSpans } from "@/lib/run/trace-queries";
@@ -48,28 +47,6 @@ export default function GraphPane() {
       const list = current[when];
       return { ...current, [when]: list.includes(name) ? list.filter((n) => n !== name) : [...list, name] };
     });
-
-  useCommands(
-    () => [
-      {
-        id: "run.resume",
-        title: "이어서 실행",
-        group: "실행",
-        icon: Play,
-        when: () => paused,
-        run: () => resume.mutate({ breakpoints }),
-      },
-      {
-        id: "run.abort",
-        title: "실행 중단",
-        group: "실행",
-        icon: CircleStop,
-        when: () => running || paused,
-        run: () => resume.mutate({ action: "abort" }),
-      },
-    ],
-    [paused, running, breakpoints],
-  );
 
   return (
     <PanelShell

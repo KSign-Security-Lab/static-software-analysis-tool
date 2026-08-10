@@ -1,7 +1,7 @@
 "use client";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useWorkbench } from "@/lib/workbench/store-provider";
+import { useState } from "react";
 
 export interface DockTab {
   id: string;
@@ -14,21 +14,21 @@ export interface DockTab {
 /**
  * The bottom dock's tab strip.
  *
- * The active tab lives in the workbench store rather than the URL: it is
- * arrangement, not what you are looking at, and putting it in the address bar
- * would make every panel switch a history entry.
+ * The active tab is component state: it is arrangement, not what you are looking
+ * at, so it belongs neither in the URL nor in a store.
  *
  * Content is mounted for the active tab only. These panels hold a virtualized
  * span tree and a React Flow canvas, and keeping the inactive ones alive means
  * measuring and laying out graphs nobody can see.
  */
-export default function DockTabs({ scope, tabs }: { scope: string; tabs: DockTab[] }) {
-  const chosen = useWorkbench((s) => s.dockTab[scope]);
-  const setDockTab = useWorkbench((s) => s.setDockTab);
+export default function DockTabs({ tabs }: { tabs: DockTab[] }) {
+  // Local state. It lived in a global store so the shell could read it, and the
+  // shell never did -- one surface's tab strip is nobody else's business.
+  const [chosen, setChosen] = useState<string | null>(null);
 
-  // The first tab is the perspective's default, so ordering says what matters
-  // here. Unset, or set to something this perspective does not have, falls
-  // back to it rather than to an empty panel.
+  // The first tab is the surface's default, so ordering says what matters here.
+  // Unset, or set to something this surface does not have, falls back to it rather
+  // than to an empty panel.
   const active = tabs.find((t) => t.id === chosen) ?? tabs[0];
 
   return (
@@ -36,7 +36,7 @@ export default function DockTabs({ scope, tabs }: { scope: string; tabs: DockTab
       {/* `shrink-0`, not `flex-1`: the tab strip is a header. Letting it grow
           pushed the panel's content to the bottom of the dock, under a screen
           of empty space. */}
-      <Tabs value={active?.id} onValueChange={(tab) => setDockTab(scope, tab)} className="shrink-0 gap-0">
+      <Tabs value={active?.id} onValueChange={setChosen} className="shrink-0 gap-0">
         <header className="flex h-8 shrink-0 items-center border-b border-line px-1.5">
           <TabsList variant="line" className="h-full gap-0 bg-transparent p-0">
             {tabs.map((tab) => (

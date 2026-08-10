@@ -17,7 +17,7 @@ export function useSelectedFinding() {
   return useQueryState("finding", parseAsString.withOptions({ history: "replace" }));
 }
 
-export const CENTRE_VIEWS = ["code", "graph"] as const;
+export const CENTRE_VIEWS = ["code", "graph", "map", "state"] as const;
 export type CentreView = (typeof CENTRE_VIEWS)[number];
 
 /**

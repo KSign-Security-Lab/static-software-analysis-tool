@@ -7,7 +7,6 @@ import { describeError } from "@/lib/api/client";
 import { fetchGraph, resumeRun, type ResumeOptions } from "@/lib/api/control";
 import { fetchPrompts, resetPrompt, savePrompt } from "@/lib/api/prompts";
 import { fetchCheckpoints, fetchSpans, fetchThreads, replaySpan } from "@/lib/api/trace";
-import { EMPTY_SUMMARY } from "@/lib/api/types";
 import { keys } from "@/lib/query/keys";
 
 const enabled = (runId: string | null): runId is string => Boolean(runId);
@@ -110,5 +109,3 @@ export function useResume(runId: string | null, ensureAttached: () => Promise<vo
     onError: (error) => toast.error("이어서 실행할 수 없습니다", { description: describeError(error) }),
   });
 }
-
-export { EMPTY_SUMMARY };

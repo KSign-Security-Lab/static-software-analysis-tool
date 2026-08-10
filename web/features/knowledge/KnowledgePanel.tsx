@@ -13,7 +13,7 @@ import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import { DRAW_LIMIT } from "@/lib/trace/knowledge-layout";
 import { cn } from "@/lib/utils";
-import { useOpenFile, useSelectedFinding } from "../agent/state";
+import { useOpenFile, useSelectedFinding } from "@/lib/run/selection";
 
 // React Flow measures the DOM, so this one is client-only too.
 const KnowledgeGraphView = dynamic(() => import("@/components/graph/KnowledgeGraphView"), {

@@ -1,41 +1,34 @@
 "use client";
 
-import { Contrast, HelpCircle, PanelBottom, PanelLeft, PanelRight } from "lucide-react";
+import { Contrast, HelpCircle } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { perspectiveFor } from "@/lib/workbench/perspectives";
-import { PANE_LABEL, type PaneId } from "@/lib/workbench/store";
-import { useWorkbench } from "@/lib/workbench/store-provider";
-
-const PANES: { id: PaneId; icon: typeof PanelLeft; key: string }[] = [
-  { id: "side", icon: PanelLeft, key: "⌘B" },
-  { id: "dock", icon: PanelBottom, key: "⌘J" },
-  { id: "inspector", icon: PanelRight, key: "⌘⌥B" },
-];
 
 /**
- * The title bar: who you are, where you are, and the window controls.
+ * The title bar: where you are, and the window controls.
+ *
+ * There used to be a status strip along the foot of the window as well, carrying
+ * the run id, the phase and a standing "로컬 기록 · 외부 전송 없음". The phase is
+ * at the top of the pane that shows the run now, where it means something, and
+ * the rest was a permanent band of text nobody needed twice -- so the strip is
+ * gone and these controls are the only chrome left around the panels.
  *
  * It carries the wordmark in a cell exactly as wide as the rail, so the rail,
  * this bar and the panel headers below all meet on the same two lines rather
  * than stacking three bands of three different heights. Same height as a panel
  * header, for the same reason.
  *
- * The panel folds and the theme live here rather than at the foot of the rail.
- * They are window controls, not places to go -- and putting them here leaves
- * the rail doing one job and stops this bar being a sentence with a lone
- * button marooned at the far end of it.
+ * The three panel folds that used to sit here are gone with the panels' resizing:
+ * the regions are fixed in CSS now, so there is no geometry to drive.
  */
 export default function PerspectiveHeader() {
   const current = perspectiveFor(usePathname());
   const { setTheme } = useTheme();
-  const collapsed = useWorkbench((s) => s.collapsed);
-  const togglePane = useWorkbench((s) => s.togglePane);
 
   return (
     <header className="flex h-9 shrink-0 items-center border-b border-line bg-surface">
@@ -46,11 +39,11 @@ export default function PerspectiveHeader() {
         SSAT
       </span>
 
+      {/* The perspective's one-line pitch used to sit beside this. It never
+          changed and never told anyone anything twice; it is in 사용법 now, with
+          the rest of the explaining. */}
       {current && (
-        <div className="flex min-w-0 flex-1 items-baseline gap-2 px-3">
-          <h1 className="shrink-0 text-sm font-semibold text-ink-strong">{current.label}</h1>
-          <p className="truncate text-xs text-ink-faint">{current.note}</p>
-        </div>
+        <h1 className="min-w-0 flex-1 truncate px-3 text-sm font-semibold text-ink-strong">{current.label}</h1>
       )}
 
       <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
@@ -80,27 +73,6 @@ export default function PerspectiveHeader() {
             </PopoverContent>
           </Popover>
         )}
-
-        <span className="mx-1 h-4 w-px bg-line" />
-
-        {PANES.map(({ id, icon: Icon, key }) => (
-          <Tooltip key={id}>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label={`${PANE_LABEL[id]} 접기/펼치기`}
-                aria-pressed={!collapsed[id]}
-                onClick={() => togglePane(id)}
-              >
-                <Icon className={cn(collapsed[id] ? "text-ink-faint" : "text-ink-muted")} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {PANE_LABEL[id]} 접기/펼치기<span className="ml-2 text-ink-faint">{key}</span>
-            </TooltipContent>
-          </Tooltip>
-        ))}
 
         <Tooltip>
           <TooltipTrigger asChild>

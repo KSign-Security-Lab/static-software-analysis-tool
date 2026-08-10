@@ -4,8 +4,8 @@ import { useMemo } from "react";
 
 import DockTabs from "@/components/workbench/DockTabs";
 import { fromF2A } from "@/lib/model/finding";
-import ProblemsPanel from "../agent/ProblemsPanel";
-import { useSelectedFinding } from "../agent/state";
+import ProblemsPanel from "@/features/findings/ProblemsPanel";
+import { useSelectedFinding } from "@/lib/run/selection";
 import { useCpgSource } from "../cpg/provider";
 
 /** The same findings list the agent surface uses; only the engine differs. */
@@ -20,7 +20,6 @@ export default function F2aDock() {
 
   return (
     <DockTabs
-      scope="f2a"
       tabs={[
         {
           id: "problems",

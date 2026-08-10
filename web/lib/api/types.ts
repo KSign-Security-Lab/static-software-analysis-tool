@@ -86,6 +86,41 @@ export interface GraphShape {
   mermaid: string;
   /** The only legal breakpoint names; anything else is a 400. */
   steppable: string[];
+  /** What each kind of model call is: its prompt, its answer shape, its tools. */
+  steps: AgentStep[];
+}
+
+/** One tool the agent may reach for, as the MCP server describes it. */
+export interface ToolSpec {
+  name: string;
+  /** First line of the tool's own documentation. */
+  summary: string;
+  parameters: string[];
+}
+
+/**
+ * One kind of model call the agent makes.
+ *
+ * A property of the code, so it is known before a run and still known after one
+ * -- which is the point. A trace can only show the tools that were *called*;
+ * "it was offered nine and used two" is a different account of a verification
+ * from "it used two", and only this can tell them apart.
+ */
+export interface AgentStep {
+  /** The key its spans carry in `meta.step`, and its prompt's name. */
+  step: string;
+  /** The graph node it runs in. `gather` and `verify` share one. */
+  node: string;
+  prompt: string;
+  /** What guided decoding constrained the reply to; null for a tool loop. */
+  schema: string | null;
+  schema_fields: string[];
+  tools: ToolSpec[];
+  /** Tools exist for this step *and* this endpoint can call them. */
+  tools_enabled: boolean;
+  max_tool_calls: number;
+  /** Whether this configuration runs it at all: AGENT_LENSES, AGENT_TRIAGE. */
+  enabled: boolean;
 }
 
 /* -- trace ------------------------------------------------------------------- */
@@ -145,12 +180,25 @@ export interface ToolCall {
 }
 
 export interface Turn {
+  /** The span id, so a turn can be handed to the replay endpoint. */
   id: string;
   step: string;
   name: string;
+  /** The graph node that made the call, for narrowing the record to one node. */
+  node: string | null;
+  /**
+   * Which specialist raised the claim this call is about.
+   *
+   * `gather` and `verify` only. It is the hand-off from analysis to verification,
+   * and until the agent recorded it the two read as unrelated calls that happened
+   * to mention the same CWE.
+   */
+  raised_by: string | null;
   messages: { role: string; content: string }[];
   reply: string | null;
-  tool_calls: unknown[];
+  /** What the model asked to run, with its arguments. */
+  tool_calls: { name?: string; args?: Record<string, unknown> }[];
+  /** What running those returned. Empty when the step has no tools. */
   tools: ToolCall[];
   latency_ms: number | null;
   tokens: number | null;

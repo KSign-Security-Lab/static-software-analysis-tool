@@ -6,12 +6,12 @@ import { useMemo, useState } from "react";
 import CodeEditor from "@/components/editor/CodeEditor.lazy";
 import { Button } from "@/components/ui/button";
 import { PanelShell } from "@/components/workbench/PanelShell";
-import { useCommands, useRegistry } from "@/lib/commands/provider";
 import { fromAgent, type UiFinding } from "@/lib/model/finding";
 import { useFile, useFindings, useStartRun, useWriteFile } from "@/lib/run/queries";
+import { STARTER, useCreateFile } from "@/lib/run/new-file";
 import { useRunStream } from "@/lib/run/stream";
 import { cn } from "@/lib/utils";
-import { useCentreView, useOpenFile, useSelectedFinding } from "./state";
+import { useCentreView, useOpenFile, useSelectedFinding } from "@/lib/run/selection";
 
 /**
  * The centre pane: one file, its markers, and the two buttons that act on it.
@@ -24,12 +24,12 @@ export default function EditorPane({ runId }: { runId: string | null }) {
   const [path] = useOpenFile();
   const [selectedId, setSelectedId] = useSelectedFinding();
   const { ensureAttached, phase } = useRunStream();
-  const registry = useRegistry();
   const [, setCentre] = useCentreView();
 
   const file = useFile(runId, path);
   const findings = useFindings(runId);
   const write = useWriteFile(runId);
+  const newFile = useCreateFile();
   const start = useStartRun(runId, ensureAttached);
 
   const [draft, setDraft] = useState<string | null>(null);
@@ -82,30 +82,6 @@ export default function EditorPane({ runId }: { runId: string | null }) {
     else start.mutate({}, watch);
   };
 
-  useCommands(
-    () => [
-      {
-        id: "file.save",
-        title: "저장",
-        group: "파일",
-        keybinding: "mod+s",
-        icon: Save,
-        when: () => canSave,
-        run: save,
-      },
-      {
-        id: "run.inspect",
-        title: "검사 실행",
-        group: "실행",
-        keybinding: "mod+enter",
-        icon: Play,
-        when: () => Boolean(runId) && !running,
-        run: inspect,
-      },
-    ],
-    [runId, path, value, dirty, canSave, running, write.isPending],
-  );
-
   return (
     <PanelShell
       title={path ?? "편집기"}
@@ -148,11 +124,11 @@ export default function EditorPane({ runId }: { runId: string | null }) {
             </p>
           </div>
           <div className="flex justify-center gap-2">
-            <Button size="sm" onClick={() => void registry.run("file.starter")}>
+            <Button size="sm" disabled={newFile.busy} onClick={() => void newFile.create("main.c", STARTER)}>
               <FileCode />
               예제로 시작
             </Button>
-            <Button size="sm" variant="outline" onClick={() => void registry.run("file.new")}>
+            <Button size="sm" variant="outline" onClick={() => void newFile.create("new.c")}>
               <FilePlus />빈 파일 만들기
             </Button>
           </div>

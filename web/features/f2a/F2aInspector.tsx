@@ -3,8 +3,8 @@
 import { useMemo } from "react";
 
 import { fromF2A } from "@/lib/model/finding";
-import FindingInspector from "../agent/FindingInspector";
-import { useSelectedFinding } from "../agent/state";
+import FindingInspector from "@/features/findings/FindingInspector";
+import { useSelectedFinding } from "@/lib/run/selection";
 import { useCpgSource } from "../cpg/provider";
 
 export default function F2aInspector() {
