@@ -118,6 +118,31 @@ export default function GraphPane() {
       }
       bodyClassName="overflow-hidden"
     >
+      {/* Nothing on screen said what a dotted line meant, so it had to be asked.
+          The distinction is LangGraph's own -- `add_conditional_edges` against
+          `add_edge` -- and it comes through the shape untouched. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-2.5 py-1.5 text-2xs text-ink-faint">
+        <span className="flex items-center gap-1.5">
+          <svg width="22" height="6" aria-hidden className="shrink-0">
+            <line x1="0" y1="3" x2="22" y2="3" stroke="var(--line-3)" strokeWidth="1.5" />
+          </svg>
+          항상 실행
+        </span>
+        <span className="flex items-center gap-1.5">
+          <svg width="22" height="6" aria-hidden className="shrink-0">
+            <line x1="0" y1="3" x2="22" y2="3" stroke="var(--line-3)" strokeWidth="1.5" strokeDasharray="5 4" />
+          </svg>
+          조건부 — 라우터가 고릅니다
+        </span>
+        <span className="flex items-center gap-1.5">
+          <svg width="22" height="6" aria-hidden className="shrink-0">
+            <line x1="0" y1="3" x2="22" y2="3" stroke="var(--alt)" strokeWidth="1.5" />
+          </svg>
+          다음 차례로 되돌아가기
+        </span>
+        <span className="ml-auto">노드를 누르면 오른쪽에 그 노드가 무엇인지 나옵니다</span>
+      </div>
+
       {live.refusal && (
         <div className="flex items-start gap-2 border-b border-warn/40 bg-warn-wash px-2.5 py-1.5 text-2xs text-ink">
           <CirclePause className="mt-0.5 size-3.5 shrink-0 text-warn" />

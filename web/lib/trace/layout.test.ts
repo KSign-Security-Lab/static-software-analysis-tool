@@ -14,6 +14,7 @@ const LOOP: GraphShape = {
   ],
   mermaid: "",
   steppable: ["plan", "context", "analyse"],
+  node_notes: [],
   steps: [],
 };
 
@@ -28,6 +29,7 @@ const FAN_OUT: GraphShape = {
   ],
   mermaid: "",
   steppable: ["root", "left", "right", "join"],
+  node_notes: [],
   steps: [],
 };
 
@@ -138,6 +140,7 @@ describe("backEdges", () => {
       mermaid: "",
       steppable: ["a", "island", "b"],
       steps: [],
+      node_notes: [],
     };
 
     expect([...backEdges(orphaned)]).toEqual(["b->island"]);
@@ -212,6 +215,7 @@ describe("what each box is", () => {
     ],
     mermaid: "",
     steppable: ["plan", "triage", "injection", "verify", "reduce"],
+    node_notes: [],
     steps: [
       { step: "triage", node: "triage", prompt: "triage", schema: "Triage", schema_fields: [], tools: [], tools_enabled: false, max_tool_calls: 0, enabled: true },
       { step: "lens:injection", node: "injection", prompt: "lens:injection", schema: "ChunkAnalysis", schema_fields: [], tools: [], tools_enabled: false, max_tool_calls: 0, enabled: true },

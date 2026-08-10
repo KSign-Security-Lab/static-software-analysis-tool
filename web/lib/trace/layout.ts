@@ -222,7 +222,17 @@ export function layoutGraph(
         ]
           .filter(Boolean)
           .join(" "),
-        style: e.conditional ? { strokeDasharray: "4 4" } : undefined,
+        // Dotted means a router decides whether this edge is taken; solid means it
+        // always is. That is LangGraph's own distinction -- `add_conditional_edges`
+        // against `add_edge` -- and it came through the shape untouched.
+        //
+        // The loop gets a colour rather than a dash, because it is unconditional
+        // too: `reduce -> plan` always runs. `.is-loop` carried no styling at all,
+        // so a return through the whole graph looked like one more step.
+        style: {
+          ...(e.conditional ? { strokeDasharray: "5 4" } : {}),
+          ...(looping ? { stroke: "var(--alt)" } : {}),
+        },
       };
     }),
     width: graph.graph().width ?? 0,

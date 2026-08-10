@@ -115,3 +115,103 @@ def _tool_catalogue() -> dict[str, dict[str, Any]]:
     except Exception:  # noqa: BLE001 - a missing description is not an outage
         return {}
     return {tool["name"]: tool for tool in describe_tools()}
+
+
+#: The nodes that never call a model.
+#:
+#: Five of the eleven. They are ordinary Python: they take work off a queue, build
+#: the text a specialist reads, resolve what one quoted back to a real span, and
+#: write down what survived. Named here rather than inferred from the absence of a
+#: step so that adding a node to the graph has to say which kind it is --
+#: `test_every_node_is_classified` fails until it does, and a model-calling node
+#: left out of `STEP_NODE` would otherwise be described as plain code.
+DETERMINISTIC: tuple[str, ...] = ("plan", "context", "skip", "locate", "reduce")
+
+#: What each deterministic node does, and which router decides where it goes next.
+#:
+#: `routes` is deliberately absent: it is read off the compiled graph in
+#: :func:`describe_nodes`, so it cannot drift from the graph it describes. What is
+#: declared here is what no amount of introspection can recover -- the channels a
+#: node reads and writes, and the rule the router applies.
+NODE_NOTES: dict[str, dict[str, Any]] = {
+    "plan": {
+        "does": "Takes the next wave off the queue: skips chunks already inspected, then cuts at the first call-depth boundary, because chunks at one depth cannot need each other's notes.",
+        "reads": ["pending"],
+        "writes": ["pending", "wave", "current"],
+        "router": "has_work",
+        "rule": "wave is empty -> __end__, otherwise -> context",
+    },
+    "context": {
+        "does": "Assembles one context pack per chunk in the wave -- the unit's source, its callees' notes, the file's declarations, its callers -- once, for everyone who will read it.",
+        "reads": ["wave"],
+        "writes": ["packs"],
+        "router": "dispatch",
+        "rule": "AGENT_TRIAGE=1 -> one triage per chunk; off -> every configured lens per chunk directly",
+    },
+    "skip": {
+        "does": "Nothing, and that is the point: every chunk passes through this layer so the join below the specialists fires exactly once per wave.",
+        "reads": [],
+        "writes": [],
+        "router": None,
+        "rule": "always -> locate",
+    },
+    "locate": {
+        "does": "Merges what the specialists found, resolves each quoted anchor to a real line span, drops what cannot be found in the source, and treats two lenses reporting one expression as agreement rather than two findings.",
+        "reads": ["candidates"],
+        "writes": ["located"],
+        "router": "claims",
+        "rule": "one verify per finding under AGENT_MAX_VERIFY_PER_CHUNK; none left -> reduce",
+    },
+    "reduce": {
+        "does": "Writes what survived to the run's store and closes the wave. Findings over the verify cap are kept but marked unverified rather than silently blessed.",
+        "reads": ["located", "verdicts", "wave"],
+        "writes": ["confirmed"],
+        "router": None,
+        "rule": "always -> plan",
+    },
+}
+
+
+def describe_nodes() -> list[dict[str, Any]]:
+    """Every node of the graph, and what kind of thing it is.
+
+    Half the graph is deterministic and looked exactly like the half that is not.
+    A node that calls no model has no prompt, no reply and no tools, so there is
+    nothing of it in a trace -- and nothing said why.
+
+    ``routes`` comes off the compiled graph rather than from the table above, so it
+    is always the edges that actually exist. ``steps`` likewise: a node is an agent
+    because a step names it, not because anything here says so.
+    """
+    from .graph.build import NODES, graph_shape
+
+    shape = graph_shape()
+    out_edges: dict[str, list[str]] = {}
+    for edge in shape["edges"]:
+        out_edges.setdefault(edge["source"], []).append(edge["target"])
+
+    by_node: dict[str, list[dict[str, Any]]] = {}
+    for step in describe_steps():
+        by_node.setdefault(step["node"], []).append(step)
+
+    described: list[dict[str, Any]] = []
+    for name in NODES:
+        steps = by_node.get(name, [])
+        notes = NODE_NOTES.get(name, {})
+        described.append(
+            {
+                "node": name,
+                # An agent because a step names it. Nothing declares this twice.
+                "agent": bool(steps),
+                "steps": [step["step"] for step in steps],
+                "calls": len(steps),
+                "tools": max((len(step["tools"]) for step in steps), default=0),
+                "does": notes.get("does"),
+                "reads": notes.get("reads", []),
+                "writes": notes.get("writes", []),
+                "router": notes.get("router"),
+                "rule": notes.get("rule"),
+                "routes": sorted(out_edges.get(name, [])),
+            }
+        )
+    return described

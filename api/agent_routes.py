@@ -60,7 +60,7 @@ from agent.runs import (
     write_files,
 )
 from agent.schema import LENSES, Report
-from agent.steps import describe_steps
+from agent.steps import describe_nodes, describe_steps
 
 log = logging.getLogger(__name__)
 
@@ -276,7 +276,16 @@ def agent_graph() -> Dict[str, Any]:
     """
     # ``steppable`` is the subset a breakpoint can name: the real nodes, without
     # LangGraph's own start and end markers.
-    return {**graph_shape(), "steppable": list(NODES), "steps": describe_steps()}
+    return {
+        **graph_shape(),
+        "steppable": list(NODES),
+        "steps": describe_steps(),
+        # And what each *node* is. Five of them call no model at all, so there is
+        # nothing of them in any trace -- which left half the drawing looking like
+        # it did nothing. `routes` is read off the compiled graph, so it cannot
+        # disagree with the edges above it.
+        "node_notes": describe_nodes(),
+    }
 
 
 @router.get("/runs")

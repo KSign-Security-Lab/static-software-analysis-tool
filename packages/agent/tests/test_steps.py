@@ -5,7 +5,7 @@ from __future__ import annotations
 from agent.config import AgentConfig
 from agent.promptstore import NAMES, lens_prompt
 from agent.schema import LENSES
-from agent.steps import STEP_ORDER, describe_steps
+from agent.steps import DETERMINISTIC, NODE_NOTES, STEP_NODE, STEP_ORDER, describe_nodes, describe_steps
 
 
 def _by_step(config: AgentConfig | None = None) -> dict[str, dict]:
@@ -63,3 +63,69 @@ def test_a_step_switched_off_says_so() -> None:
     # this endpoint cannot call them, and a roster that hid that would be a lie.
     assert described["gather"]["tools"]
     assert described["gather"]["tools_enabled"] is False
+
+
+# -- the graph's own nodes ----------------------------------------------------
+
+
+def test_every_node_is_classified() -> None:
+    """Adding a node to the graph has to say which kind it is.
+
+    The web tags a box `agent` or `code` from this. A node that calls a model but is
+    missing from `STEP_NODE` would be drawn as plain Python -- a wrong answer, which
+    is worse than no answer -- and nothing else would notice.
+    """
+    from agent.graph.build import NODES
+
+    classified = set(STEP_NODE.values()) | set(DETERMINISTIC)
+    assert classified == set(NODES), (
+        "a node is either an agent (named by a step) or deterministic (named in "
+        "DETERMINISTIC); this one is neither or both"
+    )
+    assert not (set(STEP_NODE.values()) & set(DETERMINISTIC)), "a node cannot be both"
+
+
+def test_every_deterministic_node_says_what_it_does() -> None:
+    assert set(NODE_NOTES) == set(DETERMINISTIC)
+    for name, notes in NODE_NOTES.items():
+        assert notes["does"], name
+        assert notes["rule"], f"{name} must say how it decides where to go next"
+
+
+def test_a_node_reads_and_writes_real_channels() -> None:
+    """The channel names are declared, so they are the part that can drift."""
+    from agent.graph.state import InspectionState
+
+    channels = set(InspectionState.__annotations__)
+    for name, notes in NODE_NOTES.items():
+        for channel in [*notes["reads"], *notes["writes"]]:
+            assert channel in channels, f"{name} names a channel the state does not have: {channel}"
+
+
+def test_routing_comes_off_the_compiled_graph() -> None:
+    """Not from the table, so it cannot disagree with the graph it describes."""
+    from agent.graph.build import graph_shape
+
+    edges = graph_shape()["edges"]
+    expected = {name: sorted({e["target"] for e in edges if e["source"] == name}) for name in {e["source"] for e in edges}}
+    for node in describe_nodes():
+        assert node["routes"] == expected.get(node["node"], []), node["node"]
+
+
+def test_an_agent_node_is_one_because_a_step_names_it() -> None:
+    by_node = {node["node"]: node for node in describe_nodes()}
+
+    assert by_node["plan"]["agent"] is False
+    assert by_node["plan"]["calls"] == 0
+    assert by_node["triage"]["agent"] is True
+    # Two steps of one node, and the tools belong to the first of them.
+    assert by_node["verify"] == {
+        **by_node["verify"],
+        "agent": True,
+        "steps": ["gather", "verify"],
+        "calls": 2,
+        "tools": 9,
+    }
+    # The deterministic ones carry the explanation instead.
+    assert by_node["locate"]["does"]
+    assert by_node["triage"]["does"] is None, "an agent explains itself through its prompt"

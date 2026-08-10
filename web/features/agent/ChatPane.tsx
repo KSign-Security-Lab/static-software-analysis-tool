@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { isTruncated } from "@/lib/api/types";
-import type { AgentStep } from "@/lib/api/types";
+import type { AgentStep, NodeNote } from "@/lib/api/types";
 import type { RunLive, RunPhase } from "@/lib/run/reduce";
 import { type Exchange, type ToolRun, type Unit, seconds } from "@/lib/trace/process";
 import { parseReply } from "@/lib/trace/reply";
@@ -49,6 +49,7 @@ export default function ChatPane({
   phase,
   live,
   node,
+  note,
   selected,
   onTunePrompt,
 }: {
@@ -58,6 +59,8 @@ export default function ChatPane({
   live: RunLive;
   /** Narrowed to one node of the graph, if anything is. */
   node: string | null;
+  /** What that node is, when one is picked. */
+  note?: NodeNote;
   /** The call the prompt editor is on: `?span=` in the address bar. */
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
@@ -69,6 +72,8 @@ export default function ChatPane({
       <Status phase={phase} live={live} />
 
       <div className="min-h-0 flex-1 overflow-auto">
+        {note && <NodeCard note={note} />}
+
         {units.length === 0 ? (
           <div className="space-y-3 p-3">
             <p className="text-xs leading-relaxed text-ink-faint">
@@ -86,6 +91,60 @@ export default function ChatPane({
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * What one node of the graph is.
+ *
+ * Shown when the drawing is narrowed to a node, and it is the whole answer for five
+ * of them: `plan`, `context`, `skip`, `locate` and `reduce` call no model, so they
+ * have no prompt, no reply and no tools, and nothing of them reaches a trace. They
+ * looked like agents that had done nothing.
+ *
+ * `routes` is read off the compiled graph on the server, so it is the edges that
+ * actually exist rather than a description of them.
+ */
+function NodeCard({ note }: { note: NodeNote }) {
+  return (
+    <section className="space-y-1.5 border-b border-line bg-surface-2 px-3 py-2.5">
+      <header className="flex items-center gap-2">
+        <h3 className="font-mono text-xs font-semibold text-ink-strong">{note.node}</h3>
+        <span
+          className={cn(
+            "rounded-sm px-1 font-mono text-2xs",
+            note.agent ? "bg-accent-wash text-accent-ink" : "bg-surface-3 text-ink-faint",
+          )}
+        >
+          {note.agent ? "agent" : "code"}
+        </span>
+        {note.agent && (
+          <span className="font-mono text-2xs text-ink-faint">
+            {note.calls} {note.calls === 1 ? "call" : "calls"}
+            {note.tools > 0 ? ` · ${note.tools} tools` : ""}
+          </span>
+        )}
+      </header>
+
+      {note.does && <p className="text-xs leading-relaxed text-ink-muted">{note.does}</p>}
+
+      <dl className="space-y-0.5 font-mono text-2xs">
+        {note.steps.length > 0 && <Fact term="steps" value={note.steps.join(" · ")} />}
+        {note.reads.length > 0 && <Fact term="reads" value={note.reads.join(", ")} />}
+        {note.writes.length > 0 && <Fact term="writes" value={note.writes.join(", ")} />}
+        {note.rule && <Fact term={note.router ?? "next"} value={note.rule} />}
+        {note.routes.length > 0 && <Fact term="→" value={note.routes.join(", ")} />}
+      </dl>
+    </section>
+  );
+}
+
+function Fact({ term, value }: { term: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <dt className="w-14 shrink-0 text-ink-faint">{term}</dt>
+      <dd className="min-w-0 flex-1 break-words text-ink-muted">{value}</dd>
     </div>
   );
 }

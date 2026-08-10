@@ -36,6 +36,12 @@ export default function InspectorPane() {
   const prompts = usePrompts();
 
   const steps = useMemo(() => shape.data?.steps ?? [], [shape.data]);
+  // What the picked node is. Five of them make no calls at all, so this is the only
+  // thing the pane can say about them -- and it is the answer to why.
+  const note = useMemo(
+    () => (node ? shape.data?.node_notes?.find((each) => each.node === node) : undefined),
+    [shape.data, node],
+  );
   const units = useMemo(() => unitsOf(threads.data?.threads ?? [], steps, node), [threads.data, steps, node]);
   const span = useMemo(() => spans.data?.spans.find((each) => each.id === spanId) ?? null, [spans.data, spanId]);
 
@@ -47,6 +53,7 @@ export default function InspectorPane() {
         phase={phase}
         live={live}
         node={node}
+        note={note}
         selected={spanId}
         onTunePrompt={(id) => {
           void setSpanId(id);

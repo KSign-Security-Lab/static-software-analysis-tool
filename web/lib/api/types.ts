@@ -88,6 +88,35 @@ export interface GraphShape {
   steppable: string[];
   /** What each kind of model call is: its prompt, its answer shape, its tools. */
   steps: AgentStep[];
+  /** What each *node* is. Five of them call no model at all. */
+  node_notes: NodeNote[];
+}
+
+/**
+ * One node of the graph, and what kind of thing it is.
+ *
+ * Five of the eleven never call a model -- they take work off a queue, build the
+ * text a specialist reads, resolve what one quoted back to a real span, and write
+ * down what survived. Nothing of them appears in any trace, which left half the
+ * drawing looking like it did nothing.
+ */
+export interface NodeNote {
+  node: string;
+  /** True because a step names this node, not because anything declares it twice. */
+  agent: boolean;
+  steps: string[];
+  calls: number;
+  tools: number;
+  /** What it does. Only the deterministic ones need it; an agent has a prompt. */
+  does: string | null;
+  /** State channels it reads and writes. */
+  reads: string[];
+  writes: string[];
+  /** The router function that decides where it goes, and the rule it applies. */
+  router: string | null;
+  rule: string | null;
+  /** Where it can go. Read off the compiled graph, so it cannot drift from it. */
+  routes: string[];
 }
 
 /** One tool the agent may reach for, as the MCP server describes it. */
