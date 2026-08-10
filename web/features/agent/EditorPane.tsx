@@ -1,6 +1,7 @@
 "use client";
 
 import { FileCode, FilePlus, Play, Save } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import CodeEditor from "@/components/editor/CodeEditor.lazy";
@@ -10,6 +11,7 @@ import { useCommands, useRegistry } from "@/lib/commands/provider";
 import { fromAgent, type UiFinding } from "@/lib/model/finding";
 import { useFile, useFindings, useStartRun, useWriteFile } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
+import { hrefFor } from "@/lib/workbench/perspectives";
 import { cn } from "@/lib/utils";
 import { useOpenFile, useSelectedFinding } from "./state";
 
@@ -25,6 +27,8 @@ export default function EditorPane({ runId }: { runId: string | null }) {
   const [selectedId, setSelectedId] = useSelectedFinding();
   const { ensureAttached, phase } = useRunStream();
   const registry = useRegistry();
+  const router = useRouter();
+  const params = useSearchParams();
 
   const file = useFile(runId, path);
   const findings = useFindings(runId);
@@ -59,12 +63,26 @@ export default function EditorPane({ runId }: { runId: string | null }) {
     write.mutate({ path, content: value });
   };
 
+  /**
+   * Start the run, then go and watch it.
+   *
+   * An inspection takes minutes, and this surface has nothing to show for the
+   * first of them: 문제 fills in only as chunks finish, so pressing the button
+   * and staying here looks like pressing it did nothing. 트레이스 is where the
+   * run is legible while it happens -- the graph paints the nodes that are
+   * executing and the call record grows underneath it.
+   *
+   * On success rather than on click: a start that is refused should leave you
+   * where you are, next to the editor, rather than on a page about a run that
+   * never began. Only from here -- the same button on 트레이스 is already there.
+   */
   const inspect = () => {
     if (!runId) return;
+    const watch = { onSuccess: () => router.push(hrefFor("trace", params)) };
     // Save first: inspecting text that is only in the editor would report on
     // code the server has never seen.
-    if (dirty && path) write.mutate({ path, content: value }, { onSuccess: () => start.mutate({}) });
-    else start.mutate({});
+    if (dirty && path) write.mutate({ path, content: value }, { onSuccess: () => start.mutate({}, watch) });
+    else start.mutate({}, watch);
   };
 
   useCommands(

@@ -56,7 +56,10 @@ export const PERSPECTIVES: readonly Perspective[] = [
     label: "트레이스",
     note: "검사가 그 답에 이른 과정을 열어 보고, 고쳐서 다시 돌립니다",
     icon: Waypoints,
-    carries: ["run", "span", "node", "cp"],
+    // `file` is carried but unused here: the side panel is the same explorer,
+    // and 검사 실행 now lands on this surface -- without it, starting a run
+    // would quietly close the file you started it from.
+    carries: ["run", "file", "span", "node", "cp"],
     purpose: "에이전트가 왜 그렇게 판단했는가 — 호출 하나하나와 각 단계의 상태를 그대로 보여줍니다.",
     steps: [
       "‘중단점’에서 멈출 노드를 고른 뒤 검사를 실행하면 그 앞뒤에서 멈춥니다.",
