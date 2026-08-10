@@ -27,3 +27,20 @@
 
 @import "./theme.css";
 
+/* Reserve the scrollbar's space whether or not one is showing.
+ *
+ * Without this, a pane whose content crosses the overflow threshold gains a
+ * scrollbar, the scrollbar takes width from the content, the content reflows and
+ * may no longer overflow -- and every ResizeObserver watching inside that pane is
+ * woken twice for one real change. Three of them are nested here (the panel group,
+ * Monaco, React Flow), and past the loop limit the browser drops the notifications
+ * it has not delivered, which is how a fold stopped being reported at all.
+ *
+ * Applied to the scroll containers rather than to every element: on `html` it
+ * would reserve a gutter on a page that never scrolls. */
+@layer base {
+  .overflow-auto,
+  .overflow-y-auto {
+    scrollbar-gutter: stable;
+  }
+}

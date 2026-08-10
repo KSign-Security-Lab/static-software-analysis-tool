@@ -8,6 +8,7 @@ import type * as Monaco from "monaco-editor";
 // which is the only point early enough. See monaco-setup.ts.
 import "./monaco-setup";
 import { followTheme } from "./theme";
+import { useDeferredLayout } from "./use-deferred-layout";
 
 /**
  * Two versions of the same text, side by side.
@@ -26,6 +27,7 @@ export default function DiffView({
   language?: string;
 }) {
   const monacoRef = useRef<typeof Monaco | null>(null);
+  const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -33,12 +35,16 @@ export default function DiffView({
     return followTheme(monacoRef.current, (name) => monacoRef.current?.editor.setTheme(name));
   }, [ready]);
 
+  const observe = useDeferredLayout(() => editorRef.current?.layout());
+
   return (
+    <div ref={observe} className="h-full min-h-0 w-full">
     <DiffEditor
       original={original}
       modified={modified}
       language={language}
-      onMount={(_editor, monaco) => {
+      onMount={(editor, monaco) => {
+        editorRef.current = editor;
         monacoRef.current = monaco;
         setReady(true);
       }}
@@ -50,9 +56,12 @@ export default function DiffView({
         fontFamily: "var(--font-mono)",
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
-        automaticLayout: true,
+        // Off: laid out from the wrapper's own observer, on the next frame. See
+        // use-deferred-layout.ts.
+        automaticLayout: false,
         renderOverviewRuler: false,
       }}
     />
+    </div>
   );
 }

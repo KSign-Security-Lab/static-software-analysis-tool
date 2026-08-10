@@ -4,6 +4,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useDeferredLayout } from "./use-deferred-layout";
 
 import { applyMarkers, evidenceDecorations } from "./markers";
 // Imported for its side effect: it configures the loader at module time,
@@ -121,7 +122,12 @@ export default function CodeEditor({
     return () => listener.dispose();
   }, [ready, findings, path]);
 
+  // Monaco's own `automaticLayout` lays out inside a ResizeObserver callback; see
+  // use-deferred-layout.ts for why that cost us the panel group's notifications.
+  const observe = useDeferredLayout(() => editorRef.current?.layout());
+
   return (
+    <div ref={observe} className="h-full min-h-0 w-full">
     <Editor
       path={path ?? undefined}
       value={value}
@@ -142,7 +148,8 @@ export default function CodeEditor({
         scrollBeyondLastLine: false,
         renderLineHighlight: "all",
         smoothScrolling: true,
-        automaticLayout: true,
+        // Off: laid out from the wrapper's own observer, on the next frame.
+        automaticLayout: false,
         padding: { top: 10, bottom: 10 },
         overviewRulerBorder: false,
         tabSize: 4,
@@ -172,5 +179,6 @@ export default function CodeEditor({
         find: { addExtraSpaceOnTop: false, seedSearchStringFromSelection: "never" },
       }}
     />
+    </div>
   );
 }
