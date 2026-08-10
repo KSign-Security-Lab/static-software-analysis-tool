@@ -44,8 +44,52 @@ function Ports({ across }: { across: boolean }) {
   );
 }
 
+/**
+ * What kind of box this is.
+ *
+ * Half the graph is deterministic Python -- `plan` takes the next wave off the
+ * queue, `context` assembles the packs, `locate` resolves anchors, `reduce` writes
+ * the results, `skip` exists so a join fires once -- and none of them calls a
+ * model. They looked identical to the ones that do, and there was no way to tell
+ * from the drawing which boxes were agents. Only `triage`, the four specialists and
+ * `verify` are, and only `gather` inside `verify` holds tools.
+ *
+ * `agent` and `code` rather than a longer word for either: they go in a box 124px
+ * wide, beside the node's own name.
+ */
+function Tags({ steps, tools, roster }: { steps: string[]; tools: number; roster: boolean }) {
+  // The roster arrives with the graph shape. Until it does, saying nothing is
+  // right; tagging every node `code` because the answer had not come back would be
+  // a lie rather than a gap.
+  if (!roster) return null;
+
+  const agent = steps.length > 0;
+  return (
+    <span className="flex items-center gap-1">
+      <span
+        className={cn(
+          "rounded-sm px-1 font-mono text-2xs leading-tight",
+          agent ? "bg-accent-wash text-accent-ink" : "bg-surface-3 text-ink-faint",
+        )}
+      >
+        {agent ? "agent" : "code"}
+      </span>
+      {tools > 0 && (
+        <span className="rounded-sm bg-surface-3 px-1 font-mono text-2xs leading-tight text-alt">{tools} tools</span>
+      )}
+      {/* Only where it says something the node's own name does not. `verify` runs
+          two steps and neither is called `verify` alone; `memory` runs
+          `lens:memory`, which is the same fact twice. */}
+      {steps.length > 1 && (
+        <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{steps.join(" · ")}</span>
+      )}
+    </span>
+  );
+}
+
 export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeData>>) {
-  const { name, terminal, visits, averageMs, running, queued, before, after, across, onInterrupt } = data;
+  const { name, terminal, visits, averageMs, running, queued, before, after, steps, tools, roster, across, onInterrupt } =
+    data;
 
   // The size is inline, from the same constants dagre laid out against.
   // Expressing it as a utility class instead is how the two drift and the
@@ -68,7 +112,7 @@ export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeDat
     <div
       style={size}
       className={cn(
-        "group/node relative flex items-center rounded-md border px-2.5 transition-colors",
+        "group/node relative flex items-center rounded-md border px-2 py-1.5 transition-colors",
         "border-line-2 bg-surface-2 text-ink-muted",
         visits > 0 && "border-line-3 text-ink",
         queued && "border-warn/60 bg-warn-wash",
@@ -97,10 +141,11 @@ export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeDat
         {before ? "■" : "+"}
       </button>
 
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium">{name}</span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-xs font-medium">{name}</span>
+        <Tags steps={steps} tools={tools} roster={roster} />
         {(running > 0 || queued || visits > 0) && (
-          <span className="block truncate font-mono text-2xs text-ink-faint">
+          <span className="truncate font-mono text-2xs text-ink-faint">
             {/* The count is the point: "4 running" is a wave of specialists;
                 "running" alone reads like the one node this always was. */}
             {running > 1 ? `${running} running` : running === 1 ? "running" : queued ? "queued" : `${visits}×`}

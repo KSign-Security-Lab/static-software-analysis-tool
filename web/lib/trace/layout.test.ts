@@ -196,3 +196,58 @@ describe("statsFromSpans", () => {
     expect(statsFromSpans([]).size).toBe(0);
   });
 });
+
+describe("what each box is", () => {
+  /** The real shape, in miniature: two deterministic nodes, a specialist, and the
+   *  verify node that runs two steps and holds the tools. */
+  const SHAPE: GraphShape = {
+    nodes: ["__start__", "plan", "triage", "injection", "verify", "reduce", "__end__"],
+    edges: [
+      { source: "__start__", target: "plan", conditional: false },
+      { source: "plan", target: "triage", conditional: false },
+      { source: "triage", target: "injection", conditional: true },
+      { source: "injection", target: "verify", conditional: false },
+      { source: "verify", target: "reduce", conditional: false },
+      { source: "reduce", target: "__end__", conditional: false },
+    ],
+    mermaid: "",
+    steppable: ["plan", "triage", "injection", "verify", "reduce"],
+    steps: [
+      { step: "triage", node: "triage", prompt: "triage", schema: "Triage", schema_fields: [], tools: [], tools_enabled: false, max_tool_calls: 0, enabled: true },
+      { step: "lens:injection", node: "injection", prompt: "lens:injection", schema: "ChunkAnalysis", schema_fields: [], tools: [], tools_enabled: false, max_tool_calls: 0, enabled: true },
+      { step: "gather", node: "verify", prompt: "gather", schema: null, schema_fields: [], tools: [
+        { name: "read_source", summary: "", parameters: [] },
+        { name: "search_text", summary: "", parameters: [] },
+      ], tools_enabled: true, max_tool_calls: 4, enabled: true },
+      { step: "verify", node: "verify", prompt: "verify", schema: "Verdict", schema_fields: [], tools: [], tools_enabled: false, max_tool_calls: 0, enabled: true },
+    ],
+  };
+
+  const dataOf = (shape: GraphShape) => new Map(layoutGraph(shape).nodes.map((n) => [n.id, n.data]));
+
+  it("says which boxes call a model and which are plain code", () => {
+    // The question this answers: `plan` and `context` show no input and no output
+    // because they never call one. Half the graph is deterministic Python and the
+    // drawing gave no way to tell.
+    const data = dataOf(SHAPE);
+
+    expect(data.get("plan")).toMatchObject({ steps: [], tools: 0 });
+    expect(data.get("reduce")).toMatchObject({ steps: [], tools: 0 });
+    expect(data.get("triage")).toMatchObject({ steps: ["triage"], tools: 0 });
+    expect(data.get("injection")).toMatchObject({ steps: ["lens:injection"], tools: 0 });
+  });
+
+  it("counts both steps of the node that runs two, and the tools one of them holds", () => {
+    // `gather` and `verify` are one node. Its box has to say two calls and nine
+    // tools, or the tool-using half of the run is invisible on the drawing.
+    expect(dataOf(SHAPE).get("verify")).toMatchObject({ steps: ["gather", "verify"], tools: 2 });
+  });
+
+  it("says nothing rather than guessing when the roster has not arrived", () => {
+    // A node tagged `code` because the answer had not come back would be a lie.
+    const data = dataOf({ ...SHAPE, steps: [] });
+    expect(data.get("plan")).toMatchObject({ roster: false });
+    expect(data.get("verify")).toMatchObject({ roster: false, steps: [] });
+    expect(dataOf(SHAPE).get("plan")).toMatchObject({ roster: true });
+  });
+});

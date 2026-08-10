@@ -20,13 +20,15 @@ import type { Point } from "./edge-path";
 // Must match `.gx-node` in studio.css. dagre lays out against these numbers
 // and the DOM renders against those, so a disagreement is nodes that overlap
 // by exactly the difference.
-// Trimmed from 150x54 to pay for the room the routing needs. Eight ranks laid out
+// Trimmed from 150x54 to pay for the room the routing needs, then given the height
+// back for the tags -- laid out left to right the fit is limited by width, so the
+// extra row costs nothing at all. Eight ranks laid out
 // left to right are already wider than the pane they are fitted into, so every
 // pixel of node is a pixel off the zoom -- and the labels are `plan`, `injection`,
 // `locate`. Net effect measured on the real graph: the canvas is *smaller* than it
 // was before routing, so the fitted zoom went up rather than down.
 export const NODE_W = 124;
-export const NODE_H = 48;
+export const NODE_H = 64;
 
 /** LangGraph's own markers. Drawn, but as terminals rather than as work. */
 export const TERMINALS = new Set(["__start__", "__end__"]);
@@ -42,6 +44,24 @@ export interface GraphNodeData extends Record<string, unknown> {
   /** An interrupt before this node runs, and one after it has written. */
   before: boolean;
   after: boolean;
+  /**
+   * The steps this node runs, if any.
+   *
+   * Empty means deterministic: `plan`, `context`, `skip`, `locate` and `reduce`
+   * never call a model. They looked exactly like the ones that do, which is a fair
+   * thing to be confused by -- half the boxes in the graph are plain Python and
+   * nothing said so.
+   */
+  steps: string[];
+  /** The most tools any of its steps may call. `gather` is the only one with any. */
+  tools: number;
+  /**
+   * Whether the step roster was available to say.
+   *
+   * Absent on a page that has not loaded it yet, and a node tagged `code` because
+   * the answer had not arrived would be a lie rather than a gap.
+   */
+  roster: boolean;
   /** Laid out left to right, so the node's in and out ports face sideways. */
   across: boolean;
   onInterrupt?: (node: string, when: "before" | "after") => void;
@@ -132,9 +152,16 @@ export function layoutGraph(
   const beforeSet = new Set(before);
   const afterSet = new Set(after);
 
+  // Which steps run in which node, off the roster the API serves with the shape.
+  // `gather` and `verify` are both the `verify` node, so this is a list.
+  const steps = shape.steps ?? [];
+  const byNode = new Map<string, typeof steps>();
+  for (const step of steps) byNode.set(step.node, [...(byNode.get(step.node) ?? []), step]);
+
   const nodes: Node<GraphNodeData>[] = shape.nodes.map((name) => {
     const at = graph.node(name);
     const stat = stats?.get(name);
+    const mine = byNode.get(name) ?? [];
     return {
       id: name,
       type: "studioNode",
@@ -149,6 +176,9 @@ export function layoutGraph(
         queued: queuedSet.has(name),
         before: beforeSet.has(name),
         after: afterSet.has(name),
+        steps: mine.map((step) => step.step),
+        tools: Math.max(0, ...mine.map((step) => step.tools.length)),
+        roster: steps.length > 0,
         across,
         onInterrupt,
       },
