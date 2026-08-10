@@ -45,6 +45,9 @@ export default function TraceDock() {
   // Memoised because the effect below depends on it: `?? []` is a fresh array
   // every render, which would re-run the landing effect forever.
   const rows = useMemo(() => spans.data?.spans ?? [], [spans.data]);
+  // Started, but nothing recorded yet. Landing here straight off 검사 실행 is
+  // the normal way to see this, and it is a different thing from an idle run.
+  const starting = phase === "running" || phase === "starting";
   const ui = useMemo(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
 
   // Land on the first model call: it is what someone opening a run wants to
@@ -92,7 +95,13 @@ export default function TraceDock() {
               </div>
               <div className="min-h-0 flex-1">
                 {view === "tree" ? (
-                  <SpanTree spans={rows} selected={spanId} node={node} onSelect={(id) => void setSpanId(id)} />
+                  <SpanTree
+                    spans={rows}
+                    selected={spanId}
+                    node={node}
+                    waiting={starting}
+                    onSelect={(id) => void setSpanId(id)}
+                  />
                 ) : (
                   <ConversationView threads={threads.data?.threads ?? []} node={node} />
                 )}
@@ -111,6 +120,7 @@ export default function TraceDock() {
               full={full}
               busy={resume.isPending}
               interrupted={phase === "paused"}
+              waiting={starting}
               onSelect={(id) => void setCheckpointId(id)}
               onFull={(next) => void setFull(next)}
               onFork={(id, values) => resume.mutate({ checkpointId: id, values })}
@@ -126,7 +136,11 @@ export default function TraceDock() {
             <ProblemsPanel
               findings={ui}
               selectedId={findingId}
-              emptyHint="이 실행에서 발견된 결과가 없습니다."
+              emptyHint={
+                starting
+                  ? "검사 중… 결과는 도착하는 대로 나타납니다."
+                  : "이 실행에서 발견된 결과가 없습니다."
+              }
               onSelect={(finding) => {
                 void setFindingId(finding.id);
                 if (finding.primary.file) void setPath(finding.primary.file);

@@ -39,11 +39,14 @@ export default function SpanTree({
   spans,
   selected,
   node,
+  waiting,
   onSelect,
 }: {
   spans: TraceSpan[];
   selected: string | null;
   node: string | null;
+  /** A run is in flight but has not recorded its first call yet. */
+  waiting?: boolean;
   onSelect: (spanId: string) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -68,11 +71,18 @@ export default function SpanTree({
   });
 
   if (shown.length === 0) {
+    // A call is recorded when it *finishes*, so a run whose first model call
+    // is still thinking has nothing here yet. Telling someone to run an
+    // inspection at that moment -- seconds after they pressed the button, and
+    // now landed on this surface to watch it -- reads as though it never
+    // started.
     return (
       <p className="p-4 text-xs text-ink-faint">
         {node
           ? `${node}에 기록된 호출이 없습니다.`
-          : "기록된 호출이 없습니다. 검사를 실행하면 모델 호출과 도구 호출이 여기에 쌓입니다."}
+          : waiting
+            ? "검사를 시작했습니다. 첫 모델 호출이 끝나는 대로 여기에 쌓입니다."
+            : "기록된 호출이 없습니다. 검사를 실행하면 모델 호출과 도구 호출이 여기에 쌓입니다."}
       </p>
     );
   }

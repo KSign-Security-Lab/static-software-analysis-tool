@@ -47,6 +47,7 @@ export default function StatePanel({
   full,
   busy,
   interrupted,
+  waiting,
   onSelect,
   onFull,
   onFork,
@@ -57,6 +58,8 @@ export default function StatePanel({
   full: boolean;
   busy?: boolean;
   interrupted?: boolean;
+  /** A run is in flight but has not written its first checkpoint yet. */
+  waiting?: boolean;
   onSelect: (checkpointId: string | null) => void;
   onFull: (full: boolean) => void;
   onFork: (checkpointId: string, values: Record<string, unknown>) => void;
@@ -72,7 +75,13 @@ export default function StatePanel({
   const patch = useMemo(() => (draft ? parsePatch(draft.text) : {}), [draft]);
 
   if (checkpoints.length === 0) {
-    return <p className="p-4 text-xs text-ink-faint">검사를 실행하면 단계마다 그 시점의 상태가 여기 쌓입니다. 중단점에 멈춰 있을 때는 여기서 상태를 고쳐 갈라 실행할 수 있습니다.</p>;
+    return (
+      <p className="p-4 text-xs text-ink-faint">
+        {waiting
+          ? "검사를 시작했습니다. 첫 단계가 끝나는 대로 여기에 쌓입니다."
+          : "검사를 실행하면 단계마다 그 시점의 상태가 여기 쌓입니다. 중단점에 멈춰 있을 때는 여기서 상태를 고쳐 갈라 실행할 수 있습니다."}
+      </p>
+    );
   }
 
   return (
