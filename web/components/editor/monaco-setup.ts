@@ -1,6 +1,8 @@
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 
+import { installClipboardFallback } from "./clipboard-fallback";
+
 /**
  * Load Monaco from the bundle, not from a CDN.
  *
@@ -23,6 +25,11 @@ let configured = false;
 export function setupMonaco(): typeof monaco {
   if (configured) return monaco;
   configured = true;
+
+  // Before the first editor exists: Monaco reaches for navigator.clipboard on
+  // every click and keystroke in the editor, and it is absent on any origin
+  // that is not https or localhost.
+  installClipboardFallback();
 
   loader.config({ monaco });
 

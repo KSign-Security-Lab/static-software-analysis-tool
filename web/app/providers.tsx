@@ -5,6 +5,7 @@ import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { useState, type ReactNode } from "react";
 
+import { installClipboardFallback } from "@/components/editor/clipboard-fallback";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CommandProvider } from "@/lib/commands/provider";
@@ -22,6 +23,13 @@ import { createQueryClient } from "@/lib/query/client";
  * "system", and the light block in theme.css would need a
  * `prefers-color-scheme` clause guarded to it.
  */
+// At import, not in render: `navigator.clipboard` does not exist on a page
+// that is not a secure context -- which this one is not, whenever it is reached
+// on anything but localhost -- and Monaco touches it on every click in the
+// editor, the F2-A JSON view on every copy. A no-op where the real API exists,
+// and on the server, where there is no navigator to patch.
+installClipboardFallback();
+
 export default function Providers({ children }: { children: ReactNode }) {
   // Lazily, and per tab: a module-level QueryClient is shared across requests
   // on the Node server, which would leak one user's cache into another's HTML.
