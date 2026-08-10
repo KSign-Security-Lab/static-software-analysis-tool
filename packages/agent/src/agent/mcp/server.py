@@ -247,3 +247,27 @@ def run_in_sandbox(command: list[str]) -> str:
         return _dump(result.as_dict())
 
     return _guard(run)
+
+
+def describe_tools() -> list[dict[str, Any]]:
+    """Every tool this server offers, as facts a reader can be shown.
+
+    Answered from the registry rather than by starting a server, so the API can
+    say what a step is allowed to reach for before anything has run. That is the
+    half of "what did the agent do" no trace can hold: a tool nobody called
+    leaves no record, and "it had nine and used two" is a different account of a
+    verification than "it used two".
+
+    ``mcp.list_tools()`` is the async spelling of this same registry; the manager
+    is its synchronous form, and answering this should not need an event loop.
+    """
+    return [
+        {
+            "name": tool.name,
+            # First paragraph only: the rest of the docstring tells the model how
+            # to use the tool, and a list wants one line.
+            "summary": " ".join((tool.description or "").split("\n\n")[0].split()),
+            "parameters": sorted((tool.parameters or {}).get("properties", {})),
+        }
+        for tool in sorted(mcp._tool_manager.list_tools(), key=lambda tool: tool.name)
+    ]

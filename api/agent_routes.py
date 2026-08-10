@@ -60,6 +60,7 @@ from agent.runs import (
     write_files,
 )
 from agent.schema import LENSES, Report
+from agent.steps import describe_steps
 
 log = logging.getLogger(__name__)
 
@@ -261,14 +262,21 @@ def agent_health(probe: bool = False) -> Dict[str, Any]:
 
 @router.get("/graph")
 def agent_graph() -> Dict[str, Any]:
-    """The inspection graph's nodes and edges.
+    """The agent itself: its nodes, its edges, and what each step is.
 
     A property of the code, not of a run, so it answers before anything has
     been inspected -- the structure is the thing you want to look at first.
+
+    ``steps`` is here rather than at a route of its own because it is the same
+    question one level down. The graph says a chunk goes through `verify`; the
+    steps say `verify` is two model calls, that the first may reach for nine
+    tools and the second for none, and which prompt each was given. A trace can
+    never supply the second half: a tool that was offered and not called leaves
+    no span behind.
     """
     # ``steppable`` is the subset a breakpoint can name: the real nodes, without
     # LangGraph's own start and end markers.
-    return {**graph_shape(), "steppable": list(NODES)}
+    return {**graph_shape(), "steppable": list(NODES), "steps": describe_steps()}
 
 
 @router.get("/runs")
@@ -592,6 +600,10 @@ def _turn(span: Any, by_id: Dict[str, Any]) -> Dict[str, Any]:
         "id": span.id,
         "step": span.meta.get("step") or span.name,
         "name": span.name,
+        # Which node made the call, so narrowing the record to one node of the
+        # graph is a comparison rather than a guess at the span's name -- `gather`
+        # and `verify` are both the `verify` node and neither is called that.
+        "node": span.meta.get("langgraph_node"),
         "messages": messages,
         "reply": "\n".join(outputs.get("text", [])) or None,
         "tool_calls": outputs.get("tool_calls") or [],

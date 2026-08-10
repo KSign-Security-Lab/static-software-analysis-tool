@@ -456,6 +456,18 @@ def test_graph_endpoint_answers_before_any_run(client: TestClient) -> None:
     assert body["mermaid"].startswith("---")
 
 
+def test_graph_endpoint_says_what_each_step_is_given_and_may_reach_for(client: TestClient) -> None:
+    """The half of "what did the agent do" that no trace can answer: a tool that
+    was offered and never called leaves no span behind."""
+    steps = {entry["step"]: entry for entry in client.get("/agent/graph").json()["steps"]}
+
+    assert steps["triage"]["schema"] == "Triage"
+    assert steps["lens:memory"]["prompt"] == "lens:memory"
+    assert steps["gather"]["node"] == "verify", "two steps of one node"
+    assert [tool["name"] for tool in steps["gather"]["tools"]][:1] == ["read_source"]
+    assert all(not entry["tools"] for step, entry in steps.items() if step != "gather")
+
+
 def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestClient) -> None:
     """The span tree shows the machinery; this shows the exchange."""
     from agent.runs import get_run
@@ -465,7 +477,14 @@ def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestC
     assert paths is not None
 
     spans = paths.spans()
-    meta = {"chunk_id": "c1", "symbol": "run", "file": "src/app.c"}
+    # `langgraph_node` is set by LangGraph on everything running inside a node,
+    # so a real span carries it alongside the metadata `call_config` adds.
+    meta = {
+        "chunk_id": "c1",
+        "symbol": "run",
+        "file": "src/app.c",
+        "langgraph_node": "verify",
+    }
     spans.start(span_id="node", parent_id=None, name="verify", kind="chain", started_at=0.0)
     spans.start(
         span_id="llm",
@@ -488,6 +507,7 @@ def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestC
     (turn,) = thread["turns"]
     assert turn["step"] == "gather"
     assert [m["role"] for m in turn["messages"]] == ["system", "human"]
+    assert turn["node"] == "verify", "the node, so narrowing the record is not a guess at the name"
     # The tool the model asked for, and what running it returned -- the pair is
     # what makes a verify step readable.
     assert turn["tool_calls"][0]["name"] == "read_source"
