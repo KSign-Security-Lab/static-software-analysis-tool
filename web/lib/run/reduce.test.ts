@@ -186,3 +186,32 @@ describe("phaseOf", () => {
     expect(phaseOf(state)).toBe("failed");
   });
 });
+
+describe("adopting a run that was already going", () => {
+  it("reads as running, with the queued nodes in flight", () => {
+    // A tab that opened mid-run heard no `run_started` and no `node_started`.
+    // Without this it shows an idle run: 검사 실행 enabled, canvas empty.
+    const state = reduceRun(IDLE, { type: "adopted", running: ["injection", "memory"] });
+
+    expect(phaseOf(state)).toBe("running");
+    expect(state.running).toEqual(["injection", "memory"]);
+    expect([...state.visited].sort()).toEqual(["injection", "memory"]);
+  });
+
+  it("is still running when the step is between checkpoints", () => {
+    // No node names yet -- `starting` rather than `idle`, which is what keeps
+    // the button disabled.
+    expect(phaseOf(reduceRun(IDLE, { type: "adopted", running: [] }))).toBe("starting");
+  });
+
+  it("gives way to the stream once events arrive", () => {
+    const adopted = reduceRun(IDLE, { type: "adopted", running: ["injection"] });
+    const finished = reduceRun(adopted, {
+      type: "finished",
+      event: { run_id: "r", findings: 0, aborted: false },
+    });
+
+    expect(phaseOf(finished)).toBe("finished");
+    expect(finished.running).toEqual([]);
+  });
+});

@@ -271,7 +271,7 @@ def abandon_live_runs(config: AgentConfig | None = None) -> list[str]:
         paths = RunPaths(child.name, child)
         if paths.read_meta().get("status") not in (STATUS_INSPECTING, STATUS_INTERRUPTED):
             continue
-        paths.set_status(STATUS_FAILED, error="서버가 다시 시작되어 실행이 끊겼습니다", parked=None)
+        paths.set_status(STATUS_FAILED, error="서버가 다시 시작되어 실행이 끊겼습니다", parked=None, progress=None)
         abandoned.append(child.name)
 
     return abandoned

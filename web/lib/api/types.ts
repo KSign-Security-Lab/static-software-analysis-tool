@@ -55,6 +55,14 @@ export interface RunSummary {
    * offer to start it over. This is the same fact, read rather than heard.
    */
   parked?: { next: string[]; checkpoint_id: string | null } | null;
+  /**
+   * How far a run in flight has got, when `status` is `inspecting`.
+   *
+   * Same reason as `parked`: the stream cannot be replayed, so a tab that
+   * arrives mid-run has no other way to know anything is happening. `next` is
+   * the last checkpoint's queued tasks -- what is executing now.
+   */
+  progress?: { next: string[]; step: number | null } | null;
 }
 
 export interface FileContents {

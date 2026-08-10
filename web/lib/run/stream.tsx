@@ -215,16 +215,27 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
   // What the run record says, for the one fact the stream cannot tell a tab
   // that arrived late. Only ever read when nothing has been heard: once an
   // event lands, the stream is ahead of anything REST would say.
-  const parked = useRun(runId).data?.parked;
+  const record = useRun(runId).data;
+  const parked = record?.parked;
+  // Memoised: `?? []` is a fresh array every render, which would re-run the
+  // effect below forever.
+  const inFlight = useMemo(
+    () => (record?.status === "inspecting" ? (record.progress?.next ?? []) : null),
+    [record],
+  );
   const heard = live.revision > 0 || live.active || live.finished;
 
   useEffect(() => {
-    if (!runId || heard || !parked) return;
-    dispatch({
-      type: "interrupted",
-      event: { run_id: runId, next: parked.next, checkpoint_id: parked.checkpoint_id },
-    });
-  }, [runId, heard, parked]);
+    if (!runId || heard) return;
+    if (parked) {
+      dispatch({
+        type: "interrupted",
+        event: { run_id: runId, next: parked.next, checkpoint_id: parked.checkpoint_id },
+      });
+    } else if (inFlight) {
+      dispatch({ type: "adopted", running: inFlight });
+    }
+  }, [runId, heard, parked, inFlight]);
 
   const ensureAttached = useCallback(async () => {
     if (!runId || opened.current) return;

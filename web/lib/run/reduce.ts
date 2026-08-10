@@ -83,6 +83,8 @@ export type RunAction =
   | { type: "node_finished"; event: NodeEvent }
   | { type: "checkpoint"; event: CheckpointEvent }
   | { type: "interrupted"; event: InterruptEvent }
+  /** Where the run already was when this tab arrived. See `adopted`, below. */
+  | { type: "adopted"; running: string[] }
   | { type: "resumed" }
   | { type: "refused"; event: RefusedEvent }
   | { type: "dismiss_refusal" }
@@ -99,6 +101,28 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
 
     case "run_started":
       return { ...state, active: true, finished: false, error: null, refusal: null };
+
+    /**
+     * A run that was already going when this tab opened.
+     *
+     * The stream is in-process and never replayed, so arriving late means
+     * having missed `run_started` and every `node_started`: the phase reads
+     * idle, the canvas paints nothing in flight, and 검사 실행 offers to start
+     * a run that is already running. This is the run record saying otherwise.
+     *
+     * `running` comes from the last checkpoint's `next` -- the tasks queued
+     * for the step now executing. Marked visited too, since reaching them
+     * means the graph came through them.
+     */
+    case "adopted":
+      return {
+        ...state,
+        active: true,
+        finished: false,
+        error: null,
+        running: action.running,
+        visited: new Set([...state.visited, ...action.running]),
+      };
 
     case "wave_started":
       return { ...state, wave: { chunks: action.event.chunks, remaining: action.event.remaining }, active: true };

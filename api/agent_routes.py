@@ -871,6 +871,17 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
     spans = paths.spans()
 
     def emit(event: str, payload: dict[str, Any]) -> None:
+        # Where the run has got to, on disk, for tabs that were not listening.
+        #
+        # The stream is in-process and never replayed, so a page opened -- or
+        # reloaded -- mid-run has missed every `node_started` and cannot know
+        # anything is happening: it offered to start the run again while the
+        # run was executing, and drew the graph as though nothing were in
+        # flight. The checkpoint after each super-step names what runs next,
+        # which is what is executing during the one that follows, so recording
+        # it here costs one small write per step rather than one per node.
+        if event == "checkpoint":
+            paths.write_meta(progress={"next": payload.get("next") or [], "step": payload.get("step")})
         channel.publish({"event": event, "data": payload})
 
     session: InspectionSession | None = None
@@ -928,7 +939,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
 
         report = session.report()
         paths.save_report(report)
-        paths.set_status(STATUS_DONE, findings=len(report.findings), parked=None)
+        paths.set_status(STATUS_DONE, findings=len(report.findings), parked=None, progress=None)
         emit(
             "run_finished",
             {"run_id": paths.run_id, "findings": len(report.findings), "aborted": aborted},
@@ -936,7 +947,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
     except Exception as err:  # noqa: BLE001 - the failure is reported, not raised into the loop
         log.exception("inspection failed for run %s", paths.run_id)
         channel.error = str(err)
-        paths.set_status(STATUS_FAILED, error=str(err), parked=None)
+        paths.set_status(STATUS_FAILED, error=str(err), parked=None, progress=None)
         channel.publish({"event": "run_failed", "data": {"error": str(err)}})
     finally:
         if session is not None:
