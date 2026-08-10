@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { backEdges, layoutGraph, statsFromSpans } from "./layout";
+import { NODE_H, NODE_W, backEdges, layoutGraph, statsFromSpans } from "./layout";
 import type { GraphShape } from "@/lib/api/types";
 
 const LOOP: GraphShape = {
@@ -51,18 +51,51 @@ describe("layoutGraph", () => {
     expect(laid.edges).toHaveLength(LOOP.edges.length);
   });
 
-  it("routes the return up one side and the early exit down the other", () => {
-    // Both skip over the column. Drawn through it, the return crosses every
-    // node between `analyse` and `plan`, which is what made the first draw of
-    // this unreadable.
+  it("draws every edge along the route dagre computed for it", () => {
+    // dagre routes while it lays out, around whatever lies between the ends.
+    // Hand-picked lanes are what put two rank-skipping edges on top of each
+    // other; the only edge that still needs one is the loop, which dagre never
+    // saw.
     const laid = layoutGraph(LOOP);
     const edge = (id: string) => laid.edges.find((e) => e.id === id)!;
 
-    expect(edge("analyse->plan")).toMatchObject({ sourceHandle: "right-out", targetHandle: "right-in" });
-    expect(edge("plan->__end__")).toMatchObject({ sourceHandle: "left-out", targetHandle: "left-in" });
-    // The steps of the column itself stay on the column.
-    expect(edge("plan->context").sourceHandle).toBeUndefined();
-    expect(edge("context->analyse").sourceHandle).toBeUndefined();
+    for (const id of ["plan->context", "context->analyse", "plan->__end__"]) {
+      expect(edge(id).type).toBe("routed");
+      expect(edge(id).sourceHandle).toBeUndefined();
+      const points = (edge(id).data as { points: { x: number; y: number }[] }).points;
+      expect(points.length).toBeGreaterThan(1);
+      expect(points.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+    }
+  });
+
+  it("keeps the loop on a lane of its own, because nothing routed it", () => {
+    // The return is left out of the dagre graph on purpose -- see layoutGraph --
+    // so it has no computed route and takes the one lane that does not cut back
+    // through every step it is returning past.
+    const laid = layoutGraph(LOOP);
+    const loop = laid.edges.find((e) => e.id === "analyse->plan")!;
+
+    expect(loop).toMatchObject({ type: "smoothstep", sourceHandle: "right-out", targetHandle: "right-in" });
+    expect(loop.className).toContain("is-loop");
+  });
+
+  it("routes an edge that skips a rank around what it skips, not through it", () => {
+    // `plan -> __end__` crosses the whole column. Every bend of its route has to
+    // clear the nodes in between, which is what dagre's dummy nodes are for.
+    const laid = layoutGraph(LOOP);
+    const points = (laid.edges.find((e) => e.id === "plan->__end__")!.data as {
+      points: { x: number; y: number }[];
+    }).points;
+    const boxes = laid.nodes
+      .filter((n) => n.id !== "plan" && n.id !== "__end__")
+      .map((n) => ({ x: n.position.x, y: n.position.y }));
+
+    for (const point of points) {
+      for (const box of boxes) {
+        const inside = point.x > box.x && point.x < box.x + NODE_W && point.y > box.y && point.y < box.y + NODE_H;
+        expect(inside).toBe(false);
+      }
+    }
   });
 
   it("puts the end below the work rather than beside it", () => {

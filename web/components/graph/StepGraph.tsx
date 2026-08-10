@@ -14,11 +14,13 @@ import { useCallback, useEffect, useMemo } from "react";
 import type { Breakpoints } from "@/lib/api/control";
 import type { GraphShape, TraceSpan } from "@/lib/api/types";
 import { TERMINALS, layoutGraph, statsFromSpans } from "@/lib/trace/layout";
+import RoutedEdge from "./RoutedEdge";
 import StepNode from "./StepNode";
 
-// Module scope: React Flow warns, loudly and correctly, when this object
-// changes identity between renders.
+// Module scope: React Flow warns, loudly and correctly, when these objects
+// change identity between renders.
 const NODE_TYPES = { studioNode: StepNode };
+const EDGE_TYPES = { routed: RoutedEdge };
 
 export interface StepGraphProps {
   shape: GraphShape;
@@ -86,6 +88,7 @@ function Canvas({
       nodes={nodes}
       edges={laid.edges}
       nodeTypes={NODE_TYPES}
+      edgeTypes={EDGE_TYPES}
       onNodeClick={onNodeClick}
       onPaneClick={() => onSelect(null)}
       proOptions={{ hideAttribution: true }}

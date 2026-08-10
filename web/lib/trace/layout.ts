@@ -15,12 +15,18 @@ import dagre from "dagre";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 
 import type { GraphShape } from "@/lib/api/types";
+import type { Point } from "./edge-path";
 
 // Must match `.gx-node` in studio.css. dagre lays out against these numbers
 // and the DOM renders against those, so a disagreement is nodes that overlap
 // by exactly the difference.
-export const NODE_W = 150;
-export const NODE_H = 54;
+// Trimmed from 150x54 to pay for the room the routing needs. Eight ranks laid out
+// left to right are already wider than the pane they are fitted into, so every
+// pixel of node is a pixel off the zoom -- and the labels are `plan`, `injection`,
+// `locate`. Net effect measured on the real graph: the canvas is *smaller* than it
+// was before routing, so the fitted zoom went up rather than down.
+export const NODE_W = 124;
+export const NODE_H = 48;
 
 /** LangGraph's own markers. Drawn, but as terminals rather than as work. */
 export const TERMINALS = new Set(["__start__", "__end__"]);
@@ -45,6 +51,11 @@ export interface GraphNodeData extends Record<string, unknown> {
 export interface NodeStats {
   visits: number;
   averageMs: number | null;
+}
+
+/** What a routed edge needs: the polyline dagre computed while laying out. */
+export interface RoutedEdgeData extends Record<string, unknown> {
+  points: Point[];
 }
 
 export interface LaidOutGraph {
@@ -82,13 +93,15 @@ export function layoutGraph(
   graph.setDefaultEdgeLabel(() => ({}));
   graph.setGraph({
     rankdir: direction,
-    // Tight within a rank too, and for a sharper reason: laid out left to
-    // right, the specialists stack vertically, and five stacked nodes are
-    // what the fitted zoom is actually limited by -- not the seven ranks.
-    nodesep: across ? 14 : 44,
-    // Tight across: the pipeline is seven ranks wide now, and every pixel
-    // between them is a pixel off the zoom the whole thing gets fitted to.
-    ranksep: across ? 34 : 44,
+    // Laid out left to right, the specialists stack vertically, and five stacked
+    // nodes are what the fitted zoom is limited by -- not the eight ranks. Kept
+    // close, but not so close that a route bending between two of them has no
+    // room to be seen doing it.
+    nodesep: across ? 20 : 40,
+    // Every pixel between ranks is a pixel off the zoom the whole thing gets
+    // fitted to, and also the room an edge has to leave one node and arrive at
+    // another without running along its edge. 34 was the former alone.
+    ranksep: across ? 44 : 44,
     marginx: 28,
     marginy: 24,
   });
@@ -114,12 +127,6 @@ export function layoutGraph(
   }
 
   dagre.layout(graph);
-
-  // Rank as a row number, not as a coordinate: "one step on" has to mean the
-  // same thing whatever the node sizes and spacing happen to be.
-  const along = (name: string) => (across ? graph.node(name).x : graph.node(name).y);
-  const rows = [...new Set(shape.nodes.map(along))].sort((a, b) => a - b);
-  const rank = new Map(shape.nodes.map((name) => [name, rows.indexOf(along(name))]));
 
   const queuedSet = new Set(queued);
   const beforeSet = new Set(before);
@@ -154,21 +161,29 @@ export function layoutGraph(
     nodes,
     edges: edges.map((e) => {
       const looping = back.has(edgeId(e));
-      // An edge that skips a rank cannot be drawn down the column without
-      // crossing whatever it skipped over. Returns go up the right, early exits
-      // down the left, and the column between them stays a straight line.
-      const skips = (rank.get(e.target) ?? 0) - (rank.get(e.source) ?? 0) > 1;
-      // Whichever way the flow runs, returns leave on one side of it and early
-      // exits on the other, so neither crosses the line of steps between them.
-      const side = looping ? (across ? "bottom" : "right") : skips ? (across ? "top" : "left") : null;
+      // dagre routed every edge it was given, around whatever lies between the
+      // ends: a dummy node per rank crossed, and the points are a path through
+      // the gaps. Drawing that is the difference between an edge that goes where
+      // there is room and one that takes the shortest line through a node.
+      //
+      // Two edges skipped a rank here -- `context -> skip` and `locate -> reduce`
+      // -- and both used to be shoved into one hand-picked lane above the flow,
+      // which is to say they were drawn on top of each other.
+      const routed = looping ? undefined : (graph.edge(e.source, e.target)?.points as Point[] | undefined);
+
+      // The loop is not in the dagre graph -- see above -- so nothing routed it.
+      // It keeps the handles across the flow, which is the one lane it can take
+      // without cutting back through every step it is returning past.
+      const side = looping ? (across ? "bottom" : "right") : null;
 
       return {
         id: edgeId(e),
         source: e.source,
         target: e.target,
         ...(side ? { sourceHandle: `${side}-out`, targetHandle: `${side}-in` } : {}),
-        type: "smoothstep",
-        pathOptions: { borderRadius: 12 },
+        ...(routed && routed.length > 1
+          ? { type: "routed", data: { points: routed } satisfies RoutedEdgeData }
+          : { type: "smoothstep", pathOptions: { borderRadius: 12 } }),
         markerEnd: { type: MarkerType.ArrowClosed, width: 13, height: 13 },
         className: [
           "gx-edge",
