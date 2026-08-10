@@ -1,13 +1,22 @@
 "use client";
 
-import { Contrast, HelpCircle } from "lucide-react";
+import { Contrast, HelpCircle, PanelBottom, PanelLeft, PanelRight } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { perspectiveFor } from "@/lib/workbench/perspectives";
+import { PANE_LABEL, type PaneId } from "@/lib/workbench/store";
+import { useWorkbench } from "@/lib/workbench/store-provider";
+
+const PANES: { id: PaneId; icon: typeof PanelLeft }[] = [
+  { id: "side", icon: PanelLeft },
+  { id: "dock", icon: PanelBottom },
+  { id: "inspector", icon: PanelRight },
+];
 
 /**
  * The title bar: where you are, and the window controls.
@@ -23,12 +32,18 @@ import { perspectiveFor } from "@/lib/workbench/perspectives";
  * than stacking three bands of three different heights. Same height as a panel
  * header, for the same reason.
  *
- * The three panel folds that used to sit here are gone with the panels' resizing:
- * the regions are fixed in CSS now, so there is no geometry to drive.
+ * The panel folds and the theme live here rather than at the foot of the rail. They
+ * are window controls, not places to go -- and putting them here leaves the rail
+ * doing one job.
+ *
+ * The folds no longer advertise a keybinding: ⌘B and ⌘J went with the keyboard
+ * layer, which existed to feed a command palette this app does not have.
  */
 export default function PerspectiveHeader() {
   const current = perspectiveFor(usePathname());
   const { setTheme } = useTheme();
+  const collapsed = useWorkbench((s) => s.collapsed);
+  const togglePane = useWorkbench((s) => s.togglePane);
 
   return (
     <header className="flex h-9 shrink-0 items-center border-b border-line bg-surface">
@@ -73,6 +88,25 @@ export default function PerspectiveHeader() {
             </PopoverContent>
           </Popover>
         )}
+
+        <span className="mx-1 h-4 w-px bg-line" />
+
+        {PANES.map(({ id, icon: Icon }) => (
+          <Tooltip key={id}>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`${PANE_LABEL[id]} 접기/펼치기`}
+                aria-pressed={!collapsed[id]}
+                onClick={() => togglePane(id)}
+              >
+                <Icon className={cn(collapsed[id] ? "text-ink-faint" : "text-ink-muted")} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{PANE_LABEL[id]} 접기/펼치기</TooltipContent>
+          </Tooltip>
+        ))}
 
         <Tooltip>
           <TooltipTrigger asChild>
