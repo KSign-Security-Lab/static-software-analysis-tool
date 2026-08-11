@@ -4,7 +4,7 @@ import { useEffect, useMemo } from "react";
 
 import { fromAgent } from "@/lib/model/finding";
 import { scanningFiles } from "@/lib/run/reduce";
-import { useDeleteFile, useFiles, useFindings } from "@/lib/run/queries";
+import { useDeleteFile, useDeleteRun, useFiles, useFindings } from "@/lib/run/queries";
 import { useCreateFile, useUploadTree } from "@/lib/run/new-file";
 import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
@@ -19,7 +19,7 @@ import { useOpenFile } from "@/lib/run/selection";
  * something first, so the first write makes the run if there is not one yet.
  */
 export default function ExplorerPane() {
-  const [runId] = useRunId();
+  const [runId, setRunId] = useRunId();
   const [path, setPath] = useOpenFile();
 
   const files = useFiles(runId);
@@ -27,6 +27,7 @@ export default function ExplorerPane() {
   const newFile = useCreateFile();
   const upload = useUploadTree();
   const remove = useDeleteFile(runId);
+  const clear = useDeleteRun();
 
   const list = useMemo(() => files.data ?? [], [files.data]);
   const ui = useMemo(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
@@ -68,6 +69,19 @@ export default function ExplorerPane() {
         });
       }}
       onUpload={upload.send}
+      onClear={
+        runId
+          ? () =>
+              clear.mutate(runId, {
+                onSuccess: () => {
+                  // Back to an empty workbench rather than to a run id that
+                  // now 404s on every query the page makes.
+                  setRunId(null);
+                  void setPath(null);
+                },
+              })
+          : undefined
+      }
     />
   );
 }

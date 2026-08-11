@@ -1,6 +1,6 @@
 "use client";
 
-import { FileCode, FilePlus, FolderUp, Trash2 } from "lucide-react";
+import { Eraser, FileCode, FilePlus, FolderUp, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import {
@@ -51,6 +51,7 @@ export default function FileExplorer({
   onCreate,
   onDelete,
   onUpload,
+  onClear,
 }: {
   files: string[];
   active: string | null;
@@ -75,6 +76,8 @@ export default function FileExplorer({
   onCreate: (path: string) => void;
   onDelete: (path: string) => void;
   onUpload: (files: File[]) => void;
+  /** Throw the whole run away: files, index, trace and report. */
+  onClear?: () => void;
 }) {
   const counts = useMemo(() => countByFile(findings), [findings]);
   const input = useRef<HTMLInputElement>(null);
@@ -82,6 +85,7 @@ export default function FileExplorer({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
 
   const problem = creating ? validateName(name, files) : null;
   const canCreate = name.trim().length > 0 && !problem;
@@ -205,6 +209,29 @@ export default function FileExplorer({
         </DialogContent>
       </Dialog>
 
+      <AlertDialog open={clearing} onOpenChange={setClearing}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>이 검사를 지울까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              올린 파일과 색인, 에이전트가 주고받은 대화, 그리고 결과가 함께 사라집니다. 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                onClear?.();
+                setClearing(false);
+              }}
+            >
+              지우기
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -258,6 +285,18 @@ export default function FileExplorer({
             </TooltipTrigger>
             <TooltipContent>트리 업로드</TooltipContent>
           </Tooltip>
+          {/* Only once there is a run to throw away. A destructive control that
+              is disabled more often than not reads as something broken. */}
+          {onClear && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-xs" onClick={() => setClearing(true)} aria-label="검사 지우기">
+                  <Eraser />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>검사 지우기</TooltipContent>
+            </Tooltip>
+          )}
           {/* `webkitdirectory`, which this said it did and did not do: without
               it the picker offers files, every one of them arrives with an empty
               `webkitRelativePath`, and a tree lands as a pile of basenames. */}

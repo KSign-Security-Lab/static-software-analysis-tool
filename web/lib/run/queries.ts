@@ -8,6 +8,7 @@ import { startRun, type StartOptions } from "@/lib/api/control";
 import {
   createEmptyRun,
   deleteFile,
+  deleteRun,
   diffRuns,
   fetchFile,
   fetchFiles,
@@ -106,6 +107,34 @@ function applyTree(client: QueryClient, runId: string, result: FileWriteResult) 
   client.setQueryData(keys.summary(runId), (previous: unknown) =>
     previous ? { ...previous, index: result.index, file_count: result.files.length } : previous,
   );
+}
+
+/**
+ * Delete a run: its sources, its index, its trace and its report.
+ *
+ * `deleteRun` has had a client and no caller since it was written, so 70 runs
+ * accumulated in `artifacts/agent-runs` with nothing on the page able to remove
+ * one. The server refuses with a 409 while a run is in flight rather than
+ * deleting the tree out from under its own worker, and that is worth reporting
+ * as itself rather than as "삭제 실패".
+ */
+export function useDeleteRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: deleteRun,
+    onSuccess: () => {
+      // Only the list. Removing the run's own queries would make the components
+      // still mounted against it re-fetch immediately -- from a server that has
+      // just deleted it -- and the 404 would arrive before the caller had
+      // finished clearing the id. They are disabled the moment it does, and
+      // garbage collected after.
+      void client.invalidateQueries({ queryKey: keys.runs() });
+    },
+    onError: (error) =>
+      toast.error("실행을 지울 수 없습니다", {
+        description: describeError(error),
+      }),
+  });
 }
 
 export function useCreateRun() {
