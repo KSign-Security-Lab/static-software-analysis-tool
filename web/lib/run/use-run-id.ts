@@ -19,6 +19,12 @@ import { readSessionRun, writeSessionRun } from "./session";
  *
  * `push` history, unlike the other params: changing which run you are looking
  * at is a navigation, and back should undo it.
+ *
+ * Setting it to `null` forgets the run in both places. It has to: the fallback
+ * below cannot tell "the URL never had one" from "the run was just deleted", so
+ * clearing only the URL let the effect read the tab's memory and put the dead id
+ * straight back -- and every query then asked the server for a run that was no
+ * longer there.
  */
 export function useRunId(): [string | null, (id: string | null) => void] {
   const [runId, setRunId] = useQueryState("run", { history: "push" });
@@ -34,5 +40,13 @@ export function useRunId(): [string | null, (id: string | null) => void] {
     if (remembered) void setRunId(remembered, { history: "replace" });
   }, [runId, setRunId]);
 
-  return [runId, (id) => void setRunId(id)];
+  return [
+    runId,
+    (id) => {
+      // Before the URL write, so the effect it triggers reads an empty session
+      // rather than the one being cleared.
+      if (id === null) writeSessionRun(null);
+      void setRunId(id);
+    },
+  ];
 }

@@ -29,7 +29,11 @@ export function useSpans(runId: string | null) {
     // Structural sharing is the point of the default: a refetched span array
     // keeps identity for unchanged rows, so the tree, the Gantt scale and the
     // per-node stats do not all recompute on every checkpoint.
-    placeholderData: (previous) => previous,
+    // Held across a refetch, dropped when there is no run: keeping the last
+    // run's data as a placeholder is the point while one is in flight, and a
+    // lie once it has been deleted -- the pane went on showing a conversation
+    // that no longer existed, beside an empty workbench.
+    placeholderData: (previous) => (runId ? previous : undefined),
   });
 }
 
@@ -38,7 +42,11 @@ export function useThreads(runId: string | null) {
     queryKey: keys.threads(runId ?? ""),
     queryFn: ({ signal }) => fetchThreads(runId!, { signal }),
     enabled: enabled(runId),
-    placeholderData: (previous) => previous,
+    // Held across a refetch, dropped when there is no run: keeping the last
+    // run's data as a placeholder is the point while one is in flight, and a
+    // lie once it has been deleted -- the pane went on showing a conversation
+    // that no longer existed, beside an empty workbench.
+    placeholderData: (previous) => (runId ? previous : undefined),
   });
 }
 
@@ -49,7 +57,11 @@ export function useCheckpoints(runId: string | null, full: boolean) {
     enabled: enabled(runId),
     // Keyed by `full`, so toggling back to the summary does not throw away the
     // copy already in hand.
-    placeholderData: (previous) => previous,
+    // Held across a refetch, dropped when there is no run: keeping the last
+    // run's data as a placeholder is the point while one is in flight, and a
+    // lie once it has been deleted -- the pane went on showing a conversation
+    // that no longer existed, beside an empty workbench.
+    placeholderData: (previous) => (runId ? previous : undefined),
   });
 }
 
