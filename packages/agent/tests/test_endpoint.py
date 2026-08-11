@@ -10,7 +10,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from agent.endpoint import DEFAULT_CANDIDATES, Endpoint, discover, list_models, probe
+from agent.config import AgentConfig
+from agent.endpoint import DEFAULT_CANDIDATES, Endpoint, context_window, discover, list_models, probe
 
 
 def _transport(handler):
@@ -110,3 +111,65 @@ def test_the_script_port_is_probed_before_vllms_default() -> None:
 def test_no_ollama_port_is_probed() -> None:
     """vLLM only. Ollama's 11434 was dropped deliberately."""
     assert not any("11434" in url for url in DEFAULT_CANDIDATES)
+
+
+# -- the window, and the budget derived from it -------------------------------
+
+
+def _served(model: str, window: int | None) -> dict[str, object]:
+    entry: dict[str, object] = {"id": model, "object": "model"}
+    if window is not None:
+        entry["max_model_len"] = window
+    return {"object": "list", "data": [entry]}
+
+
+def test_the_window_is_read_from_the_endpoint_rather_than_assumed(mock_get) -> None:
+    """Every budget in this package was a character count invented against a
+    window nobody had read."""
+    mock_get({"http://localhost:8001/v1/models": _served("agent", 16384)})
+    assert context_window("http://localhost:8001/v1", "agent") == 16384
+
+
+def test_an_endpoint_that_does_not_say_is_none_not_a_guess(mock_get) -> None:
+    """None means "it did not say", which is different from a small window."""
+    mock_get({"http://localhost:8001/v1/models": _served("agent", None)})
+    assert context_window("http://localhost:8001/v1", "agent") is None
+
+    mock_get({"http://localhost:8001/v1/models": _served("other", 16384)})
+    assert context_window("http://localhost:8001/v1", "agent") is None, "a different model's window is not ours"
+
+    mock_get({})
+    assert context_window("http://localhost:9999/v1", "agent") is None
+
+
+def test_the_character_budget_comes_off_the_window() -> None:
+    """The answer has to change when the model does. A run against a 16k
+    endpoint should not be planning as though it had 128k -- 24 000 characters
+    against that window is roughly 40% more than it holds, which is why runs
+    were overflowing."""
+    small = AgentConfig(model="m", context_window=16384)
+    large = AgentConfig(model="m", context_window=128_000)
+
+    assert small.input_chars() < small.context_char_budget, "the flat budget overpromised"
+    assert large.input_chars() > small.input_chars()
+    # Output reservation is not available for input.
+    assert small.input_chars() < (small.context_window - small.max_tokens) * small.chars_per_token
+
+
+def test_an_unknown_window_leaves_us_where_we_were() -> None:
+    """Worse than knowing, better than a made-up number pretending to be derived."""
+    config = AgentConfig(model="m", context_window=0)
+    assert config.input_chars() == config.context_char_budget
+
+
+def test_a_tiny_window_reads_as_cramped_rather_than_as_nothing() -> None:
+    assert AgentConfig(model="m", context_window=500).input_chars() == 2_000
+
+
+def test_the_window_is_asked_for_once_and_remembered(mock_get) -> None:
+    seen = mock_get({"http://localhost:8001/v1/models": _served("agent", 16384)})
+    config = AgentConfig(model="agent", base_url="http://localhost:8001/v1", context_window=0)
+
+    assert config.resolve_window() == 16384
+    assert config.resolve_window() == 16384
+    assert len(seen) == 1, "nothing on a hot path should be making this call twice"

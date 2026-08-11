@@ -62,6 +62,37 @@ def list_models(base_url: str, timeout: float = PROBE_TIMEOUT) -> list[str]:
     return [entry["id"] for entry in data if isinstance(entry, dict) and isinstance(entry.get("id"), str)]
 
 
+def context_window(base_url: str, model: str, timeout: float = PROBE_TIMEOUT) -> int | None:
+    """How many tokens the endpoint will accept for ``model``, if it says.
+
+    vLLM reports `max_model_len` per entry on `/v1/models`. Worth asking rather
+    than assuming: every budget in this package was a character count invented
+    against a window nobody had read, and a run that overflows says so as an
+    error from the endpoint rather than as anything the agent could plan around.
+
+    Never raises, for the same reason as :func:`list_models`. ``None`` means the
+    endpoint did not say, which is different from a small window.
+    """
+    url = base_url.rstrip("/") + "/models"
+    try:
+        response = httpx.get(url, timeout=timeout)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as err:
+        log.debug("no window from %s: %s", url, err)
+        return None
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return None
+    for entry in data:
+        if not isinstance(entry, dict) or entry.get("id") != model:
+            continue
+        window = entry.get("max_model_len")
+        return window if isinstance(window, int) and window > 0 else None
+    return None
+
+
 def probe(base_url: str, timeout: float = PROBE_TIMEOUT) -> Endpoint | None:
     """An :class:`Endpoint` if the server answers with at least one model."""
     models = list_models(base_url, timeout)

@@ -162,6 +162,55 @@ def test_chunk_window_disambiguates_a_repeated_token() -> None:
     assert in_other.start_line == 14
 
 
+REPEATED = """\
+void big(const char *src, int n) {
+    char a[8];
+    memcpy(a, src, n);
+    other();
+    char b[8];
+    memcpy(a, src, n);
+}
+"""
+
+
+def test_a_region_decides_which_of_two_identical_lines_is_meant() -> None:
+    """The property region-scoped analysis rests on.
+
+    Both `memcpy` lines are byte-identical and both are inside one unit, so the
+    chunk window cannot tell them apart -- it returns the first. A specialist
+    shown only the second half must not have its finding filed against the first
+    half, which it never read.
+    """
+    chunk = next(c for c in chunk_source("b.c", REPEATED) if c.symbol == "big")
+    anchor = "memcpy(a, src, n);"
+
+    whole = locate_anchor(anchor, "b.c", REPEATED, chunk)
+    assert whole is not None and whole.span.start_line == 3, "the chunk window takes the first"
+
+    tail = locate_anchor(anchor, "b.c", REPEATED, chunk, lines_range=(5, 7))
+    assert tail is not None, "unique within its region, and it was dropped before"
+    assert tail.span.start_line == 6, tail.span
+
+
+def test_a_region_reaching_past_its_unit_is_clamped_not_trusted() -> None:
+    """The range came from a model. One that overshoots must not widen the window
+    this exists to narrow, nor empty it."""
+    chunk = next(c for c in chunk_source("b.c", REPEATED) if c.symbol == "big")
+
+    over = locate_anchor("memcpy(a, src, n);", "b.c", REPEATED, chunk, lines_range=(5, 9999))
+    assert over is not None and over.span.start_line == 6
+
+    # Inverted or outside entirely: fall back to the unit rather than to nothing.
+    nonsense = locate_anchor("memcpy(a, src, n);", "b.c", REPEATED, chunk, lines_range=(90, 80))
+    assert nonsense is not None and nonsense.span.start_line == 3
+
+
+def test_a_region_still_cannot_reach_another_chunk() -> None:
+    """Narrowing tightens the existing guarantee; it must not open a way round it."""
+    other = next(c for c in chunk_source("a.c", SOURCE) if c.symbol == "other")
+    assert locate_anchor("snprintf(cmd", "a.c", SOURCE, other, lines_range=(1, 9999)) is None
+
+
 def test_anchor_outside_its_chunk_does_not_match() -> None:
     """A model hallucinating a sink into the wrong function gets nothing."""
     chunks = chunk_source("a.c", SOURCE)

@@ -61,9 +61,59 @@ class Chunk:
 
     def numbered_body(self) -> str:
         """Body with ``NNN| `` prefixes, as fed to the model."""
+        return self.numbered_range(self.start_line, self.end_line)
+
+    def numbered_range(self, first: int, last: int) -> str:
+        """The same view, restricted to absolute lines ``first``-``last``.
+
+        The numbers are already absolute file lines, so a region's range is
+        directly comparable to a ``Span``'s and nothing needs translating.
+
+        The width is computed over the whole body rather than the slice, so one
+        unit renders with the same padding wherever it is cut -- otherwise the
+        same line arrives as ``42|`` in one prompt and ``042|`` in another, and
+        the ``NNN| `` the prompts promise stops being one thing.
+        """
         lines = self.body.splitlines() or [""]
         width = max(3, len(str(self.start_line + len(lines) - 1)))
-        return "\n".join(f"{self.start_line + i:0{width}d}| {line}" for i, line in enumerate(lines))
+        return "\n".join(
+            f"{number:0{width}d}| {line}"
+            for number, line in ((self.start_line + i, line) for i, line in enumerate(lines))
+            if first <= number <= last
+        )
+
+
+def line_windows(chunk: Chunk, budget: int) -> list[tuple[int, int]]:
+    """Consecutive line ranges covering the unit, each rendering within ``budget``.
+
+    Line-aware, which is the whole point. ``truncate`` is a character prefix cut:
+    it can slice mid-line, and on a large unit it means whatever reads the body
+    never sees the tail at all. Deciding *where in a unit* is worth close reading
+    while unable to see the end of it is the same failure this pass exists to
+    fix, one level up -- so the unit is read in passes instead.
+
+    Always at least one window, and never an empty one: a line longer than the
+    budget still gets a window of its own, because dropping it would be the cut
+    this is here to avoid.
+    """
+    lines = chunk.body.splitlines() or [""]
+    rendered = chunk.numbered_range(chunk.start_line, chunk.end_line).splitlines() or [""]
+    # Measured on the rendered form, prefixes included: that is what is sent.
+    widths = [len(line) + 1 for line in rendered] or [1]
+
+    windows: list[tuple[int, int]] = []
+    first = chunk.start_line
+    spent = 0
+    for offset in range(len(lines)):
+        cost = widths[offset] if offset < len(widths) else 1
+        number = chunk.start_line + offset
+        if spent and spent + cost > budget:
+            windows.append((first, number - 1))
+            first = number
+            spent = 0
+        spent += cost
+    windows.append((first, chunk.start_line + len(lines) - 1))
+    return windows
 
 
 def _text(node: Any, source: bytes) -> str:

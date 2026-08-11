@@ -36,6 +36,16 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _env_lenses(name: str) -> tuple[Lens, ...]:
     """A comma-separated subset of the specialists, or all of them.
 
@@ -87,6 +97,31 @@ class AgentConfig:
 
     # Context packs are trimmed to this rather than overflowing the window.
     context_char_budget: int = field(default_factory=lambda: _env_int("AGENT_CONTEXT_CHARS", 24_000))
+
+    # -- what the window actually holds ---------------------------------------
+    #
+    # Every budget above is a character count, and the window is measured in
+    # tokens. Nothing converted between them, so 24 000 characters was a number
+    # invented against a window nobody had read -- and translating the prompts to
+    # Korean multiplied their token cost while the character budget stood still.
+    #
+    # 0 means ask the endpoint (`endpoint.context_window` reads `max_model_len`).
+    # An explicit value skips the probe, which is what tests and offline runs want.
+    context_window: int = field(default_factory=lambda: _env_int("AGENT_CONTEXT_WINDOW", 0))
+    # The conversion. Measured, not assumed: 664 recorded calls across the runs
+    # in `artifacts/` give a median of 1.67 characters per token, by step
+    # analyse 1.89, lens 1.82, triage 2.42, verify 2.01, gather 1.33 -- nowhere
+    # near the ~4 that English prose would suggest, because the prompts are
+    # Korean and the bodies are code full of long identifiers.
+    #
+    # 1.6 rather than the median, and the direction is deliberate: the trace
+    # records *total* tokens, so each ratio divides by prompt+completion and is
+    # therefore a lower bound on prompt density. Erring low costs one more scout
+    # pass; erring high costs the whole unit to an overflow.
+    #
+    # This is also the answer to why runs were overflowing: 24 000 characters
+    # against this window is roughly 40% more than it holds.
+    chars_per_token: float = field(default_factory=lambda: _env_float("AGENT_CHARS_PER_TOKEN", 1.6))
     max_chunk_chars: int = field(default_factory=lambda: _env_int("AGENT_MAX_CHUNK_CHARS", 12_000))
     max_callee_notes: int = field(default_factory=lambda: _env_int("AGENT_MAX_CALLEE_NOTES", 12))
     # Verification dominates cost on a noisy chunk; cap it so one chunk cannot
@@ -142,3 +177,42 @@ class AgentConfig:
                 "There is no default on purpose: a wrong model silently produces plausible nonsense."
             )
         return self.model
+
+    #: Tokens a request spends on things that are not the prompt: the schema the
+    #: reply is constrained to, the chat scaffolding, the tool definitions. Not
+    #: measured, so generous.
+    OVERHEAD_TOKENS = 1_500
+
+    def input_chars(self) -> int:
+        """How many characters of prompt the window has room for.
+
+        Derived from the window rather than declared, which is the point: the
+        answer changes when the model does, and a run against a 16k endpoint
+        should not be planning as though it had 128k.
+
+        Falls back to ``context_char_budget`` when the window is unknown -- an
+        endpoint that will not say leaves us exactly where we were, which is
+        worse than knowing and better than a made-up number pretending to be
+        derived.
+        """
+        if not self.context_window:
+            return self.context_char_budget
+        room = self.context_window - self.max_tokens - self.OVERHEAD_TOKENS
+        # Never zero or negative: a tiny window still gets a floor, so a
+        # misconfiguration reads as cramped rather than as nothing to say.
+        return max(2_000, int(room * self.chars_per_token))
+
+    def resolve_window(self) -> int:
+        """Ask the endpoint once, if it was not told. Returns the window in tokens.
+
+        Separate from ``input_chars`` so that nothing on a hot path makes a
+        network call, and so tests can set the window outright.
+        """
+        if self.context_window or not self.model:
+            return self.context_window
+        from .endpoint import context_window
+
+        found = context_window(self.base_url, self.model)
+        if found:
+            self.context_window = found
+        return self.context_window

@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.index import ChunkStore, build_index, relative_posix
-from agent.index.chunk import FILE_CHUNK_KIND, chunk_id_for, chunk_source, normalize_body
+from agent.index.chunk import FILE_CHUNK_KIND, chunk_id_for, chunk_source, line_windows, normalize_body
 from agent.index.links import CALLS, FILE_DEPENDS, USES_TYPE, resolve_links
 from agent.index.order import call_levels, inspection_order, wave
 from agent.languages import spec_for_path
@@ -52,6 +52,59 @@ def test_chunk_spans_are_one_based_and_inclusive(tree: Path) -> None:
         assert chunk.symbol in lines[chunk.start_line - 1], (
             f"{chunk.symbol} claims line {chunk.start_line}, which reads {lines[chunk.start_line - 1]!r}"
         )
+
+
+BIG = "void big(void) {\n" + "\n".join(f"    int v{i} = {i};" for i in range(60)) + "\n}\n"
+
+
+def _big() -> object:
+    return next(c for c in chunk_source("b.c", BIG) if c.symbol == "big")
+
+
+def test_a_range_renders_the_same_lines_the_whole_body_would() -> None:
+    """Absolute numbers, and the same padding however the unit is cut.
+
+    A region is a line range and a Span is a line range, so they have to be the
+    same numbers. And the width comes from the whole body: otherwise one line
+    arrives as `42|` in one prompt and `042|` in another, and the `NNN| ` the
+    prompts promise stops being one thing.
+    """
+    chunk = _big()
+    assert chunk.numbered_body() == chunk.numbered_range(chunk.start_line, chunk.end_line)
+
+    slice_ = chunk.numbered_range(3, 5).splitlines()
+    assert len(slice_) == 3
+    assert slice_[0].startswith("003| ")
+    assert slice_ == chunk.numbered_body().splitlines()[2:5]
+
+
+def test_a_unit_is_read_in_passes_rather_than_cut_short() -> None:
+    """`truncate` is a character prefix cut, so on a large unit whatever reads
+    the body never sees the tail. Deciding *where* is worth close reading while
+    blind to the end of it is the failure this exists to avoid."""
+    chunk = _big()
+    body_lines = len(chunk.body.splitlines())
+
+    assert line_windows(chunk, 10_000) == [(chunk.start_line, chunk.start_line + body_lines - 1)], (
+        "a unit that fits is one pass"
+    )
+
+    windows = line_windows(chunk, 400)
+    assert len(windows) > 1, windows
+    # Contiguous, and the whole unit: a gap is a region nobody was ever shown.
+    assert windows[0][0] == chunk.start_line
+    assert windows[-1][1] == chunk.start_line + body_lines - 1
+    for (_, before), (after, _) in zip(windows, windows[1:]):
+        assert before + 1 == after, windows
+    assert sum(last - first + 1 for first, last in windows) == body_lines
+
+
+def test_a_line_longer_than_the_budget_still_gets_a_pass() -> None:
+    """Dropping it would be the cut this is here to avoid."""
+    chunk = _big()
+    windows = line_windows(chunk, 1)
+    assert len(windows) == len(chunk.body.splitlines())
+    assert all(first == last for first, last in windows)
 
 
 def test_verbatim_chunk_body_matches_its_byte_span(tree: Path) -> None:

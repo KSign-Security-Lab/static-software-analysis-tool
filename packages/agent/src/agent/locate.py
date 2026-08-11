@@ -124,14 +124,32 @@ def _span_from_offsets(file: str, text: str, start: int, end: int) -> Span:
     )
 
 
-def _search_window(text: str, chunk: Chunk | None) -> tuple[int, int]:
+def _search_window(text: str, chunk: Chunk | None, lines_range: tuple[int, int] | None = None) -> tuple[int, int]:
     """Restricting to the chunk stops a common token like ``memcpy`` matching an
-    unrelated function. File chunks span the whole file, which is their extent."""
-    if chunk is None:
+    unrelated function. File chunks span the whole file, which is their extent.
+
+    ``lines_range`` narrows it further, to the region a specialist was actually
+    shown. Without it a lens given lines 40-55 that quotes ``memcpy(dst, src, n)``
+    resolves to an identical line 20 -- the first hit in the *chunk*, outside
+    anything the lens ever read. And the unique-line rung below is worse than
+    wrong: it requires exactly one hit in the window, so a line unique within the
+    region but repeated in the chunk finds two and the finding is discarded.
+    """
+    if chunk is None and lines_range is None:
         return 0, len(text)
+
+    first, last = (chunk.start_line, chunk.end_line) if chunk is not None else (1, len(text.splitlines()))
+    if lines_range is not None:
+        # Clamped rather than trusted: the range came from a model, and one that
+        # reaches past the unit would widen the window this exists to narrow.
+        first = max(first, lines_range[0])
+        last = min(last, lines_range[1])
+        if first > last:
+            first, last = (chunk.start_line, chunk.end_line) if chunk is not None else (1, last)
+
     lines = text.splitlines(keepends=True)
-    start_index = max(0, chunk.start_line - 1)
-    end_index = min(len(lines), chunk.end_line)
+    start_index = max(0, first - 1)
+    end_index = min(len(lines), last)
     start = sum(len(line) for line in lines[:start_index])
     end = start + sum(len(line) for line in lines[start_index:end_index])
     return start, end
@@ -146,16 +164,26 @@ def _flexible_pattern(anchor: str) -> re.Pattern[str] | None:
     return re.compile(r"\s+".join(tokens))
 
 
-def locate_anchor(anchor: str, file: str, text: str, chunk: Chunk | None = None) -> Located | None:
+def locate_anchor(
+    anchor: str,
+    file: str,
+    text: str,
+    chunk: Chunk | None = None,
+    lines_range: tuple[int, int] | None = None,
+) -> Located | None:
     """Find ``anchor`` in ``text``, or return None.
 
     ``text`` comes from disk, never from ``chunk.body``: a file chunk's body is
     synthesized and its offsets do not map onto the file.
+
+    ``lines_range`` is the region the caller was shown, when it was shown one.
+    Every rung below returns the *first* hit in the window, so the window has to
+    be what the model actually read or the span points somewhere it never looked.
     """
     if not anchor.strip():
         return None
 
-    window_start, window_end = _search_window(text, chunk)
+    window_start, window_end = _search_window(text, chunk, lines_range)
     window = text[window_start:window_end]
 
     for strategy, form in _candidates(anchor):
