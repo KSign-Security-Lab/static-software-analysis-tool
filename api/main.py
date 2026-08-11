@@ -13,7 +13,7 @@ POST /f2a                    {cpg}                         -> F2AResult
 POST /analyze                {source, language, filename?} -> {cpg, method_count, f2a}
 
 The ``/agent/*`` routes are a separate line of analysis -- an LLM inspecting
-uploaded source chunk by chunk -- and live in :mod:`api.agent_routes`. They
+uploaded source chunk by chunk -- and live in :mod:`api.agent`. They
 share this app but nothing else: ``agent`` does not import ``ssat``.
 
 The two CPG endpoints run the same Joern behind :mod:`ssat.cpg.backends`;
@@ -41,7 +41,7 @@ from ssat.types.cpg import CPGRoot
 
 from agent.runs import abandon_live_runs
 
-from .agent_routes import router as agent_router
+from .agent import router as agent_router
 
 log = logging.getLogger(__name__)
 

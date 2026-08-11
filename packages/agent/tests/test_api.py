@@ -195,7 +195,7 @@ def test_health_does_not_touch_the_network_unless_asked(client: TestClient) -> N
 def test_health_probe_reports_what_the_endpoint_serves(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """?probe=true answers the question people actually have: is AGENT_MODEL
     one of the ids this server knows about?"""
-    import api.agent_routes as routes
+    import api.agent.meta as routes
 
     monkeypatch.setattr(routes, "list_models", lambda _url: ["agent", "other"])
     monkeypatch.setenv(ENV_MODEL, "agent")
@@ -210,7 +210,7 @@ def test_health_probe_flags_a_model_the_server_does_not_serve(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The usual first failure: the HF path was used instead of the served id."""
-    import api.agent_routes as routes
+    import api.agent.meta as routes
 
     monkeypatch.setattr(routes, "list_models", lambda _url: ["agent"])
     monkeypatch.setenv(ENV_MODEL, "Qwen/Qwen2.5-Coder-32B-Instruct")
@@ -221,7 +221,7 @@ def test_health_probe_flags_a_model_the_server_does_not_serve(
 
 
 def test_health_probe_survives_a_dead_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    import api.agent_routes as routes
+    import api.agent.meta as routes
 
     monkeypatch.setattr(routes, "list_models", lambda _url: [])
     body = client.get("/agent/health", params={"probe": "true"}).json()
@@ -665,7 +665,7 @@ class _SilentCaller:
 def test_watching_a_run_does_not_make_it_look_started(client: TestClient) -> None:
     """The studio opens the stream when a run is picked, before anyone presses
     start. If that read as in flight, the run could never be started at all."""
-    import api.agent_routes as routes
+    import api.agent.channels as routes
 
     run_id = _upload(client)["run_id"]
     # What GET /events does on connect.
@@ -678,7 +678,7 @@ def test_watching_a_run_does_not_make_it_look_started(client: TestClient) -> Non
 def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient) -> None:
     """The watcher holds the channel object, so a new worker reuses it rather
     than swapping in one nothing writes to."""
-    import api.agent_routes as routes
+    import api.agent.channels as routes
 
     run_id = _upload(client)["run_id"]
     watched = routes._channel(run_id)
@@ -692,7 +692,7 @@ def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient) -
 def test_reclaiming_a_channel_drops_the_last_attempt(client: TestClient) -> None:
     """Replaying the previous attempt's events would describe work about to be
     redone, and its finished flag would end the new stream immediately."""
-    from api.agent_routes import RunChannel
+    from api.agent.channels import RunChannel
 
     channel = RunChannel()
     with channel.listen() as events:
@@ -715,7 +715,7 @@ def test_every_listener_gets_every_event(client: TestClient) -> None:
     The channel used to be one queue that each reader popped from, so a second
     browser tab watching the same run silently took frames away from the first.
     """
-    from api.agent_routes import RunChannel
+    from api.agent.channels import RunChannel
 
     channel = RunChannel()
     with channel.listen() as first, channel.listen() as second:
@@ -728,7 +728,7 @@ def test_every_listener_gets_every_event(client: TestClient) -> None:
 
 
 def test_a_listener_stops_receiving_once_it_detaches(client: TestClient) -> None:
-    from api.agent_routes import RunChannel
+    from api.agent.channels import RunChannel
 
     channel = RunChannel()
     with channel.listen() as first:
@@ -745,7 +745,7 @@ def test_publishing_with_nobody_attached_is_dropped(client: TestClient) -> None:
     """Not buffered: the stream is documented as unreplayable, clients read
     their state over REST, and an unbounded backlog for a listener that may
     never arrive is a leak."""
-    from api.agent_routes import RunChannel
+    from api.agent.channels import RunChannel
 
     channel = RunChannel()
     channel.publish({"event": "node_started", "data": {}})
@@ -849,7 +849,7 @@ def test_replaying_without_a_model_configured_says_so(client: TestClient) -> Non
 def test_a_replay_leaves_the_recorded_run_alone(client: TestClient, monkeypatch) -> None:
     """The whole basis of the tuning loop: try a prompt ten times without
     turning the run you are studying into a scratchpad."""
-    import api.agent_routes as routes
+    import api.agent.trace as routes
     from agent.runs import get_run
 
     run_id, span_id = _recorded_llm_span(client)
@@ -889,7 +889,7 @@ def test_a_replay_leaves_the_recorded_run_alone(client: TestClient, monkeypatch)
 
 
 def test_an_unedited_replay_reuses_what_the_span_recorded(client: TestClient, monkeypatch) -> None:
-    import api.agent_routes as routes
+    import api.agent.trace as routes
 
     run_id, span_id = _recorded_llm_span(client)
     monkeypatch.setenv(ENV_MODEL, "fake")
@@ -971,7 +971,7 @@ def test_deleting_an_unknown_run_is_a_404(client: TestClient) -> None:
 
 
 def test_a_run_in_flight_is_not_deleted_from_under_its_worker(client: TestClient) -> None:
-    import api.agent_routes as routes
+    import api.agent.channels as routes
 
     run_id = _upload(client)["run_id"]
     channel = routes._channel(run_id)
@@ -991,9 +991,7 @@ def _run_with_status(status: str) -> str:
     return paths.run_id
 
 
-def test_startup_fails_the_runs_no_process_is_left_to_finish(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_startup_fails_the_runs_no_process_is_left_to_finish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A run recorded as in flight at startup belongs to a process that is gone.
 
     Its worker was a thread here and its progress channel was in-process, so
