@@ -7,6 +7,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import ActivityBar from "@/components/workbench/ActivityBar";
 import PerspectiveHeader from "@/components/workbench/PerspectiveHeader";
 import { CpgSourceProvider } from "@/features/cpg/provider";
+import { useForgetMissingRun } from "@/lib/run/forget-missing";
 import { RunStreamProvider } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cookieValue, layoutFor, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
@@ -100,6 +101,10 @@ const SIZE = {
 
 export default function Workbench({ perspective, stored, children, side, dock, inspector }: WorkbenchProps) {
   const [runId] = useRunId();
+  // Here because the shell is what owns which run the tab is on, and because it
+  // is mounted exactly once -- a dozen components each deciding to drop the id
+  // would be a dozen writes to the address bar.
+  useForgetMissingRun();
   const initial: PaneLayout = layoutFor(stored, perspective);
 
   // Not state: it is only ever read when writing the cookie back, and making
