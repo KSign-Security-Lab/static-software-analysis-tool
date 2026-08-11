@@ -1,9 +1,6 @@
 "use client";
 
 import {
-  Background,
-  BackgroundVariant,
-  Controls,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
@@ -14,6 +11,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import type { Breakpoints } from "@/lib/api/control";
 import type { GraphShape, TraceSpan } from "@/lib/api/types";
 import { TERMINALS, layoutGraph, statsFromSpans } from "@/lib/trace/layout";
+import FlowChrome, { FLOW_EDGE_THEME, FLOW_THEME } from "./chrome";
 import RoutedEdge from "./RoutedEdge";
 import StepNode from "./StepNode";
 
@@ -100,21 +98,9 @@ function Canvas({
       // React Flow themes itself through these, which is both documented and
       // more robust than reaching into its class names with arbitrary
       // variants -- those need escaping and break silently when it renames one.
-      style={
-        {
-          "--xy-background-color": "transparent",
-          "--xy-edge-stroke": "var(--line-3)",
-          "--xy-edge-stroke-selected": "var(--accent)",
-          "--xy-controls-button-background-color": "var(--surface-2)",
-          "--xy-controls-button-background-color-hover": "var(--surface-3)",
-          "--xy-controls-button-color": "var(--ink-muted)",
-          "--xy-controls-button-color-hover": "var(--ink)",
-          "--xy-controls-button-border-color": "var(--line)",
-        } as React.CSSProperties
-      }
+      style={{ ...FLOW_THEME, ...FLOW_EDGE_THEME }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--line-2)" />
-      <Controls showInteractive={false} position="bottom-left" className="!shadow-none" />
+      <FlowChrome />
     </ReactFlow>
   );
 }

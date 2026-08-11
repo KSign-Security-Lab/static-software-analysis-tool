@@ -4,7 +4,7 @@ import { ChevronRight, ShieldCheck } from "lucide-react";
 
 import { neighbours } from "@/lib/api/knowledge";
 import type { KnowledgeGraph } from "@/lib/api/types";
-import { ROLE_LABEL, SEVERITY_LABEL, sortFindings, type UiFinding } from "@/lib/model/finding";
+import { ROLE_LABEL, ROLE_TONE, SEVERITY_DOT, SEVERITY_LABEL, sortFindings, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,22 +20,6 @@ import { cn } from "@/lib/utils";
  * engines answer the same question about the same code and there has never been
  * a reason to read one and not the other.
  */
-
-const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-sev-critical",
-  high: "bg-sev-high",
-  medium: "bg-sev-medium",
-  low: "bg-sev-low",
-  info: "bg-sev-info",
-};
-
-const ROLE_TONE: Record<string, string> = {
-  source: "border-l-warn",
-  propagation: "border-l-line-3",
-  sink: "border-l-danger",
-  missing_check: "border-l-alt",
-  context: "border-l-line-2",
-};
 
 export default function FindingList({
   findings,

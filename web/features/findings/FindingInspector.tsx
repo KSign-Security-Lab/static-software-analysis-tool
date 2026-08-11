@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 import { neighbours } from "@/lib/api/knowledge";
 import type { KnowledgeGraph } from "@/lib/api/types";
-import { ROLE_LABEL, SEVERITY_LABEL, type UiFinding } from "@/lib/model/finding";
+import { ROLE_LABEL, ROLE_TONE, SEVERITY_LABEL, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
 const SEVERITY_TEXT: Record<string, string> = {
@@ -15,14 +15,6 @@ const SEVERITY_TEXT: Record<string, string> = {
   medium: "text-sev-medium",
   low: "text-sev-low",
   info: "text-sev-info",
-};
-
-const ROLE_TONE: Record<string, string> = {
-  source: "border-l-warn",
-  propagation: "border-l-line-3",
-  sink: "border-l-danger",
-  missing_check: "border-l-alt",
-  context: "border-l-line-2",
 };
 
 /**

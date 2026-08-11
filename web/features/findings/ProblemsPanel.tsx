@@ -5,24 +5,8 @@ import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ENGINE_LABEL, SEVERITY_LABEL, sortFindings, type Engine, type UiFinding } from "@/lib/model/finding";
+import { ENGINE_LABEL, SEVERITY_DOT, SEVERITY_LABEL, SEVERITY_TEXT, sortFindings, type Engine, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
-
-const SEVERITY_TEXT: Record<string, string> = {
-  critical: "text-sev-critical",
-  high: "text-sev-high",
-  medium: "text-sev-medium",
-  low: "text-sev-low",
-  info: "text-sev-info",
-};
-
-const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-sev-critical",
-  high: "bg-sev-high",
-  medium: "bg-sev-medium",
-  low: "bg-sev-low",
-  info: "bg-sev-info",
-};
 
 /**
  * The findings, worst first.

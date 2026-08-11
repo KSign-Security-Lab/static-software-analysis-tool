@@ -4,15 +4,8 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Boxes, FileCode, FunctionSquare } from "lucide-react";
 
 import { KNOWLEDGE_NODE_H, KNOWLEDGE_NODE_W, type KnowledgeNodeData } from "@/lib/trace/knowledge-layout";
+import { SEVERITY_DOT } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
-
-const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-sev-critical",
-  high: "bg-sev-high",
-  medium: "bg-sev-medium",
-  low: "bg-sev-low",
-  info: "bg-sev-info",
-};
 
 const ICON = { file: FileCode, unit: FunctionSquare, community: Boxes };
 

@@ -222,6 +222,30 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   info: "정보",
 };
 
+/**
+ * Severity colour as Tailwind classes.
+ *
+ * Five components carried their own byte-identical copy of the dot map. The
+ * index type stays `string` because not every caller has narrowed its severity
+ * yet -- `KnowledgeNodeData.severity` is `string | null` -- while `satisfies`
+ * still requires every severity to appear, so adding one cannot be missed here.
+ */
+export const SEVERITY_DOT: Record<string, string> = {
+  critical: "bg-sev-critical",
+  high: "bg-sev-high",
+  medium: "bg-sev-medium",
+  low: "bg-sev-low",
+  info: "bg-sev-info",
+} satisfies Record<Severity, string>;
+
+export const SEVERITY_TEXT: Record<string, string> = {
+  critical: "text-sev-critical",
+  high: "text-sev-high",
+  medium: "text-sev-medium",
+  low: "text-sev-low",
+  info: "text-sev-info",
+} satisfies Record<Severity, string>;
+
 export const ENGINE_LABEL: Record<Engine, string> = {
   structural: "구조 분석",
   agent: "LLM 에이전트",
@@ -234,6 +258,22 @@ export const ROLE_LABEL: Record<EvidenceRole, string> = {
   missing_check: "검증",
   context: "참고",
 };
+
+/**
+ * Evidence role as a left-border colour.
+ *
+ * For `EvidenceRole` only. `features/f2a/EvidenceReport.tsx` draws the same kind
+ * of stripe but over `TraceStep.role` from `lib/decision`, whose vocabulary is
+ * `source | step | sink` -- a different set, so it keeps its own map rather than
+ * sharing one that cannot describe `step`.
+ */
+export const ROLE_TONE: Record<string, string> = {
+  source: "border-l-warn",
+  propagation: "border-l-line-3",
+  sink: "border-l-danger",
+  missing_check: "border-l-alt",
+  context: "border-l-line-2",
+} satisfies Record<EvidenceRole, string>;
 
 /** monaco.MarkerSeverity: Hint=1, Info=2, Warning=4, Error=8. */
 export function markerSeverity(severity: Severity): number {

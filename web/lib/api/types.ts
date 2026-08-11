@@ -7,7 +7,7 @@ import type { Finding, Report, RunStats, Span as WireSpan } from "@/lib/agent-sc
  * (see lib/agent-schema.ts). Everything here is assembled by the route
  * handlers out of the trace store and LangGraph, so there is no pydantic model
  * to generate from -- these are written by hand and kept honest by reading
- * api/agent_routes.py.
+ * the route handlers under api/agent/.
  */
 
 export type { Evidence, Finding, FindingDiff, Remediation, Report, RunStats } from "@/lib/agent-schema";

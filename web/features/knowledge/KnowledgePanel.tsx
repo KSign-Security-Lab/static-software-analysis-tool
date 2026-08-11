@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api/client";
-import { countByChunk, fromAgent } from "@/lib/model/finding";
+import { SEVERITY_DOT, countByChunk, fromAgent } from "@/lib/model/finding";
 import { useKnowledge } from "@/lib/run/knowledge-queries";
 import { useFindings } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
@@ -24,14 +24,6 @@ const KnowledgeGraphView = dynamic(() => import("@/components/graph/KnowledgeGra
     </div>
   ),
 });
-
-const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-sev-critical",
-  high: "bg-sev-high",
-  medium: "bg-sev-medium",
-  low: "bg-sev-low",
-  info: "bg-sev-info",
-};
 
 /**
  * The code's own structure, and where the run is inside it.

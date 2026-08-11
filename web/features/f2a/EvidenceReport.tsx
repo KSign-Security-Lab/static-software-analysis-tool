@@ -26,6 +26,13 @@ const TONE: Record<string, string> = {
   none: "text-ink-faint",
 };
 
+/**
+ * Its own map, not `ROLE_TONE` from lib/model/finding: these are `TraceStep`
+ * roles from lib/decision (`source | step | sink`), not `EvidenceRole`.
+ *
+ * `step` is deliberately absent -- it takes the fallback below. The
+ * `propagation` key predates the `step` naming and can never match.
+ */
 const ROLE_TONE: Record<string, string> = {
   source: "border-l-warn",
   sink: "border-l-danger",

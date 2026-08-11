@@ -19,16 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PanelShell } from "@/components/workbench/PanelShell";
-import { SEVERITY_LABEL, countByFile, type UiFinding } from "@/lib/model/finding";
+import { SEVERITY_DOT, SEVERITY_LABEL, countByFile, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
-
-const SEVERITY_DOT: Record<string, string> = {
-  critical: "bg-sev-critical",
-  high: "bg-sev-high",
-  medium: "bg-sev-medium",
-  low: "bg-sev-low",
-  info: "bg-sev-info",
-};
 
 /**
  * A new file's name, validated before it is sent.

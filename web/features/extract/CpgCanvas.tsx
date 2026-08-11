@@ -1,8 +1,9 @@
 "use client";
 
-import { Background, BackgroundVariant, Controls, ReactFlow, ReactFlowProvider, type NodeMouseHandler } from "@xyflow/react";
+import { ReactFlow, ReactFlowProvider, type NodeMouseHandler } from "@xyflow/react";
 import { useMemo } from "react";
 
+import FlowChrome, { FLOW_THEME } from "@/components/graph/chrome";
 import { layoutView } from "@/lib/layout";
 import type { GraphView } from "@/lib/types";
 
@@ -36,19 +37,9 @@ function Canvas({
       minZoom={0.1}
       maxZoom={2}
       fitView
-      style={
-        {
-          "--xy-background-color": "transparent",
-          "--xy-controls-button-background-color": "var(--surface-2)",
-          "--xy-controls-button-background-color-hover": "var(--surface-3)",
-          "--xy-controls-button-color": "var(--ink-muted)",
-          "--xy-controls-button-color-hover": "var(--ink)",
-          "--xy-controls-button-border-color": "var(--line)",
-        } as React.CSSProperties
-      }
+      style={FLOW_THEME}
     >
-      <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--line-2)" />
-      <Controls showInteractive={false} position="bottom-left" className="!shadow-none" />
+      <FlowChrome />
     </ReactFlow>
   );
 }
