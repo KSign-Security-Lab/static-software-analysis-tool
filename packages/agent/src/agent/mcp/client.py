@@ -178,6 +178,10 @@ def open_session(
 VERIFY_TOOLS: Sequence[str] = (
     "read_source",
     "search_text",
+    # Asked in a sentence rather than in a pattern. The one question the rest
+    # answer badly -- whether a check exists somewhere -- needs the identifier
+    # guessed, and the identifier is the thing you do not have.
+    "search_semantic",
     "find_definition",
     "find_callers",
     "find_callees",

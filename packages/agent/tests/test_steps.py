@@ -132,7 +132,7 @@ def test_an_agent_node_is_one_because_a_step_names_it() -> None:
         "agent": True,
         "steps": ["gather"],
         "calls": 1,
-        "tools": 9,
+        "tools": 10,
     }
     assert by_node["verify"] == {
         **by_node["verify"],

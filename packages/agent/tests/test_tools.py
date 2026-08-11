@@ -225,6 +225,7 @@ def test_mcp_server_exposes_the_expected_tools() -> None:
         "list_directory",
         "find_files",
         "search_text",
+        "search_semantic",
         "find_callers",
         "find_callees",
         "find_definition",

@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .. import knowledge
 from ..config import ENV_INDEX_DB, ENV_RUN_ROOT, ENV_SANDBOX, AgentConfig
+from ..index import embed
 from ..index.store import ChunkStore
 from ..tools import (
     ToolError,
@@ -95,6 +96,33 @@ def find_files(pattern: str) -> str:
 def search_text(pattern: str, glob: str = "") -> str:
     """Search the tree for a regular expression. Returns 'file:line:text'."""
     return _guard(lambda: "\n".join(grep(run_root(), pattern, glob or None)))
+
+
+@mcp.tool()
+def search_semantic(query: str, limit: int = 5) -> str:
+    """Find units that are *about* something, described in words rather than matched.
+
+    For the question `search_text` answers badly: "is there a check on this
+    anywhere?" needs the identifier guessed, and `is_authorized` contains none of
+    the words you would guess. Ask in a sentence instead.
+
+    Says what a unit resembles, never what reaches it -- use graph_path for that.
+    Returns 'score file:line symbol', closest first.
+    """
+
+    def run() -> str:
+        store = _store()
+        if store is None:
+            return "error: the tree has not been indexed"
+        try:
+            hits = embed.search(store, query, limit)
+        except embed.Unavailable as err:
+            return f"error: {err}"
+        if not hits:
+            return "no matches"
+        return "\n".join(f"{score:.3f} {file}:{line} {symbol}" for score, file, symbol, line in hits)
+
+    return _guard(run)
 
 
 @mcp.tool()
