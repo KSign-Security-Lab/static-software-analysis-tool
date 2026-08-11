@@ -107,7 +107,9 @@ def test_routing_comes_off_the_compiled_graph() -> None:
     from agent.graph.build import graph_shape
 
     edges = graph_shape()["edges"]
-    expected = {name: sorted({e["target"] for e in edges if e["source"] == name}) for name in {e["source"] for e in edges}}
+    expected = {
+        name: sorted({e["target"] for e in edges if e["source"] == name}) for name in {e["source"] for e in edges}
+    }
     for node in describe_nodes():
         assert node["routes"] == expected.get(node["node"], []), node["node"]
 

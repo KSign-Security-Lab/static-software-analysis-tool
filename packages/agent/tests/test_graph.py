@@ -1085,11 +1085,7 @@ def test_every_verifier_call_is_told_which_specialist_it_is_arguing_with(indexed
 
     _run(root, store, caller, tools=FakeToolSession())
 
-    lens_of = {
-        trace["metadata"]["step"]: trace["metadata"].get("lens")
-        for trace in caller.traces
-        if trace is not None
-    }
+    lens_of = {trace["metadata"]["step"]: trace["metadata"].get("lens") for trace in caller.traces if trace is not None}
     assert lens_of["gather"] == "injection", "gathering evidence is about somebody's claim"
     assert lens_of["verify"] == "injection"
     # Absent on the calls that are nobody else's claim.
