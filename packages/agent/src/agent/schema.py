@@ -26,6 +26,15 @@ SEVERITY_ORDER: dict[str, int] = {"critical": 0, "high": 1, "medium": 2, "low": 
 # --------------------------------------------------------------------------
 # Model-facing: what guided decoding constrains the LLM to produce.
 # --------------------------------------------------------------------------
+#
+# These descriptions are not documentation. They are handed to the endpoint as
+# part of the JSON schema and sit beside the field while it is being decoded,
+# which makes them the closest instruction to the tokens being produced -- so
+# the ones asking for prose ask in the language that prose has to be in, and the
+# example is in it too. An English exemplar next to `title` was most of why a
+# fully Korean prompt still came back in English.
+#
+# The field *names* stay English: they are the schema's, not the reader's.
 
 
 class CandidateEvidence(BaseModel):
@@ -34,30 +43,35 @@ class CandidateEvidence(BaseModel):
     role: EvidenceRole = Field(description="What this evidence contributes to the argument.")
     file: str = Field(description="Path of the file this evidence is in, exactly as given in the context.")
     anchor_text: str = Field(
-        description="The exact source text this evidence refers to, copied verbatim from the code. "
-        "Do NOT include the 'NNN| ' line-number prefix."
+        description="근거가 가리키는 원문을 코드에서 글자 그대로 복사한 것. 번역하지 마십시오. "
+        "'NNN| ' 줄 번호 접두사는 빼십시오."
     )
-    note: str = Field(description="One sentence on why this step matters.")
+    note: str = Field(description="이 단계가 왜 중요한지 한국어 한 문장.")
 
 
 class CandidateRemediation(BaseModel):
     """The fix, as the model proposes it. Never applied automatically."""
 
-    summary: str = Field(description="One line: what to change.")
-    detail: str = Field(description="How to change it, and why that closes the issue.")
+    summary: str = Field(description="무엇을 고칠지 한국어 한 줄. 예: '셸을 거치지 말고 인자를 배열로 넘기기'.")
+    detail: str = Field(description="어떻게 고치고 그것이 왜 문제를 닫는지, 한국어로.")
 
 
 class CandidateFinding(BaseModel):
     """One suspected vulnerability, before the server resolves or verifies it."""
 
-    title: str = Field(description="Short noun phrase, e.g. 'Command injection via firmware URL'.")
+    title: str = Field(
+        # Deliberately not a shape a real finding is likely to land on: an
+        # example close to the answer gets copied instead of read.
+        description="짧은 한국어 명사구. 영어 용어를 품더라도 구 전체는 한국어입니다. "
+        "예: '설정 파일 이름을 통한 path traversal', '세션 검사를 건너뛴 권한 상승'."
+    )
     severity: Severity
     cwe: str | None = Field(default=None, description="CWE identifier like 'CWE-78', or null if none applies.")
     anchor_text: str = Field(
-        description="The exact source text to underline -- the single most offending expression or statement, "
-        "copied verbatim from the code WITHOUT the 'NNN| ' line-number prefix and without surrounding quotes."
+        description="밑줄 그을 원문 -- 가장 문제가 되는 표현식 또는 문장 하나를, 코드에서 글자 그대로 "
+        "복사한 것. 번역하지 마십시오. 'NNN| ' 줄 번호 접두사와 바깥 따옴표는 빼십시오."
     )
-    explanation: str = Field(description="Why this is exploitable. Concrete, not generic advice.")
+    explanation: str = Field(description="왜 악용 가능한지 한국어로. 구체적으로, 일반론이 아니라.")
     evidence: list[CandidateEvidence] = Field(default_factory=list)
     remediation: CandidateRemediation
 
@@ -72,8 +86,9 @@ class ChunkAnalysis(BaseModel):
     findings: list[CandidateFinding] = Field(default_factory=list)
     note: str = Field(
         default="",
-        description="One or two sentences for this unit's callers: what it does to its inputs, "
-        "what it returns, and whether either is attacker-influenced. Empty if unremarkable.",
+        description="Written in English, for the model that analyses a caller -- not for a reader. "
+        "One or two sentences: what this unit does to its inputs, what it returns, and whether "
+        "either is attacker-influenced. Empty if unremarkable.",
     )
 
 
@@ -81,7 +96,7 @@ class Verdict(BaseModel):
     """The refute pass. Defaults are hostile to the finding on purpose."""
 
     refuted: bool = Field(description="True if the finding does not hold up. Default to true when uncertain.")
-    reason: str = Field(description="Why it holds or does not.")
+    reason: str = Field(description="성립하는지 아닌지, 그 이유를 한국어로.")
     confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence that the finding is real.")
 
 
@@ -109,7 +124,7 @@ class Triage(BaseModel):
         default_factory=list,
         description="Which specialists should look at it. Empty means all of them.",
     )
-    reason: str = Field(default="", description="One sentence. What made this worth a look, or not.")
+    reason: str = Field(default="", description="한국어 한 문장. 살펴볼 값어치가 있다고/없다고 본 이유.")
 
 
 # --------------------------------------------------------------------------

@@ -74,7 +74,11 @@ _ANALYSE_RULES = """\
 #: The terms of art are kept because Korean security writing keeps them -- an
 #: invented Korean equivalent for `use-after-free` reads worse, not better.
 _VERBATIM = """\
-다음 넷은 글이 아닙니다. 어느 하나라도 번역하면 결함입니다:
+답은 한국어로 씁니다. 사람이 읽는 글 -- `title`, `explanation`, 증거 항목의 `note`,
+그리고 remediation 의 `summary` 와 `detail` -- 은 모두 한국어 문장이어야 합니다. 영어로
+답하지 마십시오.
+
+다만 다음 넷은 글이 아닙니다. 어느 하나라도 번역하면 결함입니다:
 
 - `anchor_text` 의 값. 원본과 글자 단위로 대조되는 인용입니다. 여기에 한국어가 섞이면
   그 발견은 그대로 버려집니다.
@@ -86,7 +90,11 @@ _VERBATIM = """\
   off-by-one, SSRF, format string, race condition, buffer overflow. 이 낱말들은 그대로
   두고, 그 둘레의 문장을 한국어로 쓰십시오.
 
-그 밖의 모든 글은 한국어로 씁니다."""
+마지막 항목은 낱말 하나에만 해당합니다. 용어가 영어라고 해서 `title` 이나 `explanation`
+전체를 영어로 쓰지는 마십시오 -- 'path traversal' 은 그대로 두되, 제목은 '설정 파일
+이름을 통한 path traversal' 처럼 한국어 명사구여야 합니다.
+
+다시 말해, 위 넷을 뺀 모든 문장은 한국어입니다."""
 
 ANALYSE_SYSTEM = f"""\
 당신은 한 번에 소스 코드 한 단위를 검토하는 보안 분석가입니다.
@@ -245,7 +253,10 @@ GATHER_SYSTEM = f"""\
 눈앞의 코드가 답할 수 없는 물음은 도구로 해결하십시오:
 - read_source / find_definition: 호출된 함수가 실제로 무엇을 하는지
 - find_callers: 그 입력이 정말 공격자가 정할 수 있는 값인지
-- search_text: 검사가 다른 곳에 있는지
+- search_text: 찾을 문자열이나 패턴을 이미 알 때. 정규식으로 그대로 찾습니다
+- search_semantic: 이름을 모를 때. "이 url 을 검사하는 곳이 있는가" 처럼 문장으로 묻습니다
+  -- `is_authorized` 에는 '검사' 라는 낱말이 없으므로 search_text 로는 이름을 맞혀야만
+  찾습니다. 무엇에 관한 코드인지로 찾으려면 이쪽입니다
 - graph_path: 주장된 source 가 정말 주장된 sink 에 닿는지, 무엇을 거쳐 닿는지
 - graph_neighbours: 한 관계씩이 아니라, 한 단위가 닿는 전부
 - graph_subsystem: 이 코드와 한 덩어리인 것이 또 무엇이고, 그쪽이 이미 처리하고 있는지
