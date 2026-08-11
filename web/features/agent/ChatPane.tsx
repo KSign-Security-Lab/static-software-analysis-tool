@@ -50,6 +50,7 @@ export default function ChatPane({
   live,
   node,
   note,
+  focus,
   selected,
   onTunePrompt,
 }: {
@@ -61,6 +62,8 @@ export default function ChatPane({
   node: string | null;
   /** What that node is, when one is picked. */
   note?: NodeNote;
+  /** The finding being read in the dock, and whether this is narrowed to it. */
+  focus?: { title: string; scoped: boolean; onScoped: (next: boolean) => void } | null;
   /** The call the prompt editor is on: `?span=` in the address bar. */
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
@@ -70,6 +73,7 @@ export default function ChatPane({
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       <Status phase={phase} live={live} />
+      {focus && <Focus focus={focus} />}
 
       <div className="min-h-0 flex-1 overflow-auto">
         {note && <NodeCard note={note} />}
@@ -77,11 +81,16 @@ export default function ChatPane({
         {units.length === 0 ? (
           <div className="space-y-3 p-3">
             <p className="text-xs leading-relaxed text-ink-faint">
-              {node
-                ? `${node} 에서 이뤄진 대화가 없습니다.`
-                : running
-                  ? "첫 응답을 기다리고 있습니다."
-                  : "‘검사 실행’을 누르면 에이전트끼리 주고받은 대화가 여기 쌓입니다."}
+              {focus?.scoped
+                ? // Likely rather than exotic: a re-run reuses cached units, and a
+                  // cached unit is not re-read, so it leaves no conversation behind
+                  // in this run even though its findings are in the report.
+                  "이 문제를 낸 단위의 대화가 이 실행에는 없습니다. 지난 검사 결과를 그대로 가져왔을 수 있습니다."
+                : node
+                  ? `${node} 에서 이뤄진 대화가 없습니다.`
+                  : running
+                    ? "첫 응답을 기다리고 있습니다."
+                    : "‘검사 실행’을 누르면 에이전트끼리 주고받은 대화가 여기 쌓입니다."}
             </p>
             <Roster steps={steps} />
           </div>
@@ -91,6 +100,32 @@ export default function ChatPane({
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Which claim the transcript is narrowed to, and the way out.
+ *
+ * The same shape as the graph's `{node} 만 보는 중` chip, because it is the same
+ * idea: something elsewhere on the page has narrowed this one, and a pane that
+ * is showing a subset has to say so or it reads as a pane that has lost things.
+ */
+function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (next: boolean) => void } }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-line bg-accent-wash px-3 py-1.5">
+      <p className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
+        {focus.scoped ? `‘${focus.title}’ 의 대화` : "실행 전체의 대화"}
+      </p>
+      <Button
+        size="xs"
+        variant="ghost"
+        className="shrink-0"
+        onClick={() => focus.onScoped(!focus.scoped)}
+        aria-pressed={focus.scoped}
+      >
+        {focus.scoped ? "전체 보기" : "이 문제만"}
+      </Button>
     </div>
   );
 }

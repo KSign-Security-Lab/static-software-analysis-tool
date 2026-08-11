@@ -411,3 +411,57 @@
     }
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Editor decorations
+   ---------------------------------------------------------------------------
+   Monaco puts these class names on elements it owns, so they are written out
+   here rather than composed from utilities: there is no JSX to hang a
+   `className` on. components/editor/markers.ts has been asking for `ev-*`
+   since it was written and nothing defined them, so the evidence trail -- the
+   other lines that explain a finding -- lit up nothing at all.
+
+   The roles are the same five as ROLE_TONE in lib/model/finding.ts and carry
+   the same colours, so a step reads the same in the list and in the code.
+
+   Unlayered on purpose. Monaco ships its own unlayered stylesheet, and an
+   unlayered rule beats every layered one regardless of specificity.
+   ------------------------------------------------------------------------ */
+.ev-source {
+  background: color-mix(in oklab, var(--warn) 13%, transparent);
+}
+.ev-propagation {
+  background: color-mix(in oklab, var(--ink-faint) 11%, transparent);
+}
+.ev-sink {
+  background: color-mix(in oklab, var(--danger) 15%, transparent);
+}
+.ev-missing_check {
+  background: color-mix(in oklab, var(--alt) 13%, transparent);
+}
+.ev-context {
+  background: color-mix(in oklab, var(--ink-faint) 7%, transparent);
+}
+
+/* A stripe in the gutter, so a trail is followable by scrolling rather than
+   only by reading the lines it happens to have landed on. */
+.ev-margin-source {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.ev-margin-propagation {
+  box-shadow: inset 3px 0 0 var(--line-3);
+}
+.ev-margin-sink {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.ev-margin-missing_check {
+  box-shadow: inset 3px 0 0 var(--alt);
+}
+.ev-margin-context {
+  box-shadow: inset 3px 0 0 var(--line-2);
+}
+
+/* Where a jump landed. Set for a moment and then cleared, by CodeEditor. */
+.ssat-jump {
+  background: var(--accent-wash);
+}

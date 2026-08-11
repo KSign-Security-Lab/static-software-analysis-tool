@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { IDLE, phaseOf, reduceRun, type RunAction, type RunLive } from "./reduce";
+import { IDLE, phaseOf, reduceRun, scanningFiles, type RunAction, type RunLive } from "./reduce";
 
 const node = (name: string, extra: Record<string, unknown> = {}) => ({ node: name, step: 1, ...extra });
+
+const started = (chunk_id: string, file: string | null, remaining = 0, total = 0): RunAction => ({
+  type: "chunk_started",
+  event: { chunk_id, file, symbol: null, remaining, total },
+});
+
+const finished = (chunk_id: string, file: string): RunAction => ({
+  type: "chunk_finished",
+  event: { chunk_id, file, symbol: "f", findings: [], stats: {} },
+});
 
 /** Fold a sequence of events, the way the stream delivers them. */
 function run(actions: RunAction[], from: RunLive = IDLE): RunLive {
@@ -128,24 +138,57 @@ describe("progress", () => {
   it("follows the wave and the chunk", () => {
     const state = run([
       { type: "wave_started", event: { chunks: ["a", "b"], remaining: 7 } },
-      { type: "chunk_started", event: { chunk_id: "a", remaining: 6, total: 9 } },
+      started("a", "net.c", 6, 9),
     ]);
     expect(state.wave).toEqual({ chunks: ["a", "b"], remaining: 7 });
     expect(state.chunk).toEqual({ id: "a", remaining: 6, total: 9 });
   });
 
   it("clears progress when the run ends", () => {
-    const state = run([
-      { type: "chunk_started", event: { chunk_id: "a", remaining: 1, total: 2 } },
-      { type: "finished", event: { run_id: "r", findings: 3, aborted: false } },
-    ]);
+    const state = run([started("a", "net.c", 1, 2), { type: "finished", event: { run_id: "r", findings: 3, aborted: false } }]);
     expect(state.chunk).toBeNull();
     expect(state.wave).toBeNull();
+    expect(scanningFiles(state).size).toBe(0);
+  });
+});
+
+describe("which files are being read", () => {
+  it("holds a file until every chunk of it has come back", () => {
+    // Two functions of one file in the same wave. The file is still being read
+    // after the first returns, and a set of file names could not say that.
+    const half = run([started("a", "net.c"), started("b", "net.c"), finished("a", "net.c")]);
+    expect(scanningFiles(half)).toEqual(new Set(["net.c"]));
+
+    const done = run([finished("b", "net.c")], half);
+    expect(scanningFiles(done).size).toBe(0);
   });
 
-  it("leaves position alone for chunk_finished -- the findings ride the cache", () => {
-    const before = run([{ type: "node_started", event: node("memory") }]);
-    expect(run([{ type: "chunk_finished" }], before)).toBe(before);
+  it("tracks several files at once", () => {
+    const state = run([started("a", "net.c"), started("b", "db.c")]);
+    expect(scanningFiles(state)).toEqual(new Set(["net.c", "db.c"]));
+  });
+
+  it("remembers what it got through, which is what an aborted run leaves", () => {
+    const state = run([
+      started("a", "net.c"),
+      finished("a", "net.c"),
+      started("b", "db.c"),
+      { type: "finished", event: { run_id: "r", findings: 0, aborted: true } },
+    ]);
+    expect(state.scanned).toEqual(new Set(["net.c"]));
+    expect(scanningFiles(state).size).toBe(0);
+  });
+
+  it("survives a chunk the index no longer has", () => {
+    const state = run([started("a", null), started("b", "db.c")]);
+    expect(scanningFiles(state)).toEqual(new Set(["db.c"]));
+  });
+
+  it("starts over on a new run rather than carrying the last one's files", () => {
+    const before = run([started("a", "net.c"), finished("a", "net.c")]);
+    const next = run([{ type: "run_started", event: { run_id: "r", files_indexed: 1, files_skipped: 0, chunks: 1, links: 0 } }], before);
+    expect(next.scanned.size).toBe(0);
+    expect(scanningFiles(next).size).toBe(0);
   });
 });
 

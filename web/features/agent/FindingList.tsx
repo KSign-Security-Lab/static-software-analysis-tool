@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, ShieldCheck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { neighbours } from "@/lib/api/knowledge";
 import type { KnowledgeGraph } from "@/lib/api/types";
@@ -21,10 +22,19 @@ import { cn } from "@/lib/utils";
  * a reason to read one and not the other.
  */
 
+/** This run read against another one, when a comparison is on. */
+export interface Comparison {
+  /** Here and not in the other run. */
+  fresh: Set<string>;
+  /** In the other run and gone from this one. */
+  fixed: UiFinding[];
+}
+
 export default function FindingList({
   findings,
   knowledge,
   openId,
+  compare,
   onOpen,
   onNavigate,
   emptyHint,
@@ -33,25 +43,49 @@ export default function FindingList({
   knowledge?: KnowledgeGraph;
   /** The finding whose grounds are showing; also what the editor is marking. */
   openId: string | null;
+  compare?: Comparison | null;
   onOpen: (finding: UiFinding | null) => void;
   onNavigate: (file: string, line: number) => void;
-  emptyHint: string;
+  emptyHint: React.ReactNode;
 }) {
-  if (findings.length === 0) {
+  const openRow = useRef<HTMLLIElement | null>(null);
+
+  // Grounds are taller than a row, so opening one pushed everything under it
+  // down -- including, often, the row you had just clicked. Bring it to the top
+  // of the dock instead and read downwards from there.
+  useEffect(() => {
+    if (openId) openRow.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [openId]);
+
+  const fixed = compare?.fixed ?? [];
+
+  if (findings.length === 0 && fixed.length === 0) {
     return (
       <div className="flex items-start gap-2.5 px-3 py-4">
         <ShieldCheck className="mt-0.5 size-4 shrink-0 text-ink-faint" />
-        <p className="text-xs leading-relaxed text-ink-faint">{emptyHint}</p>
+        <div className="text-xs leading-relaxed text-ink-faint">{emptyHint}</div>
       </div>
     );
   }
 
   return (
-    <ul>
+    <>
+      {fixed.length > 0 && <Fixed findings={fixed} />}
+      {findings.length === 0 && (
+        <div className="flex items-start gap-2.5 px-3 py-4">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-ink-faint" />
+          <div className="text-xs leading-relaxed text-ink-faint">{emptyHint}</div>
+        </div>
+      )}
+      <ul>
       {sortFindings(findings).map((finding) => {
         const open = finding.id === openId;
         return (
-          <li key={finding.id} className="border-b border-line/60 last:border-b-0">
+          <li
+            key={finding.id}
+            ref={open ? openRow : undefined}
+            className="border-b border-line/60 last:border-b-0"
+          >
             <button
               type="button"
               aria-expanded={open}
@@ -84,6 +118,12 @@ export default function FindingList({
                     {finding.primary.file}:{finding.primary.startLine}
                   </span>
                   {finding.verified && <span className="text-ok">반박을 견딤</span>}
+                  {compare &&
+                    (compare.fresh.has(finding.id) ? (
+                      <span className="text-accent-ink">새로</span>
+                    ) : (
+                      <span>그대로</span>
+                    ))}
                 </span>
               </span>
             </button>
@@ -92,11 +132,85 @@ export default function FindingList({
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </>
   );
 }
 
-/** Why the agent said it: the explanation, the trail, the neighbours, the fix. */
+/**
+ * What the other run had and this one does not.
+ *
+ * Not rows you can open: these findings are not in this run, so there are no
+ * grounds to show and the lines they name have moved -- that is the point of
+ * them being gone. Listed rather than counted because "3 closed" is worth
+ * nothing if you cannot check which three.
+ */
+function Fixed({ findings }: { findings: UiFinding[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="border-b border-line bg-ok-wash/40">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-2"
+      >
+        <ChevronRight className={cn("size-3 shrink-0 text-ink-faint transition-transform", open && "rotate-90")} />
+        <span className="text-2xs font-medium text-ok">해결됨 {findings.length}건</span>
+        <span className="text-2xs text-ink-faint">비교 대상 실행에는 있었고 여기에는 없습니다</span>
+      </button>
+
+      {open && (
+        <ul className="pb-1.5">
+          {sortFindings(findings).map((finding) => (
+            <li key={finding.id} className="flex items-start gap-2 px-3 py-1 pl-8">
+              <span
+                title={SEVERITY_LABEL[finding.severity]}
+                aria-label={SEVERITY_LABEL[finding.severity]}
+                className={cn("mt-1 size-1.5 shrink-0 rounded-full opacity-50", SEVERITY_DOT[finding.severity])}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs leading-snug text-ink-muted line-through">{finding.title}</span>
+                <span className="flex flex-wrap items-center gap-x-2 text-2xs text-ink-faint">
+                  {finding.cwe && <span className="font-mono">{finding.cwe}</span>}
+                  <span className="font-mono">
+                    {finding.primary.file}:{finding.primary.startLine}
+                  </span>
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * How many columns the grounds get, written out.
+ *
+ * Tailwind scans for literal class names, so these cannot be interpolated. 근거
+ * is the wide one: it is the argument, and the other two are a paragraph each.
+ */
+const COLUMNS = {
+  1: "",
+  2: "@2xl:grid-cols-[1fr_1.25fr]",
+  3: "@2xl:grid-cols-[1fr_1.25fr_1fr]",
+} as const;
+
+/**
+ * Why the agent said it: the explanation, the trail, the neighbours, the fix.
+ *
+ * Three columns where there is room for them. The dock is as wide as the window
+ * and this was one narrow column down the left of it, so the widest region on
+ * the page held the most cramped thing on it -- an evidence trail across four
+ * files, wrapped to forty characters, under a paragraph it had to be read with.
+ *
+ * A container query rather than a breakpoint. The dock's width is a panel size
+ * somebody dragged, not the viewport's, and `lg:` would have gone to three
+ * columns on a wide window with the dock pulled in narrow.
+ */
 function Grounds({
   finding,
   knowledge,
@@ -112,84 +226,99 @@ function Grounds({
   // expose it, and a walk beats a round trip per opened finding.
   const related = knowledge && finding.chunkId ? neighbours(knowledge, finding.chunkId, 1) : [];
 
+  const hasTrail = finding.evidence.length > 0;
+  const hasFix = Boolean(finding.remediation) || related.length > 0;
+  const columns = (1 + (hasTrail ? 1 : 0) + (hasFix ? 1 : 0)) as keyof typeof COLUMNS;
+
   return (
-    <div className="space-y-3 px-3 pb-3 pl-8">
-      <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.explanation}</p>
+    <div className="@container px-3 pb-3 pl-8">
+      <div className={cn("grid items-start gap-x-6 gap-y-4", COLUMNS[columns])}>
+        <section className="min-w-0 space-y-2">
+          <h4 className="text-2xs text-ink-muted">판단</h4>
+          <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.explanation}</p>
 
-      <div className="flex items-center gap-2">
-        <span className="text-2xs text-ink-faint">확신도</span>
-        {/* A meter, not a progress bar: it is a measurement, not a task. */}
-        <div
-          role="meter"
-          aria-valuenow={confidence}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="확신도"
-          className="h-1 w-24 overflow-hidden rounded-full bg-surface-3"
-        >
-          <div className="h-full rounded-full bg-accent-solid" style={{ width: `${confidence}%` }} />
-        </div>
-        <span className="font-mono text-2xs text-ink-faint">{confidence}%</span>
-      </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xs text-ink-faint">확신도</span>
+            {/* A meter, not a progress bar: it is a measurement, not a task. */}
+            <div
+              role="meter"
+              aria-valuenow={confidence}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="확신도"
+              className="h-1 w-24 overflow-hidden rounded-full bg-surface-3"
+            >
+              <div className="h-full rounded-full bg-accent-solid" style={{ width: `${confidence}%` }} />
+            </div>
+            <span className="font-mono text-2xs text-ink-faint">{confidence}%</span>
+          </div>
+        </section>
 
-      {finding.evidence.length > 0 && (
-        <section className="space-y-1">
-          <h4 className="text-2xs text-ink-muted">근거</h4>
-          <ol>
-            {finding.evidence.map((step, index) => (
-              <li key={`${step.span.file}:${step.span.startLine}:${index}`}>
-                <button
-                  type="button"
-                  onClick={() => onNavigate(step.span.file, step.span.startLine)}
-                  className={cn(
-                    "w-full border-l-2 py-1 pl-2 text-left transition-colors hover:bg-surface-2",
-                    ROLE_TONE[step.role] ?? "border-l-line-2",
-                  )}
-                >
-                  <span className="flex items-center gap-1.5 text-2xs text-ink-faint">
-                    <span className="text-ink-muted">{ROLE_LABEL[step.role]}</span>
-                    {step.span.startLine > 0 && (
-                      <span className="font-mono">
-                        {step.span.file}:{step.span.startLine}
-                      </span>
+        {hasTrail && (
+          <section className="min-w-0 space-y-1">
+            <h4 className="text-2xs text-ink-muted">근거</h4>
+            <ol>
+              {finding.evidence.map((step, index) => (
+                <li key={`${step.span.file}:${step.span.startLine}:${index}`}>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate(step.span.file, step.span.startLine)}
+                    className={cn(
+                      "w-full border-l-2 py-1 pl-2 text-left transition-colors hover:bg-surface-2",
+                      ROLE_TONE[step.role] ?? "border-l-line-2",
                     )}
-                  </span>
-                  <span className="mt-0.5 block text-xs leading-snug text-ink">{step.note}</span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
+                  >
+                    <span className="flex items-center gap-1.5 text-2xs text-ink-faint">
+                      <span className="text-ink-muted">{ROLE_LABEL[step.role]}</span>
+                      {step.span.startLine > 0 && (
+                        <span className="font-mono">
+                          {step.span.file}:{step.span.startLine}
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-ink">{step.note}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
 
-      {finding.remediation && (
-        <section className="space-y-1">
-          <h4 className="text-2xs text-ink-muted">고치는 방법</h4>
-          {/* Shown, never applied: a suggested patch from a model is a
-              suggestion, and it is for a person to read. */}
-          <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.remediation}</p>
-        </section>
-      )}
+        {hasFix && (
+          <section className="min-w-0 space-y-3">
+            {finding.remediation && (
+              <div className="space-y-1">
+                <h4 className="text-2xs text-ink-muted">고치는 방법</h4>
+                {/* Shown, never applied: a suggested patch from a model is a
+                    suggestion, and it is for a person to read. */}
+                <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.remediation}</p>
+              </div>
+            )}
 
-      {related.length > 0 && (
-        <section className="space-y-1">
-          <h4 className="text-2xs text-ink-muted">관련 코드</h4>
-          <ul className="flex flex-wrap gap-1">
-            {related.slice(0, 12).map((node) => (
-              <li key={node.id}>
-                <button
-                  type="button"
-                  onClick={() => onNavigate(node.file, node.attrs?.start_line ?? 0)}
-                  className="rounded-sm border border-line px-1.5 py-0.5 font-mono text-2xs text-ink-muted transition-colors hover:border-line-3 hover:text-ink"
-                  title={`${node.file}${node.attrs ? `:${node.attrs.start_line}` : ""}`}
-                >
-                  {node.label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+            {related.length > 0 && (
+              <div className="space-y-1">
+                <h4 className="text-2xs text-ink-muted">관련 코드</h4>
+                <ul className="flex flex-wrap gap-1">
+                  {related.slice(0, 12).map((node) => (
+                    <li key={node.id}>
+                      <button
+                        type="button"
+                        // A node with no span is still worth opening; it just
+                        // has no line to land on, and 0 would be a wrong one.
+                        onClick={() => onNavigate(node.file, node.attrs?.start_line ?? 0)}
+                        className="rounded-sm border border-line px-1.5 py-0.5 font-mono text-2xs text-ink-muted transition-colors hover:border-line-3 hover:text-ink"
+                        title={`${node.file}${node.attrs ? `:${node.attrs.start_line}` : ""}`}
+                      >
+                        {node.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+      </div>
     </div>
   );
 }

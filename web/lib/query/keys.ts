@@ -20,6 +20,8 @@ export const keys = {
   files: (id: string) => ["agent", "run", id, "files"] as const,
   file: (id: string, path: string) => ["agent", "run", id, "file", path] as const,
   findings: (id: string) => ["agent", "run", id, "findings"] as const,
+  /** Keyed by both runs: a comparison belongs to the pair, not to either one. */
+  diff: (id: string, against: string) => ["agent", "run", id, "diff", against] as const,
   spans: (id: string) => ["agent", "run", id, "spans"] as const,
   threads: (id: string) => ["agent", "run", id, "threads"] as const,
   checkpoints: (id: string, full: boolean) => ["agent", "run", id, "checkpoints", { full }] as const,

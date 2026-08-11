@@ -8,11 +8,13 @@ import { startRun, type StartOptions } from "@/lib/api/control";
 import {
   createEmptyRun,
   deleteFile,
+  diffRuns,
   fetchFile,
   fetchFiles,
   fetchFindings,
   fetchRun,
   health,
+  listRuns,
   uploadSource,
   writeFile,
 } from "@/lib/api/runs";
@@ -70,6 +72,34 @@ export function useFindings(runId: string | null) {
   });
 }
 
+/** Every run on this server, newest first: what a comparison can be made against. */
+export function useRuns() {
+  return useQuery({
+    queryKey: keys.runs(),
+    queryFn: ({ signal }) => listRuns({ signal }).then((r) => r.runs),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * This run's findings against another's.
+ *
+ * A read, so a query rather than a mutation, even though the endpoint takes a
+ * POST -- the pair of run ids is the whole of the input, and asking twice for
+ * the same pair should not go to the server twice.
+ *
+ * The point of content-derived finding ids: fix something, run again, and the
+ * ones that closed are nameable rather than merely absent.
+ */
+export function useDiff(runId: string | null, against: string | null) {
+  return useQuery({
+    queryKey: keys.diff(runId ?? "", against ?? ""),
+    queryFn: () => diffRuns(runId!, against!),
+    enabled: enabled(runId) && Boolean(against) && runId !== against,
+    retry: false,
+  });
+}
+
 /** Both file mutations return the tree; write it straight in. */
 function applyTree(client: QueryClient, runId: string, result: FileWriteResult) {
   client.setQueryData(keys.files(runId), result.files);
@@ -93,7 +123,7 @@ export function useCreateRun() {
 export function useUpload() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (files: File[]) => uploadSource(files),
+    mutationFn: (files: (File | { file: File; path: string })[]) => uploadSource(files),
     onSuccess: (result) => {
       client.setQueryData(keys.files(result.run_id), result.files);
       void client.invalidateQueries({ queryKey: keys.runs() });

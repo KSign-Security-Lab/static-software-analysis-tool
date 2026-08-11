@@ -45,6 +45,7 @@ export default function FileExplorer({
   files,
   active,
   findings,
+  progress,
   busy,
   onOpen,
   onCreate,
@@ -54,6 +55,21 @@ export default function FileExplorer({
   files: string[];
   active: string | null;
   findings: UiFinding[];
+  /**
+   * Where the run has got to, while one is going.
+   *
+   * The explorer is looking straight at the thing being scanned and used to say
+   * nothing about it for the several minutes that took, so a run in flight was
+   * visible only as a word in a pane on the far side of the window.
+   */
+  progress?: {
+    scanning: Set<string>;
+    scanned: Set<string>;
+    /** Whether a run is in flight; without one, "not reached" means nothing. */
+    live: boolean;
+    done: number;
+    total: number;
+  };
   busy?: boolean;
   onOpen: (path: string) => void;
   onCreate: (path: string) => void;
@@ -89,6 +105,10 @@ export default function FileExplorer({
         <ul className="py-1">
           {ordered.map((path) => {
             const count = counts.get(path);
+            const scanning = progress?.scanning.has(path) ?? false;
+            // Dimmed only while a run is actually going: otherwise every file
+            // in a run that has never been inspected would read as skipped.
+            const waiting = Boolean(progress?.live) && !scanning && !progress?.scanned.has(path);
             return (
               <li key={path} className="group/file relative">
                 <button
@@ -103,19 +123,29 @@ export default function FileExplorer({
                     active === path
                       ? "border-l-accent bg-surface-2 font-medium text-ink-strong"
                       : "border-l-transparent text-ink-muted",
+                    waiting && "opacity-55",
                   )}
                 >
-                  <FileCode className="size-3.5 shrink-0 opacity-60" />
+                  <FileCode className={cn("size-3.5 shrink-0 opacity-60", scanning && "text-accent-ink opacity-100")} />
                   <span className="truncate">{path}</span>
-                  {count && (
-                    <span
-                      className="ml-auto flex shrink-0 items-center gap-1 pr-0.5"
-                      title={`${SEVERITY_LABEL[count.worst ?? "info"]} · ${count.total}건`}
-                    >
-                      <span className={cn("size-1.5 rounded-full", SEVERITY_DOT[count.worst ?? "info"])} />
-                      <span className="font-mono text-2xs">{count.total}</span>
-                    </span>
-                  )}
+                  <span className="ml-auto flex shrink-0 items-center gap-1 pr-0.5">
+                    {scanning && (
+                      <span
+                        title="검사 중"
+                        aria-label="검사 중"
+                        className="size-1.5 animate-pulse rounded-full bg-accent"
+                      />
+                    )}
+                    {count && (
+                      <span
+                        className="flex items-center gap-1"
+                        title={`${SEVERITY_LABEL[count.worst ?? "info"]} · ${count.total}건`}
+                      >
+                        <span className={cn("size-1.5 rounded-full", SEVERITY_DOT[count.worst ?? "info"])} />
+                        <span className="font-mono text-2xs">{count.total}</span>
+                      </span>
+                    )}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -203,7 +233,13 @@ export default function FileExplorer({
   return (
     <PanelShell
       title="탐색기"
-      note={files.length ? `${files.length}개 파일` : "검사할 파일을 여기에 넣습니다"}
+      note={
+        progress?.live && progress.total > 0
+          ? `${files.length}개 파일 · 단위 ${progress.done}/${progress.total}`
+          : files.length
+            ? `${files.length}개 파일`
+            : "검사할 파일을 여기에 넣습니다"
+      }
       actions={
         <>
           <Tooltip>
@@ -222,11 +258,15 @@ export default function FileExplorer({
             </TooltipTrigger>
             <TooltipContent>트리 업로드</TooltipContent>
           </Tooltip>
+          {/* `webkitdirectory`, which this said it did and did not do: without
+              it the picker offers files, every one of them arrives with an empty
+              `webkitRelativePath`, and a tree lands as a pile of basenames. */}
           <input
             ref={input}
             type="file"
             multiple
             hidden
+            {...{ webkitdirectory: "" }}
             onChange={(event) => {
               const picked = Array.from(event.target.files ?? []);
               if (picked.length) onUpload(picked);

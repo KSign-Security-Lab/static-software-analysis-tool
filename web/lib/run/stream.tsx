@@ -96,7 +96,7 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
         },
 
         onChunkFinished: (event) => {
-          dispatch({ type: "chunk_finished" });
+          dispatch({ type: "chunk_finished", event });
           // Never refetch /findings here. Mid-run it reads the whole store and
           // revalidates every row, at exactly the moment the server is busiest
           // -- and this event already carries the new findings.

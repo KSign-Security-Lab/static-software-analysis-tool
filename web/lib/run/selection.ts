@@ -1,6 +1,6 @@
 "use client";
 
-import { parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
+import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
 
 /**
  * What the inspect surface is looking at, in the URL.
@@ -15,6 +15,24 @@ export function useOpenFile() {
 
 export function useSelectedFinding() {
   return useQueryState("finding", parseAsString.withOptions({ history: "replace" }));
+}
+
+/**
+ * Which line the editor should be looking at.
+ *
+ * Not derivable from `finding`, which is why it is its own param. A finding is
+ * a claim about several lines in several files -- the evidence trail walks 유입
+ * → 전파 → 위험 지점 and each step is somewhere else -- but the only line the
+ * editor ever knew about was the claim's own. Every step in the trail opened
+ * the right file and then landed on the wrong line, or on a line in a file the
+ * step had nothing to do with.
+ *
+ * In the URL for the same reason `file` is: it is what you are looking at, and
+ * a step in an argument is worth being able to link someone to. `replace`, so
+ * walking a five-step trail leaves one back-stack entry rather than five.
+ */
+export function useRevealLine() {
+  return useQueryState("line", parseAsInteger.withOptions({ history: "replace" }));
 }
 
 export const CENTRE_VIEWS = ["code", "graph", "map", "state"] as const;
@@ -36,23 +54,5 @@ export function useCentreView() {
   return useQueryState(
     "centre",
     parseAsStringLiteral(CENTRE_VIEWS).withDefault("code").withOptions({ history: "replace" }),
-  );
-}
-
-export const INSPECTOR_VIEWS = ["finding", "span"] as const;
-export type InspectorView = (typeof INSPECTOR_VIEWS)[number];
-
-/**
- * Which of the two inspectors the right pane is showing.
- *
- * Set by whichever list was last clicked -- a finding in 문제, a call in 호출
- * 기록 -- so the pane answers about the thing you just picked. Both remain one
- * click away, because hiding the other would make the tab you are not on look
- * like it had no content.
- */
-export function useInspectorView() {
-  return useQueryState(
-    "insp",
-    parseAsStringLiteral(INSPECTOR_VIEWS).withDefault("finding").withOptions({ history: "replace" }),
   );
 }

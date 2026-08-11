@@ -1,6 +1,9 @@
 "use client";
 
-import { useCreateRun, useWriteFile } from "@/lib/run/queries";
+import { toast } from "sonner";
+
+import { filesFromDrop, type DroppedFile } from "@/lib/run/drop";
+import { useCreateRun, useUpload, useWriteFile } from "@/lib/run/queries";
 import { useOpenFile } from "@/lib/run/selection";
 import { useRunId } from "@/lib/run/use-run-id";
 
@@ -52,6 +55,44 @@ export function useCreateFile() {
         return;
       }
       void setPath(name);
+    },
+  };
+}
+
+/**
+ * Upload a tree, from wherever it was chosen.
+ *
+ * Here rather than in one of the two panes for the same reason `useCreateFile`
+ * is: the explorer's folder button and the editor's drop target are two ways of
+ * doing one thing, and a copy in each is a copy that drifts. A tree replaces the
+ * run -- it is a different codebase -- so the open file is dropped with it.
+ */
+export function useUploadTree() {
+  const [, setRunId] = useRunId();
+  const [, setPath] = useOpenFile();
+  const upload = useUpload();
+
+  const send = (files: (File | DroppedFile)[]) => {
+    if (files.length === 0) return;
+    upload.mutate(files, {
+      onSuccess: (result) => {
+        setRunId(result.run_id);
+        void setPath(null);
+      },
+    });
+  };
+
+  return {
+    busy: upload.isPending,
+    send,
+    /** What a drop event carries, walked into files with their paths. */
+    drop: async (transfer: DataTransfer) => {
+      const dropped = await filesFromDrop(transfer);
+      if (dropped.length === 0) {
+        toast.error("올릴 파일이 없습니다", { description: "폴더나 소스 파일을 놓아 주세요." });
+        return;
+      }
+      send(dropped);
     },
   };
 }

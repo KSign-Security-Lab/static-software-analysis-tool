@@ -3,10 +3,13 @@
 import { useEffect, useMemo } from "react";
 
 import { fromAgent } from "@/lib/model/finding";
-import { useDeleteFile, useFiles, useFindings, useUpload } from "@/lib/run/queries";
-import { useCreateFile } from "@/lib/run/new-file";
+import { scanningFiles } from "@/lib/run/reduce";
+import { useDeleteFile, useFiles, useFindings } from "@/lib/run/queries";
+import { useCreateFile, useUploadTree } from "@/lib/run/new-file";
+import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import FileExplorer from "./FileExplorer";
+import { coverageOf } from "./RunSummary";
 import { useOpenFile } from "@/lib/run/selection";
 
 /**
@@ -16,17 +19,29 @@ import { useOpenFile } from "@/lib/run/selection";
  * something first, so the first write makes the run if there is not one yet.
  */
 export default function ExplorerPane() {
-  const [runId, setRunId] = useRunId();
+  const [runId] = useRunId();
   const [path, setPath] = useOpenFile();
 
   const files = useFiles(runId);
   const findings = useFindings(runId);
   const newFile = useCreateFile();
-  const upload = useUpload();
+  const upload = useUploadTree();
   const remove = useDeleteFile(runId);
 
   const list = useMemo(() => files.data ?? [], [files.data]);
   const ui = useMemo(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
+
+  const { live, phase } = useRunStream();
+  const progress = useMemo(() => {
+    const { total, done } = coverageOf(findings.data?.stats, live);
+    return {
+      scanning: scanningFiles(live),
+      scanned: live.scanned,
+      live: phase === "running" || phase === "starting" || phase === "paused",
+      done,
+      total,
+    };
+  }, [findings.data, live, phase]);
 
   // Open something rather than nothing: an explorer with files and an empty
   // editor beside it looks broken.
@@ -41,7 +56,8 @@ export default function ExplorerPane() {
       files={list}
       active={path}
       findings={ui}
-      busy={newFile.busy || upload.isPending}
+      progress={progress}
+      busy={newFile.busy || upload.busy}
       onOpen={(next) => void setPath(next)}
       onCreate={(name) => void newFile.create(name)}
       onDelete={(target) => {
@@ -51,14 +67,7 @@ export default function ExplorerPane() {
           },
         });
       }}
-      onUpload={(picked) =>
-        upload.mutate(picked, {
-          onSuccess: (result) => {
-            setRunId(result.run_id);
-            void setPath(null);
-          },
-        })
-      }
+      onUpload={upload.send}
     />
   );
 }

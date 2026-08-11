@@ -1,5 +1,6 @@
 import type {
   CheckpointEvent,
+  ChunkFinishedEvent,
   ChunkStartedEvent,
   FailedEvent,
   FinishedEvent,
@@ -50,6 +51,22 @@ export interface RunLive {
   /** Chunk progress, which only the inspect view used to have. */
   chunk: { id: string; remaining: number; total: number } | null;
   wave: { chunks: string[]; remaining: number } | null;
+  /**
+   * The chunks started and not yet finished, by the file each is in.
+   *
+   * Keyed by chunk rather than collected into a set of files, because a wave is
+   * several chunks at once and two of them are often two functions of the same
+   * file: a set could only be added to, and the file would still read as being
+   * read long after it was done.
+   */
+  inflight: Map<string, string>;
+  /**
+   * Files at least one chunk of which has come back.
+   *
+   * Progress, not completeness. Nothing on the wire says how many chunks a file
+   * has, so this cannot mean "finished" -- it means the agent has been here.
+   */
+  scanned: Set<string>;
   /** Whether an EventSource is currently open. */
   attached: boolean;
   /** Bumped whenever the stored history changed, so views can key off it. */
@@ -68,6 +85,8 @@ export const IDLE: RunLive = {
   refusal: null,
   chunk: null,
   wave: null,
+  inflight: new Map(),
+  scanned: new Set(),
   attached: false,
   revision: 0,
 };
@@ -78,7 +97,7 @@ export type RunAction =
   | { type: "run_started"; event: RunStartedEvent }
   | { type: "wave_started"; event: WaveEvent }
   | { type: "chunk_started"; event: ChunkStartedEvent }
-  | { type: "chunk_finished" }
+  | { type: "chunk_finished"; event: ChunkFinishedEvent }
   | { type: "node_started"; event: NodeEvent }
   | { type: "node_finished"; event: NodeEvent }
   | { type: "checkpoint"; event: CheckpointEvent }
@@ -93,14 +112,23 @@ export type RunAction =
 
 export function reduceRun(state: RunLive, action: RunAction): RunLive {
   switch (action.type) {
+    // Fresh collections each time: IDLE's would be shared by every run that reset.
     case "reset":
-      return { ...IDLE, visited: new Set(), attached: state.attached };
+      return { ...IDLE, visited: new Set(), inflight: new Map(), scanned: new Set(), attached: state.attached };
 
     case "attached":
       return state.attached === action.open ? state : { ...state, attached: action.open };
 
     case "run_started":
-      return { ...state, active: true, finished: false, error: null, refusal: null };
+      return {
+        ...state,
+        active: true,
+        finished: false,
+        error: null,
+        refusal: null,
+        inflight: new Map(),
+        scanned: new Set(),
+      };
 
     /**
      * A run that was already going when this tab opened.
@@ -127,17 +155,30 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
     case "wave_started":
       return { ...state, wave: { chunks: action.event.chunks, remaining: action.event.remaining }, active: true };
 
-    case "chunk_started":
+    case "chunk_started": {
+      const { chunk_id, file, remaining, total } = action.event;
+      const inflight = new Map(state.inflight);
+      if (file) inflight.set(chunk_id, file);
       return {
         ...state,
-        chunk: { id: action.event.chunk_id, remaining: action.event.remaining, total: action.event.total },
+        chunk: { id: chunk_id, remaining, total },
+        inflight,
         active: true,
       };
+    }
 
-    case "chunk_finished":
+    case "chunk_finished": {
       // The findings ride along on this event and are merged into the cache by
-      // the bridge; nothing about *where the run is* changes here.
-      return state;
+      // the bridge. What changes here is only where the work is.
+      const { chunk_id, file } = action.event;
+      const inflight = new Map(state.inflight);
+      inflight.delete(chunk_id);
+      return {
+        ...state,
+        inflight,
+        scanned: file ? new Set(state.scanned).add(file) : state.scanned,
+      };
+    }
 
     case "node_started": {
       const node = action.event.node;
@@ -209,6 +250,9 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
         queued: [],
         chunk: null,
         wave: null,
+        // Nothing is being read any more. `scanned` stays: it is what the run
+        // got through, and an aborted run is exactly when that is worth seeing.
+        inflight: new Map(),
         active: false,
         finished: true,
         revision: state.revision + 1,
@@ -219,6 +263,7 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
         ...state,
         running: [],
         interrupted: false,
+        inflight: new Map(),
         active: false,
         error: action.event.error,
         revision: state.revision + 1,
@@ -235,6 +280,17 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
  * Callers used to recombine `active`/`finished`/`interrupted` by hand at each
  * site, and got the edge cases subtly different from one another.
  */
+/**
+ * The files being read right now.
+ *
+ * Derived rather than stored, for the same reason `phaseOf` is: two chunks of
+ * one file are two entries in `inflight` and one entry here, and keeping both
+ * in the state means keeping them agreeing.
+ */
+export function scanningFiles(state: RunLive): Set<string> {
+  return new Set(state.inflight.values());
+}
+
 export function phaseOf(state: RunLive): RunPhase {
   if (state.error) return "failed";
   if (state.interrupted) return "paused";

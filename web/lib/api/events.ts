@@ -27,6 +27,9 @@ export interface WaveEvent {
 }
 export interface ChunkStartedEvent {
   chunk_id: string;
+  /** Null for a chunk the index no longer has, which is not worth crashing over. */
+  file: string | null;
+  symbol: string | null;
   remaining: number;
   total: number;
 }

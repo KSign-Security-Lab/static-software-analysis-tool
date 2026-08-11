@@ -224,10 +224,16 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         deps.emit("wave_started", {"chunks": chosen, "remaining": len(remaining)})
         for chunk_id in chosen:
+            # `file` and `symbol` for the same reason chunk_finished sends them:
+            # a chunk id says nothing to a reader, and a client that only hears
+            # the id cannot say which of the files on screen is being read.
+            chunk = deps.store.chunk(chunk_id)
             deps.emit(
                 "chunk_started",
                 {
                     "chunk_id": chunk_id,
+                    "file": chunk.file if chunk is not None else None,
+                    "symbol": chunk.symbol if chunk is not None else None,
                     "remaining": len(remaining),
                     "total": state.get("stats", {}).get("chunks_total", 0),
                 },

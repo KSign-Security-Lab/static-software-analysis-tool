@@ -29,6 +29,13 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   findings?: UiFinding[];
   selected?: UiFinding | null;
+  /**
+   * The line to look at, when something other than the selected finding decided.
+   *
+   * An evidence step, or a neighbour out of the knowledge graph: both are lines
+   * that explain a finding without being the line the finding is filed under.
+   */
+  line?: number | null;
   onChange?: (value: string) => void;
   /** ⌘S from inside the editor, which a window listener may never see. */
   onSave?: () => void;
@@ -42,6 +49,7 @@ export default function CodeEditor({
   readOnly = false,
   findings = [],
   selected = null,
+  line = null,
   onChange,
   onSave,
   onRevealFinding,
@@ -97,11 +105,46 @@ export default function CodeEditor({
   useEffect(() => {
     if (!ready) return;
     decorations.current?.set(evidenceDecorations(selected, path));
-    if (selected && selected.primary.file === path && selected.primary.startLine > 0) {
-      editorRef.current?.revealLineInCenterIfOutsideViewport(selected.primary.startLine);
-      editorRef.current?.setPosition({ lineNumber: selected.primary.startLine, column: 1 });
-    }
   }, [ready, selected, path]);
+
+  /**
+   * Where to look.
+   *
+   * An explicit line wins over the selected finding's own. The trail crosses
+   * files -- 유입 in one, 위험 지점 in another -- and following it is the reason
+   * it is drawn, so a step has to be able to say where it is. Falling back to
+   * the claim's line keeps a plain selection behaving as it did.
+   */
+  const target =
+    line && line > 0
+      ? line
+      : selected && selected.primary.file === path && selected.primary.startLine > 0
+        ? selected.primary.startLine
+        : 0;
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!ready || !editor || target <= 0) return;
+
+    editor.revealLineInCenterIfOutsideViewport(target);
+    editor.setPosition({ lineNumber: target, column: 1 });
+
+    // A jump within a file you are already looking at changes nothing else on
+    // screen, so it has to say where it went. Cleared on a timer rather than
+    // left: a permanent wash would sit on top of the evidence decorations and
+    // read as a sixth role.
+    const flash = editor.createDecorationsCollection([
+      {
+        range: { startLineNumber: target, startColumn: 1, endLineNumber: target, endColumn: 1 },
+        options: { isWholeLine: true, className: "ssat-jump" },
+      },
+    ]);
+    const timer = window.setTimeout(() => flash.clear(), 1200);
+    return () => {
+      window.clearTimeout(timer);
+      flash.clear();
+    };
+  }, [ready, target, path]);
 
   // Clicking a squiggled line selects that finding, so the editor drives the
   // inspector rather than only being driven by it.

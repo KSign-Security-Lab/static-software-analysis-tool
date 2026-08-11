@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from "react";
 
+import { fromAgent } from "@/lib/model/finding";
+import { useFindings } from "@/lib/run/queries";
+import { useSelectedFinding } from "@/lib/run/selection";
 import { useRunStream } from "@/lib/run/stream";
 import { useGraphShape, usePrompts, useSpans, useThreads } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
@@ -21,19 +24,29 @@ import PromptSheet from "./PromptSheet";
  * A transcript needs nothing selected to be worth reading, so this is simply on.
  * Editing a prompt is a sheet over the top, because it is an action on one turn
  * rather than a third thing the pane can be.
+ *
+ * Opening a finding narrows it to that finding's own unit. This page exists to
+ * put the answer beside the reasoning, and until now the two were only *next to*
+ * each other: you read a claim in the dock and the pane on the right went on
+ * showing all forty conversations in the run, of which one was the reason for
+ * what you were reading. The join was already there and documented -- a thread
+ * is keyed by chunk id, and a finding carries the chunk it came from.
  */
 export default function InspectorPane() {
   const [runId] = useRunId();
   const [spanId, setSpanId] = useSelectedSpan();
   const [node] = useScopedNode();
+  const [findingId] = useSelectedFinding();
   const { live, phase } = useRunStream();
 
   const [tuning, setTuning] = useState(false);
+  const [scoped, setScoped] = useState(true);
 
   const threads = useThreads(runId);
   const shape = useGraphShape();
   const spans = useSpans(runId);
   const prompts = usePrompts();
+  const findings = useFindings(runId);
 
   const steps = useMemo(() => shape.data?.steps ?? [], [shape.data]);
   // What the picked node is. Five of them make no calls at all, so this is the only
@@ -42,7 +55,32 @@ export default function InspectorPane() {
     () => (node ? shape.data?.node_notes?.find((each) => each.node === node) : undefined),
     [shape.data, node],
   );
-  const units = useMemo(() => unitsOf(threads.data?.threads ?? [], steps, node), [threads.data, steps, node]);
+  // Through `fromAgent`, because `?finding=` holds the view model's id and the
+  // view model prefixes it with the engine -- matching against the wire id
+  // matches nothing, silently, which is exactly how it read.
+  const finding = useMemo(
+    () => (findingId ? fromAgent(findings.data?.findings).find((each) => each.id === findingId) : undefined),
+    [findings.data, findingId],
+  );
+
+  // A different claim is a different question, so the narrowing comes back on.
+  // Adjusted during render rather than in an effect: React re-runs this
+  // component immediately, before the browser sees the un-narrowed transcript.
+  const [scopedFor, setScopedFor] = useState(findingId);
+  if (scopedFor !== findingId) {
+    setScopedFor(findingId);
+    setScoped(true);
+  }
+
+  const all = useMemo(() => unitsOf(threads.data?.threads ?? [], steps, node), [threads.data, steps, node]);
+  // Composed with the node scope rather than replacing it: narrowed to both, the
+  // pane answers "what did 검증 say about this one", which is a real question.
+  const narrowed = Boolean(finding?.chunkId) && scoped;
+  const units = useMemo(
+    () => (narrowed ? all.filter((unit) => unit.id === finding!.chunkId) : all),
+    [all, narrowed, finding],
+  );
+
   const span = useMemo(() => spans.data?.spans.find((each) => each.id === spanId) ?? null, [spans.data, spanId]);
 
   return (
@@ -54,6 +92,7 @@ export default function InspectorPane() {
         live={live}
         node={node}
         note={note}
+        focus={finding ? { title: finding.title, scoped: narrowed, onScoped: setScoped } : null}
         selected={spanId}
         onTunePrompt={(id) => {
           void setSpanId(id);

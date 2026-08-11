@@ -928,6 +928,33 @@ def test_a_wave_inspects_several_chunks_at_once(indexed) -> None:
     assert sum(len(w) for w in waves) == len(store.order())
 
 
+def test_a_started_chunk_says_which_file_it_is_in(indexed) -> None:
+    """A chunk id names nothing a reader has seen.
+
+    The client shows the tree of files being inspected, and a chunk id on its
+    own leaves it unable to say which of them is being read right now --
+    `chunk_finished` has carried the file since it was written, and the start of
+    the work is exactly when saying so is worth anything.
+    """
+    root, store = indexed
+    started: list[dict] = []
+
+    run_inspection(
+        run_id="test",
+        root=root,
+        store=store,
+        config=AgentConfig(model="fake", enable_tools=False, lenses=("injection",), wave_width=4),
+        caller=ScriptedCaller(),  # type: ignore[arg-type]
+        emit=lambda event, payload: started.append(payload) if event == "chunk_started" else None,
+    )
+
+    assert started, "every chunk that runs announces itself"
+    for payload in started:
+        chunk = store.chunk(payload["chunk_id"])
+        assert payload["file"] == chunk.file
+        assert payload["symbol"] == chunk.symbol
+
+
 def test_a_wave_still_gets_its_callees_notes(indexed) -> None:
     """The invariant waves are allowed to exist under. `handler` is in a later
     wave than `run_command`, so it still sees what `run_command` concluded."""

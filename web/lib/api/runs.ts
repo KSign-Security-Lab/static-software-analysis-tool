@@ -34,11 +34,23 @@ export function createEmptyRun(): Promise<UploadResult> {
   return post<UploadResult>("/agent/runs/new");
 }
 
-export function uploadSource(files: File[]): Promise<UploadResult> {
+/**
+ * Upload a tree.
+ *
+ * Takes either bare files or files with the path each had, because the two ways
+ * of choosing a folder report it differently: `<input webkitdirectory>` sets
+ * `webkitRelativePath` on every File, and a drag-and-drop does not -- the path
+ * only exists in the entries walk that produced it (lib/run/drop.ts). Without a
+ * path per file every file in a tree arrives as a bare basename and two
+ * `main.c` in two directories collide into one.
+ */
+export function uploadSource(files: (File | { file: File; path: string })[]): Promise<UploadResult> {
   const form = new FormData();
-  // `webkitRelativePath` is what a directory upload carries; without it every
-  // file in a tree arrives as a bare basename and the paths collide.
-  for (const file of files) form.append("files", file, file.webkitRelativePath || file.name);
+  for (const each of files) {
+    const file = each instanceof File ? each : each.file;
+    const path = each instanceof File ? file.webkitRelativePath || file.name : each.path;
+    form.append("files", file, path);
+  }
   return postForm<UploadResult>("/agent/runs", form);
 }
 
