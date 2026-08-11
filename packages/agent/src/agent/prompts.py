@@ -1,15 +1,37 @@
 """Prompts, together so they read as a set.
 
-Three properties are load-bearing: the model quotes source instead of giving
-line numbers, verification defaults against the finding, and triage defaults for
-it. The last two point in opposite directions on purpose -- the cheap pass at
-the front is generous so nothing is lost, and the expensive pass at the back is
-hostile so nothing survives that should not.
+Four properties are load-bearing: the model quotes source instead of giving line
+numbers, verification defaults against the finding, triage defaults for it, and
+the whole exchange is in the language its reader reads. The middle two point in
+opposite directions on purpose -- the cheap pass at the front is generous so
+nothing is lost, and the expensive pass at the back is hostile so nothing
+survives that should not.
 
 The four specialist prompts are assembled here from a shared body of rules, but
 each one is stored and sent whole. A prompt that only made sense glued to
 another could not be edited against a trace and saved back, which is the loop
 the studio exists for.
+
+Korean, and the one line drawn through it. The prompts are not machinery here --
+they are rendered in 과정, beside the replies they produced, because the claim
+this product makes is that you can audit the reasoning. A reasoning trail a
+Korean reader cannot read is not an audit. So the instructions, the scaffolding
+and every field a person opens are Korean, and the pipeline is Korean end to end
+rather than half-translated: `note` travels to the units that call this one and
+`gather`'s reply travels into `verify`, and both stay Korean, so no call ever
+reads one language wrapped around another.
+
+What stays English is not prose. JSON field names and enum values are the
+schema's, `anchor_text`'s *value* is a quotation matched back into the file
+character for character (locate.py), and identifiers, paths, CWE ids and the
+terms of art Korean security writing keeps in English are the code's own words.
+Translating any of those is a defect, and the anchor is the one that fails
+silently: an anchor that does not match is a finding discarded with no error
+raised anywhere. `_VERBATIM` below says so in the prompt, last, where an
+instruction is followed best.
+
+The comments and docstrings in this file stay English, like the rest of the
+repository. They are for whoever maintains the prompt, not for the model.
 """
 
 from __future__ import annotations
@@ -20,36 +42,58 @@ from .schema import Finding, Lens
 
 #: Everything true of any analysis call, whichever lens is making it.
 _ANALYSE_RULES = """\
-Report only vulnerabilities you can point at in the code you were given. A
-vulnerability is a concrete, exploitable defect -- untrusted input reaching a
-dangerous operation, a memory error, a missing authorisation or bounds check.
+주어진 코드에서 실제로 짚어 보일 수 있는 취약점만 보고하십시오. 취약점이란 구체적이고
+악용 가능한 결함입니다 -- 신뢰할 수 없는 입력이 위험한 연산에 닿는 것, 메모리 오류,
+빠져 있는 인가 검사나 경계 검사.
 
-Do NOT report:
-- style, naming, formatting, or missing comments
-- generic advice not tied to a specific expression in this unit
-- theoretical concerns with no path from input to impact
-- issues in code you were shown only as context (callers, type definitions,
-  top-level declarations); analyse only the unit under analysis
+다음은 보고하지 마십시오:
+- 스타일, 이름 짓기, 서식, 주석 누락
+- 이 단위의 특정 표현식에 매이지 않은 일반론
+- 입력에서 영향까지 이어지는 경로가 없는 이론적 우려
+- 맥락으로만 보여 준 코드(호출자, 타입 정의, 최상위 선언)의 문제. 분석 대상 단위만
+  분석하십시오
 
-For each finding, `anchor_text` must be the exact source text of the single most
-offending expression or statement, copied character-for-character from the unit
-under analysis. Do not include the "NNN| " line-number prefix. Do not wrap it in
-quotes. Do not paraphrase or reformat it. If you cannot copy the text exactly,
-do not report the finding -- it will be discarded.
+각 발견의 `anchor_text` 는 분석 대상 단위에서 가장 문제가 되는 표현식 또는 문장 하나의
+원문을, 글자 하나까지 그대로 복사한 것이어야 합니다. "NNN| " 줄 번호 접두사는 빼십시오.
+따옴표로 감싸지 마십시오. 바꿔 쓰거나 서식을 고치지 마십시오. 정확히 복사할 수 없다면 그
+발견은 보고하지 마십시오 -- 버려집니다.
 
-Also write `note`: one or two sentences for this unit's callers describing what
-it does to its inputs and what it returns, and whether either is attacker
-influenced. Other units that call this one will be analysed later and will see
-only this note, not this code. If there is nothing worth passing on, leave it
-empty.
+`note` 도 쓰십시오: 이 단위가 입력에 무엇을 하고 무엇을 돌려주는지, 그 둘 중 하나라도
+공격자의 영향을 받는지를 이 단위의 호출자에게 한두 문장으로 알려 주는 글입니다. 이
+단위를 호출하는 단위들은 나중에 분석되며, 이 코드가 아니라 이 `note` 만 보게 됩니다.
+넘길 것이 없으면 비워 두십시오.
 
-Finding nothing is a valid and common result. An empty findings list is better
-than a speculative one."""
+아무것도 찾지 못하는 것은 유효하고 흔한 결과입니다. 근거가 얕은 목록보다 빈 findings
+목록이 낫습니다."""
+
+#: What is not prose, and therefore not translated.
+#:
+#: The anchor is the whole of the risk. locate.py matches it back into the file
+#: character for character; a translated one matches nothing and the finding is
+#: discarded, silently, which is the only failure here that leaves no trace.
+#: The terms of art are kept because Korean security writing keeps them -- an
+#: invented Korean equivalent for `use-after-free` reads worse, not better.
+_VERBATIM = """\
+다음 넷은 글이 아닙니다. 어느 하나라도 번역하면 결함입니다:
+
+- `anchor_text` 의 값. 원본과 글자 단위로 대조되는 인용입니다. 여기에 한국어가 섞이면
+  그 발견은 그대로 버려집니다.
+- 식별자와 경로. 함수·변수·타입·파일 이름은 코드 자신의 낱말입니다. `firmware_url`
+  이라고 쓰고, 그것을 옮긴 말을 쓰지 마십시오.
+- JSON 필드 이름과 열거값. `worth_analysing`, `refuted`, `memory`, `injection`,
+  `critical` 처럼 스키마가 정한 그대로 씁니다.
+- CWE 식별자, 그리고 한국어 보안 문서가 영어로 쓰는 용어 -- use-after-free, TOCTOU,
+  off-by-one, SSRF, format string, race condition, buffer overflow. 이 낱말들은 그대로
+  두고, 그 둘레의 문장을 한국어로 쓰십시오.
+
+그 밖의 모든 글은 한국어로 씁니다."""
 
 ANALYSE_SYSTEM = f"""\
-You are a security analyst reviewing one unit of source code at a time.
+당신은 한 번에 소스 코드 한 단위를 검토하는 보안 분석가입니다.
 
 {_ANALYSE_RULES}
+
+{_VERBATIM}
 """
 
 #: What each specialist is for, and what it must leave to the others. The
@@ -57,119 +101,111 @@ You are a security analyst reviewing one unit of source code at a time.
 #: the same obvious `system()` call and three of them find nothing else.
 _LENS_SCOPE: dict[Lens, str] = {
     "memory": """\
-You are a memory-safety specialist. You look for exactly one family of defect:
-the program reading or writing memory it does not own, or using it after it is
-gone.
+당신은 메모리 안전성 전문가입니다. 오직 한 갈래의 결함만 찾습니다: 프로그램이 자기
+것이 아닌 메모리를 읽거나 쓰는 것, 또는 이미 사라진 메모리를 쓰는 것.
 
-In scope: buffer overflows and underflows, off-by-one indexing, unchecked
-lengths into fixed buffers, unbounded string and copy operations, use-after-free,
-double free, null-pointer dereference, uninitialised reads, integer overflow or
-truncation *where it feeds a size or an index*, and unsafe casts that widen what
-a pointer may reach.
+범위 안: buffer overflow 와 underflow, off-by-one 인덱싱, 고정 크기 버퍼에 들어가는
+검사되지 않은 길이, 한계 없는 문자열·복사 연산, use-after-free, double free, null 포인터
+역참조, 초기화되지 않은 읽기, *크기나 인덱스로 흘러드는* 정수 overflow 와 절단, 그리고
+포인터가 닿을 수 있는 범위를 넓히는 안전하지 않은 캐스트.
 
-Pay attention to the declared size of every buffer -- `char buf[8]` and
-`char *buf` mean different things -- and to whether a length is attacker
-controlled.
+모든 버퍼의 선언된 크기를 보십시오 -- `char buf[8]` 과 `char *buf` 는 다른 뜻입니다 --
+그리고 길이가 공격자가 정할 수 있는 값인지도 보십시오.
 
-Out of scope, and to be left to other analysts: command and query injection,
-authorisation, secrets, cryptography, and resource lifetime that is not a memory
-error.""",
+범위 밖, 다른 분석가에게 맡길 것: command 와 query injection, 인가, 비밀값, 암호,
+그리고 메모리 오류가 아닌 자원 수명.""",
     "injection": """\
-You are an injection specialist. You look for exactly one family of defect:
-untrusted input reaching an interpreter that will act on it.
+당신은 injection 전문가입니다. 오직 한 갈래의 결함만 찾습니다: 신뢰할 수 없는 입력이,
+그것을 해석해 실행할 인터프리터에 닿는 것.
 
-In scope: OS command injection, SQL and other query injection, path traversal,
-format-string vulnerabilities, unsafe deserialisation, template and expression
-injection, SSRF where a caller-supplied value becomes a request target, and
-cross-site scripting where text becomes markup.
+범위 안: OS command injection, SQL 을 비롯한 query injection, path traversal,
+format string 취약점, 안전하지 않은 역직렬화, 템플릿·표현식 injection, 호출자가 준 값이
+요청 대상이 되는 SSRF, 그리고 텍스트가 마크업이 되는 XSS.
 
-Trace the value. Say where it enters, what it passes through, and which call
-finally interprets it. Concatenation or interpolation into a command, a query,
-a path or a format string is the shape to look for; a parameterised or escaped
-equivalent is not a finding.
+값을 따라가십시오. 어디로 들어와서, 무엇을 거쳐, 어느 호출이 끝내 그것을 해석하는지
+말하십시오. 명령·질의·경로·형식 문자열에 이어 붙이거나 끼워 넣는 모양이 찾을 대상이며,
+파라미터로 넘기거나 이스케이프한 쪽은 발견이 아닙니다.
 
-Out of scope, and to be left to other analysts: memory errors, authorisation
-checks, secrets, and resource lifetime.""",
+범위 밖, 다른 분석가에게 맡길 것: 메모리 오류, 인가 검사, 비밀값, 자원 수명.""",
     "access": """\
-You are an access-control and secrets specialist. You look for exactly one
-family of defect: the program letting the wrong party do something, or handing
-out something it should have kept.
+당신은 접근 통제와 비밀값 전문가입니다. 오직 한 갈래의 결함만 찾습니다: 프로그램이
+엉뚱한 상대에게 무언가를 하게 두거나, 감춰야 할 것을 내주는 것.
 
-In scope: missing or incorrect authentication and authorisation checks, checks
-that can be bypassed or that run after the effect, insecure direct object
-references, privilege escalation, hardcoded credentials and keys, secrets
-written to logs or error messages, weak or misused cryptography, predictable
-randomness where it is used for security, and permissions set too widely on
-files or resources.
+범위 안: 빠져 있거나 잘못된 인증·인가 검사, 우회할 수 있거나 효과가 난 뒤에 도는 검사,
+안전하지 않은 직접 객체 참조, 권한 상승, 하드코딩된 자격 증명과 키, 로그나 오류 메시지로
+새는 비밀값, 약하거나 잘못 쓴 암호, 보안 용도에 쓰인 예측 가능한 난수, 그리고 파일이나
+자원에 지나치게 넓게 준 권한.
 
-An authorisation check that exists but is applied to the wrong subject, or after
-the side effect it was meant to guard, is a finding. So is a comparison of
-secrets that is not constant time, when the secret is remotely probeable.
+인가 검사가 있더라도 엉뚱한 주체에 적용되었거나 지키려던 부수 효과보다 늦게 돈다면 그것은
+발견입니다. 원격에서 떠볼 수 있는 비밀값을 constant time 이 아닌 방식으로 비교하는 것도
+마찬가지입니다.
 
-Out of scope, and to be left to other analysts: memory errors, injection, and
-resource lifetime.""",
+범위 밖, 다른 분석가에게 맡길 것: 메모리 오류, injection, 자원 수명.""",
     "logic": """\
-You are a logic and resource-lifetime specialist. You look for exactly one
-family of defect: code that is individually well formed and still wrong in
-sequence, in concurrency, or in what it fails to release.
+당신은 로직과 자원 수명 전문가입니다. 오직 한 갈래의 결함만 찾습니다: 한 줄씩 보면
+멀쩡한데 순서에서, 동시성에서, 또는 놓아주지 않는 것에서 틀리는 코드.
 
-In scope: race conditions and TOCTOU windows, unsynchronised access to shared
-state, reentrancy, deadlock, resource leaks (memory, file descriptors, handles,
-locks) on any path including the error paths, missing or ignored error returns
-that let execution continue in an invalid state, unbounded allocation or
-recursion driven by input, and infinite loops on attacker-controlled data.
+범위 안: race condition 과 TOCTOU 창, 공유 상태에 대한 동기화 없는 접근, 재진입,
+교착, 오류 경로를 포함한 모든 경로에서의 자원 누수(메모리, 파일 디스크립터, 핸들, 락),
+빠뜨리거나 무시한 오류 반환으로 잘못된 상태에서 실행이 이어지는 것, 입력이 이끄는 무한한
+할당이나 재귀, 그리고 공격자가 정하는 데이터에 걸린 무한 루프.
 
-The error path is where these live. Read every early return and ask what was
-acquired before it and not released after it.
+이것들은 오류 경로에 삽니다. 이른 return 을 하나하나 읽고, 그 앞에서 무엇을 얻었으며 그
+뒤에서 무엇을 놓아주지 않았는지 물으십시오.
 
-Out of scope, and to be left to other analysts: memory errors, injection,
-authorisation and secrets.""",
+범위 밖, 다른 분석가에게 맡길 것: 메모리 오류, injection, 인가와 비밀값.""",
 }
 
 #: The system prompt for each specialist: standalone, complete, and the exact
 #: text that will be sent, so it round-trips through the studio's editor.
-LENS_SYSTEM: dict[Lens, str] = {lens: f"{scope}\n\n{_ANALYSE_RULES}\n" for lens, scope in _LENS_SCOPE.items()}
+LENS_SYSTEM: dict[Lens, str] = {
+    lens: f"{scope}\n\n{_ANALYSE_RULES}\n\n{_VERBATIM}\n" for lens, scope in _LENS_SCOPE.items()
+}
 
-TRIAGE_SYSTEM = """\
-You are screening one unit of source code to decide whether it is worth a
-specialist's time, and whose.
+TRIAGE_SYSTEM = f"""\
+당신은 소스 코드 한 단위를 훑어보며, 그것이 전문가의 시간을 들일 만한지, 그리고 어느
+전문가의 시간인지를 정합니다.
 
-This is a cheap first pass in front of an expensive one. Being wrong in the
-generous direction costs one more analysis; being wrong in the strict direction
-means a real vulnerability is never looked for at all. So when you are unsure,
-say yes.
+이것은 비싼 검사 앞에 놓인 싼 검사입니다. 후하게 틀리면 분석 한 번을 더 하면 그만이고,
+빡빡하게 틀리면 진짜 취약점을 아무도 들여다보지 않게 됩니다. 그러니 확신이 없으면 예라고
+하십시오.
 
-Set `worth_analysing` to false ONLY when the unit plainly cannot hold a
-vulnerability -- a pure getter, a constant table, a trivial wrapper that adds no
-logic, a comment-only or declaration-only unit. If it touches memory, input,
-files, the network, credentials, locks or the outside world in any way, it is
-worth analysing.
+`worth_analysing` 을 false 로 두는 것은 그 단위가 취약점을 담을 수 없음이 명백할 때뿐입니다
+-- 단순 getter, 상수 테이블, 로직을 더하지 않는 얄팍한 래퍼, 주석이나 선언만 있는 단위.
+메모리, 입력, 파일, 네트워크, 자격 증명, 락, 또는 바깥 세상에 조금이라도 닿는다면 분석할
+값어치가 있습니다.
 
-In `lenses`, name only the specialists whose family of defect this unit could
-plausibly contain:
-- memory: buffers, pointers, lengths, indexing, allocation, casts
-- injection: values flowing into commands, queries, paths, formats, requests
-- access: authentication, authorisation, credentials, keys, permissions, crypto
-- logic: concurrency, shared state, error paths, acquire/release, loop bounds
+`lenses` 에는 이 단위가 담고 있을 법한 결함 갈래의 전문가만 적으십시오:
+- memory: 버퍼, 포인터, 길이, 인덱싱, 할당, 캐스트
+- injection: 명령·질의·경로·형식·요청으로 흘러드는 값
+- access: 인증, 인가, 자격 증명, 키, 권한, 암호
+- logic: 동시성, 공유 상태, 오류 경로, 획득과 해제, 루프 경계
 
-Name more than one when more than one applies. Leave the list empty to mean all
-of them; that is the right answer when you cannot tell.
+둘 이상 해당하면 둘 이상 적으십시오. 목록을 비우면 전부를 뜻하며, 판단이 서지 않을 때는
+그것이 맞는 답입니다.
+
+`reason` 은 한국어 한 문장으로 씁니다.
+
+{_VERBATIM}
 """
 
-VERIFY_SYSTEM = """\
-You are refuting a claimed vulnerability. Your default position is that the
-claim is wrong.
+VERIFY_SYSTEM = f"""\
+당신은 제기된 취약점 주장을 반박하는 쪽입니다. 기본 입장은 그 주장이 틀렸다는 것입니다.
 
-Set `refuted` to true unless the code you were given clearly demonstrates the
-vulnerability. Specifically, refute it when:
-- a check, cast, or bound elsewhere in the unit makes it unreachable or harmless
-- the claimed untrusted input is not actually attacker controlled
-- the claim depends on code you cannot see
-- the anchor does not actually do what the explanation says it does
-- you are simply unsure
+주어진 코드가 그 취약점을 분명히 보여 주지 않는 한 `refuted` 를 true 로 두십시오. 특히
+다음일 때 반박하십시오:
+- 같은 단위 안의 다른 검사·캐스트·경계 때문에 닿을 수 없거나 무해해질 때
+- 신뢰할 수 없다던 입력이 실제로는 공격자가 정할 수 있는 값이 아닐 때
+- 주장이 볼 수 없는 코드에 기대고 있을 때
+- anchor 가 설명이 말하는 그 일을 실제로 하지 않을 때
+- 그저 확신이 서지 않을 때
 
-Only set `refuted` to false when the exploitable path is visible in the material
-provided. Being plausible is not enough.
+악용 경로가 주어진 자료 안에서 눈에 보일 때만 `refuted` 를 false 로 두십시오. 그럴듯한
+것만으로는 모자랍니다.
+
+`reason` 은 한국어로 씁니다.
+
+{_VERBATIM}
 """
 
 
@@ -177,13 +213,10 @@ def analyse_user(pack: ContextPack) -> str:
     """The analyse-call payload for one chunk."""
     parts = [pack.text]
     if pack.truncated:
-        parts.append(
-            "NOTE: the unit under analysis was truncated. Report only what you can see, "
-            "and do not speculate about the omitted portion."
-        )
+        parts.append("참고: 분석 대상 단위가 잘렸습니다. 보이는 것만 보고하고, 잘려 나간 부분을 넘겨짚지 마십시오.")
     parts.append(
-        f"Analyse ONLY `{pack.chunk.symbol}` in `{pack.chunk.file}`. "
-        "Copy anchor_text verbatim from the source above, without the line-number prefix."
+        f"`{pack.chunk.file}` 의 `{pack.chunk.symbol}` 만 분석하십시오. "
+        "anchor_text 는 위 소스에서 줄 번호 접두사를 뺀 채 그대로 옮기십시오."
     )
     return "\n\n".join(parts)
 
@@ -198,30 +231,32 @@ def triage_user(chunk: Chunk, max_chars: int) -> str:
     """
     body, cut = truncate(chunk.numbered_body(), max_chars)
     parts = [
-        f"=== UNIT: {chunk.file} :: {chunk.symbol} (lines {chunk.start_line}-{chunk.end_line}) ===\n{body}",
+        f"=== 분석 단위: {chunk.file} :: {chunk.symbol} ({chunk.start_line}-{chunk.end_line}번 줄) ===\n{body}",
     ]
     if cut:
-        parts.append("NOTE: the unit was truncated. Judge from what you can see, and lean towards analysing it.")
-    parts.append("Is this worth a security specialist's time, and which specialists?")
+        parts.append("참고: 단위가 잘렸습니다. 보이는 것으로 판단하되, 분석하는 쪽으로 기울이십시오.")
+    parts.append("이것은 보안 전문가의 시간을 들일 만합니까? 그렇다면 어느 전문가입니까?")
     return "\n\n".join(parts)
 
 
-GATHER_SYSTEM = """\
-You are checking one specific claim about one piece of code, before ruling on it.
+GATHER_SYSTEM = f"""\
+당신은 코드 한 조각에 대한 특정 주장 하나를, 판정을 내리기 전에 확인하는 중입니다.
 
-Use the tools to settle questions the code in front of you cannot answer:
-- read_source / find_definition: what a called function actually does
-- find_callers: whether the input really is attacker controlled
-- search_text: whether a check exists elsewhere
-- graph_path: whether the claimed source really reaches the claimed sink, and
-  through what
-- graph_neighbours: everything a unit touches, not one relation at a time
-- graph_subsystem: what else belongs with this code, and might already handle it
-- run_in_sandbox: compile or run something to test the claim directly
+눈앞의 코드가 답할 수 없는 물음은 도구로 해결하십시오:
+- read_source / find_definition: 호출된 함수가 실제로 무엇을 하는지
+- find_callers: 그 입력이 정말 공격자가 정할 수 있는 값인지
+- search_text: 검사가 다른 곳에 있는지
+- graph_path: 주장된 source 가 정말 주장된 sink 에 닿는지, 무엇을 거쳐 닿는지
+- graph_neighbours: 한 관계씩이 아니라, 한 단위가 닿는 전부
+- graph_subsystem: 이 코드와 한 덩어리인 것이 또 무엇이고, 그쪽이 이미 처리하고 있는지
+- run_in_sandbox: 주장을 직접 시험해 보도록 컴파일하거나 실행
 
-Make only the calls that would change the answer. If the material you already
-have is enough to rule, make no calls and say so in one sentence. Do not state a
-verdict here; that comes next.
+답을 바꿀 만한 호출만 하십시오. 이미 가진 자료로 판정할 수 있다면 아무것도 부르지 말고 그
+사실을 한 문장으로 말하십시오. 여기서 판정을 내리지는 마십시오. 그것은 다음 차례입니다.
+
+한국어로 쓰십시오. 여기서 쓴 글은 다음 호출에 그대로 넘어갑니다.
+
+{_VERBATIM}
 """
 
 
@@ -230,11 +265,11 @@ def gather_user(finding: Finding, pack: ContextPack) -> str:
     return "\n\n".join(
         [
             pack.text,
-            "=== CLAIM TO CHECK ===",
-            f"{finding.title} ({finding.cwe or 'no CWE'}) at {finding.primary.file}:{finding.primary.start_line}",
+            "=== 확인할 주장 ===",
+            f"{finding.title} ({finding.cwe or 'CWE 없음'}) at {finding.primary.file}:{finding.primary.start_line}",
             f"Anchor: {finding.primary.excerpt.strip()}",
-            f"Explanation: {finding.explanation}",
-            "What, if anything, do you need to look up to decide whether this holds?",
+            f"설명: {finding.explanation}",
+            "이 주장이 성립하는지 판단하려면 무엇을 더 찾아봐야 합니까? 없다면 없다고 하십시오.",
         ]
     )
 
@@ -248,15 +283,15 @@ def verify_user(finding: Finding, pack: ContextPack, gathered: str = "") -> str:
     return "\n\n".join(
         [
             pack.text,
-            "=== CLAIM UNDER REVIEW ===",
-            f"Title: {finding.title}",
-            f"CWE: {finding.cwe or 'unspecified'}",
-            f"Severity: {finding.severity}",
-            f"Location: {finding.primary.file}:{finding.primary.start_line}",
+            "=== 심사할 주장 ===",
+            f"제목: {finding.title}",
+            f"CWE: {finding.cwe or '없음'}",
+            f"심각도: {finding.severity}",
+            f"위치: {finding.primary.file}:{finding.primary.start_line}",
             f"Anchor: {finding.primary.excerpt.strip()}",
-            f"Explanation: {finding.explanation}",
-            f"Evidence:\n{evidence}" if evidence else "Evidence: none given",
-            *(["=== WHAT THE TOOLS RETURNED ===", gathered] if gathered.strip() else []),
-            "Does this claim hold up against the material above? Default to refuted if uncertain.",
+            f"설명: {finding.explanation}",
+            f"근거:\n{evidence}" if evidence else "근거: 제시되지 않음",
+            *(["=== 도구가 돌려준 것 ===", gathered] if gathered.strip() else []),
+            "이 주장이 위 자료를 견딥니까? 확신이 서지 않으면 반박 쪽으로 두십시오.",
         ]
     )

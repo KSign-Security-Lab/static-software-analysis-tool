@@ -41,7 +41,7 @@ def _signature(chunk: Chunk) -> str:
 def truncate(text: str, limit: int) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
-    return text[:limit] + f"\n... [truncated at {limit} characters]", True
+    return text[:limit] + f"\n... [{limit}자에서 잘림]", True
 
 
 def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> ContextPack:
@@ -51,8 +51,8 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
     budget = config.context_char_budget
 
     body, truncated = truncate(chunk.numbered_body(), config.max_chunk_chars)
-    label = "FILE-LEVEL DECLARATIONS" if chunk.kind == FILE_CHUNK_KIND else "UNIT UNDER ANALYSIS"
-    header = f"=== {label}: {chunk.file} :: {chunk.symbol} (lines {chunk.start_line}-{chunk.end_line}) ==="
+    label = "파일 수준 선언" if chunk.kind == FILE_CHUNK_KIND else "분석 대상 단위"
+    header = f"=== {label}: {chunk.file} :: {chunk.symbol} ({chunk.start_line}-{chunk.end_line}번 줄) ==="
     primary = f"{header}\n{body}"
     sections.append(primary)
     budget -= len(primary)
@@ -67,7 +67,7 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
 
     if callee_notes:
         lines = [
-            "=== WHAT THIS UNIT'S CALLEES DO (from analysing them first) ===",
+            "=== 이 단위가 부르는 것들이 하는 일 (먼저 분석한 결과) ===",
             *(f"- {symbol}: {note}" for symbol, note in callee_notes),
         ]
         block = "\n".join(lines)
@@ -79,7 +79,7 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
         file_chunk = next((c for c in store.chunks_in_file(chunk.file) if c.kind == FILE_CHUNK_KIND), None)
         if file_chunk is not None and file_chunk.body.strip():
             block, _ = truncate(
-                f"=== TOP-LEVEL DECLARATIONS IN {chunk.file} ===\n{file_chunk.body}",
+                f"=== {chunk.file} 의 최상위 선언 ===\n{file_chunk.body}",
                 max(0, min(budget, config.max_chunk_chars)),
             )
             if block and len(block) <= budget:
@@ -95,7 +95,7 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
     if callers:
         block = "\n".join(
             [
-                "=== CALLED FROM ===",
+                "=== 여기서 호출됨 ===",
                 *(f"- {c.file}:{c.start_line} {_signature(c)}" for c in callers[:10]),
             ]
         )
@@ -126,14 +126,14 @@ def _type_definitions(store: ChunkStore, chunk: Chunk, budget: int) -> str:
             snippet = _extract_type(definition.body, type_name)
             if not snippet:
                 continue
-            entry = f"- {type_name} (from {definition.file}):\n{snippet}"
+            entry = f"- {type_name} ({definition.file} 에서):\n{snippet}"
             if len(entry) > remaining:
                 break
             blocks.append(entry)
             remaining -= len(entry)
             break
 
-    return "=== TYPES USED ===\n" + "\n".join(blocks) if blocks else ""
+    return "=== 쓰이는 타입 ===\n" + "\n".join(blocks) if blocks else ""
 
 
 def _extract_type(body: str, type_name: str) -> str:

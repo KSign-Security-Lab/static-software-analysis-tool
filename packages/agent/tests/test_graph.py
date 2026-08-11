@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from agent.config import AgentConfig
 from agent.graph.build import run_inspection
 from agent.index import ChunkStore, build_index
+from agent.prompts import LENS_SYSTEM
 from agent.trace import SpanStore
 from agent.schema import (
     CandidateEvidence,
@@ -259,7 +260,7 @@ def test_callee_notes_are_injected_into_caller_context(indexed) -> None:
     handler_prompts = [p for p in caller.prompts_for("ChunkAnalysis") if ":: handler " in p]
     assert handler_prompts, "handler was never analysed"
     assert note in handler_prompts[0], "the callee's note did not reach its caller"
-    assert "WHAT THIS UNIT'S CALLEES DO" in handler_prompts[0]
+    assert "이 단위가 부르는 것들이 하는 일" in handler_prompts[0]
     store.close()
 
 
@@ -406,7 +407,7 @@ def test_verification_gathers_evidence_with_tools_before_ruling(indexed) -> None
 
     verdict_prompts = caller.prompts_for("Verdict")
     assert verdict_prompts, "no verdict was requested"
-    assert "WHAT THE TOOLS RETURNED" in verdict_prompts[0]
+    assert "도구가 돌려준 것" in verdict_prompts[0]
     assert "handler passes taint_source" in verdict_prompts[0]
     assert report.findings
     store.close()
@@ -422,7 +423,7 @@ def test_verification_works_without_tools(indexed) -> None:
 
     assert caller.gather_calls == []
     assert len(report.findings) == 1
-    assert "WHAT THE TOOLS RETURNED" not in caller.prompts_for("Verdict")[0]
+    assert "도구가 돌려준 것" not in caller.prompts_for("Verdict")[0]
     store.close()
 
 
@@ -436,7 +437,7 @@ def test_an_empty_gather_does_not_pollute_the_verdict_prompt(indexed) -> None:
 
     _run(root, store, caller, tools=session)
 
-    assert "WHAT THE TOOLS RETURNED" not in caller.prompts_for("Verdict")[0]
+    assert "도구가 돌려준 것" not in caller.prompts_for("Verdict")[0]
     store.close()
 
 
@@ -832,10 +833,10 @@ def test_every_selected_lens_analyses_the_chunk(indexed) -> None:
     _run(root, store, caller, lenses=("memory", "injection", "access", "logic"))
 
     systems = [system for name, system in caller.systems if name == "ChunkAnalysis"]
-    assert any("memory-safety specialist" in s for s in systems)
-    assert any("injection specialist" in s for s in systems)
-    assert any("access-control and secrets specialist" in s for s in systems)
-    assert any("logic and resource-lifetime specialist" in s for s in systems)
+    # Against the prompts themselves rather than a phrase out of one. The brief
+    # is prose and gets re-tuned; which brief was sent is the claim being made.
+    for lens in ("memory", "injection", "access", "logic"):
+        assert LENS_SYSTEM[lens] in systems, f"{lens} was never asked"
 
 
 def test_two_lenses_reporting_one_anchor_make_one_finding(indexed) -> None:
@@ -870,7 +871,7 @@ def test_triage_picks_which_specialists_run(indexed) -> None:
 
     systems = [system for name, system in caller.systems if name == "ChunkAnalysis"]
     assert systems, "the chosen lens should still have run"
-    assert all("memory-safety specialist" in s for s in systems), "only the chosen lens should run"
+    assert all(s == LENS_SYSTEM["memory"] for s in systems), "only the chosen lens should run"
 
 
 def test_a_lens_switched_off_stays_off_whatever_triage_says(indexed) -> None:
@@ -882,7 +883,7 @@ def test_a_lens_switched_off_stays_off_whatever_triage_says(indexed) -> None:
     _run(root, store, caller, lenses=("injection",))
 
     systems = [system for name, system in caller.systems if name == "ChunkAnalysis"]
-    assert systems and all("injection specialist" in s for s in systems)
+    assert systems and all(s == LENS_SYSTEM["injection"] for s in systems)
 
 
 def test_screening_that_fails_analyses_anyway(indexed) -> None:
