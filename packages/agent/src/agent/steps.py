@@ -22,13 +22,17 @@ from .mcp.client import VERIFY_TOOLS
 from .promptstore import lens_prompt
 from .schema import LENSES, ChunkAnalysis, Triage, Verdict
 
-#: Which graph node makes each kind of call. Several steps run inside one node --
-#: `gather` and `verify` are both the `verify` node -- which is exactly why the
-#: node name alone was never enough to say what a call was for.
+#: Which graph node makes each kind of call.
+#:
+#: A step key is not a node name and this is the only thing that says so:
+#: `lens:memory` runs in `memory`. It used to carry a second job as well --
+#: `gather` and `verify` were both the `verify` node, so the node name could not
+#: say what a call was for -- and that is now a node of its own, because the
+#: step that reaches for tools is the step worth being able to stop at.
 STEP_NODE: dict[str, str] = {
     "triage": "triage",
     **{lens_prompt(lens): lens for lens in LENSES},
-    "gather": "verify",
+    "gather": "gather",
     "verify": "verify",
 }
 
@@ -119,7 +123,7 @@ def _tool_catalogue() -> dict[str, dict[str, Any]]:
 
 #: The nodes that never call a model.
 #:
-#: Five of the eleven. They are ordinary Python: they take work off a queue, build
+#: Five of the twelve. They are ordinary Python: they take work off a queue, build
 #: the text a specialist reads, resolve what one quoted back to a real span, and
 #: write down what survived. Named here rather than inferred from the absence of a
 #: step so that adding a node to the graph has to say which kind it is --
@@ -160,7 +164,7 @@ NODE_NOTES: dict[str, dict[str, Any]] = {
         "reads": ["candidates"],
         "writes": ["located"],
         "router": "claims",
-        "rule": "one verify per finding under AGENT_MAX_VERIFY_PER_CHUNK; none left -> reduce",
+        "rule": "one gather per finding under AGENT_MAX_VERIFY_PER_CHUNK; none left -> reduce",
     },
     "reduce": {
         "does": "Writes what survived to the run's store and closes the wave. Findings over the verify cap are kept but marked unverified rather than silently blessed.",

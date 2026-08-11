@@ -3,12 +3,13 @@
 The loop is::
 
     plan -> context -> triage -> {memory, injection, access, logic}
-         -> locate -> verify -> reduce -> plan
+         -> locate -> gather -> verify -> reduce -> plan
 
-exiting when ``plan`` finds no unvisited chunk. Three of those arrows fan out:
+exiting when ``plan`` finds no unvisited chunk. Four of those arrows fan out:
 one triage per chunk in the wave, one specialist per lens that chunk earned, one
-verifier per finding. Everything joins again at ``locate`` and ``reduce``, which
-is where order is restored.
+investigation per finding, and the verifier that investigation hands its claim
+to. Everything joins again at ``locate`` and ``reduce``, which is where order is
+restored.
 
 Control flow is deterministic: the model decides what a chunk *contains* and
 which specialists it deserves, never which chunk comes next or where the graph
@@ -38,14 +39,14 @@ from .state import InspectionState
 #: The limit is generous so a large upload is bounded by the queue rather than
 #: by LangGraph, and it is computed from the work rather than guessed. A wave
 #: pays this once for the whole wave, so the real bound is looser still.
-NODE_VISITS_PER_CHUNK = 8
+NODE_VISITS_PER_CHUNK = 9
 RECURSION_HEADROOM = 20
 
 #: The graph's nodes, named once. A breakpoint is checked against this, and the
 #: API answers with it, so neither has to compile a graph to find out. Every
 #: lens is registered whether or not this run uses it, so the drawing of the
 #: agent is the same drawing however the run is configured.
-NODES = ("plan", "context", "triage", *LENSES, "skip", "locate", "verify", "reduce")
+NODES = ("plan", "context", "triage", *LENSES, "skip", "locate", "gather", "verify", "reduce")
 
 
 def build_graph(
@@ -84,6 +85,11 @@ def build_graph(
         graph.add_node(lens, nodes[lens])
     graph.add_node("skip", nodes["skip"])
     graph.add_node("locate", nodes["locate"])
+    # `destinations` because `gather` routes itself: it returns a `Command`
+    # carrying a `Send`, and a `Send` decided inside a node is invisible to
+    # `get_graph()` unless the node declares where it can go. Same reason the
+    # conditional edges below list their targets -- an undrawn edge is a lie.
+    graph.add_node("gather", nodes["gather"], destinations=("verify",))
     graph.add_node("verify", nodes["verify"])
     graph.add_node("reduce", nodes["reduce"])
 
@@ -101,7 +107,7 @@ def build_graph(
     # it -- see `nodes.skip`.
     for source in (*LENSES, "skip"):
         graph.add_edge(source, "locate")
-    graph.add_conditional_edges("locate", claims, ["verify", "reduce"])
+    graph.add_conditional_edges("locate", claims, ["gather", "reduce"])
     graph.add_edge("verify", "reduce")
     graph.add_edge("reduce", "plan")
     return graph.compile(

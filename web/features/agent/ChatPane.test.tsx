@@ -32,7 +32,7 @@ const STEPS: AgentStep[] = [
   },
   {
     step: "gather",
-    node: "verify",
+    node: "gather",
     prompt: "gather",
     schema: null,
     schema_fields: [],
@@ -95,7 +95,7 @@ const THREADS: Thread[] = [
         id: "span-gather",
         step: "gather",
         name: "gather:CWE-122 net.c:12",
-        node: "verify",
+        node: "gather",
         raised_by: "injection",
         messages: [
           { role: "system", content: "판정 전에 사실을 확인하십시오." },

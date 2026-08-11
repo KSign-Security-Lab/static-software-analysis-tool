@@ -1,14 +1,22 @@
 """The nodes of the inspection loop, and the routers that fan them out.
 
     plan -> context -> triage -> {memory, injection, access, logic}
-         -> locate -> verify -> reduce -> (next wave, or done)
+         -> locate -> gather -> verify -> reduce -> (next wave, or done)
 
 Three things happen at once here, and each is a different kind of parallelism.
 A *wave* is several chunks at one call depth, which by construction cannot need
 each other's notes. A *lens* is one of four specialists looking at one chunk for
-its own family of defect. A *verify* is one claim being refuted. All three fan
-out through LangGraph's `Send`, so the graph shows what is actually in flight
-rather than one node that takes a long time.
+its own family of defect. A *gather* and the *verify* below it are one claim
+being investigated and then refuted. All of them fan out through LangGraph's
+`Send`, so the graph shows what is actually in flight rather than one node that
+takes a long time.
+
+`gather` fans out to `verify` itself rather than reaching it by a plain edge,
+and that is load-bearing. The claim under investigation travels in the `Send`
+payload, not in graph state -- `finding`, `lens` and `chunk_id` are not channels
+-- so an ordinary edge would turn `verify` into a join that fires once per
+super-step with no claim in front of it, return nothing, and let `reduce` count
+every finding as refuted. Silently.
 
 Built by :func:`make_nodes` so they close over the store, the model client and
 the run root instead of carrying them in graph state.
@@ -21,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
-from langgraph.types import Send
+from langgraph.types import Command, Send
 
 from ..config import AgentConfig
 from ..context import ContextPack, build_context
@@ -402,6 +410,69 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         return {"located": located, "stats": {"dropped_unlocatable": dropped} if dropped else {}}
 
+    def gather(state: Any) -> Any:
+        """Look things up before ruling on one claim.
+
+        Its own node rather than the first half of `verify`, because this is
+        where the agent goes and reads things -- and "where did it go looking"
+        should be somewhere you can stop the run and stand. It is the only step
+        holding tools, so it is also the only one whose cost is unbounded by the
+        prompt.
+
+        Runs whether or not tools are configured; without them it forwards an
+        empty transcript. The drawing of the agent should not change shape with
+        the deployment, which is the same rule `build.NODES` applies to a lens
+        that this run happens not to use.
+
+        Hands the claim on itself, in the `Send` -- see the module docstring for
+        why an edge here would quietly empty the report.
+        """
+        chunk = _chunk(state)
+        payload = state.get("finding") or {}
+        if chunk is None or not payload:
+            # Nothing to investigate and nothing to rule on. `reduce` reads a
+            # missing verdict as refuted, which is what it did before this node
+            # existed and `verify` returned empty.
+            return Command(goto=[])
+
+        finding = Finding.model_validate(payload)
+        # Which specialist raised this, so the trace records the hand-off.
+        raised_by = state.get("lens")
+
+        gathered = ""
+        if deps.tools is not None:
+            gathered = deps.caller.gather(
+                deps.prompts["gather"],
+                gather_user(finding, deps.pack_for(chunk)),
+                deps.tools,
+                deps.config.max_tool_calls,
+                trace=call_config(
+                    step="gather",
+                    run_id=deps.run_id,
+                    chunk_id=chunk.chunk_id,
+                    file=chunk.file,
+                    symbol=chunk.symbol,
+                    # Also what keeps this call's span from being named after
+                    # the node and read as a second node span.
+                    subject=_finding_subject(finding),
+                    lens=raised_by,
+                ),
+            )
+
+        return Command(
+            goto=[
+                Send(
+                    "verify",
+                    {
+                        "chunk_id": state.get("chunk_id"),
+                        "finding": payload,
+                        "lens": raised_by,
+                        "gathered": gathered,
+                    },
+                )
+            ]
+        )
+
     def verify(state: Any) -> dict[str, Any]:
         """Refute one finding. Whether it survives is decided in `reduce`."""
         chunk = _chunk(state)
@@ -411,27 +482,11 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         finding = Finding.model_validate(payload)
         pack = deps.pack_for(chunk)
-        # Which specialist raised this, so the trace records the hand-off.
         raised_by = state.get("lens")
-
-        # Check the claim before ruling on it. Empty without tools.
-        gathered = ""
-        if deps.tools is not None:
-            gathered = deps.caller.gather(
-                deps.prompts["gather"],
-                gather_user(finding, pack),
-                deps.tools,
-                deps.config.max_tool_calls,
-                trace=call_config(
-                    step="gather",
-                    run_id=deps.run_id,
-                    chunk_id=chunk.chunk_id,
-                    file=chunk.file,
-                    symbol=chunk.symbol,
-                    subject=_finding_subject(finding),
-                    lens=raised_by,
-                ),
-            )
+        # Whatever `gather` turned up, carried in the Send rather than through a
+        # state channel: a tool transcript is bulky and a channel would put a
+        # copy of it in every checkpoint from here to the end of the run.
+        gathered = state.get("gathered") or ""
 
         verdict = deps.caller.call(
             Verdict,
@@ -532,6 +587,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         "triage": triage,
         "skip": skip,
         "locate": locate,
+        "gather": gather,
         "verify": verify,
         "reduce": reduce,
     }
@@ -585,7 +641,7 @@ def specialists(state: Any) -> Any:
 
 
 def claims(state: InspectionState) -> Any:
-    """From `locate`: one verifier per finding worth the cost.
+    """From `locate`: one investigation per finding worth the cost.
 
     Carries the lens through. `locate` knows which specialist raised each claim
     and used to drop it here, which left the trace unable to say who a verifier
@@ -593,7 +649,7 @@ def claims(state: InspectionState) -> Any:
     """
     sends = [
         Send(
-            "verify",
+            "gather",
             {"chunk_id": item["chunk_id"], "finding": item["finding"], "lens": item.get("lens")},
         )
         for item in state.get("located", [])

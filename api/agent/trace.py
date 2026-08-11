@@ -214,8 +214,9 @@ def _turn(span: Any, by_id: Dict[str, Any]) -> Dict[str, Any]:
         "step": span.meta.get("step") or span.name,
         "name": span.name,
         # Which node made the call, so narrowing the record to one node of the
-        # graph is a comparison rather than a guess at the span's name -- `gather`
-        # and `verify` are both the `verify` node and neither is called that.
+        # graph is a comparison rather than a guess at the span's name: a span is
+        # named `{step}:{subject}`, so `lens:memory` in the `memory` node is
+        # called neither of those things.
         "node": span.meta.get("langgraph_node"),
         # Which specialist raised the claim this call is about. gather and verify
         # only; it is what makes the hand-off from analysis to verification

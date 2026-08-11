@@ -22,7 +22,7 @@ links  ── calls / uses_type / file_depends
 inspection loop, one wave of independent chunks at a time:
    plan → context → triage ─┬→ memory    ─┐
                             ├→ injection ─┤
-                            ├→ access    ─┼→ locate → verify → reduce
+                            ├→ access    ─┼→ locate → gather → verify → reduce
                             └→ logic     ─┘
 ```
 

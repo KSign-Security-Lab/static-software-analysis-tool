@@ -56,9 +56,9 @@ def agent_graph() -> Dict[str, Any]:
     been inspected -- the structure is the thing you want to look at first.
 
     ``steps`` is here rather than at a route of its own because it is the same
-    question one level down. The graph says a chunk goes through `verify`; the
-    steps say `verify` is two model calls, that the first may reach for nine
-    tools and the second for none, and which prompt each was given. A trace can
+    question one level down. The graph says a chunk goes through `gather`; the
+    steps say what that call may reach for -- nine tools, against `verify`'s
+    none -- and which prompt each was given. A trace can
     never supply the second half: a tool that was offered and not called leaves
     no span behind.
     """

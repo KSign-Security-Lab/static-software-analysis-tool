@@ -51,8 +51,8 @@ function Ports({ across }: { across: boolean }) {
  * queue, `context` assembles the packs, `locate` resolves anchors, `reduce` writes
  * the results, `skip` exists so a join fires once -- and none of them calls a
  * model. They looked identical to the ones that do, and there was no way to tell
- * from the drawing which boxes were agents. Only `triage`, the four specialists and
- * `verify` are, and only `gather` inside `verify` holds tools.
+ * from the drawing which boxes were agents. Only `triage`, the four specialists,
+ * `gather` and `verify` are, and only `gather` holds tools.
  *
  * `agent` and `code` rather than a longer word for either: they go in a box 124px
  * wide, beside the node's own name.
@@ -77,9 +77,10 @@ function Tags({ steps, tools, roster }: { steps: string[]; tools: number; roster
       {tools > 0 && (
         <span className="rounded-sm bg-surface-3 px-1 font-mono text-2xs leading-tight text-alt">{tools} tools</span>
       )}
-      {/* Only where it says something the node's own name does not. `verify` runs
-          two steps and neither is called `verify` alone; `memory` runs
-          `lens:memory`, which is the same fact twice. */}
+      {/* Only where it says something the node's own name does not: `memory` runs
+          `lens:memory`, which is the same fact twice. No node runs more than one
+          step today -- `gather` was the last and it has a box now -- so this is
+          for the next one that does rather than for anything on screen. */}
       {steps.length > 1 && (
         <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{steps.join(" · ")}</span>
       )}

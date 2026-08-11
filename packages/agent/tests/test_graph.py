@@ -525,6 +525,7 @@ def test_the_graph_shape_is_readable_without_a_run(tmp_path: Path) -> None:
         "logic",
         "skip",
         "locate",
+        "gather",
         "verify",
         "reduce",
         "__end__",
@@ -539,6 +540,9 @@ def test_the_graph_shape_is_readable_without_a_run(tmp_path: Path) -> None:
     conditional = {(e["source"], e["target"]) for e in shape["edges"] if e["conditional"]}
     assert ("plan", "__end__") in conditional
     assert ("triage", "memory") in conditional, "a Send is invisible unless the edge declares it"
+    # `gather` routes itself, with a Send inside a Command rather than a router.
+    # It has to declare its destination for the same reason.
+    assert ("gather", "verify") in conditional
 
 
 def test_a_run_checkpoints_every_super_step(indexed, tmp_path: Path) -> None:
@@ -1008,6 +1012,49 @@ def test_a_breakpoint_stops_every_task_of_a_fanned_out_step(indexed, tmp_path: P
         session.start()
         assert session.interrupted
         assert session.next_nodes == ["injection"] * 3, session.next_nodes
+
+
+def test_a_run_can_be_stopped_where_it_goes_looking(indexed, tmp_path: Path) -> None:
+    """The point of `gather` being a node.
+
+    Retrieval is the step whose cost the prompt does not bound -- it is the only
+    one holding tools -- and until it had a node of its own there was nowhere to
+    stop and see what the agent was about to go and read.
+    """
+    config = AgentConfig(model="fake", enable_tools=False, lenses=("injection",))
+
+    with _session(
+        indexed,
+        tmp_path,
+        config=config,
+        caller=ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])}),
+        breakpoints=["gather"],
+    ) as session:
+        session.start()
+        assert session.interrupted
+        assert session.next_nodes == ["gather"], session.next_nodes
+
+
+def test_what_gather_turned_up_reaches_the_verifier(indexed, tmp_path: Path) -> None:
+    """The hand-off the split had to preserve.
+
+    The claim and the transcript travel in the `Send`, not in graph state. A
+    plain edge between the two nodes would make `verify` a join with no claim in
+    front of it -- and `reduce` reads a missing verdict as a refutation, so the
+    report would come back empty with nothing raised anywhere.
+    """
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    caller.gathered = "find_callers(run_command) -> handler passes taint straight in"
+
+    report = _run(root, store, caller, tools=FakeToolSession())
+
+    assert len(caller.gather_calls) == 1, "one investigation per claim, not per wave"
+    verdict_prompts = caller.prompts_for("Verdict")
+    assert len(verdict_prompts) == 1, "the claim reached exactly one verifier"
+    assert caller.gathered in verdict_prompts[0], "what gather read never reached the ruling"
+    assert report.findings and report.findings[0].verified is True
+    store.close()
 
 
 def test_editing_state_at_a_fanned_out_step_is_refused(indexed, tmp_path: Path) -> None:

@@ -43,10 +43,16 @@ def test_only_gather_holds_tools_and_it_holds_them_all() -> None:
     assert "path" in dict(zip(names, described["gather"]["tools"]))["read_source"]["parameters"]
 
 
-def test_gather_and_verify_are_two_steps_of_one_node() -> None:
-    """The reason a node name was never enough to say what a call was for."""
+def test_gathering_evidence_is_a_node_of_its_own() -> None:
+    """The one step that goes and reads things is the one worth stopping at.
+
+    It used to be the first half of `verify`, which meant the drawing of the
+    agent had no box for retrieval at all -- the run went and looked things up
+    inside a node named after the ruling it made afterwards.
+    """
     described = _by_step()
-    assert described["gather"]["node"] == described["verify"]["node"] == "verify"
+    assert described["gather"]["node"] == "gather"
+    assert described["verify"]["node"] == "verify"
     assert described["gather"]["schema"] is None, "a tool-calling loop returning prose"
     assert described["verify"]["schema"] == "Verdict"
     assert "refuted" in described["verify"]["schema_fields"]
@@ -120,13 +126,20 @@ def test_an_agent_node_is_one_because_a_step_names_it() -> None:
     assert by_node["plan"]["agent"] is False
     assert by_node["plan"]["calls"] == 0
     assert by_node["triage"]["agent"] is True
-    # Two steps of one node, and the tools belong to the first of them.
+    # One step each, and the tools belong to the one that goes looking.
+    assert by_node["gather"] == {
+        **by_node["gather"],
+        "agent": True,
+        "steps": ["gather"],
+        "calls": 1,
+        "tools": 9,
+    }
     assert by_node["verify"] == {
         **by_node["verify"],
         "agent": True,
-        "steps": ["gather", "verify"],
-        "calls": 2,
-        "tools": 9,
+        "steps": ["verify"],
+        "calls": 1,
+        "tools": 0,
     }
     # The deterministic ones carry the explanation instead.
     assert by_node["locate"]["does"]

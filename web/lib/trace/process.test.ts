@@ -5,7 +5,7 @@ import { pairTools, subjectOf, unitsOf, unwrapToolOutput } from "./process";
 
 const GATHER: AgentStep = {
   step: "gather",
-  node: "verify",
+  node: "gather",
   prompt: "gather",
   schema: null,
   schema_fields: [],
@@ -168,16 +168,35 @@ describe("unitsOf", () => {
   });
 
   it("narrows to one node by the node, not by the name", () => {
-    // What clicking a node in 에이전트 means. `gather` and `verify` are both the
-    // `verify` node and neither is called that, so matching the span name would
-    // have dropped both.
+    // What clicking a node in 에이전트 구조 means. A span is named
+    // `{step}:{subject}`, so matching the name would have dropped both.
     const turns = [
-      turn({ id: "a", step: "gather", name: "gather:x", node: "verify" }),
+      turn({ id: "a", step: "gather", name: "gather:x", node: "gather" }),
       turn({ id: "b", step: "lens:memory", name: "lens:memory:proc_0", node: "memory" }),
     ];
-    const [unit] = unitsOf([thread(turns)], [GATHER, VERIFY], "verify");
+    const [unit] = unitsOf([thread(turns)], [GATHER, VERIFY], "gather");
 
     expect(unit.exchanges.map((each) => each.id)).toEqual(["a"]);
+  });
+
+  it("keeps the hand-offs a narrowed node made to turns it can no longer see", () => {
+    // Narrowing used to happen before the conversation was read for its
+    // hand-offs, so a scoped node was asked what it passed to a turn that had
+    // already been filtered out -- and answered nothing. Scoping to the lens
+    // dropped that lens's own arrow into gather, silently, because an argument
+    // with its edges removed still renders.
+    const turns = [
+      turn({ id: "i", step: "lens:injection", name: "lens:injection:proc_0", node: "injection", raised_by: null }),
+      turn({ id: "g", step: "gather", name: "gather:CWE-78 net.c:12", node: "gather", raised_by: "injection" }),
+      turn({ id: "v", step: "verify", name: "verify:CWE-78 net.c:12", node: "verify", raised_by: "injection" }),
+    ];
+
+    const [lens] = unitsOf([thread(turns)], [GATHER, VERIFY], "injection");
+    expect(lens.exchanges[0].to).toEqual(["gather"]);
+
+    const [gather] = unitsOf([thread(turns)], [GATHER, VERIFY], "gather");
+    expect(gather.exchanges[0].from).toEqual(["lens:injection"]);
+    expect(gather.exchanges[0].to).toEqual(["verify"]);
   });
 
   it("drops a unit that has nothing left after narrowing", () => {
@@ -185,7 +204,10 @@ describe("unitsOf", () => {
   });
 
   it("counts a narrowed unit's tokens over what is shown", () => {
-    const turns = [turn({ id: "a", tokens: 100 }), turn({ id: "b", node: "memory", tokens: 900 })];
+    const turns = [
+      turn({ id: "a", tokens: 100 }),
+      turn({ id: "b", step: "lens:memory", name: "lens:memory:proc_0", node: "memory", tokens: 900 }),
+    ];
     const [unit] = unitsOf([thread(turns)], [VERIFY], "verify");
     expect(unit.tokens).toBe(100);
   });
@@ -209,7 +231,7 @@ describe("unitsOf, over the attempts one step really takes", () => {
       id,
       step: "gather",
       name: `gather:${subject}`,
-      node: "verify",
+      node: "gather",
       reply,
       tokens: 100,
       latency_ms: 500,
@@ -354,7 +376,7 @@ describe("the hand-offs between agents", () => {
         id: "g",
         step: "gather",
         name: "gather:CWE-78 net.c:12",
-        node: "verify",
+        node: "gather",
         raised_by: "injection",
       }),
       turn({
@@ -377,8 +399,8 @@ describe("the hand-offs between agents", () => {
     // A wave verifies several findings at once and their turns interleave; the
     // subject is `{cwe} {file}:{line}`, so sharing one means being one claim.
     const by = unit([
-      turn({ id: "g1", step: "gather", name: "gather:CWE-78 net.c:12", node: "verify", raised_by: "injection" }),
-      turn({ id: "g2", step: "gather", name: "gather:CWE-122 net.c:12", node: "verify", raised_by: "memory" }),
+      turn({ id: "g1", step: "gather", name: "gather:CWE-78 net.c:12", node: "gather", raised_by: "injection" }),
+      turn({ id: "g2", step: "gather", name: "gather:CWE-122 net.c:12", node: "gather", raised_by: "memory" }),
       turn({ id: "v1", step: "verify", name: "verify:CWE-78 net.c:12", node: "verify", raised_by: "injection" }),
     ]);
 
@@ -390,7 +412,7 @@ describe("the hand-offs between agents", () => {
 
   it("says nothing about a hand-off the agent did not record", () => {
     // Runs traced before the agent carried the lens. Absent, not fabricated.
-    const by = unit([turn({ id: "g", step: "gather", name: "gather:CWE-78 net.c:12", node: "verify" })]);
+    const by = unit([turn({ id: "g", step: "gather", name: "gather:CWE-78 net.c:12", node: "gather" })]);
     expect(by.get("g")!.from).toEqual([]);
   });
 });

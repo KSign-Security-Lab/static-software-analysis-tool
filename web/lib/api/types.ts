@@ -95,7 +95,7 @@ export interface GraphShape {
 /**
  * One node of the graph, and what kind of thing it is.
  *
- * Five of the eleven never call a model -- they take work off a queue, build the
+ * Five of the twelve never call a model -- they take work off a queue, build the
  * text a specialist reads, resolve what one quoted back to a real span, and write
  * down what survived. Nothing of them appears in any trace, which left half the
  * drawing looking like it did nothing.
@@ -138,7 +138,7 @@ export interface ToolSpec {
 export interface AgentStep {
   /** The key its spans carry in `meta.step`, and its prompt's name. */
   step: string;
-  /** The graph node it runs in. `gather` and `verify` share one. */
+  /** The graph node it runs in. Not its own name: `lens:memory` runs in `memory`. */
   node: string;
   prompt: string;
   /** What guided decoding constrained the reply to; null for a tool loop. */

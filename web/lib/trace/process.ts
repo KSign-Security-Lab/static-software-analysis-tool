@@ -195,24 +195,33 @@ function textOf(messages: Turn["messages"], roles: (role: string) => boolean): s
  * Turn the wire shapes into the panel's model.
  *
  * `node` narrows to one node of the graph -- what clicking a node in 에이전트
- * means. Compared against the turn's own node rather than matched against its
- * name: `gather` and `verify` are both the `verify` node and neither is called
- * that, so the name never could have answered it.
+ * 구조 means. Compared against the turn's own node rather than matched against
+ * its name: a span is named `{step}:{subject}`, so `lens:memory` in the `memory`
+ * node is called neither of those things.
+ *
+ * Linked before it is narrowed, which is the whole subtlety here. `link` reads
+ * a conversation to find out which turn fed which -- 선별 naming the specialists
+ * it dispatched, a claim passing from a lens to `gather` to `verify` -- and it
+ * can only see hand-offs between turns it was given. Narrowing first meant
+ * asking a subset of the conversation what it handed to a turn that had already
+ * been filtered out, so scoping to a lens dropped that lens's own `→ gather`
+ * arrow. Nothing said so: an argument with its edges removed still renders.
  */
 export function unitsOf(threads: Thread[], steps: AgentStep[], node?: string | null): Unit[] {
   const byStep = new Map(steps.map((step) => [step.step, step]));
 
   return threads
     .map((thread) => {
-      const kept = node ? thread.turns.filter((turn) => turn.node === node) : thread.turns;
+      const whole = link(merge(thread.turns).map((attempts) => exchangeOf(attempts, byStep.get(attempts[0].step))));
+      const exchanges = node ? whole.filter((exchange) => exchange.node === node) : whole;
       return {
         id: thread.id,
         symbol: thread.symbol,
         file: thread.file,
-        exchanges: link(merge(kept).map((attempts) => exchangeOf(attempts, byStep.get(attempts[0].step)))),
+        exchanges,
         // Recounted over what is shown, so a narrowed unit does not claim the
         // whole run's spend.
-        tokens: kept.reduce((sum, turn) => sum + (turn.tokens ?? 0), 0),
+        tokens: exchanges.reduce((sum, exchange) => sum + (exchange.tokens ?? 0), 0),
       };
     })
     .filter((unit) => unit.exchanges.length > 0);

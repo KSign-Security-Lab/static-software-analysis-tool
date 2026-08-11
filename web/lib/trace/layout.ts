@@ -153,7 +153,8 @@ export function layoutGraph(
   const afterSet = new Set(after);
 
   // Which steps run in which node, off the roster the API serves with the shape.
-  // `gather` and `verify` are both the `verify` node, so this is a list.
+  // A list because nothing guarantees one step per node, and the drawing should
+  // not be the thing that discovers otherwise.
   const steps = shape.steps ?? [];
   const byNode = new Map<string, typeof steps>();
   for (const step of steps) byNode.set(step.node, [...(byNode.get(step.node) ?? []), step]);

@@ -463,7 +463,7 @@ def test_graph_endpoint_says_what_each_step_is_given_and_may_reach_for(client: T
 
     assert steps["triage"]["schema"] == "Triage"
     assert steps["lens:memory"]["prompt"] == "lens:memory"
-    assert steps["gather"]["node"] == "verify", "two steps of one node"
+    assert steps["gather"]["node"] == "gather", "retrieval is a node, not a half of one"
     assert [tool["name"] for tool in steps["gather"]["tools"]][:1] == ["read_source"]
     assert all(not entry["tools"] for step, entry in steps.items() if step != "gather")
 
@@ -545,6 +545,7 @@ def test_graph_endpoint_names_the_nodes_a_breakpoint_may_use(client: TestClient)
         "logic",
         "skip",
         "locate",
+        "gather",
         "verify",
         "reduce",
     }
