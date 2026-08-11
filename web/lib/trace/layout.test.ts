@@ -90,11 +90,13 @@ describe("layoutGraph", () => {
     }).points;
     const boxes = laid.nodes
       .filter((n) => n.id !== "plan" && n.id !== "__end__")
-      .map((n) => ({ x: n.position.x, y: n.position.y }));
+      // The node's own height, not the constant: a box holding tool names is
+      // taller than one holding none, and this fixture should not have to know.
+      .map((n) => ({ x: n.position.x, y: n.position.y, h: n.data.height }));
 
     for (const point of points) {
       for (const box of boxes) {
-        const inside = point.x > box.x && point.x < box.x + NODE_W && point.y > box.y && point.y < box.y + NODE_H;
+        const inside = point.x > box.x && point.x < box.x + NODE_W && point.y > box.y && point.y < box.y + box.h;
         expect(inside).toBe(false);
       }
     }
@@ -248,6 +250,21 @@ describe("what each box is", () => {
     const data = dataOf(SHAPE);
     expect(data.get("gather")).toMatchObject({ steps: ["gather"], tools: 2 });
     expect(data.get("verify")).toMatchObject({ steps: ["verify"], tools: 0 });
+  });
+
+  it("names the tools, because a count cannot say the run can search semantically", () => {
+    const data = dataOf(SHAPE);
+    expect(data.get("gather")!.toolNames).toEqual(["read_source", "search_text"]);
+    expect(data.get("verify")!.toolNames).toEqual([]);
+    expect(data.get("plan")!.toolNames).toEqual([]);
+  });
+
+  it("gives the box holding them the room to say so", () => {
+    // dagre is told the taller size before it lays anything out, so the routes
+    // go around the real box rather than around a 64px idea of it.
+    const data = dataOf(SHAPE);
+    expect(data.get("gather")!.height).toBeGreaterThan(data.get("verify")!.height);
+    expect(data.get("verify")!.height).toBe(NODE_H);
   });
 
   it("says nothing rather than guessing when the roster has not arrived", () => {
