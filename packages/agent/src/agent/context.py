@@ -8,6 +8,7 @@ produces a different context every run, which makes findings irreproducible.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .config import AgentConfig
@@ -46,6 +47,70 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
     return text[:limit] + f"\n... [{limit}자에서 잘림]", True
 
 
+#: Words that are not names worth chasing a declaration for. Not a grammar --
+#: deliberately small, and shared across the languages the index chunks, because
+#: the cost of a miss here is one extra line of context.
+_NOT_NAMES = frozenset(
+    """
+    if else for while do switch case break continue return goto sizeof typedef
+    struct union enum const static extern volatile register inline void char int
+    long short float double signed unsigned auto new delete this null nullptr
+    true false and or not in is def class import from as pass raise try except
+    finally with lambda self func var let type interface package go defer chan
+    map range nil error string bool byte rune public private protected final
+    abstract implements extends throws catch throw instanceof
+    """.split()
+)
+
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+#: A region is a few lines; its declarations should not dwarf it.
+MAX_DECLARATION_LINES = 24
+
+
+def declarations_for(chunk: Chunk, first: int, last: int) -> list[tuple[int, str]]:
+    """Lines from earlier in the unit that introduce what the region uses.
+
+    The hole `scout` opens, closed deterministically. A region of lines 807-808
+    reading ``sprintf(cmd, "wget %s", url)`` says nothing about whether ``cmd``
+    is a 256-byte array or a heap pointer, and the declaration that decides it
+    is four hundred lines up and outside the region. A specialist shown only the
+    region answered correctly by assuming -- which is a guess that happened to
+    be right, and the next one will not be.
+
+    First mention rather than a parse: the earliest line of a unit naming an
+    identifier is, in every language this indexes, where it is introduced --
+    parameter, declaration or first assignment. Cheap, language-agnostic, and
+    wrong only in the direction of including one line too many.
+    """
+    lines = chunk.body.splitlines()
+    if not lines:
+        return []
+
+    used: set[str] = set()
+    for offset, line in enumerate(lines):
+        if first <= chunk.start_line + offset <= last:
+            used.update(name for name in _NAME.findall(line) if name not in _NOT_NAMES)
+
+    wanted: dict[int, str] = {}
+    for offset, line in enumerate(lines):
+        number = chunk.start_line + offset
+        if number >= first:
+            break
+        for name in _NAME.findall(line):
+            if name in used:
+                wanted.setdefault(number, line)
+                used.discard(name)
+                break
+
+    # The signature always: it names the parameters, and a region that uses one
+    # of them cannot be judged without knowing where it came from.
+    if chunk.start_line < first:
+        wanted.setdefault(chunk.start_line, lines[0])
+
+    return sorted(wanted.items())[:MAX_DECLARATION_LINES]
+
+
 def build_context(
     store: ChunkStore,
     chunk: Chunk,
@@ -70,6 +135,24 @@ def build_context(
     primary = f"{header}\n{body}"
     sections.append(primary)
     budget -= len(primary)
+
+    # Immediately after the code and before anything else, because it is the
+    # only section that can decide a finding rather than colour it: a region
+    # holding `sprintf(cmd, ...)` and not `char cmd[256];` leaves a specialist
+    # guessing at the one fact the answer turns on.
+    if region:
+        declared = declarations_for(chunk, first, last)
+        if declared:
+            width = max(3, len(str(chunk.end_line)))
+            block = "\n".join(
+                [
+                    "=== 이 구간이 쓰는 것들이 선언된 곳 (같은 단위의 앞부분) ===",
+                    *(f"{number:0{width}d}| {line}" for number, line in declared),
+                ]
+            )
+            if len(block) <= budget:
+                sections.append(block)
+                budget -= len(block)
 
     callee_notes: list[tuple[str, str]] = []
     for callee in store.callees_of(chunk.chunk_id):
