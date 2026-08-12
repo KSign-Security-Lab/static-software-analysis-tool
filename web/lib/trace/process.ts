@@ -228,6 +228,75 @@ export function unitsOf(threads: Thread[], steps: AgentStep[], node?: string | n
 }
 
 /**
+ * The subject the run stamped on the calls about one finding.
+ *
+ * Rebuilt here rather than sent, because it is already sent -- `_finding_subject`
+ * on the server names every `gather` and `verify` span `{cwe} {file}:{line}` out
+ * of the finding, so the same three fields off a finding reproduce the key that
+ * joins it to its own calls. Anchors are resolved in `locate`, which runs before
+ * either of them, so the line in the span name is the line in the report.
+ */
+export function claimOf(finding: { cwe: string | null; primary: { file: string; startLine: number } }): string {
+  const where = `${finding.primary.file}:${finding.primary.startLine}`;
+  return finding.cwe ? `${finding.cwe} ${where}` : where;
+}
+
+/**
+ * How one finding was arrived at: its unit, narrowed to the argument that produced it.
+ *
+ * Narrowing to the unit was already an improvement over showing the whole run, but
+ * a unit is not a claim. Five specialists read it and each may raise something, so
+ * "이 문제의 대화" was in fact every conversation about the function -- four other
+ * arguments about four other lines, and the reader left to work out which of them
+ * was the reason for the thing they had open.
+ *
+ * What belongs here is the chain: the screening that put this unit in front of a
+ * specialist, the specialist that raised *this* claim, the evidence gathered for it
+ * and the verdict on it. Other lenses and other claims are neither.
+ *
+ * A subject that matches nothing returns the unit untouched. A trail is a
+ * convenience and the transcript is the record: if the join ever fails -- a finding
+ * served from the cross-run cache has no calls in *this* run at all -- the reader
+ * gets more than they asked for rather than an empty pane implying nothing happened.
+ */
+export function trailOf(unit: Unit, claim: string): Unit {
+  const about = unit.exchanges.filter((each) => each.subject === claim);
+  if (about.length === 0) return unit;
+
+  const raised = new Set(about.filter((each) => each.raisedBy).map((each) => `lens:${each.raisedBy}`));
+  const exchanges = unit.exchanges.filter(
+    (each) =>
+      // This claim's own investigation and verdict.
+      each.subject === claim ||
+      // The specialist that raised it, and not its four colleagues.
+      raised.has(each.step) ||
+      // Whatever ran before any specialist did -- 선별, and scout when the unit
+      // needed narrowing. Stated as "not per-claim and not a lens" so a step
+      // added in front of the specialists later is included by default: the risk
+      // worth guarding is dropping a step from an explanation, not adding one.
+      (each.step !== "gather" && each.step !== "verify" && !each.step.startsWith("lens:")),
+  );
+  return { ...unit, exchanges, tokens: exchanges.reduce((sum, each) => sum + (each.tokens ?? 0), 0) };
+}
+
+/**
+ * What a step was doing in that chain, in the reader's language.
+ *
+ * The step ids are the agent's own and stay the agent's own everywhere they
+ * identify something -- a prompt, a breakpoint, a sender. This is the one place
+ * they are being *narrated* rather than named, and `lens:injection → gather →
+ * verify` is not a sentence about how a vulnerability was found.
+ */
+export function roleOf(step: string): string {
+  if (step === "triage") return "선별";
+  if (step === "scout") return "범위 좁히기";
+  if (step.startsWith("lens:")) return `${step.slice(5)} 가 제기`;
+  if (step === "gather") return "근거 모으기";
+  if (step === "verify") return "판정";
+  return step;
+}
+
+/**
  * The attempts of one step, gathered into one entry.
  *
  * Keyed by step *and* subject rather than by adjacency, because a wave verifies

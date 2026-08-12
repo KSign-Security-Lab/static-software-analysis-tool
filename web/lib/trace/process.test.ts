@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentStep, Thread, Turn } from "@/lib/api/types";
-import { pairTools, subjectOf, unitsOf, unwrapToolOutput } from "./process";
+import { claimOf, pairTools, roleOf, subjectOf, trailOf, unitsOf, unwrapToolOutput } from "./process";
 
 const GATHER: AgentStep = {
   step: "gather",
@@ -414,5 +414,80 @@ describe("the hand-offs between agents", () => {
     // Runs traced before the agent carried the lens. Absent, not fabricated.
     const by = unit([turn({ id: "g", step: "gather", name: "gather:CWE-78 net.c:12", node: "gather" })]);
     expect(by.get("g")!.from).toEqual([]);
+  });
+});
+
+describe("claimOf", () => {
+  it("rebuilds the subject the server stamped on the span", () => {
+    // `_finding_subject` in the agent: `f"{cwe} {file}:{start_line}"`. This is the
+    // whole join between a finding and its own calls, so it has to agree exactly.
+    expect(claimOf({ cwe: "CWE-78", primary: { file: "net.c", startLine: 12 } })).toBe("CWE-78 net.c:12");
+  });
+
+  it("names the place alone when the finding has no CWE", () => {
+    expect(claimOf({ cwe: null, primary: { file: "net.c", startLine: 12 } })).toBe("net.c:12");
+  });
+});
+
+describe("trailOf", () => {
+  const STEPS = [GATHER, VERIFY];
+
+  /** One unit read by two specialists, each of which raised something. */
+  function twoClaims() {
+    return unitsOf(
+      [
+        thread([
+          turn({ id: "t", step: "triage", name: "triage", node: "triage", reply: '{"lenses":["injection","memory"]}' }),
+          turn({ id: "li", step: "lens:injection", name: "lens:injection:proc_0", node: "injection" }),
+          turn({ id: "lm", step: "lens:memory", name: "lens:memory:proc_0", node: "memory" }),
+          turn({ id: "gi", step: "gather", name: "gather:CWE-78 net.c:12", node: "gather", raised_by: "injection" }),
+          turn({ id: "gm", step: "gather", name: "gather:CWE-122 net.c:40", node: "gather", raised_by: "memory" }),
+          turn({ id: "vi", step: "verify", name: "verify:CWE-78 net.c:12", node: "verify", raised_by: "injection" }),
+          turn({ id: "vm", step: "verify", name: "verify:CWE-122 net.c:40", node: "verify", raised_by: "memory" }),
+        ]),
+      ],
+      STEPS,
+    )[0];
+  }
+
+  it("keeps the chain that produced one finding and drops the other claim", () => {
+    // The reason this exists: scoping by unit alone showed both arguments, and
+    // the reader had to work out which of them was the thing they had open.
+    const trail = trailOf(twoClaims(), "CWE-78 net.c:12");
+
+    expect(trail.exchanges.map((each) => each.id)).toEqual(["t", "li", "gi", "vi"]);
+  });
+
+  it("keeps the screening that put the unit in front of a specialist", () => {
+    // 선별 is unit-level and carries no claim, but it is the first step of how
+    // anything here was found.
+    const trail = trailOf(twoClaims(), "CWE-122 net.c:40");
+
+    expect(trail.exchanges.map((each) => each.step)).toEqual(["triage", "lens:memory", "gather", "verify"]);
+  });
+
+  it("recounts the tokens over what it kept", () => {
+    // Four of seven turns at 400 each: a narrowed trail must not claim the unit's
+    // whole spend, for the same reason `unitsOf` recounts after narrowing.
+    expect(trailOf(twoClaims(), "CWE-78 net.c:12").tokens).toBe(1600);
+  });
+
+  it("returns the whole unit when nothing carries the claim", () => {
+    // A finding served from the cross-run cache has no calls in *this* run, so the
+    // join finds nothing. More than was asked for, never an empty pane implying
+    // the finding arrived without an argument.
+    const whole = twoClaims();
+    expect(trailOf(whole, "CWE-1 elsewhere.c:1").exchanges).toHaveLength(whole.exchanges.length);
+  });
+});
+
+describe("roleOf", () => {
+  it("narrates a chain rather than naming it", () => {
+    expect(["triage", "lens:injection", "gather", "verify"].map(roleOf)).toEqual([
+      "선별",
+      "injection 가 제기",
+      "근거 모으기",
+      "판정",
+    ]);
   });
 });

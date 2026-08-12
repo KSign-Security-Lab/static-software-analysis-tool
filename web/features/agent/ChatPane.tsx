@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { isTruncated } from "@/lib/api/types";
-import type { AgentStep, NodeNote } from "@/lib/api/types";
+import type { AgentStep, NodeNote, PromptRow } from "@/lib/api/types";
 import type { RunLive, RunPhase } from "@/lib/run/reduce";
-import { type Exchange, type ToolRun, type Unit, seconds } from "@/lib/trace/process";
+import { type Exchange, type ToolRun, type Unit, roleOf, seconds } from "@/lib/trace/process";
 import { parseReply } from "@/lib/trace/reply";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +46,7 @@ const CLAMP_LINES = 8;
 export default function ChatPane({
   units,
   steps,
+  prompts,
   phase,
   live,
   node,
@@ -56,6 +57,8 @@ export default function ChatPane({
 }: {
   units: Unit[];
   steps: AgentStep[];
+  /** The standing briefs, so a node can show the one it runs under. */
+  prompts: PromptRow[];
   phase: RunPhase;
   live: RunLive;
   /** Narrowed to one node of the graph, if anything is. */
@@ -73,10 +76,10 @@ export default function ChatPane({
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       <Status phase={phase} live={live} />
-      {focus && <Focus focus={focus} />}
+      {focus && <Focus focus={focus} trail={focus.scoped ? units.flatMap((unit) => unit.exchanges) : []} />}
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {note && <NodeCard note={note} steps={steps} />}
+        {note && <NodeCard note={note} steps={steps} prompts={prompts} />}
 
         {units.length === 0 ? (
           <div className="space-y-3 p-3">
@@ -105,27 +108,57 @@ export default function ChatPane({
 }
 
 /**
- * Which claim the transcript is narrowed to, and the way out.
+ * How the finding being read was arrived at, and the way out.
  *
  * The same shape as the graph's `{node} 만 보는 중` chip, because it is the same
  * idea: something elsewhere on the page has narrowed this one, and a pane that
  * is showing a subset has to say so or it reads as a pane that has lost things.
+ *
+ * The chain above the messages, because four long messages do not show their own
+ * shape. `선별 → injection 가 제기 → 근거 모으기 → 판정` is the answer to "how was
+ * this found" in one line, and the messages under it are that answer's working.
+ * Derived from the exchanges actually shown, so it cannot claim a step the
+ * transcript does not contain.
  */
-function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (next: boolean) => void } }) {
+function Focus({
+  focus,
+  trail,
+}: {
+  focus: { title: string; scoped: boolean; onScoped: (next: boolean) => void };
+  trail: Exchange[];
+}) {
+  // Order is the order they ran. Deduplicated by role, because a claim can be
+  // gathered over several rounds and "근거 모으기 → 근거 모으기" is one step.
+  const chain = trail
+    .map((exchange) => roleOf(exchange.step))
+    .filter((role, index, all) => all.indexOf(role) === index);
+
   return (
-    <div className="flex items-center gap-2 border-b border-line bg-accent-wash px-3 py-1.5">
-      <p className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
-        {focus.scoped ? `‘${focus.title}’ 의 대화` : "실행 전체의 대화"}
-      </p>
-      <Button
-        size="xs"
-        variant="ghost"
-        className="shrink-0"
-        onClick={() => focus.onScoped(!focus.scoped)}
-        aria-pressed={focus.scoped}
-      >
-        {focus.scoped ? "전체 보기" : "이 문제만"}
-      </Button>
+    <div className="shrink-0 space-y-1 border-b border-line bg-accent-wash px-3 py-1.5">
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
+          {focus.scoped ? `‘${focus.title}’ 을 찾아낸 과정` : "실행 전체의 대화"}
+        </p>
+        <Button
+          size="xs"
+          variant="ghost"
+          className="shrink-0"
+          onClick={() => focus.onScoped(!focus.scoped)}
+          aria-pressed={focus.scoped}
+        >
+          {focus.scoped ? "전체 보기" : "이 문제만"}
+        </Button>
+      </div>
+      {chain.length > 1 && (
+        <ol className="flex flex-wrap items-center gap-x-1 text-2xs text-accent-ink">
+          {chain.map((role, index) => (
+            <li key={role} className="flex items-center gap-1">
+              {index > 0 && <span className="text-ink-faint" aria-hidden>→</span>}
+              {role}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -141,16 +174,29 @@ function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (
  * `routes` is read off the compiled graph on the server, so it is the edges that
  * actually exist rather than a description of them.
  */
-function NodeCard({ note, steps }: { note: NodeNote; steps: AgentStep[] }) {
+function NodeCard({ note, steps, prompts }: { note: NodeNote; steps: AgentStep[]; prompts: PromptRow[] }) {
+  const mine = steps.filter((step) => step.node === note.node);
   // Named, not counted. The drawing says `4 tools`, which cannot tell you the
   // run can search semantically -- and listing them on every box made five
   // specialists repeat one toolbox and shrank the whole canvas. Here is where
   // the drawing already says detail lives: "노드를 누르면 오른쪽에 그 노드가
   // 무엇인지 나옵니다".
-  const tools = steps
-    .filter((step) => step.node === note.node)
+  const tools = mine
     .flatMap((step) => step.tools)
     .filter((tool, index, all) => all.findIndex((other) => other.name === tool.name) === index);
+  // What it must answer in. A property of the role -- 선별 answers which
+  // specialists, a specialist answers findings -- and the shape is enforced by
+  // guided decoding, so it is a fact about the node rather than a hope.
+  const shapes = mine
+    .filter((step) => step.schema)
+    .map((step) => `${step.schema}(${step.schema_fields.join(", ")})`);
+  // The standing instructions. This is the node's role in the most literal sense
+  // available: the text it is actually run under. The card described a node in
+  // terms of its channels and its edges and left the one thing that decides what
+  // it does behind a pencil icon on an individual message.
+  const briefs = mine
+    .map((step) => ({ step: step.step, row: prompts.find((row) => row.name === step.prompt) }))
+    .filter((each): each is { step: string; row: PromptRow } => Boolean(each.row));
 
   return (
     <section className="space-y-1.5 border-b border-line bg-surface-2 px-3 py-2.5">
@@ -178,9 +224,23 @@ function NodeCard({ note, steps }: { note: NodeNote; steps: AgentStep[] }) {
         {note.steps.length > 0 && <Fact term="steps" value={note.steps.join(" · ")} />}
         {note.reads.length > 0 && <Fact term="reads" value={note.reads.join(", ")} />}
         {note.writes.length > 0 && <Fact term="writes" value={note.writes.join(", ")} />}
+        {shapes.length > 0 && <Fact term="answers" value={shapes.join(" · ")} />}
         {note.rule && <Fact term={note.router ?? "next"} value={note.rule} />}
         {note.routes.length > 0 && <Fact term="→" value={note.routes.join(", ")} />}
       </dl>
+
+      {briefs.map((brief) => (
+        <Fold
+          key={brief.step}
+          label={`${brief.step} 의 지시문 · ${brief.row.override ? "수정됨" : "기본"} · ${(
+            brief.row.override ?? brief.row.default
+          ).length.toLocaleString()} chars`}
+        >
+          <div className="mt-1 rounded-sm bg-field p-2">
+            <Long text={brief.row.override ?? brief.row.default} mono />
+          </div>
+        </Fold>
+      ))}
 
       {tools.length > 0 && (
         <div className="space-y-0.5">
@@ -189,6 +249,12 @@ function NodeCard({ note, steps }: { note: NodeNote; steps: AgentStep[] }) {
             {tools.map((tool) => (
               <li key={tool.name} className="flex flex-wrap items-baseline gap-x-1.5">
                 <span className="font-mono text-2xs text-alt">{tool.name}</span>
+                {/* The one tool that is not an index query. Tagged because "does
+                    this thing have retrieval" is a question people ask of it, and
+                    a summary in a list of ten does not answer it at a glance. */}
+                {tool.name === "search_semantic" && (
+                  <span className="rounded-sm bg-alt-wash px-1 font-mono text-2xs text-alt">RAG</span>
+                )}
                 {tool.summary && <span className="min-w-0 flex-1 text-2xs text-ink-faint">{tool.summary}</span>}
               </li>
             ))}

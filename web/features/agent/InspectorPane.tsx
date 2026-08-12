@@ -8,7 +8,7 @@ import { useSelectedFinding } from "@/lib/run/selection";
 import { useRunStream } from "@/lib/run/stream";
 import { useGraphShape, usePrompts, useSpans, useThreads } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
-import { unitsOf } from "@/lib/trace/process";
+import { claimOf, trailOf, unitsOf } from "@/lib/trace/process";
 import { useScopedNode, useSelectedSpan } from "../trace/state";
 import ChatPane from "./ChatPane";
 import PromptSheet from "./PromptSheet";
@@ -76,8 +76,16 @@ export default function InspectorPane() {
   // Composed with the node scope rather than replacing it: narrowed to both, the
   // pane answers "what did 검증 say about this one", which is a real question.
   const narrowed = Boolean(finding?.chunkId) && scoped;
+  // Down to the claim, not just to its unit. A unit holds every specialist's
+  // reading of one function, so scoping by chunk alone still answered "what was
+  // said about this function" when the question was "why does this line have a
+  // problem". `trailOf` keeps the chain that produced this finding and drops the
+  // other lenses and the other claims.
   const units = useMemo(
-    () => (narrowed ? all.filter((unit) => unit.id === finding!.chunkId) : all),
+    () =>
+      narrowed
+        ? all.filter((unit) => unit.id === finding!.chunkId).map((unit) => trailOf(unit, claimOf(finding!)))
+        : all,
     [all, narrowed, finding],
   );
 
@@ -88,6 +96,9 @@ export default function InspectorPane() {
       <ChatPane
         units={units}
         steps={steps}
+        // The standing brief behind a node, which is most of what a node *is*. The
+        // list was already fetched here for the editor and only the editor saw it.
+        prompts={prompts.data ?? []}
         phase={phase}
         live={live}
         node={node}

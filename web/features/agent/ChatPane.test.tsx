@@ -136,6 +136,7 @@ function setup(over: Partial<Parameters<typeof ChatPane>[0]> = {}) {
     <ChatPane
       units={unitsOf(THREADS, STEPS)}
       steps={STEPS}
+      prompts={[]}
       phase="finished"
       live={IDLE}
       node={null}
