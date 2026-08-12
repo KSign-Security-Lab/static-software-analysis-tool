@@ -262,9 +262,28 @@ VERIFY_SYSTEM = f"""\
 """
 
 
-def analyse_user(pack: ContextPack) -> str:
+def lookup_user(pack: ContextPack) -> str:
+    """Ask a specialist what it needs looked up before it reads.
+
+    Only lookups are on offer, so this cannot turn into exploration: the answer
+    is what the index already knows about names the unit mentions.
+    """
+    return "\n\n".join(
+        [
+            pack.text,
+            "위 코드를 자기 갈래의 눈으로 읽기 전에, 판단에 필요한데 여기 보이지 않는 것이 있습니까? "
+            "있으면 도구로 찾아보십시오 -- 부르는 함수가 실제로 무엇으로 선언되어 있는지, "
+            "이 값을 넘기는 호출자가 누구인지 같은 것들입니다. 없으면 아무것도 부르지 말고 "
+            "없다고 한 문장으로 답하십시오. 여기서 취약점을 보고하지는 마십시오.",
+        ]
+    )
+
+
+def analyse_user(pack: ContextPack, looked_up: str = "") -> str:
     """The analyse-call payload for one chunk."""
     parts = [pack.text]
+    if looked_up.strip():
+        parts.append(f"=== 찾아본 것 ===\n{looked_up}")
     if pack.truncated:
         parts.append("참고: 분석 대상 단위가 잘렸습니다. 보이는 것만 보고하고, 잘려 나간 부분을 넘겨짚지 마십시오.")
     if pack.region:

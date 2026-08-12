@@ -173,6 +173,24 @@ def open_session(
     return session
 
 
+#: What a specialist may reach for while reading a unit.
+#:
+#: Deterministic lookups only, and that is the line. Each of these is an index
+#: query: the same question gives the same answer every time, in milliseconds,
+#: with no model behind it. Asking "what is this callee actually declared as" is
+#: a lookup, not exploration, and it is usually the fact the finding turns on.
+#:
+#: Not `read_source`, `search_text`, `search_semantic` or `run_in_sandbox`. Those
+#: are open-ended -- where a specialist goes with them differs run to run, and
+#: they are what `gather` is for, one claim at a time, after something has been
+#: found worth checking.
+LENS_TOOLS: Sequence[str] = (
+    "find_definition",
+    "find_callers",
+    "find_callees",
+    "graph_neighbours",
+)
+
 # Not the whole surface: verification is about one claim, and an unbounded
 # toolbox invites wandering.
 VERIFY_TOOLS: Sequence[str] = (
@@ -193,3 +211,8 @@ VERIFY_TOOLS: Sequence[str] = (
     "graph_subsystem",
     "run_in_sandbox",
 )
+
+
+#: Every tool any step may use. The MCP session is opened once per run, so it
+#: has to allow the union rather than one step's slice.
+ALL_TOOLS: Sequence[str] = tuple(dict.fromkeys((*VERIFY_TOOLS, *LENS_TOOLS)))

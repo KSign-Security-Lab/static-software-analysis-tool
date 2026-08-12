@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from .config import AgentConfig
-from .mcp.client import VERIFY_TOOLS
+from .mcp.client import LENS_TOOLS, VERIFY_TOOLS
 from .promptstore import lens_prompt
 from .schema import LENSES, ChunkAnalysis, Scout, Triage, Verdict
 
@@ -53,7 +53,16 @@ STEP_SCHEMA: dict[str, type[BaseModel] | None] = {
 #: Which steps may call tools, and which ones. Only ``gather`` does, and not the
 #: whole surface: verification is about one claim, and an unbounded toolbox
 #: invites wandering.
-STEP_TOOLS: dict[str, tuple[str, ...]] = {"gather": tuple(VERIFY_TOOLS)}
+STEP_TOOLS: dict[str, tuple[str, ...]] = {
+    "gather": tuple(VERIFY_TOOLS),
+    # The specialists get the deterministic half. There was never a principled
+    # reason they had none: the argument was reproducibility, made before triage
+    # and scout put a model in the funnel anyway, and then that models do not
+    # reach for tools -- which this project's own traces contradict, `gather`
+    # having made eight calls in a single run. What is left is cost, and an
+    # index lookup is the cheap end of it.
+    **{lens_prompt(lens): tuple(LENS_TOOLS) for lens in LENSES},
+}
 
 #: In the order a chunk passes through them, which is the order to read them in.
 STEP_ORDER: tuple[str, ...] = ("triage", "scout", *(lens_prompt(lens) for lens in LENSES), "gather", "verify")

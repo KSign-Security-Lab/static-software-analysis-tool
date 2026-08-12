@@ -31,9 +31,13 @@ def test_the_order_is_the_order_a_chunk_passes_through() -> None:
     assert STEP_ORDER[-2:] == ("gather", "verify")
 
 
-def test_only_gather_holds_tools_and_it_holds_them_all() -> None:
+def test_the_steps_that_read_something_new_are_the_ones_with_tools() -> None:
+    """A specialist looks things up;  may also go and read. Screening,
+    narrowing and the ruling itself read nothing they were not handed."""
     described = _by_step()
-    assert [entry["step"] for entry in described.values() if entry["tools"]] == ["gather"]
+    holders = [entry["step"] for entry in described.values() if entry["tools"]]
+    assert "gather" in holders
+    assert all(step.startswith("lens:") or step == "gather" for step in holders), holders
 
     names = [tool["name"] for tool in described["gather"]["tools"]]
     assert "read_source" in names and "run_in_sandbox" in names

@@ -21,7 +21,7 @@ from ..cache import ResultCache, recipe_of
 from ..config import AgentConfig
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
-from ..mcp.client import VERIFY_TOOLS, ToolSession, open_session
+from ..mcp.client import ALL_TOOLS, ToolSession, open_session
 from ..promptstore import resolve as resolve_prompts
 from ..schema import Finding, Report, RunStats
 from ..trace import SpanRecorder, SpanStore
@@ -132,7 +132,7 @@ class InspectionSession:
                 run_root=root,
                 index_db=store.path,
                 sandbox=config.sandbox,
-                allowed=VERIFY_TOOLS,
+                allowed=ALL_TOOLS,
             )
             deps.tools = self._owned_tools
 

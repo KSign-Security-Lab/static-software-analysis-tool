@@ -138,6 +138,10 @@ class AgentConfig:
     # context-only verification and says so once.
     enable_tools: bool = field(default_factory=lambda: os.getenv("AGENT_TOOLS", "1") != "0")
     max_tool_calls: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOOL_CALLS", 4))
+    # Lookups for the specialists, and a tighter budget than verification's: this
+    # runs once per lens per region, which is the most numerous call in the run.
+    lens_tools: bool = field(default_factory=lambda: os.getenv("AGENT_LENS_TOOLS", "1") != "0")
+    max_lens_tool_calls: int = field(default_factory=lambda: _env_int("AGENT_MAX_LENS_TOOL_CALLS", 2))
 
     # -- how wide the run goes ------------------------------------------------
     #

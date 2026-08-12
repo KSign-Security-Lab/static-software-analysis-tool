@@ -19,7 +19,9 @@ from pydantic import BaseModel
 from agent.config import AgentConfig
 from agent.graph.build import run_inspection
 from agent.index import ChunkStore, build_index
+from agent.promptstore import lens_prompt
 from agent.prompts import LENS_SYSTEM
+from agent.schema import LENSES
 from agent.trace import SpanStore
 from agent.schema import (
     CandidateEvidence,
@@ -76,7 +78,9 @@ class ScriptedCaller:
     #: Set by tests that want the gather step to return something.
     gathered: str = ""
 
-    def gather(self, system: str, user: str, session: Any, budget: int, trace: Any = None) -> str:
+    def gather(
+        self, system: str, user: str, session: Any, budget: int, trace: Any = None, allowed: Any = None
+    ) -> str:
         self.prompts.append(("gather", user))
         self.gather_calls.append((session, budget))
         self.traces.append(trace)
@@ -138,6 +142,10 @@ def _run(
     # test about dropping an anchor would read as a test about arithmetic. The
     # tests that are about the specialists ask for them by name.
     config_kwargs.setdefault("lenses", ("injection",))
+    # Off unless a test asks: a lookup pass before every specialist would put a
+    # second `gather` in the way of every count in this file, and the tests that
+    # are about tools turn it on themselves.
+    config_kwargs.setdefault("lens_tools", False)
     config = AgentConfig(model="fake", enable_tools=False, **config_kwargs)
     return run_inspection(
         run_id="test",
@@ -441,17 +449,49 @@ def test_an_empty_gather_does_not_pollute_the_verdict_prompt(indexed) -> None:
     store.close()
 
 
-def test_tools_are_offered_only_during_verification(indexed) -> None:
-    """Analysis is deterministic-context by design; letting it browse would make
-    two runs over the same tree incomparable."""
+def test_verification_gathers_once_per_claim_not_per_chunk(indexed) -> None:
     root, store = indexed
     caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
-    session = FakeToolSession()
 
-    _run(root, store, caller, tools=session)
+    _run(root, store, caller, tools=FakeToolSession())
 
     assert len(caller.gather_calls) == 1, "gather should run once per finding, not per chunk"
     assert len(caller.prompts_for("ChunkAnalysis")) > 1, "analysis still ran for every chunk"
+
+
+def test_a_specialist_may_look_things_up_before_it_reads(indexed) -> None:
+    """The specialists had no tools, and none of the reasons survived.
+
+    Reproducibility was the first, argued before `triage` and then `scout` put a
+    model in the funnel anyway. The second was that models ignore tools offered
+    to them -- which this project's own traces contradict: one `gather` made
+    eight calls in a single run. What is left is cost, and an index lookup is
+    the cheap end of it.
+    """
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+
+    _run(root, store, caller, tools=FakeToolSession(), lens_tools=True)
+
+    analyses = len(caller.prompts_for("ChunkAnalysis"))
+    assert analyses > 1
+    # One lookup per specialist, plus the one verification still makes.
+    assert len(caller.gather_calls) == analyses + 1, caller.gather_calls
+
+
+def test_a_specialist_is_offered_lookups_and_nothing_that_wanders() -> None:
+    """The line that keeps this from being "let it browse": every lens tool is
+    an index query with one answer, so what a specialist sees still does not
+    depend on where it went."""
+    from agent.mcp.client import LENS_TOOLS, VERIFY_TOOLS
+    from agent.steps import STEP_TOOLS
+
+    for lens in LENSES:
+        assert STEP_TOOLS[lens_prompt(lens)] == tuple(LENS_TOOLS)
+
+    wandering = {"read_source", "search_text", "search_semantic", "run_in_sandbox"}
+    assert not wandering & set(LENS_TOOLS), "a specialist must not be able to go looking"
+    assert wandering <= set(VERIFY_TOOLS), "which is what `gather` is for"
 
 
 def test_findings_are_deduplicated_by_stable_id(indexed) -> None:

@@ -465,7 +465,15 @@ def test_graph_endpoint_says_what_each_step_is_given_and_may_reach_for(client: T
     assert steps["lens:memory"]["prompt"] == "lens:memory"
     assert steps["gather"]["node"] == "gather", "retrieval is a node, not a half of one"
     assert [tool["name"] for tool in steps["gather"]["tools"]][:1] == ["read_source"]
-    assert all(not entry["tools"] for step, entry in steps.items() if step != "gather")
+    # The specialists hold lookups now; only the steps that read nothing new --
+    # screening, narrowing, and the ruling itself -- hold none.
+    assert [t["name"] for t in steps["lens:memory"]["tools"]] == [
+        "find_definition",
+        "find_callers",
+        "find_callees",
+        "graph_neighbours",
+    ]
+    assert not steps["triage"]["tools"] and not steps["scout"]["tools"] and not steps["verify"]["tools"]
 
 
 def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestClient) -> None:

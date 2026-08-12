@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, Sequence, TypeVar
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -113,6 +113,7 @@ class StructuredCaller:
         session: Any,
         budget: int,
         trace: RunnableConfig | None = None,
+        allowed: Sequence[str] | None = None,
     ) -> str:
         """Let the model call tools; return a transcript.
 
@@ -125,6 +126,12 @@ class StructuredCaller:
             return ""
 
         tools = session.tools
+        # The session allows every tool any step may use, because it is opened
+        # once per run. Which of them *this* step may see is decided here, so a
+        # specialist offered four lookups is not also offered a sandbox.
+        if allowed is not None:
+            names = set(allowed)
+            tools = [tool for tool in tools if tool.name in names]
         if not tools:
             return ""
 

@@ -41,7 +41,8 @@ from ..index.order import wave as pick_wave
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..locate import locate_anchor
-from ..prompts import analyse_user, gather_user, scout_user, triage_user, verify_user
+from ..mcp.client import LENS_TOOLS
+from ..prompts import analyse_user, gather_user, lookup_user, scout_user, triage_user, verify_user
 from ..promptstore import DEFAULTS as DEFAULT_PROMPTS
 from ..promptstore import lens_prompt
 from ..tracing import call_config
@@ -493,10 +494,35 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
             region = _region_of(state, chunk)
             pack = deps.pack_for(chunk, region)
+
+            # Look things up before reading, if this deployment allows it. The
+            # specialists had no tools for a reason that did not survive
+            # examination: reproducibility, argued before triage and scout put a
+            # model in the funnel, and then that models ignore tools -- which
+            # this project's own traces contradict. Only deterministic lookups,
+            # so what a lens sees still does not depend on where it wandered.
+            looked_up = ""
+            if deps.tools is not None and deps.config.lens_tools:
+                looked_up = deps.caller.gather(
+                    deps.prompts[lens_prompt(lens)],
+                    lookup_user(pack),
+                    deps.tools,
+                    deps.config.max_lens_tool_calls,
+                    allowed=LENS_TOOLS,
+                    trace=call_config(
+                        step=lens_prompt(lens),
+                        run_id=deps.run_id,
+                        chunk_id=chunk.chunk_id,
+                        file=chunk.file,
+                        symbol=chunk.symbol,
+                        subject=f"{chunk.symbol} 조회",
+                    ),
+                )
+
             result = deps.caller.call(
                 ChunkAnalysis,
                 deps.prompts[lens_prompt(lens)],
-                analyse_user(pack),
+                analyse_user(pack, looked_up),
                 trace=call_config(
                     step=lens_prompt(lens),
                     run_id=deps.run_id,
