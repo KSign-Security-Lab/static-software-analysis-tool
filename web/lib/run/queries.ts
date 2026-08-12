@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { describeError } from "@/lib/api/client";
 import { startRun, type StartOptions } from "@/lib/api/control";
 import {
+  applyFix,
   createEmptyRun,
   deleteFile,
   deleteRun,
@@ -70,6 +71,32 @@ export function useFindings(runId: string | null) {
     queryKey: keys.findings(runId ?? ""),
     queryFn: ({ signal }) => fetchFindings(runId!, { signal }),
     enabled: enabled(runId),
+  });
+}
+
+/**
+ * Apply a finding's proposed fix to the file it points at.
+ *
+ * The server does the splicing, and the arithmetic is why: the span is 1-based
+ * and inclusive, and an off-by-one here corrupts somebody's source rather than
+ * failing. It refuses when the file has changed since the run.
+ *
+ * The finding cannot survive its own fix -- its id is derived from the anchor
+ * text -- which is the honest signal that it worked: re-run, and it moves to
+ * 해결됨 under 비교.
+ */
+export function useApplyFix(runId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (findingId: string) => applyFix(runId!, findingId),
+    onSuccess: (result) => {
+      toast.success("고침을 적용했습니다", {
+        description: `${result.path} ${result.lines[0]}번 줄. 다시 검사하면 해결됐는지 확인할 수 있습니다.`,
+      });
+      // The file and the index both moved under us.
+      void client.invalidateQueries({ queryKey: keys.run(result.run_id) });
+    },
+    onError: (error) => toast.error("고침을 적용할 수 없습니다", { description: describeError(error) }),
   });
 }
 

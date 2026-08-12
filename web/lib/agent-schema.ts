@@ -32,6 +32,7 @@ export interface Remediation {
   summary: string;
   detail: string;
   diff?: string | null;
+  replacement?: string | null;
 }
 
 export interface RunStats {

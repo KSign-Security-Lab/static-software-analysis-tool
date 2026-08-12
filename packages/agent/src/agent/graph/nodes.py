@@ -25,6 +25,7 @@ the run root instead of carrying them in graph state.
 
 from __future__ import annotations
 
+import difflib
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,6 +55,7 @@ from ..schema import (
     Region,
     Remediation,
     Scout,
+    Span,
     Triage,
     Verdict,
 )
@@ -144,6 +146,64 @@ def _file_text(root: Path, relative: str) -> str | None:
         return None
 
 
+def _reindent(proposed: str, before: list[str]) -> str:
+    """Put back the indentation the model dropped.
+
+    Asked for code that matches the original's indentation, a model returns
+    `snprintf(...)` at column zero for a line that was four spaces in. In C that
+    is untidy; in Python it is a syntax error, and this writes to real files.
+
+    The original's own leading whitespace is right there, so it is used rather
+    than trusted from the answer -- and only when the replacement clearly has
+    none of its own, so a fix that deliberately re-indents is left alone.
+    """
+    if not before or not proposed:
+        return proposed
+    indent = before[0][: len(before[0]) - len(before[0].lstrip())]
+    first = proposed.splitlines()[0]
+    if not indent or first[:1].isspace():
+        return proposed
+    return "\n".join(indent + line if line.strip() else line for line in proposed.splitlines())
+
+
+def _remediation(candidate: CandidateFinding, span: Span, text: str) -> Remediation:
+    """The proposed fix, with the diff computed rather than quoted.
+
+    The model supplies replacement lines for the span the anchor resolved to;
+    the diff shown to a reader is generated from that and the file on disk. So
+    what is displayed is what applying would actually do, instead of a patch the
+    model wrote a description of -- those two drift, and the one on screen is
+    the one that gets trusted.
+    """
+    proposed = (candidate.remediation.replacement or "").strip("\n")
+    if not proposed.strip():
+        return Remediation(summary=candidate.remediation.summary, detail=candidate.remediation.detail)
+
+    lines = text.splitlines()
+    before = lines[span.start_line - 1 : span.end_line]
+    proposed = _reindent(proposed, before)
+    if before == proposed.splitlines():
+        # Nothing to do, and offering to do it would be a lie.
+        return Remediation(summary=candidate.remediation.summary, detail=candidate.remediation.detail)
+
+    diff = "".join(
+        difflib.unified_diff(
+            [f"{line}\n" for line in before],
+            [f"{line}\n" for line in proposed.splitlines()],
+            fromfile=f"a/{span.file}",
+            tofile=f"b/{span.file}",
+            lineterm="\n",
+            n=0,
+        )
+    )
+    return Remediation(
+        summary=candidate.remediation.summary,
+        detail=candidate.remediation.detail,
+        diff=diff or None,
+        replacement=proposed,
+    )
+
+
 def _locate_candidate(
     candidate: CandidateFinding,
     chunk: Chunk,
@@ -203,10 +263,7 @@ def _locate_candidate(
         primary=primary.span,
         explanation=candidate.explanation,
         evidence=evidence,
-        remediation=Remediation(
-            summary=candidate.remediation.summary,
-            detail=candidate.remediation.detail,
-        ),
+        remediation=_remediation(candidate, primary.span, text),
         verified=False,
     )
 

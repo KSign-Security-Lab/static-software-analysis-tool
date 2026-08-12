@@ -23,6 +23,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.config import AgentConfig
+from agent.paths import PathEscape, resolve_within
 from agent.graph.session import InspectionSession, ParallelStep
 from agent.runs import (
     STATUS_DONE,
@@ -44,6 +45,7 @@ from .channels import (
     _live_channel,
 )
 from .deps import RunDep
+from .runs import _reindex
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -413,6 +415,74 @@ def _validated(payloads: List[Dict[str, Any]]) -> List[Any]:
         except ValueError:
             log.warning("discarding malformed stored finding: %s", payload.get("id"))
     return out
+
+
+class ApplyRequest(BaseModel):
+    finding_id: str
+
+
+@router.post("/runs/{run_id}/apply")
+def run_apply(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
+    """Splice a finding's proposed replacement over the lines it is anchored to.
+
+    Server-side because the arithmetic must not be the client's: the span is
+    1-based and inclusive, the file may have moved since the report was written,
+    and an off-by-one here silently corrupts source rather than failing.
+
+    Refuses rather than guesses. A finding with no replacement was one the model
+    said it could not fix in place, and a span whose text no longer matches what
+    was analysed is a file edited since -- applying to that is applying to code
+    nobody looked at.
+    """
+    report = paths.load_report()
+    if report is None:
+        raise HTTPException(status_code=409, detail="this run has no completed report")
+
+    finding = next((f for f in report.findings if f.id == request.finding_id), None)
+    if finding is None:
+        raise HTTPException(status_code=404, detail=f"unknown finding: {request.finding_id}")
+
+    replacement = (finding.remediation.replacement or "").strip("\n")
+    if not replacement.strip():
+        raise HTTPException(status_code=409, detail="this finding has no fix that can be applied in place")
+
+    span = finding.primary
+    try:
+        resolved = resolve_within(paths.source, span.file)
+    except PathEscape as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+    try:
+        original = resolved.read_text(encoding="utf-8")
+    except OSError as err:
+        raise HTTPException(status_code=404, detail=f"cannot read {span.file}: {err}") from err
+
+    lines = original.splitlines(keepends=True)
+    if span.end_line > len(lines) or span.start_line < 1:
+        raise HTTPException(status_code=409, detail="the file no longer has the lines this finding is anchored to")
+
+    # What is there now must be what was analysed. The excerpt was read from
+    # disk when the finding was made, so a mismatch means the file changed and
+    # the span points somewhere else entirely.
+    current = "".join(lines[span.start_line - 1 : span.end_line]).rstrip("\n")
+    if finding.primary.excerpt.strip() and current.strip() != finding.primary.excerpt.strip():
+        raise HTTPException(status_code=409, detail="이 파일은 검사 이후 바뀌었습니다. 다시 검사한 뒤 적용하세요.")
+
+    ending = "\n" if lines[span.end_line - 1].endswith("\n") else ""
+    patched = "".join(lines[: span.start_line - 1]) + replacement + ending + "".join(lines[span.end_line :])
+    resolved.write_text(patched, encoding="utf-8")
+    index = _reindex(paths)
+
+    return {
+        "run_id": paths.run_id,
+        "finding_id": finding.id,
+        "path": span.file,
+        "lines": [span.start_line, span.end_line],
+        "index": index,
+        # The run's own answer to "did that work" is a re-inspection, and the id
+        # is content-derived, so this finding cannot survive its own fix.
+        "reinspect": True,
+    }
 
 
 @router.post("/runs/{run_id}/diff")

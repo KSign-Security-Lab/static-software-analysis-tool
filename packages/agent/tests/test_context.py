@@ -89,3 +89,34 @@ def test_the_section_only_appears_when_the_pack_is_a_region(tmp_path: Path) -> N
 
 def _numbered(chunk) -> list[tuple[int, str]]:
     return [(chunk.start_line + i, line) for i, line in enumerate(chunk.body.splitlines())]
+
+
+# -- the fix, and the whitespace a model drops --------------------------------
+
+
+def test_a_replacement_gets_back_the_indentation_the_model_dropped() -> None:
+    """Asked for code matching the original's indentation, a served model
+    returned `snprintf(...)` at column zero for a line four spaces in. Untidy in
+    C, a syntax error in Python, and this writes to real files."""
+    from agent.graph.nodes import _reindent
+
+    before = ['    sprintf(cmd, "wget %s", url);']
+    assert _reindent('snprintf(cmd, sizeof(cmd), "wget %s", url);', before) == (
+        '    snprintf(cmd, sizeof(cmd), "wget %s", url);'
+    )
+
+
+def test_a_replacement_that_indents_itself_is_left_alone() -> None:
+    """A fix that deliberately re-indents -- wrapping a line in a guard, say --
+    must not be indented twice."""
+    from agent.graph.nodes import _reindent
+
+    before = ["    do_thing();"]
+    proposed = "    if (ok) {\n        do_thing();\n    }"
+    assert _reindent(proposed, before) == proposed
+
+
+def test_blank_lines_in_a_replacement_stay_blank() -> None:
+    from agent.graph.nodes import _reindent
+
+    assert _reindent("a();\n\nb();", ["  x();"]) == "  a();\n\n  b();"

@@ -3,6 +3,7 @@ import type {
   AgentHealth,
   FileContents,
   FileWriteResult,
+  ApplyResult,
   FindingDiff,
   Report,
   RunSummary,
@@ -84,6 +85,18 @@ export function deleteFile(runId: string, path: string): Promise<FileWriteResult
 
 export function fetchFindings(runId: string, options?: RequestOptions): Promise<Report> {
   return get<Report>(`/agent/runs/${seg(runId)}/findings`, options);
+}
+
+/**
+ * Splice a finding's proposed fix over the lines it is anchored to.
+ *
+ * The arithmetic is the server's, deliberately: the span is 1-based and
+ * inclusive, and an off-by-one here would corrupt somebody's source rather than
+ * fail. It refuses -- 409 -- when the file has changed since the run, because
+ * the span would then point at code nobody analysed.
+ */
+export function applyFix(runId: string, findingId: string): Promise<ApplyResult> {
+  return post<ApplyResult>(`/agent/runs/${seg(runId)}/apply`, { finding_id: findingId });
 }
 
 export function diffRuns(runId: string, against: string): Promise<FindingDiff> {

@@ -65,6 +65,18 @@ export interface RunSummary {
   progress?: { next: string[]; step: number | null } | null;
 }
 
+/** What applying a proposed fix changed. */
+export interface ApplyResult {
+  run_id: string;
+  finding_id: string;
+  path: string;
+  /** The 1-based inclusive span that was replaced. */
+  lines: [number, number];
+  index: IndexStats;
+  /** The finding cannot survive its own fix: its id is derived from the anchor. */
+  reinspect: boolean;
+}
+
 export interface FileContents {
   path: string;
   content: string;

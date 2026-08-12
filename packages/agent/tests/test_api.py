@@ -1067,3 +1067,102 @@ def test_an_uninspected_chunk_still_starts_a_run(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
     accepted = client.post(f"/agent/runs/{run_id}/inspect").json()
     assert "nothing_to_do" not in accepted
+
+
+# -- applying a proposed fix --------------------------------------------------
+#
+# This writes to the user's source, so the refusals matter more than the happy
+# path: every one of them is a way of corrupting a file rather than failing.
+
+
+def _report_with_fix(paths, *, replacement: str | None, excerpt: str, start: int, end: int) -> None:
+    from agent.schema import Finding, Remediation, Report, Span
+
+    report = Report(
+        run_id=paths.run_id,
+        findings=[
+            Finding(
+                id="f1",
+                chunk_id="c1",
+                severity="high",
+                confidence=0.9,
+                title="셸로 넘어가는 입력",
+                cwe="CWE-78",
+                primary=Span(
+                    file="src/app.c",
+                    start_line=start,
+                    start_column=1,
+                    end_line=end,
+                    end_column=1,
+                    excerpt=excerpt,
+                ),
+                explanation="설명",
+                remediation=Remediation(summary="고치기", detail="자세히", replacement=replacement),
+                verified=True,
+            )
+        ],
+    )
+    paths.save_report(report)
+
+
+def _paths_for(run_id: str):
+    from agent.runs import get_run
+
+    paths = get_run(run_id)
+    assert paths is not None
+    return paths
+
+
+def test_a_fix_replaces_exactly_the_lines_the_finding_is_anchored_to(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    source = (paths.source / "src/app.c").read_text(encoding="utf-8")
+    target = next(i for i, line in enumerate(source.splitlines(), 1) if "sprintf" in line)
+    original = source.splitlines()[target - 1]
+
+    _report_with_fix(
+        paths,
+        replacement='static void run(const char *u) { char c[64]; snprintf(c, sizeof(c), "wget %s", u); system(c); }',
+        excerpt=original,
+        start=target,
+        end=target,
+    )
+
+    response = client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "f1"})
+    assert response.status_code == 200, response.text
+
+    after = (paths.source / "src/app.c").read_text(encoding="utf-8").splitlines()
+    assert "snprintf" in after[target - 1]
+    assert len(after) == len(source.splitlines()), "a one-line fix must not change the line count"
+    # Everything around it untouched: this splices, it does not rewrite.
+    assert after[: target - 1] == source.splitlines()[: target - 1]
+    assert after[target:] == source.splitlines()[target:]
+
+
+def test_a_fix_is_refused_when_the_file_changed_since_the_run(client: TestClient) -> None:
+    """The span points at lines that were analysed. If they are not there any
+    more, applying writes over code nobody looked at."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fix(paths, replacement="int safe = 1;", excerpt="something that was never there", start=3, end=3)
+
+    response = client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "f1"})
+    assert response.status_code == 409, response.text
+    assert "다시 검사" in response.json()["detail"]
+
+
+def test_a_finding_with_no_replacement_is_refused_rather_than_guessed_at(client: TestClient) -> None:
+    """An empty `replacement` is the model saying it cannot fix this in place."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fix(paths, replacement=None, excerpt="anything", start=1, end=1)
+
+    response = client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "f1"})
+    assert response.status_code == 409
+    assert "no fix" in response.json()["detail"]
+
+
+def test_applying_an_unknown_finding_is_a_404(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    _report_with_fix(_paths_for(run_id), replacement="x", excerpt="y", start=1, end=1)
+    assert client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "nope"}).status_code == 404

@@ -63,6 +63,15 @@ export interface UiFinding {
   explanation: string;
   evidence: Evidence[];
   remediation: string | null;
+  /**
+   * The fix as a patch, when the agent could name one for these exact lines.
+   *
+   * Computed server-side from the resolved span and the replacement, so what is
+   * shown is what applying would do rather than something the model wrote about
+   * it. Null means it said it could not fix this in place -- which is an answer,
+   * not a gap.
+   */
+  diff: string | null;
   /** 0-1. F2-A reports its own confidence; the agent reports the verify pass's. */
   confidence: number;
   /** Agent only: survived the refute pass. Null where the notion does not apply. */
@@ -123,6 +132,7 @@ export function fromF2A(result: F2AResult | null | undefined, file: string): UiF
         explanation: d.overview,
         evidence,
         remediation: d.remediation.join("\n") || null,
+        diff: null,
         confidence: d.confidence,
         verified: null,
         raw: d,
@@ -161,6 +171,7 @@ export function fromAgent(findings: AgentFinding[] | null | undefined): UiFindin
       note: e.note,
     })),
     remediation: f.remediation ? `${f.remediation.summary}\n\n${f.remediation.detail}` : null,
+    diff: f.remediation?.diff ?? null,
     confidence: f.confidence,
     verified: f.verified,
     raw: f,

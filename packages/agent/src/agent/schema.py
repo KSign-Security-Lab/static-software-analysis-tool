@@ -50,10 +50,22 @@ class CandidateEvidence(BaseModel):
 
 
 class CandidateRemediation(BaseModel):
-    """The fix, as the model proposes it. Never applied automatically."""
+    """The fix, as the model proposes it. Never applied without being asked."""
 
     summary: str = Field(description="무엇을 고칠지 한국어 한 줄. 예: '셸을 거치지 말고 인자를 배열로 넘기기'.")
     detail: str = Field(description="어떻게 고치고 그것이 왜 문제를 닫는지, 한국어로.")
+    #: Replacement lines rather than a patch, and that is the whole reason this
+    #: can be applied at all. The anchor is already resolved to an exact span, so
+    #: a fix scoped to that span is a splice: it cannot half-apply, cannot drift
+    #: against a moved line, and needs no patch parser to be trusted.
+    replacement: str | None = Field(
+        default=None,
+        description=(
+            "anchor_text 자리에 그대로 들어갈 코드. anchor_text 가 차지한 줄 전체를 대신하며, "
+            "들여쓰기까지 맞춘 실제 코드여야 합니다. 설명이나 diff 기호(+/-)를 넣지 마십시오. "
+            "한 줄로 고칠 수 없으면 비워 두십시오."
+        ),
+    )
 
 
 class CandidateFinding(BaseModel):
@@ -174,12 +186,18 @@ class Evidence(BaseModel):
 
 
 class Remediation(BaseModel):
-    """Display-only. ``diff`` is never applied -- there is no write endpoint;
-    it is the seam a future "fix now" attaches to."""
+    """The fix, and enough to apply it.
+
+    ``diff`` is for reading -- computed server-side from the resolved span and
+    the replacement, so what is shown is what would happen rather than something
+    the model wrote about it. ``replacement`` is what actually gets spliced over
+    ``Finding.primary``, and it is only ever written when somebody asks.
+    """
 
     summary: str
     detail: str
     diff: str | None = None
+    replacement: str | None = None
 
 
 class Finding(BaseModel):

@@ -1,8 +1,9 @@
 "use client";
 
-import { ChevronRight, ShieldCheck } from "lucide-react";
+import { ChevronRight, ShieldCheck, Wrench } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { neighbours } from "@/lib/api/knowledge";
 import type { KnowledgeGraph } from "@/lib/api/types";
 import { ROLE_LABEL, ROLE_TONE, SEVERITY_DOT, SEVERITY_LABEL, sortFindings, type UiFinding } from "@/lib/model/finding";
@@ -35,6 +36,8 @@ export default function FindingList({
   knowledge,
   openId,
   compare,
+  onApply,
+  applying,
   onOpen,
   onNavigate,
   emptyHint,
@@ -44,6 +47,9 @@ export default function FindingList({
   /** The finding whose grounds are showing; also what the editor is marking. */
   openId: string | null;
   compare?: Comparison | null;
+  /** Splice the proposed fix into the file. Absent when there is no run to write to. */
+  onApply?: (finding: UiFinding) => void;
+  applying?: boolean;
   onOpen: (finding: UiFinding | null) => void;
   onNavigate: (file: string, line: number) => void;
   emptyHint: React.ReactNode;
@@ -128,7 +134,15 @@ export default function FindingList({
               </span>
             </button>
 
-            {open && <Grounds finding={finding} knowledge={knowledge} onNavigate={onNavigate} />}
+            {open && (
+              <Grounds
+                finding={finding}
+                knowledge={knowledge}
+                onNavigate={onNavigate}
+                onApply={onApply}
+                applying={applying}
+              />
+            )}
           </li>
         );
       })}
@@ -215,10 +229,14 @@ function Grounds({
   finding,
   knowledge,
   onNavigate,
+  onApply,
+  applying,
 }: {
   finding: UiFinding;
   knowledge?: KnowledgeGraph;
   onNavigate: (file: string, line: number) => void;
+  onApply?: (finding: UiFinding) => void;
+  applying?: boolean;
 }) {
   const confidence = Math.round(finding.confidence * 100);
   // The callers and callees of the unit this sits in. Computed here because the
@@ -228,6 +246,7 @@ function Grounds({
 
   const hasTrail = finding.evidence.length > 0;
   const hasFix = Boolean(finding.remediation) || related.length > 0;
+  const patch = finding.diff;
   const columns = (1 + (hasTrail ? 1 : 0) + (hasFix ? 1 : 0)) as keyof typeof COLUMNS;
 
   return (
@@ -289,9 +308,36 @@ function Grounds({
             {finding.remediation && (
               <div className="space-y-1">
                 <h4 className="text-2xs text-ink-muted">고치는 방법</h4>
-                {/* Shown, never applied: a suggested patch from a model is a
-                    suggestion, and it is for a person to read. */}
                 <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.remediation}</p>
+              </div>
+            )}
+
+            {patch && (
+              <div className="space-y-1">
+                {/* The patch before the button, always. This writes to the
+                    reader's source; offering to do that without showing what
+                    would change is asking for a decision nobody can make. */}
+                <pre className="max-h-40 overflow-auto rounded-sm bg-field p-2 font-mono text-2xs leading-relaxed">
+                  {patch.split("\n").map((line, index) => (
+                    <span
+                      key={index}
+                      className={cn(
+                        "block",
+                        line.startsWith("+") && !line.startsWith("+++") && "text-ok",
+                        line.startsWith("-") && !line.startsWith("---") && "text-danger",
+                        line.startsWith("@@") && "text-ink-faint",
+                      )}
+                    >
+                      {line}
+                    </span>
+                  ))}
+                </pre>
+                {onApply && (
+                  <Button size="xs" variant="outline" disabled={applying} onClick={() => onApply(finding)}>
+                    <Wrench />
+                    {applying ? "적용하는 중…" : "이대로 고치기"}
+                  </Button>
+                )}
               </div>
             )}
 

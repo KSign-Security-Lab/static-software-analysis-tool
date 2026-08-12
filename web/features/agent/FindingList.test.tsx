@@ -44,6 +44,7 @@ const FINDING: UiFinding = {
     { role: "sink", span: span("net.c", 41), note: "system() 으로 실행됩니다" },
   ],
   remediation: "인자를 배열로 넘기세요.",
+  diff: null,
   confidence: 0.85,
   verified: true,
   raw: {} as UiFinding["raw"],
