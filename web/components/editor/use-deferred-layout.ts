@@ -22,6 +22,9 @@ import { useCallback, useEffect, useRef } from "react";
  * whatever it changes is a fresh observation rather than a re-entry. Coalesced to
  * one frame, because a drag emits an observation per frame and Monaco's layout is
  * not cheap.
+ *
+ * Returns the observer *and* a way to ask for a layout without one, which the
+ * editors need on mount: see `relayout` below.
  */
 export function useDeferredLayout(layout: () => void) {
   const frame = useRef<number | null>(null);
@@ -42,22 +45,47 @@ export function useDeferredLayout(layout: () => void) {
     [],
   );
 
-  /** Attach to the element wrapping the editor. */
-  return useCallback((element: HTMLElement | null) => {
-    if (frame.current !== null) {
-      cancelAnimationFrame(frame.current);
+  /**
+   * Lay out on the next frame, unprompted by any resize.
+   *
+   * The editors need this on mount, and without it they were sometimes 5×5
+   * pixels in a 920×491 container -- Monaco's floor when it measures a box that
+   * has no size yet.
+   *
+   * `automaticLayout` is off, so an editor is laid out exactly twice: once by its
+   * own constructor, measuring the container as it finds it, and thereafter only
+   * when the observer below reports a change. Attaching the observer delivers one
+   * guaranteed notification, and that notification arrives *before the editor
+   * exists* -- Monaco is loaded asynchronously, which is what the `loading`
+   * placeholder is for -- so the one certain layout was spent on a null ref. If
+   * the constructor's own measurement then landed in a frame where the flex chain
+   * had not resolved, nothing ever corrected it: the container never changes size
+   * again by itself, so no second notification is coming. Hence blank until the
+   * pane is dragged, which is the first real resize and repairs it.
+   */
+  const relayout = useCallback(() => {
+    if (frame.current !== null) return;
+    frame.current = requestAnimationFrame(() => {
       frame.current = null;
-    }
-    if (!element || typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver(() => {
-      if (frame.current !== null) return;
-      frame.current = requestAnimationFrame(() => {
-        frame.current = null;
-        latest.current();
-      });
+      latest.current();
     });
-    observer.observe(element);
-    return () => observer.disconnect();
   }, []);
+
+  /** Attach to the element wrapping the editor. */
+  const observe = useCallback(
+    (element: HTMLElement | null) => {
+      if (frame.current !== null) {
+        cancelAnimationFrame(frame.current);
+        frame.current = null;
+      }
+      if (!element || typeof ResizeObserver === "undefined") return;
+
+      const observer = new ResizeObserver(() => relayout());
+      observer.observe(element);
+      return () => observer.disconnect();
+    },
+    [relayout],
+  );
+
+  return { observe, relayout };
 }

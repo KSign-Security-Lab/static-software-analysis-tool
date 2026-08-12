@@ -35,7 +35,7 @@ export default function DiffView({
     return followTheme(monacoRef.current, (name) => monacoRef.current?.editor.setTheme(name));
   }, [ready]);
 
-  const observe = useDeferredLayout(() => editorRef.current?.layout());
+  const { observe, relayout } = useDeferredLayout(() => editorRef.current?.layout());
 
   return (
     <div ref={observe} className="h-full min-h-0 w-full">
@@ -46,6 +46,8 @@ export default function DiffView({
       onMount={(editor, monaco) => {
         editorRef.current = editor;
         monacoRef.current = monaco;
+        // The observer's one guaranteed notification fired before this existed.
+        relayout();
         setReady(true);
       }}
       loading={<p className="p-3 text-2xs text-ink-faint">비교하는 중…</p>}

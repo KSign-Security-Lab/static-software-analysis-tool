@@ -70,17 +70,29 @@ export default function CodeEditor({
     reveal.current = onRevealFinding;
   }, [onSave, onRevealFinding]);
 
-  const onMount = useCallback<OnMount>((editor, monaco) => {
-    editorRef.current = editor;
-    monacoRef.current = monaco;
-    decorations.current = editor.createDecorationsCollection([]);
+  // Monaco's own `automaticLayout` lays out inside a ResizeObserver callback; see
+  // use-deferred-layout.ts for why that cost us the panel group's notifications,
+  // and why an editor has to ask for its first layout itself.
+  const { observe, relayout } = useDeferredLayout(() => editorRef.current?.layout());
 
-    // Also bound inside the editor: the window listener sees the key during
-    // bubble, but Monaco may have handled and stopped it first.
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save.current?.());
+  const onMount = useCallback<OnMount>(
+    (editor, monaco) => {
+      editorRef.current = editor;
+      monacoRef.current = monaco;
+      decorations.current = editor.createDecorationsCollection([]);
 
-    setReady(true);
-  }, []);
+      // Also bound inside the editor: the window listener sees the key during
+      // bubble, but Monaco may have handled and stopped it first.
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save.current?.());
+
+      // The editor now exists, which it did not when the observer fired. Nothing
+      // else will ask, and a wrong measurement here is permanent.
+      relayout();
+      setReady(true);
+    },
+    // Stable, so Monaco does not tear the editor down and rebuild it.
+    [relayout],
+  );
 
   // Theme, and re-theme whenever the attribute flips.
   useEffect(() => {
@@ -164,10 +176,6 @@ export default function CodeEditor({
     });
     return () => listener.dispose();
   }, [ready, findings, path]);
-
-  // Monaco's own `automaticLayout` lays out inside a ResizeObserver callback; see
-  // use-deferred-layout.ts for why that cost us the panel group's notifications.
-  const observe = useDeferredLayout(() => editorRef.current?.layout());
 
   return (
     <div ref={observe} className="h-full min-h-0 w-full">
