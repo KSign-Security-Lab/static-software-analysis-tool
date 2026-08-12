@@ -16,6 +16,22 @@ import pytest
 SAMPLE_TREE = Path(__file__).resolve().parent / "fixtures" / "sample"
 
 
+@pytest.fixture(autouse=True)
+def _isolated_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing in this suite may touch the real ``artifacts/`` directory.
+
+    Runs land there by default, and so does the cross-run result cache -- which
+    is keyed by chunk id, so a test tree analysed once would serve its answers
+    to every later test that happened to use the same fixture. Two tests sharing
+    a cache are one test and a replay of it.
+
+    Per test rather than per session, so a test that runs an inspection twice
+    still exercises the cache it is about.
+    """
+    monkeypatch.setenv("AGENT_RUNS_DIR", str(tmp_path / "artifacts" / "runs"))
+    monkeypatch.setenv("AGENT_PROMPTS_FILE", str(tmp_path / "artifacts" / "prompts.json"))
+
+
 @pytest.fixture
 def fixture_root() -> Path:
     if not SAMPLE_TREE.is_dir():

@@ -226,8 +226,13 @@ def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, in
         _print_finding(finding)
 
     stats = report.stats
+    # Cached units are named rather than left out of the count: a second run
+    # over unchanged code otherwise reports findings "from 0 chunk(s)", which
+    # reads as a bug rather than as the cache doing its job.
+    looked_at = stats.chunks_inspected + stats.chunks_cached
+    reused = f", {stats.chunks_cached} reused" if stats.chunks_cached else ""
     print(
-        f"{len(report.findings)} finding(s) from {stats.chunks_inspected} chunk(s). "
+        f"{len(report.findings)} finding(s) from {looked_at} chunk(s){reused}. "
         f"{stats.candidates} candidate(s), {stats.refuted} refuted, "
         f"{stats.dropped_unlocatable} dropped as unlocatable."
     )

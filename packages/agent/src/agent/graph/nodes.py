@@ -103,6 +103,9 @@ class NodeDeps:
     # a wave with whom: four related functions read better than four strangers,
     # and they share callees, so the context cache is already warm.
     subsystems: dict[str, int] = field(default_factory=dict)
+    # Results from earlier runs over the same code, when one is open. None means
+    # every unit is analysed afresh, which is what `force` asks for.
+    cache: Any = None
     # One assembled pack per chunk, for this run. Four specialists and a
     # verifier all want the same one; building it is deterministic and cheap,
     # but not free, and doing it five times says something untrue about the
@@ -745,6 +748,10 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             if found:
                 deps.store.add_findings(chunk_id, found)
             deps.store.mark_inspected(chunk_id)
+            # Remembered for the next run over this code. A clean unit is a
+            # result too: establishing it cost the same and is worth the same.
+            if deps.cache is not None:
+                deps.cache.remember(chunk_id, found, deps.store.note(chunk_id) or "")
             inspected += 1
             confirmed.extend(found)
             deps.emit(

@@ -165,6 +165,14 @@ class AgentConfig:
     sandbox_timeout: int = field(default_factory=lambda: _env_int("AGENT_SANDBOX_TIMEOUT", 20))
 
     runs_dir: Path = field(default_factory=default_runs_dir)
+    # Results kept across runs, beside the runs rather than inside one -- the
+    # point is that it outlives the run that filled it. Off with AGENT_CACHE=0,
+    # which is what a run wanting to prove a result from scratch asks for.
+    cache_results: bool = field(default_factory=lambda: os.getenv("AGENT_CACHE", "1") != "0")
+
+    @property
+    def cache_file(self) -> Path:
+        return self.runs_dir.parent / "analysis-cache.db"
     prompts_file: Path = field(default_factory=default_prompts_file)
 
     def require_model(self) -> str:

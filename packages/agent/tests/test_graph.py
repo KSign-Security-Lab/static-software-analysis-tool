@@ -999,7 +999,16 @@ def test_a_run_is_the_same_however_the_endpoint_answers(indexed, tmp_path: Path)
                 return super().call(schema, system, user, trace)
 
         caller = Jittered(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
-        report = _run(root, store, caller, wave_width=4, lenses=("memory", "injection", "access", "logic"))
+        # No cache: this asks whether two *runs* agree, and a second run served
+        # from the first one's results would agree by not running.
+        report = _run(
+            root,
+            store,
+            caller,
+            wave_width=4,
+            lenses=("memory", "injection", "access", "logic"),
+            cache_results=False,
+        )
         store.close()
         return report.model_dump_json(exclude={"run_id"})
 
@@ -1169,3 +1178,85 @@ def test_every_verifier_call_is_told_which_specialist_it_is_arguing_with(indexed
     # Absent on the calls that are nobody else's claim.
     assert lens_of.get("triage") is None
     assert lens_of.get("lens:injection") is None
+
+
+# -- results kept across runs -------------------------------------------------
+
+
+def _tree_at(tmp_path: Path, name: str, source: str) -> tuple[Path, ChunkStore]:
+    root = tmp_path / name
+    root.mkdir()
+    (root / "app.c").write_text(source, encoding="utf-8")
+    store = ChunkStore(tmp_path / f"{name}.db")
+    build_index(root, store)
+    return root, store
+
+
+def test_a_second_run_over_unchanged_code_costs_nothing(tmp_path: Path) -> None:
+    """The whole point of content-derived chunk ids, finally spent.
+
+    Within a run that already bought something; across runs it bought nothing,
+    so uploading the same tree twice paid full price for every unit that had not
+    moved -- on a real codebase, almost all of them.
+    """
+    first_root, first_store = _tree_at(tmp_path, "first", VULNERABLE)
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    first = _run(first_root, first_store, caller)
+    calls = len(caller.prompts)
+    assert first.findings and calls > 0
+    first_store.close()
+
+    # A different run over identical code: same ids, nothing to do.
+    second_root, second_store = _tree_at(tmp_path, "second", VULNERABLE)
+    again = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    second = _run(second_root, second_store, again)
+
+    assert again.prompts == [], "the model was asked about code already analysed"
+    assert second.stats.chunks_cached == second.stats.chunks_total
+    assert [f.id for f in second.findings] == [f.id for f in first.findings], "reuse must be faithful"
+    second_store.close()
+
+
+def test_changed_code_is_analysed_again(tmp_path: Path) -> None:
+    """A chunk id is derived from the body, so an edited function is a new unit
+    and the cache cannot answer for it."""
+    first_root, first_store = _tree_at(tmp_path, "before", VULNERABLE)
+    _run(first_root, first_store, ScriptedCaller())
+    first_store.close()
+
+    edited = VULNERABLE.replace('sprintf(cmd, "echo %s", arg);', 'snprintf(cmd, sizeof(cmd), "echo %s", arg);')
+    second_root, second_store = _tree_at(tmp_path, "after", edited)
+    caller = ScriptedCaller()
+    report = _run(second_root, second_store, caller)
+
+    assert caller.prompts, "the edited unit must be looked at again"
+    assert report.stats.chunks_cached < report.stats.chunks_total
+    second_store.close()
+
+
+def test_a_different_recipe_does_not_reuse_another_one_s_answers(tmp_path: Path) -> None:
+    """Serving a result produced by a narrower configuration is a false negative
+    that looks like a cache hit -- the worst failure this tool has."""
+    first_root, first_store = _tree_at(tmp_path, "narrow", VULNERABLE)
+    _run(first_root, first_store, ScriptedCaller(), lenses=("injection",))
+    first_store.close()
+
+    second_root, second_store = _tree_at(tmp_path, "wide", VULNERABLE)
+    caller = ScriptedCaller()
+    report = _run(second_root, second_store, caller, lenses=("injection", "memory"))
+
+    assert caller.prompts, "a run with more specialists must not inherit a narrower run's results"
+    assert report.stats.chunks_cached == 0
+    second_store.close()
+
+
+def test_the_cache_can_be_turned_off(tmp_path: Path) -> None:
+    first_root, first_store = _tree_at(tmp_path, "one", VULNERABLE)
+    _run(first_root, first_store, ScriptedCaller())
+    first_store.close()
+
+    second_root, second_store = _tree_at(tmp_path, "two", VULNERABLE)
+    caller = ScriptedCaller()
+    _run(second_root, second_store, caller, cache_results=False)
+    assert caller.prompts, "AGENT_CACHE=0 means analyse it again"
+    second_store.close()

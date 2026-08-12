@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any, Sequence
 
+from ..cache import ResultCache, recipe_of
 from ..config import AgentConfig
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
@@ -97,8 +98,20 @@ class InspectionSession:
         # and half against another.
         self.prompts = resolve_prompts(config.prompts_file)
 
+        # Results from earlier runs over the same code. Keyed on the recipe as
+        # well as the chunk -- same model, same specialists, same prompts --
+        # because serving a result produced by a narrower configuration is a
+        # false negative that looks like a cache hit.
+        self._cache: ResultCache | None = None
+        if config.cache_results and config.model:
+            self._cache = ResultCache(
+                config.cache_file,
+                recipe_of(model=config.model, lenses=config.lenses, prompts=self.prompts),
+            )
+
         deps = NodeDeps(
             store=store,
+            cache=self._cache,
             config=config,
             caller=caller if caller is not None else StructuredCaller(config),
             root=root,
@@ -167,7 +180,24 @@ class InspectionSession:
     def __exit__(self, *_: Any) -> None:
         self.close()
 
+    def warm_from_cache(self) -> int:
+        """Fill this run's store with what earlier runs already established.
+
+        Before the graph, not inside it: a warmed chunk is marked inspected, so
+        `plan` skips it by the ordinary path and it lands in `chunks_cached`
+        where the summary already reports it. No node has to know this happened.
+        """
+        if self._cache is None:
+            return 0
+        warmed = self._cache.warm(self.store, self.order)
+        if warmed:
+            log.info("reused %d of %d units from earlier runs", warmed, len(self.order))
+        return warmed
+
     def close(self) -> None:
+        if self._cache is not None:
+            self._cache.close()
+            self._cache = None
         if self._owned_tools is not None:
             self._owned_tools.close()
             self._owned_tools = None
@@ -193,6 +223,10 @@ class InspectionSession:
         try one chunk, say. Merged rather than replacing it, so naming one field
         does not silently drop the tallies the rest of the graph reads.
         """
+        # Before `initial()`, which reads what is already inspected to build the
+        # queue: warming after it would compute a queue holding chunks that were
+        # about to become free.
+        self.warm_from_cache()
         state = self.initial()
         if values:
             state.update(values)
