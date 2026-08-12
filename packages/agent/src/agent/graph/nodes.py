@@ -6,7 +6,7 @@
 Three things happen at once here, and each is a different kind of parallelism.
 A *wave* is several chunks at one call depth, which by construction cannot need
 each other's notes. A *scout* is one unit being read for where in it is worth a
-close look, and a *lens* is one of four specialists reading one of those
+close look, and a *lens* is one of the specialists reading one of those
 stretches for its own family of defect. A *gather* and the *verify* below it are one claim
 being investigated and then refuted. All of them fan out through LangGraph's
 `Send`, so the graph shows what is actually in flight rather than one node that

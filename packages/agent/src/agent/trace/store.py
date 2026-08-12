@@ -90,7 +90,7 @@ class Span:
             "kind": self.kind,
             "status": self.status,
             "error": self.error,
-            # When it started, not only how long it took. With four specialists
+            # When it started, not only how long it took. With the specialists
             # on one chunk, a list of durations cannot say whether they ran
             # together or one after another -- and that is the thing worth
             # seeing. The trace draws them against the wall clock.

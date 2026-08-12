@@ -112,7 +112,7 @@ ANALYSE_SYSTEM = f"""\
 """
 
 #: What each specialist is for, and what it must leave to the others. The
-#: exclusion is as important as the scope: without it four analysts all report
+#: exclusion is as important as the scope: without it every analyst reports
 #: the same obvious `system()` call and three of them find nothing else.
 _LENS_SCOPE: dict[Lens, str] = {
     "memory": """\
@@ -148,14 +148,29 @@ format string 취약점, 안전하지 않은 역직렬화, 템플릿·표현식 
 
 범위 안: 빠져 있거나 잘못된 인증·인가 검사, 우회할 수 있거나 효과가 난 뒤에 도는 검사,
 안전하지 않은 직접 객체 참조, 권한 상승, 하드코딩된 자격 증명과 키, 로그나 오류 메시지로
-새는 비밀값, 약하거나 잘못 쓴 암호, 보안 용도에 쓰인 예측 가능한 난수, 그리고 파일이나
-자원에 지나치게 넓게 준 권한.
+새는 비밀값, 그리고 파일이나 자원에 지나치게 넓게 준 권한.
 
 인가 검사가 있더라도 엉뚱한 주체에 적용되었거나 지키려던 부수 효과보다 늦게 돈다면 그것은
-발견입니다. 원격에서 떠볼 수 있는 비밀값을 constant time 이 아닌 방식으로 비교하는 것도
-마찬가지입니다.
+발견입니다.
 
-범위 밖, 다른 분석가에게 맡길 것: 메모리 오류, injection, 자원 수명.""",
+범위 밖, 다른 분석가에게 맡길 것: 메모리 오류, injection, 암호 자체의 선택과 사용, 자원
+수명.""",
+    "crypto": """\
+당신은 암호 사용 전문가입니다. 오직 한 갈래의 결함만 찾습니다: 암호가 쓰이기는 했는데
+그 방식이 지키려던 것을 지키지 못하는 것.
+
+범위 안: 깨진 알고리즘(MD5, SHA-1, DES, RC4), 잘못 고른 모드(암호문에 무결성이 없는 ECB
+나 인증 없는 CBC), 고정되거나 재사용된 IV·nonce·salt, 비밀번호를 KDF 없이 그대로 해시하는
+것, 보안 용도에 쓰인 예측 가능한 난수(rand, Math.random, 시각 기반 시드), 검증을 끄거나
+건너뛴 인증서·서명 확인, 비밀값을 constant time 이 아닌 방식으로 비교하는 것, 그리고
+암호화와 인증의 순서를 잘못 잡은 것.
+
+값을 보십시오. 키와 IV 가 어디서 왔는지, 상수인지, 호출마다 새로 만들어지는지가 대부분의
+판단을 가릅니다. 암호 함수를 부른다는 사실 자체는 발견이 아니며, 어떻게 불렀는지가
+발견입니다.
+
+범위 밖, 다른 분석가에게 맡길 것: 자격 증명이 하드코딩되어 있다는 것 자체와 인가 검사(접근
+통제 담당), 메모리 오류, injection.""",
     "logic": """\
 당신은 로직과 자원 수명 전문가입니다. 오직 한 갈래의 결함만 찾습니다: 한 줄씩 보면
 멀쩡한데 순서에서, 동시성에서, 또는 놓아주지 않는 것에서 틀리는 코드.

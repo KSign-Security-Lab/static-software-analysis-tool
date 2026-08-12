@@ -543,6 +543,7 @@ def test_graph_endpoint_names_the_nodes_a_breakpoint_may_use(client: TestClient)
         "memory",
         "injection",
         "access",
+        "crypto",
         "logic",
         "skip",
         "locate",

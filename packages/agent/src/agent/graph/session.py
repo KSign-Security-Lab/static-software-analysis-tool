@@ -222,7 +222,7 @@ class InspectionSession:
 
         Refuses rather than guesses when several nodes ran at once. LangGraph
         needs one node to attribute the write to, and at a fan-out step there
-        genuinely is no answer: four specialists wrote that state between them,
+        genuinely is no answer: the specialists wrote that state between them,
         and picking one of them decides where the graph goes next. Editing at
         the joins -- `locate`, `reduce`, `plan` -- is always well defined.
         """

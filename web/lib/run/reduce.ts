@@ -28,7 +28,7 @@ export type RunPhase = "idle" | "starting" | "running" | "paused" | "finished" |
 export interface RunLive {
   /**
    * The nodes executing now. A list because they genuinely are several: a wave
-   * of chunks screens in parallel, four specialists read one chunk at once,
+   * of chunks screens in parallel, the specialists read one chunk at once,
    * and a handful of findings are refuted at the same time. One name here
    * would have shown whichever event arrived last and hidden the rest.
    */

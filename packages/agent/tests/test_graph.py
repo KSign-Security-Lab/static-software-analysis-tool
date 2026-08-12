@@ -523,6 +523,7 @@ def test_the_graph_shape_is_readable_without_a_run(tmp_path: Path) -> None:
         "memory",
         "injection",
         "access",
+        "crypto",
         "logic",
         "skip",
         "locate",

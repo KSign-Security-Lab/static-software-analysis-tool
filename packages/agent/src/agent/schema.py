@@ -113,9 +113,15 @@ class Verdict(BaseModel):
 
 
 #: The specialists. One generalist prompt asked to hold every vulnerability
-#: class in mind at once skims all of them; four narrow ones, run concurrently,
-#: each have room to be thorough about their own.
-Lens = Literal["memory", "injection", "access", "logic"]
+#: class in mind at once skims all of them; narrow ones, run concurrently, each
+#: have room to be thorough about their own.
+#:
+#: `crypto` was split out of `access`, which had grown to carry authentication,
+#: authorisation, IDOR, privilege escalation, hardcoded credentials, secrets in
+#: logs, cryptography, randomness and file permissions -- the longest brief of
+#: the four, and the argument for splitting them in the first place applies to
+#: it exactly as it applied to the generalist.
+Lens = Literal["memory", "injection", "access", "crypto", "logic"]
 
 LENSES: tuple[Lens, ...] = get_args(Lens)
 

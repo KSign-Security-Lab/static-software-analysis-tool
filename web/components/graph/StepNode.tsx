@@ -51,7 +51,7 @@ function Ports({ across }: { across: boolean }) {
  * queue, `context` assembles the packs, `locate` resolves anchors, `reduce` writes
  * the results, `skip` exists so a join fires once -- and none of them calls a
  * model. They looked identical to the ones that do, and there was no way to tell
- * from the drawing which boxes were agents. Only `triage`, the four specialists,
+ * from the drawing which boxes were agents. Only `triage`, the specialists,
  * `gather` and `verify` are, and only `gather` holds tools.
  *
  * `agent` and `code` rather than a longer word for either: they go in a box 124px
