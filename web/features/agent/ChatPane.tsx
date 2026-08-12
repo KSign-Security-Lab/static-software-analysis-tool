@@ -1,6 +1,6 @@
 "use client";
 
-import { CirclePause, Loader2, Pencil, Wrench } from "lucide-react";
+import { ChevronRight, CirclePause, Loader2, Pencil, Wrench } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -9,39 +9,45 @@ import { Progress } from "@/components/ui/progress";
 import { isTruncated } from "@/lib/api/types";
 import type { AgentStep, NodeNote, PromptRow } from "@/lib/api/types";
 import type { RunLive, RunPhase } from "@/lib/run/reduce";
-import { type Exchange, type ToolRun, type Unit, roleOf, seconds } from "@/lib/trace/process";
+import { type Exchange, type ToolRun, type Unit, labelOf, seconds } from "@/lib/trace/process";
 import { parseReply } from "@/lib/trace/reply";
 import { cn } from "@/lib/utils";
 
 /**
- * The run as a chat thread.
+ * The run, as the record of a pipeline.
  *
- * Messages, from named senders, in the order they were sent. The orchestrator
- * hands a unit of code to an agent; the agent answers, or asks a tool something
- * and answers once it has the reply. Every bubble on the right was sent *to* an
- * agent and every bubble on the left came *from* one, which is the whole of the
- * reading instruction.
+ * This was drawn as a chat: senders, bubbles, sent on the right and said on the
+ * left. The metaphor was wrong and the pane was hard to read because of it.
  *
- * Two things this is not, both of which it was. Not a table: a row of metadata
- * with the payload folded away is a log, and the message is the point. And not a
- * summary: a tool loop's passes are shown one after another -- wanted the
- * definition, read it, wanted the caller -- rather than as one reply and a list of
- * three calls, because the order is what makes it an argument rather than a tally.
+ * A chat's spatial grammar buys you two things -- who spoke, and turn-taking --
+ * and neither is in question here. Every prompt is from the orchestrator and every
+ * reply is from the step named beside it; the alternation is the pipeline, which is
+ * fixed and known. What it cost was everything else: right-aligned senders and
+ * 92%-width bubbles alternating sides meant nothing shared a left edge, in a pane
+ * 368 pixels wide, and one step came to 4 stacked blocks -- sender, prompt bubble,
+ * answer bubble, footnote -- with 14 steps in a run and no spine to hang them on.
  *
- * Senders are named by the id the agent uses for itself. `lens:injection` is what
- * the span metadata says, what the prompt is filed under and what a breakpoint is
- * set on; a translated name would be a second name for one agent.
+ * Worse, it put the emphasis exactly backwards. A step's prompt is a *template*:
+ * `이것은 보안 전문가의 시간을 들일 만합니까?` is identical on all four units, and
+ * the code inside it is already open two panes to the left, wrapped here to a width
+ * that breaks its own line-number gutter. It was rendered first, and four times
+ * taller than the answer, which is the one part of a step that is news.
  *
- * No markdown renderer anywhere. A message may contain a diff or an injected
- * prompt, and rendering that as formatting is how a reader stops being able to see
- * what was actually said.
+ * So: one step, one row, on a rail. The answer leads. What was sent is one
+ * disclosure, because it is reference rather than reading. A unit says in its header
+ * what became of it, so the run can be scanned rather than read through.
+ *
+ * Kept from the chat, because both were right: the order is the argument -- a tool
+ * loop shows its passes one after another, not as a tally -- and nothing is rendered
+ * as markdown, because a reply may contain a diff or an injected prompt and
+ * formatting it is how a reader stops seeing what was actually said.
  */
 
-/** Past this a thread is scrolled through rather than read. */
+/** Past this a unit is scrolled through rather than read. */
 const TURN_CAP = 40;
 
-/** Lines of a long message shown before it has to be asked for. */
-const CLAMP_LINES = 8;
+/** Lines of a long block shown before it has to be asked for. */
+const CLAMP_LINES = 6;
 
 export default function ChatPane({
   units,
@@ -76,7 +82,7 @@ export default function ChatPane({
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       <Status phase={phase} live={live} />
-      {focus && <Focus focus={focus} trail={focus.scoped ? units.flatMap((unit) => unit.exchanges) : []} />}
+      {focus && <Focus focus={focus} />}
 
       <div className="min-h-0 flex-1 overflow-auto">
         {note && <NodeCard note={note} steps={steps} prompts={prompts} />}
@@ -99,7 +105,7 @@ export default function ChatPane({
           </div>
         ) : (
           units.map((unit) => (
-            <Thread key={unit.id} unit={unit} selected={selected} onTunePrompt={onTunePrompt} />
+            <UnitBlock key={unit.id} unit={unit} selected={selected} onTunePrompt={onTunePrompt} />
           ))
         )}
       </div>
@@ -108,60 +114,356 @@ export default function ChatPane({
 }
 
 /**
- * How the finding being read was arrived at, and the way out.
+ * Which finding the transcript is narrowed to, and the way out.
  *
- * The same shape as the graph's `{node} 만 보는 중` chip, because it is the same
- * idea: something elsewhere on the page has narrowed this one, and a pane that
- * is showing a subset has to say so or it reads as a pane that has lost things.
- *
- * The chain above the messages, because four long messages do not show their own
- * shape. `선별 → injection 가 제기 → 근거 모으기 → 판정` is the answer to "how was
- * this found" in one line, and the messages under it are that answer's working.
- * Derived from the exchanges actually shown, so it cannot claim a step the
- * transcript does not contain.
+ * One line, because the chain that produced the finding is on the unit's own
+ * header now -- every unit states its path, and a scoped pane has exactly one
+ * unit, so saying it twice was saying it twice.
  */
-function Focus({
-  focus,
-  trail,
+function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (next: boolean) => void } }) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-line bg-accent-wash px-3 py-1.5">
+      <p className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
+        {focus.scoped ? `‘${focus.title}’ 을 찾아낸 과정` : "실행 전체의 기록"}
+      </p>
+      <Button
+        size="xs"
+        variant="ghost"
+        className="shrink-0"
+        onClick={() => focus.onScoped(!focus.scoped)}
+        aria-pressed={focus.scoped}
+      >
+        {focus.scoped ? "전체 보기" : "이 문제만"}
+      </Button>
+    </div>
+  );
+}
+
+/* -- one unit ---------------------------------------------------------------- */
+
+/**
+ * One code unit and every step taken over it.
+ *
+ * The header carries the path the unit took -- `선별 → memory 가 제기 → 근거 모으기
+ * → 판정` -- so a run can be scanned. Four units used to be four indistinguishable
+ * walls of prompt text, and which of them was screened out in one call and which
+ * went the whole way was a thing you found out by reading all of both.
+ */
+function UnitBlock({
+  unit,
+  selected,
+  onTunePrompt,
 }: {
-  focus: { title: string; scoped: boolean; onScoped: (next: boolean) => void };
-  trail: Exchange[];
+  unit: Unit;
+  selected: string | null;
+  onTunePrompt: (spanId: string) => void;
 }) {
-  // Order is the order they ran. Deduplicated by role, because a claim can be
-  // gathered over several rounds and "근거 모으기 → 근거 모으기" is one step.
-  const chain = trail
-    .map((exchange) => roleOf(exchange.step))
-    .filter((role, index, all) => all.indexOf(role) === index);
+  const path = unit.exchanges.map(labelOf).filter((role, at, all) => all.indexOf(role) === at);
+  // Only when it says something the symbol does not. A file chunk's symbol *is*
+  // its filename, and `main.c main.c` was the header on every one of them.
+  const file = unit.file && unit.file !== unit.symbol ? unit.file : null;
 
   return (
-    <div className="shrink-0 space-y-1 border-b border-line bg-accent-wash px-3 py-1.5">
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
-          {focus.scoped ? `‘${focus.title}’ 을 찾아낸 과정` : "실행 전체의 대화"}
-        </p>
+    <section>
+      {/* Sticky, because a long unit scrolls past its own subject and "which
+          function is this about" is the first thing you lose. */}
+      <header className="sticky top-0 z-10 space-y-0.5 border-y border-line bg-surface-2 px-3 py-1.5">
+        <div className="flex items-baseline gap-2">
+          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-ink-strong">
+            {unit.symbol ?? unit.id}
+          </h3>
+          {file && <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{file}</span>}
+          {unit.tokens > 0 && (
+            <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">
+              {unit.tokens.toLocaleString()} tok
+            </span>
+          )}
+        </div>
+        {path.length > 0 && <p className="text-2xs leading-snug text-accent-ink">{path.join(" → ")}</p>}
+      </header>
+
+      <ol className="px-3 py-2">
+        {unit.exchanges.slice(0, TURN_CAP).map((exchange) => (
+          <StepRow
+            key={exchange.id}
+            exchange={exchange}
+            unit={unit.symbol ?? unit.id}
+            highlighted={exchange.id === selected}
+            onTunePrompt={() => onTunePrompt(exchange.id)}
+          />
+        ))}
+        {unit.exchanges.length > TURN_CAP && (
+          <li className="pl-4 font-mono text-2xs text-ink-faint">+{unit.exchanges.length - TURN_CAP} more</li>
+        )}
+      </ol>
+    </section>
+  );
+}
+
+/**
+ * One step: what it concluded, what it ran to get there, and what it was asked.
+ *
+ * In that order, which is the whole of the change. The conclusion is the news; the
+ * calls are the working; the brief is reference, and a template besides.
+ *
+ * On a rail rather than in boxes. Fourteen steps need to read as a sequence, and a
+ * 1px line with a dot per step does that in no horizontal space at all -- where
+ * bubbles cost an indent, a max-width and an alignment each.
+ */
+function StepRow({
+  exchange,
+  unit,
+  highlighted,
+  onTunePrompt,
+}: {
+  exchange: Exchange;
+  /** The unit's own name, so a step does not repeat it as its subject. */
+  unit: string;
+  highlighted: boolean;
+  onTunePrompt: () => void;
+}) {
+  const answer = parseReply(exchange.reply);
+  const subject = exchange.subject === unit ? "" : exchange.subject;
+
+  return (
+    <li
+      className={cn(
+        "group/step relative border-l border-line pb-3 pl-4 last:border-transparent last:pb-0",
+        highlighted && "bg-accent-wash",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-[7px] -left-[3.5px] size-[7px] rounded-full",
+          exchange.error ? "bg-danger" : "bg-accent",
+        )}
+        aria-hidden
+      />
+
+      <div className="flex items-baseline gap-1.5">
+        <h4 className="shrink-0 text-xs font-semibold text-ink-strong">{labelOf(exchange)}</h4>
+        <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{subject || exchange.step}</span>
         <Button
-          size="xs"
+          size="icon-xs"
           variant="ghost"
-          className="shrink-0"
-          onClick={() => focus.onScoped(!focus.scoped)}
-          aria-pressed={focus.scoped}
+          title="프롬프트 고쳐 다시 실행"
+          aria-label="프롬프트 고쳐 다시 실행"
+          onClick={onTunePrompt}
+          className="ml-auto shrink-0 opacity-0 transition-opacity group-hover/step:opacity-100 focus-visible:opacity-100"
         >
-          {focus.scoped ? "전체 보기" : "이 문제만"}
+          <Pencil className="text-ink-faint" />
         </Button>
       </div>
-      {chain.length > 1 && (
-        <ol className="flex flex-wrap items-center gap-x-1 text-2xs text-accent-ink">
-          {chain.map((role, index) => (
-            <li key={role} className="flex items-center gap-1">
-              {index > 0 && <span className="text-ink-faint" aria-hidden>→</span>}
-              {role}
-            </li>
-          ))}
-        </ol>
+
+      <div className="mt-1 space-y-1.5">
+        <Answer answer={answer} rounds={exchange.rounds} />
+        {exchange.error && <p className="font-mono text-2xs text-danger">{exchange.error}</p>}
+        <Meta exchange={exchange} />
+        <Sent exchange={exchange} />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * What the step concluded.
+ *
+ * A tool loop concluded it over several passes and the passes are the argument --
+ * wanted the definition, read it, wanted the caller -- so those are shown in order
+ * rather than folded into one reply and a list of calls. Everything else said one
+ * thing once, and its rounds would be one message repeating the answer.
+ */
+function Answer({ answer, rounds }: { answer: ReturnType<typeof parseReply>; rounds: Exchange["rounds"] }) {
+  const looped = rounds.some((round) => round.calls.length > 0);
+
+  if (looped) {
+    return (
+      <div className="space-y-1.5">
+        {rounds.map((round, index) => (
+          <div key={index} className="space-y-1.5">
+            {round.said && <Clamp text={round.said} />}
+            {round.calls.map((call, at) => (
+              <ToolCall key={at} call={call} />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (answer.kind === "empty") return <p className="font-mono text-2xs text-ink-faint">(no reply)</p>;
+  if (answer.kind === "blank") return <p className="font-mono text-2xs text-ink-muted">{answer.text}</p>;
+  if (answer.kind === "text") return <Clamp text={answer.text} />;
+
+  return (
+    <dl className="space-y-1">
+      {answer.fields.map((field) => (
+        // Wrapping rather than a fixed key column: `worth_analysing` is 15
+        // characters of mono and used to squeeze the value it labelled into
+        // nothing. A long key now takes the line and the value gets the next one.
+        <div key={field.key} className="flex flex-wrap items-baseline gap-x-2">
+          <dt className="shrink-0 font-mono text-2xs text-ink-faint">{field.key}</dt>
+          <dd className="min-w-0 flex-1 text-xs leading-relaxed text-ink">
+            {field.value !== undefined ? (
+              <span className="whitespace-pre-wrap">{field.value}</span>
+            ) : (
+              <Fold label={field.nested?.summary ?? ""}>
+                <Clamp text={field.nested?.json ?? ""} mono />
+              </Fold>
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** An agent asking a tool something, and the tool answering. */
+function ToolCall({ call }: { call: ToolRun }) {
+  return (
+    <div className="space-y-1 rounded-sm bg-field px-2 py-1.5">
+      <div className="flex items-baseline gap-1.5 font-mono text-2xs">
+        <Wrench className="size-3 shrink-0 self-center text-alt" aria-hidden />
+        <span className="min-w-0 truncate text-alt">{call.name}</span>
+        <span className="min-w-0 flex-1 truncate text-ink-faint">{argsOf(call.args)}</span>
+        {call.latency_ms !== null && (
+          <span className="shrink-0 text-ink-faint">{seconds(call.latency_ms)}</span>
+        )}
+      </div>
+      {call.error ? (
+        <p className="font-mono text-2xs text-danger">{call.error}</p>
+      ) : (
+        // The tool's answer is the evidence, so it stays on screen rather than
+        // going behind a fold -- clamped, which is the same bargain the prompts
+        // get and the reason `step → tool` and `tool → step` labels are gone: in
+        // a box under the call there was only ever one direction it could be.
+        <Clamp text={resultText(call.outputs)} mono />
       )}
     </div>
   );
 }
+
+/**
+ * Where this step went, and what it spent.
+ *
+ * One line of numbers. `← triage` is not among them: every step already says what
+ * fed it by sitting under it on the rail, and the unit's header names the whole
+ * path in order.
+ */
+function Meta({ exchange }: { exchange: Exchange }) {
+  const bits: string[] = [];
+  if (exchange.attempts > 1) bits.push(`${exchange.attempts} calls`);
+  if (exchange.retried > 0) bits.push(`${exchange.retried} retried`);
+  if (exchange.tokens) bits.push(`${exchange.tokens.toLocaleString()} tok`);
+  const time = seconds(exchange.latency_ms);
+  if (time) bits.push(time);
+  if (exchange.offered.length > 0) bits.push(`도구 ${exchange.calls.length}/${exchange.offered.length}`);
+
+  if (bits.length === 0 && exchange.to.length === 0) return null;
+
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 font-mono text-2xs text-ink-faint">
+      {exchange.to.length > 0 && <span className="text-alt">→ {exchange.to.join(", ")}</span>}
+      {bits.join(" · ")}
+    </p>
+  );
+}
+
+/**
+ * The brief, folded.
+ *
+ * Both halves in one disclosure. They were two -- a bubble for the message and a
+ * fold inside it for the standing instructions -- and the standing half is per
+ * *step kind*, not per call: the same 1,461 characters on every unit, and it is on
+ * the node card now, in full, where it is a fact about the node rather than the
+ * fourteenth copy of one.
+ */
+function Sent({ exchange }: { exchange: Exchange }) {
+  const size = (exchange.user.length + exchange.system.length).toLocaleString();
+
+  return (
+    <Fold label={`받은 지시 · ${size} chars`}>
+      <div className="mt-1 space-y-1.5 rounded-sm bg-field p-2">
+        <Clamp text={exchange.user} mono />
+        {exchange.system && (
+          <div className="border-t border-line pt-1.5">
+            <p className="mb-1 font-mono text-2xs text-ink-faint">지시문</p>
+            <Clamp text={exchange.system} mono />
+          </div>
+        )}
+      </div>
+    </Fold>
+  );
+}
+
+/**
+ * A block long enough to bury what comes after it.
+ *
+ * Clamped, not folded: the first lines are on screen and the rest is one click
+ * away. Six lines rather than eight, because a step now shows its answer, its
+ * calls and its brief in one column and each of them is bidding for the same
+ * screen.
+ */
+function Clamp({ text, mono }: { text: string; mono?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const lines = text.split("\n");
+  const long = lines.length > CLAMP_LINES || text.length > 400;
+  const shown = open || !long ? text : lines.slice(0, CLAMP_LINES).join("\n").slice(0, 400);
+
+  return (
+    <div className="space-y-0.5">
+      <pre
+        className={cn(
+          "overflow-x-auto text-xs leading-relaxed whitespace-pre-wrap",
+          mono ? "font-mono text-2xs text-ink-muted" : "font-sans text-ink",
+        )}
+      >
+        {shown || "(empty)"}
+      </pre>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="font-mono text-2xs text-ink-faint hover:text-ink-muted"
+        >
+          {open ? "접기" : `더 보기 · ${text.length.toLocaleString()} chars`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Whatever the tool answered, as text. The store's truncation is kept visible. */
+function resultText(outputs: unknown): string {
+  if (outputs === null || outputs === undefined) return "(empty)";
+  if (typeof outputs === "string") return outputs;
+  if (isTruncated(outputs)) return `${outputs.preview}\n\n… ${outputs._chars.toLocaleString()} chars, truncated at 20,000`;
+  return JSON.stringify(outputs, null, 2);
+}
+
+/** `path="net.c", start_line=15` -- the call as it was made. */
+function argsOf(args: Record<string, unknown>): string {
+  const parts = Object.entries(args).map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+  return parts.length > 0 ? parts.join(", ") : "";
+}
+
+/** A disclosure, for the things that are genuinely asides. */
+function Fold({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="group/fold flex items-center gap-0.5 font-mono text-2xs text-ink-faint hover:text-ink-muted">
+        <ChevronRight
+          className="size-3 shrink-0 transition-transform group-data-[state=open]/fold:rotate-90"
+          aria-hidden
+        />
+        {label}
+      </CollapsibleTrigger>
+      <CollapsibleContent>{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/* -- one node ---------------------------------------------------------------- */
 
 /**
  * What one node of the graph is.
@@ -191,15 +493,13 @@ function NodeCard({ note, steps, prompts }: { note: NodeNote; steps: AgentStep[]
     .filter((step) => step.schema)
     .map((step) => `${step.schema}(${step.schema_fields.join(", ")})`);
   // The standing instructions. This is the node's role in the most literal sense
-  // available: the text it is actually run under. The card described a node in
-  // terms of its channels and its edges and left the one thing that decides what
-  // it does behind a pencil icon on an individual message.
+  // available: the text it is actually run under.
   const briefs = mine
     .map((step) => ({ step: step.step, row: prompts.find((row) => row.name === step.prompt) }))
     .filter((each): each is { step: string; row: PromptRow } => Boolean(each.row));
 
   return (
-    <section className="space-y-1.5 border-b border-line bg-surface-2 px-3 py-2.5">
+    <section className="space-y-2 border-b border-line bg-surface-2 px-3 py-2.5">
       <header className="flex items-center gap-2">
         <h3 className="font-mono text-xs font-semibold text-ink-strong">{note.node}</h3>
         <span
@@ -237,15 +537,15 @@ function NodeCard({ note, steps, prompts }: { note: NodeNote; steps: AgentStep[]
           ).length.toLocaleString()} chars`}
         >
           <div className="mt-1 rounded-sm bg-field p-2">
-            <Long text={brief.row.override ?? brief.row.default} mono />
+            <Clamp text={brief.row.override ?? brief.row.default} mono />
           </div>
         </Fold>
       ))}
 
       {tools.length > 0 && (
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           <h4 className="text-2xs text-ink-faint">쓸 수 있는 도구</h4>
-          <ul className="space-y-0.5">
+          <ul className="space-y-1">
             {tools.map((tool) => (
               <li key={tool.name} className="flex flex-wrap items-baseline gap-x-1.5">
                 <span className="font-mono text-2xs text-alt">{tool.name}</span>
@@ -274,328 +574,6 @@ function Fact({ term, value }: { term: string; value: string }) {
   );
 }
 
-/** One code unit's thread, headed by the unit the whole conversation is about. */
-function Thread({
-  unit,
-  selected,
-  onTunePrompt,
-}: {
-  unit: Unit;
-  selected: string | null;
-  onTunePrompt: (spanId: string) => void;
-}) {
-  return (
-    <section>
-      {/* Sticky, because a long thread scrolls past its own subject and "which
-          function is this about" is the first thing you lose. */}
-      <header className="sticky top-0 z-10 flex items-baseline gap-2 border-y border-line bg-surface-2 px-3 py-1.5">
-        <h3 className="truncate font-mono text-xs font-semibold text-ink-strong">{unit.symbol ?? unit.id}</h3>
-        {unit.file && <span className="truncate font-mono text-2xs text-ink-faint">{unit.file}</span>}
-        {unit.tokens > 0 && (
-          <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">{unit.tokens.toLocaleString()} tok</span>
-        )}
-      </header>
-
-      <ol className="space-y-4 px-3 py-3">
-        {unit.exchanges.slice(0, TURN_CAP).map((exchange) => (
-          <Turn
-            key={exchange.id}
-            exchange={exchange}
-            unit={unit.symbol ?? unit.id}
-            highlighted={exchange.id === selected}
-            onTunePrompt={() => onTunePrompt(exchange.id)}
-          />
-        ))}
-        {unit.exchanges.length > TURN_CAP && (
-          <li className="font-mono text-2xs text-ink-faint">+{unit.exchanges.length - TURN_CAP} more</li>
-        )}
-      </ol>
-    </section>
-  );
-}
-
-/**
- * One agent's part of the thread: what it was sent, and everything it said back.
- */
-function Turn({
-  exchange,
-  unit,
-  highlighted,
-  onTunePrompt,
-}: {
-  exchange: Exchange;
-  /** The thread's own subject, so a message does not repeat it. */
-  unit: string;
-  highlighted: boolean;
-  onTunePrompt: () => void;
-}) {
-  const subject = exchange.subject === unit ? "" : exchange.subject;
-  const answer = parseReply(exchange.reply);
-  // A tool loop is a conversation and is shown as one. Everything else said one
-  // thing once, so its rounds would be a single message repeating the answer.
-  const conversational = exchange.calls.length > 0;
-
-  return (
-    <li className={cn("group/turn space-y-2 rounded-md", highlighted && "-mx-1.5 bg-accent-wash px-1.5 py-1.5")}>
-      <Bubble
-        side="right"
-        sender={`orchestrator → ${exchange.step}`}
-        aside={subject}
-        tone="sent"
-        action={
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            title="프롬프트 고쳐 다시 실행"
-            aria-label="프롬프트 고쳐 다시 실행"
-            onClick={onTunePrompt}
-            className="opacity-0 transition-opacity group-hover/turn:opacity-100 focus-visible:opacity-100"
-          >
-            <Pencil className="text-ink-faint" />
-          </Button>
-        }
-      >
-        <Long text={exchange.user} />
-        {exchange.system && <System text={exchange.system} />}
-      </Bubble>
-
-      {conversational
-        ? exchange.rounds.map((round, index) => (
-            <div key={index} className="space-y-2">
-              {round.said && (
-                <Bubble side="left" sender={exchange.step} aside={index === 0 ? senderAside(exchange) : ""}>
-                  <Long text={round.said} />
-                </Bubble>
-              )}
-              {round.calls.map((call, at) => (
-                <ToolExchange key={at} step={exchange.step} call={call} />
-              ))}
-            </div>
-          ))
-        : null}
-
-      {!conversational && (
-        <Bubble side="left" sender={exchange.step} aside={senderAside(exchange)}>
-          {answer.kind === "empty" && <p className="font-mono text-2xs text-ink-faint">(no reply)</p>}
-          {answer.kind === "blank" && <p className="font-mono text-2xs text-ink-muted">{answer.text}</p>}
-          {answer.kind === "text" && <Long text={answer.text} />}
-          {answer.kind === "fields" && (
-            <dl className="space-y-1">
-              {answer.fields.map((field) => (
-                <div key={field.key} className="flex gap-2">
-                  <dt className="shrink-0 font-mono text-2xs text-ink-faint">{field.key}</dt>
-                  <dd className="min-w-0 flex-1 text-xs text-ink">
-                    {field.value !== undefined ? (
-                      <span className="leading-relaxed whitespace-pre-wrap">{field.value}</span>
-                    ) : (
-                      <Fold label={field.nested?.summary ?? ""}>
-                        <Long text={field.nested?.json ?? ""} mono />
-                      </Fold>
-                    )}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          )}
-        </Bubble>
-      )}
-
-      {exchange.error && (
-        <p className="pl-1 font-mono text-2xs text-danger">{exchange.error}</p>
-      )}
-
-      <Footnote exchange={exchange} />
-    </li>
-  );
-}
-
-/** `← triage`, `← lens:injection` -- who handed this agent the work. */
-function senderAside(exchange: Exchange): string {
-  return exchange.from.length > 0 ? `← ${exchange.from.join(" + ")}` : "";
-}
-
-/**
- * One message.
- *
- * `sent` sits right and quiet; a reply sits left and is the thing being read. The
- * sender is above the bubble rather than inside it, so a wall of text never pushes
- * the name out of view.
- */
-function Bubble({
-  side,
-  sender,
-  aside,
-  tone = "said",
-  action,
-  children,
-}: {
-  side: "left" | "right";
-  sender: string;
-  aside?: string;
-  tone?: "sent" | "said";
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={cn("flex flex-col gap-1", side === "right" ? "items-end" : "items-start")}>
-      <div className="flex w-full items-center gap-1.5">
-        {side === "left" && <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-hidden />}
-        <span
-          className={cn(
-            "min-w-0 truncate font-mono text-2xs",
-            side === "left" ? "font-semibold text-accent-ink" : "ml-auto text-ink-faint",
-          )}
-        >
-          {sender}
-        </span>
-        {aside && <span className="shrink-0 font-mono text-2xs text-ink-faint">{aside}</span>}
-        {action}
-      </div>
-      <div
-        className={cn(
-          "max-w-[92%] min-w-0 rounded-lg px-2.5 py-2",
-          tone === "sent" ? "rounded-tr-none bg-field" : "rounded-tl-none bg-surface-2",
-        )}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/**
- * A message long enough to bury the ones after it.
- *
- * Clamped, not folded: the first lines are on screen as a message, and the rest is
- * one click away. A context pack runs to thousands of characters, and hiding it
- * behind a row of metadata was how the sent message stopped being visible at all.
- */
-function Long({ text, mono }: { text: string; mono?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const lines = text.split("\n");
-  const long = lines.length > CLAMP_LINES || text.length > 600;
-  const shown = open || !long ? text : lines.slice(0, CLAMP_LINES).join("\n").slice(0, 600);
-
-  return (
-    <div className="space-y-1">
-      <pre
-        className={cn(
-          "overflow-x-auto text-xs leading-relaxed whitespace-pre-wrap",
-          mono ? "font-mono text-2xs text-ink-muted" : "font-sans text-ink",
-        )}
-      >
-        {shown || "(empty)"}
-      </pre>
-      {long && (
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          className="font-mono text-2xs text-ink-faint hover:text-ink-muted"
-        >
-          {open ? "접기" : `더 보기 · ${text.length.toLocaleString()} chars`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** The standing instructions, which are the same for every unit this agent reads. */
-function System({ text }: { text: string }) {
-  return (
-    <Fold label={`system ${text.length.toLocaleString()} chars`}>
-      <Long text={text} mono />
-    </Fold>
-  );
-}
-
-/** An agent asking a tool something, and the tool answering. */
-function ToolExchange({ step, call }: { step: string; call: ToolRun }) {
-  return (
-    <div className="space-y-1 border-l-2 border-line-2 pl-2.5">
-      <div className="flex items-center gap-1.5 font-mono text-2xs">
-        <Wrench className="size-3 shrink-0 text-alt" />
-        <span className="shrink-0 text-ink-faint">{step} →</span>
-        <span className="shrink-0 text-alt">{call.name}</span>
-        {call.latency_ms !== null && <span className="ml-auto shrink-0 text-ink-faint">{seconds(call.latency_ms)}</span>}
-      </div>
-      <pre className="overflow-x-auto rounded-sm bg-field px-2 py-1 font-mono text-2xs whitespace-pre-wrap text-ink-muted">
-        {argsOf(call.args)}
-      </pre>
-
-      <div className="flex items-center gap-1.5 font-mono text-2xs text-ink-faint">
-        <span>{call.name} →</span>
-        <span>{step}</span>
-      </div>
-      {call.error ? (
-        <p className="font-mono text-2xs text-danger">{call.error}</p>
-      ) : (
-        <div className="rounded-sm bg-field px-2 py-1">
-          <Long text={resultText(call.outputs)} mono />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Whatever the tool answered, as text. The store's truncation is kept visible. */
-function resultText(outputs: unknown): string {
-  if (outputs === null || outputs === undefined) return "(empty)";
-  if (typeof outputs === "string") return outputs;
-  if (isTruncated(outputs)) return `${outputs.preview}\n\n… ${outputs._chars.toLocaleString()} chars, truncated at 20,000`;
-  return JSON.stringify(outputs, null, 2);
-}
-
-/** `path="net.c", start_line=15` -- the call as it was made. */
-function argsOf(args: Record<string, unknown>): string {
-  const parts = Object.entries(args).map(([key, value]) => `${key}=${JSON.stringify(value)}`);
-  return parts.length > 0 ? parts.join("\n") : "(no arguments)";
-}
-
-/**
- * What became of this turn: where it went, and what it was allowed to reach for.
- *
- * Under the messages rather than in them, because it is about the exchange rather
- * than part of it.
- */
-function Footnote({ exchange }: { exchange: Exchange }) {
-  const bits: React.ReactNode[] = [];
-  if (exchange.to.length > 0) bits.push(<span key="to" className="text-alt">→ {exchange.to.join(", ")}</span>);
-  if (exchange.attempts > 1) bits.push(<span key="n">{exchange.attempts} calls</span>);
-  if (exchange.retried > 0) bits.push(<span key="r">{exchange.retried} retried</span>);
-  if (exchange.tokens) bits.push(<span key="t">{exchange.tokens.toLocaleString()} tok</span>);
-  bits.push(<span key="ms">{seconds(exchange.latency_ms)}</span>);
-
-  return (
-    <div className="flex flex-wrap items-center gap-x-2 pl-3 font-mono text-2xs text-ink-faint">
-      {bits}
-      {exchange.offered.length > 0 && (
-        <Fold label={`tools ${exchange.offered.length} available, ${exchange.calls.length} called`}>
-          <ul className="mt-1 space-y-0.5 rounded-sm bg-field p-2">
-            {exchange.offered.map((tool) => (
-              <li key={tool.name} className="flex gap-2 text-2xs">
-                <span className="w-28 shrink-0 font-mono text-alt">{tool.name}</span>
-                <span className="min-w-0 flex-1 text-ink-faint">{tool.summary}</span>
-              </li>
-            ))}
-          </ul>
-        </Fold>
-      )}
-    </div>
-  );
-}
-
-/** A disclosure, for the things that are genuinely asides. */
-function Fold({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <Collapsible>
-      <CollapsibleTrigger className="font-mono text-2xs text-ink-faint underline decoration-dotted hover:text-ink-muted">
-        {label}
-      </CollapsibleTrigger>
-      <CollapsibleContent>{children}</CollapsibleContent>
-    </Collapsible>
-  );
-}
-
 /** Every agent in the run and what it holds. Before a run, when that is the question. */
 function Roster({ steps }: { steps: AgentStep[] }) {
   if (steps.length === 0) return null;
@@ -621,6 +599,8 @@ function Roster({ steps }: { steps: AgentStep[] }) {
   );
 }
 
+/* -- where the run is -------------------------------------------------------- */
+
 const PHASE_LABEL: Record<RunPhase, string | null> = {
   idle: null,
   starting: "시작하는 중",
@@ -639,7 +619,7 @@ const PHASE_TONE: Record<RunPhase, string> = {
   failed: "text-danger",
 };
 
-/** Where the run is, above the thread it is producing. */
+/** Where the run is, above the record it is producing. */
 function Status({ phase, live }: { phase: RunPhase; live: RunLive }) {
   const label = PHASE_LABEL[phase];
   if (!label && !live.refusal) return null;

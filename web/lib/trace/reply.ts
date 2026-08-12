@@ -54,9 +54,15 @@ function flatList(value: unknown): string | null {
   return parts.every((each) => each !== null) ? parts.join(", ") : null;
 }
 
-/** How much is behind a fold, without opening it. */
+/**
+ * How much is behind a fold, without opening it.
+ *
+ * A count needs its unit. This was the bare number, and a specialist's whole
+ * output -- the finding it raised -- sat behind a disclosure labelled `1`, which
+ * says neither what it holds nor that there is anything to open.
+ */
 function summarise(value: unknown): string {
-  if (Array.isArray(value)) return String(value.length);
+  if (Array.isArray(value)) return `${value.length}개`;
   return Object.keys(value as Record<string, unknown>).join(", ");
 }
 

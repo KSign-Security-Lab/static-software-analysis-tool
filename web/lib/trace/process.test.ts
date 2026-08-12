@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentStep, Thread, Turn } from "@/lib/api/types";
-import { claimOf, pairTools, roleOf, subjectOf, trailOf, unitsOf, unwrapToolOutput } from "./process";
+import { claimOf, labelOf, pairTools, roleOf, subjectOf, trailOf, unitsOf, unwrapToolOutput } from "./process";
 
 const GATHER: AgentStep = {
   step: "gather",
@@ -489,5 +489,18 @@ describe("roleOf", () => {
       "근거 모으기",
       "판정",
     ]);
+  });
+});
+
+describe("labelOf", () => {
+  it("tells a specialist's lookup pass from the analysis that raises the finding", () => {
+    // Both are `lens:memory`, so both read as `memory 가 제기` -- two identical
+    // headings in a row where the first had raised nothing.
+    expect(labelOf({ step: "lens:memory", calls: [{ name: "find_definition", args: {}, inputs: null, outputs: null, error: null, latency_ms: 1 }] })).toBe("memory 가 조회");
+    expect(labelOf({ step: "lens:memory", calls: [] })).toBe("memory 가 제기");
+  });
+
+  it("leaves every other step to its role", () => {
+    expect(labelOf({ step: "verify", calls: [] })).toBe("판정");
   });
 });

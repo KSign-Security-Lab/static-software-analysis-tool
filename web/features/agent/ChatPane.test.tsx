@@ -149,77 +149,98 @@ function setup(over: Partial<Parameters<typeof ChatPane>[0]> = {}) {
 }
 
 describe("ChatPane", () => {
-  it("is a thread of messages: sent on one side, said on the other", () => {
+  it("leads a step with what it concluded, not with what it was asked", async () => {
+    // The point of the rewrite. A step's brief is a template -- the same standing
+    // instructions and the same framing on every unit, around code that is open
+    // two panes to the left -- and rendering it first and four times taller than
+    // the answer put the emphasis exactly backwards.
     setup();
 
-    // The sent message is on screen, not folded behind a row of metadata. That
-    // was the whole failure: the prompt was never visible as a message.
-    expect(screen.getByText("orchestrator → triage")).toBeTruthy();
-    expect(screen.getByText(/=== UNIT UNDER ANALYSIS: net\.c :: ping_host/)).toBeTruthy();
-    // And the reply is a message from a named sender.
-    expect(screen.getByText("triage")).toBeTruthy();
     expect(screen.getByText("worth_analysing")).toBeTruthy();
+    expect(screen.getByText(/sprintf 와 system 을 씁니다/)).toBeTruthy();
+
+    // Folded, and the fold says how much is behind it.
+    expect(screen.queryByText(/=== UNIT UNDER ANALYSIS: net\.c :: ping_host/)).toBeNull();
+    const brief = screen.getAllByRole("button", { name: /받은 지시 · [\d,]+ chars/ })[0];
+    await userEvent.click(brief);
+    expect(screen.getByText(/=== UNIT UNDER ANALYSIS: net\.c :: ping_host/)).toBeTruthy();
   });
 
-  it("names each speaker by the id the agent uses for itself", () => {
-    // `lens:injection` is what the span metadata says, what the prompt is filed
-    // under and what a breakpoint is set on.
+  it("names a step in the reader's language and keeps the agent's own id beside it", () => {
+    // `선별` is what it is doing; `triage` is what the prompt is filed under and
+    // what a breakpoint is set on. Both, because both are load-bearing.
     setup();
-    expect(screen.getByText("orchestrator → gather")).toBeTruthy();
-    // As the sender of its own message, and as the addressee each tool answered.
-    expect(screen.getAllByText("gather").length).toBe(3);
-    // And as the caller on each tool it addressed.
-    expect(screen.getAllByText("gather →").length).toBe(2);
+    expect(screen.getByText("선별")).toBeTruthy();
+    expect(screen.getByText("근거 모으기")).toBeTruthy();
+    expect(screen.getByText("triage")).toBeTruthy();
   });
 
-  it("shows who handed a turn over, and who it handed on to", () => {
+  it("says what became of the unit, in its header", () => {
+    // So a run can be scanned. Four units were four indistinguishable walls of
+    // prompt text, and which was screened out in one call and which went the
+    // whole way was something you found out by reading all of both.
     setup();
+    expect(screen.getByText("선별 → 근거 모으기")).toBeTruthy();
+  });
+
+  it("does not print the unit's name twice when the file is the name", () => {
+    // A file chunk's symbol *is* its filename, and `main.c main.c` was the header
+    // on every one of them.
+    setup({ units: unitsOf([{ ...THREADS[0], symbol: "net.c", file: "net.c" }], STEPS) });
+    expect(screen.getAllByText("net.c")).toHaveLength(1);
+  });
+
+  it("shows where a step handed on to", () => {
     // triage names the specialists in its own reply.
+    setup();
     expect(screen.getByText("→ lens:memory, lens:injection")).toBeTruthy();
-    // gather carries the lens that raised the claim, in the span's metadata.
-    expect(screen.getByText("← lens:injection")).toBeTruthy();
   });
 
-  it("plays a tool loop back as the exchange it was", async () => {
+  it("plays a tool loop back as the exchange it was", () => {
     // What the model said, then what it asked the tool, then what the tool
     // answered -- in that order. Flattened it read as a tally of three calls.
     setup();
 
     expect(screen.getByText(/argv 에서 그대로 옵니다/)).toBeTruthy();
     expect(screen.getByText(/symbol="pick_target"/)).toBeTruthy();
-    // The tool answering back is its own message, addressed to the caller.
-    expect(screen.getByText("find_definition →")).toBeTruthy();
+    // The answer stays on screen: it is the evidence, not an aside.
     expect(screen.getByText("static char *pick_target(const char *raw)")).toBeTruthy();
   });
 
-  it("clamps a long message rather than hiding it", async () => {
+  it("clamps a long block rather than hiding it", async () => {
+    // Nothing is long enough to clamp until a brief is opened, which is itself the
+    // result worth having: a step's own answer fits.
     setup();
+    expect(screen.queryAllByRole("button", { name: /더 보기 · [\d,]+ chars/ })).toHaveLength(0);
+
+    await userEvent.click(screen.getAllByRole("button", { name: /받은 지시 · [\d,]+ chars/ })[0]);
     const more = screen.getAllByRole("button", { name: /더 보기 · [\d,]+ chars/ });
     expect(more.length).toBeGreaterThan(0);
+
     await userEvent.click(more[0]);
     expect(screen.getByRole("button", { name: "접기" })).toBeTruthy();
   });
 
-  it("keeps the standing instructions out of the thread", async () => {
-    // The system prompt is identical for every unit this agent reads. It is an
-    // aside, not a message.
+  it("keeps the standing instructions with the brief rather than in the record", async () => {
+    // Identical for every unit this agent reads, and on the node card in full. One
+    // disclosure, not a fold nested inside a message.
     setup();
     expect(screen.queryByText(/값싼 첫 통과입니다/)).toBeNull();
-    await userEvent.click(screen.getAllByRole("button", { name: /^system [\d,]+ chars/ })[0]);
+    await userEvent.click(screen.getAllByRole("button", { name: /받은 지시 · [\d,]+ chars/ })[0]);
     expect(screen.getByText(/값싼 첫 통과입니다/)).toBeTruthy();
   });
 
-  it("counts the tools a step held against the ones it called", async () => {
+  it("counts the tools a step held against the ones it called", () => {
     // The half no record of the run can supply: a tool offered and never called
-    // leaves no span behind.
+    // leaves no span behind. One line of numbers now rather than a disclosure --
+    // the roster itself is on the node card.
     setup();
-    await userEvent.click(screen.getByRole("button", { name: /tools 3 available, 2 called/ }));
-    expect(screen.getByText("run_in_sandbox")).toBeTruthy();
+    expect(screen.getByText(/도구 2\/3/)).toBeTruthy();
   });
 
   it("says nothing about tools for a step that has none", () => {
     setup();
-    expect(screen.queryAllByRole("button", { name: /tools \d+ available/ })).toHaveLength(1);
+    expect(screen.queryAllByText(/도구 \d+\/\d+/)).toHaveLength(1);
   });
 
   it("keeps the prompt editor out of the way until a turn is hovered", () => {

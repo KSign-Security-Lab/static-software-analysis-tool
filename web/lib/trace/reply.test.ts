@@ -30,7 +30,7 @@ describe("parseReply", () => {
     if (reply.kind !== "fields") return;
     // The note was empty and is gone; only the findings remain.
     expect(reply.fields).toHaveLength(1);
-    expect(reply.fields[0].nested?.summary).toBe("2");
+    expect(reply.fields[0].nested?.summary).toBe("2개");
     expect(reply.fields[0].nested?.json).toContain("CWE-78");
   });
 

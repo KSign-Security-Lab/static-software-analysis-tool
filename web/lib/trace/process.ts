@@ -297,6 +297,27 @@ export function roleOf(step: string): string {
 }
 
 /**
+ * What one exchange was doing, which is not always what its step is for.
+ *
+ * A specialist runs twice over a unit: a lookup pass that may reach for the index
+ * -- what is this callee actually declared as -- and then the analysis that answers
+ * in the schema. Both are `lens:memory`, so both read as `memory 가 제기`, and the
+ * record showed two identical headings where the first had raised nothing and the
+ * second was the one that did.
+ *
+ * Told apart by whether the exchange called a tool, which is structural: the
+ * analysis is a guided-decoding call and cannot. The lens's own subject says so too
+ * -- the agent suffixes it `조회` -- but a Korean substring is a worse test than the
+ * shape of the call.
+ */
+export function labelOf(exchange: Pick<Exchange, "step" | "calls">): string {
+  if (exchange.step.startsWith("lens:") && exchange.calls.length > 0) {
+    return `${exchange.step.slice(5)} 가 조회`;
+  }
+  return roleOf(exchange.step);
+}
+
+/**
  * The attempts of one step, gathered into one entry.
  *
  * Keyed by step *and* subject rather than by adjacency, because a wave verifies
