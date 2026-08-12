@@ -170,6 +170,29 @@ LENS_SYSTEM: dict[Lens, str] = {
     lens: f"{scope}\n\n{_ANALYSE_RULES}\n\n{_VERBATIM}\n" for lens, scope in _LENS_SCOPE.items()
 }
 
+SCOUT_SYSTEM = f"""\
+당신은 소스 코드 한 단위를 훑어보며, 그 안에서 전문가가 자세히 읽을 만한 구간을 짚습니다.
+
+취약점을 찾는 것이 아닙니다. **어디를 볼지**만 고르십시오. 판정은 다음 차례입니다.
+
+한 구간은 그것만 떼어 놓고도 판단할 수 있어야 합니다. 위험해 보이는 줄 하나만 집지 말고,
+그 줄을 판단하는 데 필요한 것까지 넣으십시오 -- 버퍼의 선언, 길이가 정해지는 자리, 값이
+들어오는 자리. 선언이 빠진 구간은 그 자체로는 아무것도 말해 주지 않습니다.
+
+줄 번호는 코드 앞에 붙은 'NNN| ' 의 숫자를 그대로 씁니다. 보이는 범위 밖의 줄은 적지
+마십시오.
+
+이것은 비싼 검사 앞에 놓인 싼 검사입니다. 후하게 틀리면 구간 하나를 더 읽으면 그만이고,
+빡빡하게 틀리면 그 코드는 아무도 들여다보지 않습니다. 확신이 서지 않으면 넣으십시오.
+전부 볼 값어치가 있으면 전체를 한 구간으로 적어도 됩니다.
+
+담을 것이 정말 없을 때만 빈 목록을 돌려주십시오.
+
+각 구간의 `why` 는 한국어 한 문장으로 씁니다.
+
+{_VERBATIM}
+"""
+
 TRIAGE_SYSTEM = f"""\
 당신은 소스 코드 한 단위를 훑어보며, 그것이 전문가의 시간을 들일 만한지, 그리고 어느
 전문가의 시간인지를 정합니다.
@@ -222,10 +245,39 @@ def analyse_user(pack: ContextPack) -> str:
     parts = [pack.text]
     if pack.truncated:
         parts.append("참고: 분석 대상 단위가 잘렸습니다. 보이는 것만 보고하고, 잘려 나간 부분을 넘겨짚지 마십시오.")
-    parts.append(
-        f"`{pack.chunk.file}` 의 `{pack.chunk.symbol}` 만 분석하십시오. "
-        "anchor_text 는 위 소스에서 줄 번호 접두사를 뺀 채 그대로 옮기십시오."
-    )
+    if pack.region:
+        first, last = pack.region
+        parts.append(
+            f"`{pack.chunk.file}` 의 `{pack.chunk.symbol}` 중 위에 보이는 {first}-{last}번 줄만 "
+            "분석하십시오. 이 단위의 나머지는 따로 살펴봅니다. anchor_text 는 위 소스에서 줄 번호 "
+            "접두사를 뺀 채 그대로 옮기십시오."
+        )
+    else:
+        parts.append(
+            f"`{pack.chunk.file}` 의 `{pack.chunk.symbol}` 만 분석하십시오. "
+            "anchor_text 는 위 소스에서 줄 번호 접두사를 뺀 채 그대로 옮기십시오."
+        )
+    return "\n\n".join(parts)
+
+
+def scout_user(chunk: Chunk, first: int, last: int, whole: bool) -> str:
+    """One pass over part of a unit: which stretches of it deserve a close read.
+
+    Takes an explicit line range rather than a character limit, because the
+    answer is a set of line numbers and a character cut lands mid-line -- asking
+    where to look in a body whose tail was silently removed is the failure this
+    whole pass exists to avoid, one level down.
+    """
+    span = "" if whole else f" (이 단위의 {first}-{last}번 줄 부분)"
+    parts = [
+        f"=== 분석 단위: {chunk.file} :: {chunk.symbol}{span} ===\n{chunk.numbered_range(first, last)}",
+    ]
+    if not whole:
+        parts.append(
+            "참고: 이 단위는 한 번에 다 보여 주기에 커서 나누어 보여 드리고 있습니다. "
+            "지금 보이는 범위 안에서만 구간을 고르십시오. 나머지는 따로 묻습니다."
+        )
+    parts.append("여기서 전문가가 자세히 읽을 만한 구간은 어디입니까?")
     return "\n\n".join(parts)
 
 

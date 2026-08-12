@@ -81,6 +81,17 @@ class InspectionSession:
         # is off, and never overrides an explicit LANGSMITH_PROJECT.
         apply_default_project()
 
+        # Ask the endpoint how much room there is, once, before any of it is
+        # spent. Every budget in this package used to be a character count
+        # invented against a window nobody had read; without this call the
+        # derived one falls back to exactly that number and `scout` never sees a
+        # unit it considers too large, because nothing ever is.
+        window = config.resolve_window()
+        if window:
+            log.info("context window %d tokens; budgeting %d characters of prompt", window, config.input_chars())
+        else:
+            log.info("endpoint did not report a context window; budgeting %d characters", config.input_chars())
+
         # Resolved once, here, rather than per call: a prompt edited while a run
         # is going must not leave half its chunks analysed against one prompt
         # and half against another.

@@ -2,11 +2,12 @@
 
 The loop is::
 
-    plan -> context -> triage -> {memory, injection, access, logic}
+    plan -> context -> triage -> scout -> {memory, injection, access, logic}
          -> locate -> gather -> verify -> reduce -> plan
 
-exiting when ``plan`` finds no unvisited chunk. Four of those arrows fan out:
-one triage per chunk in the wave, one specialist per lens that chunk earned, one
+exiting when ``plan`` finds no unvisited chunk. Five of those arrows fan out:
+one triage per chunk in the wave, one scout per chunk worth analysing, one
+specialist per lens that chunk earned *times* each stretch scout picked out, one
 investigation per finding, and the verifier that investigation hands its claim
 to. Everything joins again at ``locate`` and ``reduce``, which is where order is
 restored.
@@ -32,21 +33,21 @@ from ..llm import StructuredCaller
 from ..mcp.client import ToolSession
 from ..schema import LENSES, Report
 from ..trace import SpanStore
-from .nodes import NodeDeps, ProgressSink, claims, dispatch, has_work, make_nodes, specialists
+from .nodes import NodeDeps, ProgressSink, claims, dispatch, has_work, make_nodes, scouts, specialists
 from .state import InspectionState
 
 #: What one chunk costs in node visits, on the longest road through the graph.
 #: The limit is generous so a large upload is bounded by the queue rather than
 #: by LangGraph, and it is computed from the work rather than guessed. A wave
 #: pays this once for the whole wave, so the real bound is looser still.
-NODE_VISITS_PER_CHUNK = 9
+NODE_VISITS_PER_CHUNK = 10
 RECURSION_HEADROOM = 20
 
 #: The graph's nodes, named once. A breakpoint is checked against this, and the
 #: API answers with it, so neither has to compile a graph to find out. Every
 #: lens is registered whether or not this run uses it, so the drawing of the
 #: agent is the same drawing however the run is configured.
-NODES = ("plan", "context", "triage", *LENSES, "skip", "locate", "gather", "verify", "reduce")
+NODES = ("plan", "context", "triage", "scout", *LENSES, "skip", "locate", "gather", "verify", "reduce")
 
 
 def build_graph(
@@ -81,6 +82,7 @@ def build_graph(
     graph.add_node("plan", nodes["plan"])
     graph.add_node("context", nodes["context"])
     graph.add_node("triage", nodes["triage"])
+    graph.add_node("scout", nodes["scout"])
     for lens in LENSES:
         graph.add_node(lens, nodes[lens])
     graph.add_node("skip", nodes["skip"])
@@ -99,9 +101,10 @@ def build_graph(
     # invisible to `get_graph()` unless the edge says where it can go. With
     # screening on, `context` only ever reaches the specialists through
     # `triage`, and saying so keeps the drawing honest rather than exhaustive.
-    after_context = ["triage", "skip"] if deps.config.triage else [*LENSES, "skip"]
+    after_context = ["triage", "skip"] if deps.config.triage else ["scout", "skip"]
     graph.add_conditional_edges("context", dispatch(deps.config), after_context)
-    graph.add_conditional_edges("triage", specialists, [*LENSES, "skip"])
+    graph.add_conditional_edges("triage", scouts, ["scout"])
+    graph.add_conditional_edges("scout", specialists(deps.config), [*LENSES, "skip"])
     # Everything the specialists layer contains joins here, and only here. That
     # is what makes `locate` run once per wave rather than once per route into
     # it -- see `nodes.skip`.

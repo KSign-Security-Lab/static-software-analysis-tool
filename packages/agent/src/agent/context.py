@@ -23,6 +23,8 @@ class ContextPack:
     text: str
     callee_notes: list[tuple[str, str]] = field(default_factory=list)
     truncated: bool = False
+    #: The stretch of the unit this pack is about, when it is not the whole one.
+    region: tuple[int, int] | None = None
 
     @property
     def has_callee_context(self) -> bool:
@@ -44,15 +46,27 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
     return text[:limit] + f"\n... [{limit}자에서 잘림]", True
 
 
-def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> ContextPack:
+def build_context(
+    store: ChunkStore,
+    chunk: Chunk,
+    config: AgentConfig,
+    region: tuple[int, int] | None = None,
+) -> ContextPack:
     """Sections are added in priority order, so on a large chunk the supporting
-    material is dropped, never the code under analysis."""
+    material is dropped, never the code under analysis.
+
+    ``region`` narrows the code under analysis to one stretch of the unit, which
+    is what buys the room: a unit too large to send whole is sent as the part
+    worth reading, with the supporting material it can now afford.
+    """
     sections: list[str] = []
     budget = config.context_char_budget
 
-    body, truncated = truncate(chunk.numbered_body(), config.max_chunk_chars)
+    first, last = region or (chunk.start_line, chunk.end_line)
+    body, truncated = truncate(chunk.numbered_range(first, last), config.max_chunk_chars)
     label = "파일 수준 선언" if chunk.kind == FILE_CHUNK_KIND else "분석 대상 단위"
-    header = f"=== {label}: {chunk.file} :: {chunk.symbol} ({chunk.start_line}-{chunk.end_line}번 줄) ==="
+    where = f"{first}-{last}번 줄" if region else f"{chunk.start_line}-{chunk.end_line}번 줄"
+    header = f"=== {label}: {chunk.file} :: {chunk.symbol} ({where}) ==="
     primary = f"{header}\n{body}"
     sections.append(primary)
     budget -= len(primary)
@@ -107,6 +121,7 @@ def build_context(store: ChunkStore, chunk: Chunk, config: AgentConfig) -> Conte
         text="\n\n".join(sections),
         callee_notes=callee_notes,
         truncated=truncated,
+        region=region,
     )
 
 

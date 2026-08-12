@@ -41,6 +41,7 @@ export interface RunStats {
   chunks_inspected?: number;
   chunks_cached?: number;
   triaged_out?: number;
+  regions?: number;
   candidates?: number;
   dropped_unlocatable?: number;
   refuted?: number;

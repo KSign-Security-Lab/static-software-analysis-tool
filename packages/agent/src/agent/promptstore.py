@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any, Mapping
 
-from .prompts import GATHER_SYSTEM, LENS_SYSTEM, TRIAGE_SYSTEM, VERIFY_SYSTEM
+from .prompts import GATHER_SYSTEM, LENS_SYSTEM, SCOUT_SYSTEM, TRIAGE_SYSTEM, VERIFY_SYSTEM
 from .schema import Lens
 
 log = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ def lens_prompt(lens: Lens) -> str:
 #: other three -- which is the whole reason for splitting them up.
 DEFAULTS: dict[str, str] = {
     "triage": TRIAGE_SYSTEM,
+    "scout": SCOUT_SYSTEM,
     **{lens_prompt(lens): text for lens, text in LENS_SYSTEM.items()},
     "gather": GATHER_SYSTEM,
     "verify": VERIFY_SYSTEM,

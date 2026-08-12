@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from .config import AgentConfig
 from .mcp.client import VERIFY_TOOLS
 from .promptstore import lens_prompt
-from .schema import LENSES, ChunkAnalysis, Triage, Verdict
+from .schema import LENSES, ChunkAnalysis, Scout, Triage, Verdict
 
 #: Which graph node makes each kind of call.
 #:
@@ -31,6 +31,7 @@ from .schema import LENSES, ChunkAnalysis, Triage, Verdict
 #: step that reaches for tools is the step worth being able to stop at.
 STEP_NODE: dict[str, str] = {
     "triage": "triage",
+    "scout": "scout",
     **{lens_prompt(lens): lens for lens in LENSES},
     "gather": "gather",
     "verify": "verify",
@@ -41,6 +42,7 @@ STEP_NODE: dict[str, str] = {
 #: tool-calling loop that returns prose, so there is nothing to constrain.
 STEP_SCHEMA: dict[str, type[BaseModel] | None] = {
     "triage": Triage,
+    "scout": Scout,
     # Every specialist answers in the same shape -- the lens is in the prompt,
     # not in the shape of the answer.
     **{lens_prompt(lens): ChunkAnalysis for lens in LENSES},
@@ -54,7 +56,7 @@ STEP_SCHEMA: dict[str, type[BaseModel] | None] = {
 STEP_TOOLS: dict[str, tuple[str, ...]] = {"gather": tuple(VERIFY_TOOLS)}
 
 #: In the order a chunk passes through them, which is the order to read them in.
-STEP_ORDER: tuple[str, ...] = ("triage", *(lens_prompt(lens) for lens in LENSES), "gather", "verify")
+STEP_ORDER: tuple[str, ...] = ("triage", "scout", *(lens_prompt(lens) for lens in LENSES), "gather", "verify")
 
 
 def _fields(schema: type[BaseModel] | None) -> list[str]:

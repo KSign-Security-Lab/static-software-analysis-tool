@@ -20,10 +20,10 @@ links  ── calls / uses_type / file_depends
    │
    ▼  topological sort, callees first; call depth per chunk
 inspection loop, one wave of independent chunks at a time:
-   plan → context → triage ─┬→ memory    ─┐
-                            ├→ injection ─┤
-                            ├→ access    ─┼→ locate → gather → verify → reduce
-                            └→ logic     ─┘
+   plan → context → triage → scout ─┬→ memory    ─┐
+                                    ├→ injection ─┤
+                                    ├→ access    ─┼→ locate → gather → verify → reduce
+                                    └→ logic     ─┘
 ```
 
 Four decisions do most of the work.

@@ -108,6 +108,28 @@ Lens = Literal["memory", "injection", "access", "logic"]
 LENSES: tuple[Lens, ...] = get_args(Lens)
 
 
+class Region(BaseModel):
+    """One stretch of a unit worth reading closely."""
+
+    start_line: int = Field(description="시작 줄 번호. 코드 앞에 붙은 'NNN| ' 의 숫자 그대로.")
+    end_line: int = Field(description="끝 줄 번호, 포함. 판단에 필요한 선언과 대입까지 넣으십시오.")
+    why: str = Field(description="여기를 자세히 볼 이유, 한국어 한 문장.")
+
+
+class Scout(BaseModel):
+    """Where in a unit is worth a specialist's close attention.
+
+    Not findings -- candidates. The mirror of :class:`Triage` one level down:
+    triage prunes units, this prunes the parts of a unit, and both exist so the
+    expensive pass behind them reads less and reads it better.
+    """
+
+    regions: list[Region] = Field(
+        default_factory=list,
+        description="자세히 볼 구간들. 없으면 빈 목록. 확신이 없으면 넣는 쪽으로.",
+    )
+
+
 class Triage(BaseModel):
     """The screening pass: is this unit worth a specialist's time, and whose?
 
@@ -191,6 +213,9 @@ class RunStats(BaseModel):
     chunks_cached: int = 0
     #: Screened out before any specialist looked at them.
     triaged_out: int = 0
+    #: Stretches the specialists were pointed at. Equal to the units inspected
+    #: when nothing needed narrowing, and above it when something did.
+    regions: int = 0
     candidates: int = 0
     dropped_unlocatable: int = 0
     refuted: int = 0

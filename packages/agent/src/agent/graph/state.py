@@ -78,6 +78,13 @@ class InspectionState(TypedDict, total=False):
     packs: Annotated[dict[str, str], merge]
     #: Chunk id to the screening verdict: whether to analyse it, and by whom.
     triaged: Annotated[dict[str, Any], merge]
+    #: Chunk id to the stretches of it worth reading closely.
+    #:
+    #: Keyed rather than a list, and that is load-bearing: `specialists` is
+    #: evaluated once per task and must see only its own chunk's regions. A
+    #: `concat` list would show it every other unit's as well, and it would fan
+    #: a specialist out over all of them.
+    scouted: Annotated[dict[str, Any], merge]
     #: Serialised CandidateFinding objects, each tagged with its chunk and lens.
     candidates: Annotated[list[dict[str, Any]], concat]
     #: Serialised Finding objects that survived locating, awaiting verification.
@@ -91,7 +98,7 @@ class InspectionState(TypedDict, total=False):
 
 
 #: Everything a new wave has to forget before it starts.
-WAVE_CHANNELS = ("packs", "triaged", "candidates", "located", "verdicts", "confirmed")
+WAVE_CHANNELS = ("packs", "triaged", "scouted", "candidates", "located", "verdicts", "confirmed")
 
 
 def clear_wave() -> dict[str, Any]:
@@ -110,6 +117,7 @@ def initial_state(order: list[str], chunks_total: int, stats: dict[str, int] | N
         "dropped_unlocatable": 0,
         "refuted": 0,
         "triaged_out": 0,
+        "regions": 0,
     }
     if stats:
         base.update(stats)
@@ -119,6 +127,7 @@ def initial_state(order: list[str], chunks_total: int, stats: dict[str, int] | N
         current=None,
         packs={},
         triaged={},
+        scouted={},
         candidates=[],
         located=[],
         verdicts=[],

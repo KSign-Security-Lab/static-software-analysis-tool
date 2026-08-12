@@ -539,6 +539,7 @@ def test_graph_endpoint_names_the_nodes_a_breakpoint_may_use(client: TestClient)
         "plan",
         "context",
         "triage",
+        "scout",
         "memory",
         "injection",
         "access",

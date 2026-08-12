@@ -1,12 +1,13 @@
 """The nodes of the inspection loop, and the routers that fan them out.
 
-    plan -> context -> triage -> {memory, injection, access, logic}
+    plan -> context -> triage -> scout -> {memory, injection, access, logic}
          -> locate -> gather -> verify -> reduce -> (next wave, or done)
 
 Three things happen at once here, and each is a different kind of parallelism.
 A *wave* is several chunks at one call depth, which by construction cannot need
-each other's notes. A *lens* is one of four specialists looking at one chunk for
-its own family of defect. A *gather* and the *verify* below it are one claim
+each other's notes. A *scout* is one unit being read for where in it is worth a
+close look, and a *lens* is one of four specialists reading one of those
+stretches for its own family of defect. A *gather* and the *verify* below it are one claim
 being investigated and then refuted. All of them fan out through LangGraph's
 `Send`, so the graph shows what is actually in flight rather than one node that
 takes a long time.
@@ -34,12 +35,12 @@ from langgraph.types import Command, Send
 from ..config import AgentConfig
 from ..context import ContextPack, build_context
 from ..ids import finding_id, normalize_cwe
-from ..index.chunk import Chunk
+from ..index.chunk import FILE_CHUNK_KIND, Chunk, line_windows
 from ..index.order import wave as pick_wave
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..locate import locate_anchor
-from ..prompts import analyse_user, gather_user, triage_user, verify_user
+from ..prompts import analyse_user, gather_user, scout_user, triage_user, verify_user
 from ..promptstore import DEFAULTS as DEFAULT_PROMPTS
 from ..promptstore import lens_prompt
 from ..tracing import call_config
@@ -50,7 +51,9 @@ from ..schema import (
     Evidence,
     Finding,
     Lens,
+    Region,
     Remediation,
+    Scout,
     Triage,
     Verdict,
 )
@@ -102,13 +105,17 @@ class NodeDeps:
     # verifier all want the same one; building it is deterministic and cheap,
     # but not free, and doing it five times says something untrue about the
     # cost of a lens.
-    _packs: dict[str, ContextPack] = field(default_factory=dict, repr=False)
+    #
+    # Keyed by chunk *and* region: one unit read whole and the same unit read in
+    # two stretches are three different packs, and a key of chunk id alone would
+    # hand the second region the first one's.
+    _packs: dict[tuple[str, tuple[int, int] | None], ContextPack] = field(default_factory=dict, repr=False)
 
-    def pack_for(self, chunk: Chunk) -> ContextPack:
-        cached = self._packs.get(chunk.chunk_id)
+    def pack_for(self, chunk: Chunk, region: tuple[int, int] | None = None) -> ContextPack:
+        cached = self._packs.get((chunk.chunk_id, region))
         if cached is None:
-            cached = build_context(self.store, chunk, self.config)
-            self._packs[chunk.chunk_id] = cached
+            cached = build_context(self.store, chunk, self.config, region)
+            self._packs[(chunk.chunk_id, region)] = cached
         return cached
 
 
@@ -141,17 +148,22 @@ def _locate_candidate(
     candidate: CandidateFinding,
     chunk: Chunk,
     deps: NodeDeps,
+    region: tuple[int, int] | None = None,
 ) -> Finding | None:
     """Resolve a candidate's anchors, or discard it.
 
     The primary anchor is mandatory. Evidence anchors are best-effort: losing
     one weakens the explanation but does not invalidate the finding.
+
+    ``region`` is the stretch the specialist was shown. Without it a quote that
+    appears twice in the unit resolves to the first one -- which may be in the
+    half this specialist never read.
     """
     text = _file_text(deps.root, chunk.file)
     if text is None:
         return None
 
-    primary = locate_anchor(candidate.anchor_text, chunk.file, text, chunk)
+    primary = locate_anchor(candidate.anchor_text, chunk.file, text, chunk, region)
     if primary is None:
         # The anchor, not the title: the anchor is what failed.
         log.info(
@@ -169,7 +181,7 @@ def _locate_candidate(
         if item_text is None:
             continue
         window = chunk if item.file == chunk.file else None
-        located = locate_anchor(item.anchor_text, item.file, item_text, window)
+        located = locate_anchor(item.anchor_text, item.file, item_text, window, region if window else None)
         if located is not None:
             evidence.append(Evidence(role=item.role, span=located.span, note=item.note))
 
@@ -205,6 +217,23 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
     def _chunk(state: Any) -> Chunk | None:
         chunk_id = state.get("chunk_id")
         return deps.store.chunk(chunk_id) if chunk_id else None
+
+    def _region_of(state: Any, chunk: Chunk) -> tuple[int, int] | None:
+        """The stretch this task was pointed at, or None for the whole unit.
+
+        None rather than the unit's own bounds, so everything downstream can
+        tell "read it all" from "read exactly this" -- the pack cache keys on it
+        and a whole-unit read must not get a second entry of its own.
+        """
+        region = state.get("region")
+        if not isinstance(region, dict):
+            return None
+        first, last = region.get("start_line"), region.get("end_line")
+        if not isinstance(first, int) or not isinstance(last, int):
+            return None
+        if (first, last) == (chunk.start_line, chunk.end_line):
+            return None
+        return first, last
 
     def plan(state: InspectionState) -> dict[str, Any]:
         """Take the next wave off the queue.
@@ -299,6 +328,101 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         stats = {} if result.worth_analysing else {"triaged_out": 1}
         return {"triaged": {chunk.chunk_id: verdict}, "stats": stats}
 
+    def _tidy(regions: Sequence[Region], chunk: Chunk) -> list[dict[str, Any]]:
+        """Model answers into ranges that can be trusted downstream.
+
+        Clamped, ordered and merged. The numbers came from a model, so a range
+        that reaches past the unit, runs backwards, or overlaps its neighbour is
+        an ordinary answer rather than an exception -- and every one of those
+        would reach `locate`, where a wrong window puts a finding on a line
+        nobody read.
+        """
+        spans: list[tuple[int, int]] = []
+        for region in regions:
+            first = max(chunk.start_line, min(region.start_line, region.end_line))
+            last = min(chunk.end_line, max(region.start_line, region.end_line))
+            if first <= last:
+                spans.append((first, last))
+        if not spans:
+            return []
+
+        spans.sort()
+        merged = [spans[0]]
+        for first, last in spans[1:]:
+            prior_first, prior_last = merged[-1]
+            # Touching counts as overlapping: two adjacent ranges are one read,
+            # and splitting them would ask a specialist the same question twice.
+            if first <= prior_last + 1:
+                merged[-1] = (prior_first, max(prior_last, last))
+            else:
+                merged.append((first, last))
+        return [{"start_line": first, "end_line": last} for first, last in merged]
+
+    def scout(state: Any) -> dict[str, Any]:
+        """Where in this unit is worth a specialist's close attention.
+
+        The mirror of `triage` one level down. Triage prunes units; this prunes
+        the parts of a unit, so an oversized function stops being all-or-nothing
+        and a specialist reads a stretch it can afford to read properly.
+
+        Costs nothing on the ordinary unit. If the pack already fits the window
+        there is nothing to narrow, so the whole unit is the one region and no
+        model is called -- the node still exists, because the drawing of the
+        agent should not change shape with the size of the input.
+
+        Generous by construction, like triage: no answer, or an answer with
+        nothing in it, means read the whole unit. A unit nobody looks at because
+        a screening call came back empty is the one outcome worth avoiding.
+        """
+        chunk = _chunk(state)
+        if chunk is None:
+            return {}
+
+        whole = [{"start_line": chunk.start_line, "end_line": chunk.end_line}]
+
+        # A file chunk's body is a synthesized concatenation with definitions
+        # elided, so its line numbers do not map onto disk and a range against
+        # them would point at nothing. Its declarations are short anyway.
+        if chunk.kind == FILE_CHUNK_KIND or not chunk.body_is_verbatim:
+            return {"scouted": {chunk.chunk_id: whole}, "stats": {"regions": 1}}
+
+        budget = deps.config.input_chars()
+        pack = deps.pack_for(chunk)
+        # `truncated` first, and it is the one that matters: `build_context`
+        # cuts the code under analysis at `max_chunk_chars` before anything here
+        # sees it, so measuring the pack alone would find an oversized unit
+        # already shortened and pronounce it small enough. That is the silent
+        # cut this whole pass exists to replace, hiding inside the test for it.
+        if not pack.truncated and len(pack.text) <= budget:
+            return {"scouted": {chunk.chunk_id: whole}, "stats": {"regions": 1}}
+
+        found: list[Region] = []
+        # Half the budget, because a window is only the code: the pack built
+        # around each region still has to fit its callee notes, type definitions
+        # and callers into the same window afterwards.
+        windows = line_windows(chunk, max(2_000, budget // 2))
+        for first, last in windows:
+            result = deps.caller.call(
+                Scout,
+                deps.prompts["scout"],
+                scout_user(chunk, first, last, whole=len(windows) == 1),
+                trace=call_config(
+                    step="scout",
+                    run_id=deps.run_id,
+                    chunk_id=chunk.chunk_id,
+                    file=chunk.file,
+                    symbol=chunk.symbol,
+                    subject=f"{chunk.symbol} {first}-{last}",
+                ),
+            )
+            if result is not None:
+                found.extend(result.regions)
+
+        regions = _tidy(found, chunk) or whole
+        if regions == whole:
+            log.info("scout found nothing to narrow in %s; reading it whole", chunk.symbol)
+        return {"scouted": {chunk.chunk_id: regions}, "stats": {"regions": len(regions)}}
+
     def analyst(lens: Lens) -> InspectionNode:
         """One specialist, as a node. Four of these run at once."""
 
@@ -307,7 +431,8 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             if chunk is None:
                 return {}
 
-            pack = deps.pack_for(chunk)
+            region = _region_of(state, chunk)
+            pack = deps.pack_for(chunk, region)
             result = deps.caller.call(
                 ChunkAnalysis,
                 deps.prompts[lens_prompt(lens)],
@@ -318,7 +443,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     chunk_id=chunk.chunk_id,
                     file=chunk.file,
                     symbol=chunk.symbol,
-                    subject=chunk.symbol,
+                    subject=chunk.symbol if region is None else f"{chunk.symbol} {region[0]}-{region[1]}",
                 ),
             )
             if result is None:
@@ -333,7 +458,14 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                 deps.store.set_note(chunk.chunk_id, result.note.strip())
 
             candidates = [
-                {"chunk_id": chunk.chunk_id, "lens": lens, "candidate": candidate.model_dump()}
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "lens": lens,
+                    # Carried so `locate` resolves the anchor inside what this
+                    # specialist actually read, not the first match in the unit.
+                    "region": region,
+                    "candidate": candidate.model_dump(),
+                }
                 for candidate in result.findings
             ]
             return {
@@ -384,7 +516,11 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             if chunk is None:
                 continue
             candidate = CandidateFinding.model_validate(item["candidate"])
-            finding = _locate_candidate(candidate, chunk, deps)
+            # A pair, and a list once it has been through a checkpoint: state is
+            # JSON on disk, and a tuple does not survive the round trip as one.
+            raw = item.get("region")
+            region = (int(raw[0]), int(raw[1])) if isinstance(raw, (list, tuple)) and len(raw) == 2 else None
+            finding = _locate_candidate(candidate, chunk, deps, region)
             if finding is None:
                 dropped += 1
                 continue
@@ -585,6 +721,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         "plan": plan,
         "context": context,
         "triage": triage,
+        "scout": scout,
         "skip": skip,
         "locate": locate,
         "gather": gather,
@@ -617,27 +754,66 @@ def dispatch(config: AgentConfig) -> Any:
             return "skip"
         if config.triage:
             return [Send("triage", {"chunk_id": chunk_id}) for chunk_id in chunks]
-        return [Send(lens, {"chunk_id": chunk_id}) for chunk_id in chunks for lens in config.lenses]
+        return [Send("scout", {"chunk_id": chunk_id}) for chunk_id in chunks]
 
     return route
 
 
-def specialists(state: Any) -> Any:
-    """From `triage`: the lenses that chunk earned.
+def scouts(state: Any) -> Any:
+    """From `triage`: one narrowing pass per unit worth analysing.
 
-    Evaluated once per triage task and seeing only that task's write, so each
-    chunk dispatches its own specialists and no other's.
+    A screened-out unit goes to `scout` too, with nothing to scout, and that is
+    load-bearing rather than tidy. Every route from here has to reach `locate`
+    in the same number of super-steps, and the analysis path is now three --
+    scout, then a specialist, then the join. Sending a screened-out unit
+    straight to `skip` makes it two, so `skip` reaches the join a whole
+    super-step before the specialists write, and `locate` runs on an empty
+    `candidates`: the wave closes early and everything the specialists found is
+    thrown away. Silently, and only when a wave holds both kinds of unit.
+
+    That is the bug `skip` was introduced for, one layer down. Inserting a node
+    between the fan-out and the join brings it straight back unless every branch
+    is lengthened with it.
     """
-    sends: list[Send] = []
-    for chunk_id, verdict in (state.get("triaged") or {}).items():
-        if not verdict.get("worth"):
-            continue
-        for lens in verdict.get("lenses", ()):
-            sends.append(Send(lens, {"chunk_id": chunk_id}))
-    # A chunk screened out still passes through this layer -- see `skip`. Going
-    # straight to the join from here would fire it while the specialists were
-    # still running.
-    return sends or [Send("skip", {})]
+    sends = [
+        Send("scout", {"chunk_id": chunk_id})
+        for chunk_id, verdict in (state.get("triaged") or {}).items()
+        if verdict.get("worth")
+    ]
+    # An empty task: `scout` finds no chunk, writes nothing, and `specialists`
+    # below turns that into the `skip` that keeps the layer full.
+    return sends or [Send("scout", {})]
+
+
+def specialists(config: AgentConfig) -> Any:
+    """From `scout`: every lens that chunk earned, over every region it holds.
+
+    A closure over the config for the same reason `dispatch` is one: with
+    screening off there is no verdict to read the lenses from, and the
+    configuration is still the ceiling. Falling back to all four here is how a
+    run asked for one specialist quietly gets four.
+    """
+
+    def route(state: Any) -> Any:
+        sends: list[Send] = []
+        triaged = state.get("triaged") or {}
+        for chunk_id, regions in (state.get("scouted") or {}).items():
+            verdict = triaged.get(chunk_id, {})
+            # No verdict means screening is off and `dispatch` sent this chunk
+            # here directly, which is a reason to analyse rather than to skip.
+            if triaged and not verdict.get("worth", False):
+                continue
+            picked = [lens for lens in (verdict.get("lenses") or config.lenses) if lens in config.lenses]
+            for region in regions:
+                for lens in picked or config.lenses:
+                    sends.append(Send(lens, {"chunk_id": chunk_id, "region": region}))
+        # Evaluated once per scout task, so a unit with nothing to scout -- one
+        # screened out, or one whose id did not resolve -- lands here with an
+        # empty write and keeps the layer full. See `scouts` for why that
+        # matters more than it looks.
+        return sends or [Send("skip", {})]
+
+    return route
 
 
 def claims(state: InspectionState) -> Any:

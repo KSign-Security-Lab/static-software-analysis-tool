@@ -519,6 +519,7 @@ def test_the_graph_shape_is_readable_without_a_run(tmp_path: Path) -> None:
         "plan",
         "context",
         "triage",
+        "scout",
         "memory",
         "injection",
         "access",
@@ -539,7 +540,8 @@ def test_the_graph_shape_is_readable_without_a_run(tmp_path: Path) -> None:
 
     conditional = {(e["source"], e["target"]) for e in shape["edges"] if e["conditional"]}
     assert ("plan", "__end__") in conditional
-    assert ("triage", "memory") in conditional, "a Send is invisible unless the edge declares it"
+    assert ("scout", "memory") in conditional, "a Send is invisible unless the edge declares it"
+    assert ("triage", "scout") in conditional
     # `gather` routes itself, with a Send inside a Command rather than a router.
     # It has to declare its destination for the same reason.
     assert ("gather", "verify") in conditional
@@ -638,7 +640,7 @@ def test_a_run_reports_every_node_as_it_starts_and_finishes(indexed, tmp_path: P
 
     started = [p["node"] for e, p in seen if e == "node_started"]
     finished = [p["node"] for e, p in seen if e == "node_finished"]
-    assert started[:5] == ["plan", "context", "triage", "injection", "locate"]
+    assert started[:6] == ["plan", "context", "triage", "scout", "injection", "locate"]
     assert sorted(started) == sorted(finished), "a node that started and did not finish would hang the view"
 
     # Checkpoints arrive with the id the state endpoints are addressed by.
