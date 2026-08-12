@@ -76,7 +76,7 @@ export default function ChatPane({
       {focus && <Focus focus={focus} />}
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {note && <NodeCard note={note} />}
+        {note && <NodeCard note={note} steps={steps} />}
 
         {units.length === 0 ? (
           <div className="space-y-3 p-3">
@@ -141,7 +141,17 @@ function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (
  * `routes` is read off the compiled graph on the server, so it is the edges that
  * actually exist rather than a description of them.
  */
-function NodeCard({ note }: { note: NodeNote }) {
+function NodeCard({ note, steps }: { note: NodeNote; steps: AgentStep[] }) {
+  // Named, not counted. The drawing says `4 tools`, which cannot tell you the
+  // run can search semantically -- and listing them on every box made five
+  // specialists repeat one toolbox and shrank the whole canvas. Here is where
+  // the drawing already says detail lives: "노드를 누르면 오른쪽에 그 노드가
+  // 무엇인지 나옵니다".
+  const tools = steps
+    .filter((step) => step.node === note.node)
+    .flatMap((step) => step.tools)
+    .filter((tool, index, all) => all.findIndex((other) => other.name === tool.name) === index);
+
   return (
     <section className="space-y-1.5 border-b border-line bg-surface-2 px-3 py-2.5">
       <header className="flex items-center gap-2">
@@ -171,6 +181,20 @@ function NodeCard({ note }: { note: NodeNote }) {
         {note.rule && <Fact term={note.router ?? "next"} value={note.rule} />}
         {note.routes.length > 0 && <Fact term="→" value={note.routes.join(", ")} />}
       </dl>
+
+      {tools.length > 0 && (
+        <div className="space-y-0.5">
+          <h4 className="text-2xs text-ink-faint">쓸 수 있는 도구</h4>
+          <ul className="space-y-0.5">
+            {tools.map((tool) => (
+              <li key={tool.name} className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className="font-mono text-2xs text-alt">{tool.name}</span>
+                {tool.summary && <span className="min-w-0 flex-1 text-2xs text-ink-faint">{tool.summary}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

@@ -30,45 +30,6 @@ import type { Point } from "./edge-path";
 export const NODE_W = 124;
 export const NODE_H = 64;
 
-/** One tool name in the list a node grows to hold. Matches text-2xs, leading-tight. */
-const TOOL_ROW_H = 11;
-
-/**
- * Past this a box is a wall of names rather than a list.
- *
- * Ten today, all of them `gather`'s. The cap is for the list that grows later:
- * a node tall enough to be the canvas is a worse answer than a truncated one.
- */
-const TOOLS_SHOWN = 12;
-
-/** How tall a box has to be to hold what it says. */
-export function heightOf(toolNames: string[]): number {
-  if (toolNames.length === 0) return NODE_H;
-  const rows = Math.min(toolNames.length, TOOLS_SHOWN) + (toolNames.length > TOOLS_SHOWN ? 1 : 0);
-  return NODE_H + rows * TOOL_ROW_H;
-}
-
-/**
- * One character of a tool name, and the padding around the list.
- *
- * Measured on the rendered graph rather than derived: 12px monospace, and the
- * name sits inside the row's own padding and the box's. At 124 the longest name
- * wanted 116px of a 106px row and lost ten to an ellipsis -- and a truncated
- * `search_seman…` is most of the way back to the count it replaced.
- */
-const TOOL_CHAR_W = 7.3;
-const TOOL_CHROME_W = 26;
-
-/** Past this a box is wider than the rank it sits in. */
-const MAX_NODE_W = 190;
-
-/** How wide a box has to be to hold its names without an ellipsis. */
-export function widthOf(toolNames: string[]): number {
-  if (toolNames.length === 0) return NODE_W;
-  const longest = Math.max(...toolNames.slice(0, TOOLS_SHOWN).map((name) => name.length));
-  return Math.min(MAX_NODE_W, Math.max(NODE_W, Math.ceil(longest * TOOL_CHAR_W + TOOL_CHROME_W)));
-}
-
 /** LangGraph's own markers. Drawn, but as terminals rather than as work. */
 export const TERMINALS = new Set(["__start__", "__end__"]);
 
@@ -94,17 +55,6 @@ export interface GraphNodeData extends Record<string, unknown> {
   steps: string[];
   /** The most tools any of its steps may call. `gather` is the only one with any. */
   tools: number;
-  /**
-   * What those tools are called.
-   *
-   * A count was all the drawing ever said, and a count cannot tell you the run
-   * can search semantically -- which is the question that sent someone looking
-   * for a box that was never going to exist, because a tool is not a step.
-   */
-  toolNames: string[];
-  /** What the box has to be to hold its names. dagre was laid out against these. */
-  height: number;
-  width: number;
   /**
    * Whether the step roster was available to say.
    *
@@ -187,24 +137,8 @@ export function layoutGraph(
   const byNode = new Map<string, typeof steps>();
   for (const step of steps) byNode.set(step.node, [...(byNode.get(step.node) ?? []), step]);
 
-  /** Every tool the node's steps may reach for, in the order they are offered. */
-  const toolsOf = (name: string): string[] => {
-    const seen = new Set<string>();
-    for (const step of byNode.get(name) ?? []) {
-      for (const tool of step.tools) seen.add(tool.name);
-    }
-    return [...seen];
-  };
-
   const present = new Set(shape.nodes);
-  const sizes = new Map(
-    shape.nodes.map((name) => {
-      const names = toolsOf(name);
-      return [name, { width: widthOf(names), height: heightOf(names) }] as const;
-    }),
-  );
-  const sizeOf = (name: string) => sizes.get(name) ?? { width: NODE_W, height: NODE_H };
-  shape.nodes.forEach((name) => graph.setNode(name, { ...sizeOf(name) }));
+  shape.nodes.forEach((name) => graph.setNode(name, { width: NODE_W, height: NODE_H }));
 
   const edges = shape.edges.filter((e) => present.has(e.source) && present.has(e.target));
   const back = backEdges(shape);
@@ -233,14 +167,11 @@ export function layoutGraph(
     const at = graph.node(name);
     const stat = stats?.get(name);
     const mine = byNode.get(name) ?? [];
-    const { width, height } = sizeOf(name);
     return {
       id: name,
       type: "studioNode",
-      // dagre positions by centre; React Flow places by top-left corner. The
-      // size is this node's own, or a box that grew sits half a row off its
-      // edges and the routes arrive at where it used to be.
-      position: { x: at.x - width / 2, y: at.y - height / 2 },
+      // dagre positions by centre; React Flow places by top-left corner.
+      position: { x: at.x - NODE_W / 2, y: at.y - NODE_H / 2 },
       data: {
         name,
         terminal: TERMINALS.has(name),
@@ -252,9 +183,6 @@ export function layoutGraph(
         after: afterSet.has(name),
         steps: mine.map((step) => step.step),
         tools: Math.max(0, ...mine.map((step) => step.tools.length)),
-        toolNames: toolsOf(name),
-        height,
-        width,
         roster: steps.length > 0,
         across,
         onInterrupt,

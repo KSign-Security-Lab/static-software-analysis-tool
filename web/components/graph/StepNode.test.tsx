@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { NODE_H, NODE_W, heightOf, widthOf, type GraphNodeData } from "@/lib/trace/layout";
+import { type GraphNodeData } from "@/lib/trace/layout";
 import StepNode from "./StepNode";
 
 /**
@@ -35,10 +35,7 @@ function data(over: Partial<GraphNodeData> = {}): GraphNodeData {
     after: false,
     steps: ["gather"],
     tools: TOOLS.length,
-    toolNames: TOOLS,
-    height: heightOf(TOOLS),
-    width: widthOf(TOOLS),
-    roster: true,
+      roster: true,
     across: true,
     ...over,
   };
@@ -52,45 +49,20 @@ const draw = (over: Partial<GraphNodeData> = {}) =>
   );
 
 describe("a node that holds tools", () => {
-  it("names them, so semantic search is findable without clicking anything", () => {
-    draw();
-    for (const tool of TOOLS) expect(screen.getByText(tool)).toBeTruthy();
-  });
 
   it("still says how many, because the list may be capped", () => {
     draw();
     expect(screen.getByText("4 tools")).toBeTruthy();
   });
 
-  it("is taller than a node that holds none", () => {
-    expect(heightOf(TOOLS)).toBeGreaterThan(NODE_H);
-    expect(heightOf([])).toBe(NODE_H);
-  });
 
-  it("is wide enough for its longest name, so none of them ends in an ellipsis", () => {
-    // A truncated `search_seman…` is most of the way back to the count it
-    // replaced, which is the thing this change exists to remove.
-    expect(widthOf(TOOLS)).toBeGreaterThan(NODE_W);
-    expect(widthOf(["graph_neighbours"])).toBeGreaterThan(widthOf(["read_source"]));
-    expect(widthOf([])).toBe(NODE_W);
-  });
 
-  it("truncates rather than growing to the height of the canvas", () => {
-    const many = Array.from({ length: 20 }, (_, index) => `tool_${index}`);
-    draw({ toolNames: many, tools: many.length, height: heightOf(many), width: widthOf(many) });
-
-    expect(screen.getByText("… +8")).toBeTruthy();
-    expect(screen.queryByText("tool_19")).toBeNull();
-    expect(heightOf(many)).toBe(heightOf(many.slice(0, 12).concat("x")));
-  });
 });
 
 describe("a node that holds none", () => {
-  it("shows no list and keeps the ordinary height", () => {
-    draw({ name: "locate", steps: [], tools: 0, toolNames: [], height: NODE_H, width: NODE_W });
+  it("says it is code rather than an agent", () => {
+    draw({ name: "locate", steps: [], tools: 0 });
 
-    expect(screen.queryByText("read_source")).toBeNull();
-    expect(screen.queryByRole("list")).toBeNull();
     expect(screen.getByText("code")).toBeTruthy();
   });
 
@@ -99,6 +71,6 @@ describe("a node that holds none", () => {
     // lie rather than a gap.
     draw({ roster: false });
     expect(screen.queryByText("agent")).toBeNull();
-    expect(screen.queryByText("read_source")).toBeNull();
+    expect(screen.queryByText("4 tools")).toBeNull();
   });
 });

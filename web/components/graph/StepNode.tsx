@@ -2,7 +2,7 @@
 
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 
-import { NODE_W, type GraphNodeData } from "@/lib/trace/layout";
+import { NODE_H, NODE_W, type GraphNodeData } from "@/lib/trace/layout";
 import { cn } from "@/lib/utils";
 
 /**
@@ -88,50 +88,21 @@ function Tags({ steps, tools, roster }: { steps: string[]; tools: number; roster
   );
 }
 
-/** Past this the box is a wall of names. Mirrors `TOOLS_SHOWN` in layout.ts. */
-const SHOWN = 12;
-
-/**
- * What this node can reach for, by name.
- *
- * The count alone was the whole of what the drawing said, and a count cannot
- * tell you the run can search semantically -- so somebody went looking for a
- * `RAG` box, which was never going to exist because a tool is not a step. The
- * names were on the wire the whole time and thrown away at layout.
- *
- * Only `gather` has any, which is the point: it is the one step that goes and
- * reads things, and now the drawing says what with.
- */
-function Tools({ names, roster }: { names: string[]; roster: boolean }) {
-  // Same guard as `Tags`, for the same reason: before the roster arrives there
-  // is nothing true to say, and an empty list is a claim that it holds none.
-  if (!roster || names.length === 0) return null;
-
-  const shown = names.slice(0, SHOWN);
-  return (
-    <ul className="mt-1 flex min-w-0 flex-col gap-px">
-      {shown.map((name) => (
-        <li key={name} className="truncate rounded-xs bg-surface-3/60 px-1 font-mono text-2xs leading-tight text-alt">
-          {name}
-        </li>
-      ))}
-      {names.length > shown.length && (
-        <li className="px-1 font-mono text-2xs leading-tight text-ink-faint">… +{names.length - shown.length}</li>
-      )}
-    </ul>
-  );
-}
-
 export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeData>>) {
   const { name, terminal, visits, averageMs, running, queued, before, after } = data;
-  const { steps, tools, toolNames, height, width, roster, across, onInterrupt } = data;
+  const { steps, tools, roster, across, onInterrupt } = data;
 
-  // The size is inline, from what dagre laid out against. The height is the
-  // node's own -- a box holding ten tool names is taller than one holding none
-  // -- and it comes from the layout rather than from a constant here, because
-  // two places computing it is how they drift and the nodes overlap by the
-  // difference.
-  const size = { width, height };
+  // The size is inline, from the same constants dagre laid out against.
+  // Expressing it as a utility class instead is how the two drift and the
+  // nodes end up overlapping by exactly the difference.
+  //
+  // Uniform again. Listing each node's tools by name made six of the fourteen
+  // boxes into lists -- five of them repeating the same four lookups, because
+  // the specialists share a toolbox -- and five tall boxes stacked in one rank
+  // made the canvas tall enough that the fitted zoom put every label at about
+  // five pixels. The names were worth showing when one node had any; they are
+  // noise on six, and they cost the whole drawing.
+  const size = { width: NODE_W, height: NODE_H };
 
   if (terminal) {
     return (
@@ -149,7 +120,7 @@ export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeDat
     <div
       style={size}
       className={cn(
-        "group/node relative flex items-start rounded-md border px-2 py-1.5 transition-colors",
+        "group/node relative flex items-center rounded-md border px-2 py-1.5 transition-colors",
         "border-line-2 bg-surface-2 text-ink-muted",
         visits > 0 && "border-line-3 text-ink",
         queued && "border-warn/60 bg-warn-wash",
@@ -189,9 +160,6 @@ export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeDat
             {averageMs !== null && running === 0 && !queued ? ` · ${duration(averageMs)}` : ""}
           </span>
         )}
-        {/* Last, so what the run did stays where it is on every other box
-            rather than below ten names. */}
-        <Tools names={toolNames} roster={roster} />
       </span>
 
       {after && <span title={`${name} 뒤의 중단점`} className="absolute -right-1 bottom-1 size-2 rounded-full bg-alt" />}
