@@ -158,7 +158,23 @@ export default function Workbench({ perspective, stored, children, side, dock, i
         <div className="grid h-dvh grid-rows-[auto_1fr] overflow-hidden bg-bg text-ink">
           <PerspectiveHeader />
 
-          <div className="flex min-h-0">
+          {/*
+            `min-w-0` is load-bearing, and its absence was visible as the right
+            pane being cut off by the edge of the window.
+
+            A grid item's automatic minimum size is its *min-content* width, so
+            this row could not be narrower than the widest thing any panel held --
+            measured at 1768px inside a 1600px cell, which the grid's
+            `overflow-hidden` then clipped rather than scrolled. The panels
+            themselves already carry `min-width: 0`; it does them no good while the
+            row they sit in is free to grow. So the panel group solved its
+            percentages against 1704px of imaginary space and put the inspector's
+            right edge 168px past the window.
+
+            Which panel misbehaved depended on what was on screen, which is why it
+            read as an intermittent layout glitch rather than as a rule.
+          */}
+          <div className="flex min-h-0 min-w-0">
             <ActivityBar />
 
             <ResizablePanelGroup
