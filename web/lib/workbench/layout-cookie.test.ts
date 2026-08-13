@@ -7,7 +7,6 @@ import {
   defaultLayoutFor,
   encodeLayout,
   layoutFor,
-  widths,
   type StoredLayout,
 } from "./layout-cookie";
 
@@ -149,27 +148,5 @@ describe("cookieValue", () => {
       stages: valid.agent,
     };
     expect(cookieValue(all).length).toBeLessThan(250);
-  });
-});
-
-describe("widths", () => {
-  it("renormalises when a route declines the inspector", () => {
-    // 검사 is a rail, an editor and the finding under it. The stored layout still
-    // names three panels, and a two-panel group given 76% of a layout hands the
-    // slack to the first one: a 614px rail beside a 921px editor.
-    const sizes = widths({ side: 16, main: 60, inspector: 24 }, false);
-
-    expect(Math.round((sizes.side ?? 0) + (sizes.main ?? 0))).toBe(100);
-    expect(Math.round(sizes.side ?? 0)).toBe(21);
-    expect(sizes.inspector).toBeUndefined();
-  });
-
-  it("leaves a three-panel layout exactly as stored", () => {
-    const stored = { side: 16, main: 60, inspector: 24 };
-    expect(widths(stored, true)).toBe(stored);
-  });
-
-  it("falls back rather than dividing by zero", () => {
-    expect(widths({ side: 0, main: 0, inspector: 100 }, false)).toEqual({ side: 22, main: 78 });
   });
 });

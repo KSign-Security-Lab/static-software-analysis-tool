@@ -146,21 +146,3 @@ export function layoutFor(stored: StoredLayout, id: PerspectiveId): PaneLayout {
 export function cookieValue(layout: StoredLayout): string {
   return `${LAYOUT_COOKIE}=${encodeLayout(layout)}; Path=/; Max-Age=${MAX_AGE}; SameSite=Lax`;
 }
-
-/**
- * The horizontal sizes for however many panels a route actually has.
- *
- * A stored layout always names three, because it was written when there were
- * always three. Handing a two-panel group percentages that add up to 74 leaves
- * the group to make up the difference, and it gives all of it to the first
- * panel -- a 614px rail beside a 921px editor. Renormalised, a route that
- * declines a panel keeps the proportions of the ones it kept.
- */
-export function widths(sizes: Sizes, hasInspector: boolean): Sizes {
-  if (hasInspector) return sizes;
-  const side = sizes.side ?? 0;
-  const main = sizes.main ?? 0;
-  const total = side + main;
-  if (total <= 0) return { side: 22, main: 78 };
-  return { side: (side / total) * 100, main: (main / total) * 100 };
-}

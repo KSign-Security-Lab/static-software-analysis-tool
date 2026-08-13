@@ -55,3 +55,15 @@ export function usePaneMode() {
     parseAsStringLiteral(PANE_MODES).withDefault("log").withOptions({ history: "replace" }),
   );
 }
+
+/**
+ * The agent canvas, open over the screen.
+ *
+ * A dialog rather than a route, which is the difference between looking at the
+ * machinery and going somewhere else to look at it: the panels behind it keep
+ * their widths, their selection and their scroll. In the URL so it is linkable,
+ * which is what the second workspace was actually good for.
+ */
+export function useAgentSheet() {
+  return useQueryState("graph", parseAsBoolean.withDefault(false).withOptions({ history: "replace" }));
+}

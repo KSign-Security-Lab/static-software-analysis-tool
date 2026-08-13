@@ -1,18 +1,19 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { Layout, PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import ActivityBar from "@/components/workbench/ActivityBar";
 import PerspectiveHeader from "@/components/workbench/PerspectiveHeader";
+import AgentSheet from "@/features/inspect/AgentSheet";
+import PipelineStrip from "@/features/inspect/PipelineStrip";
 import { CpgSourceProvider } from "@/features/cpg/provider";
 import { useForgetMissingRun } from "@/lib/run/forget-missing";
 import { RunStreamProvider } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
-import { cookieValue, layoutFor, widths, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
-import { isInspectSpace, type PerspectiveId } from "@/lib/workbench/perspectives";
+import { cookieValue, layoutFor, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
+import type { PerspectiveId } from "@/lib/workbench/perspectives";
 import type { PaneId } from "@/lib/workbench/store";
 import { useWorkbench } from "@/lib/workbench/store-provider";
 
@@ -102,18 +103,6 @@ const SIZE = {
 
 export default function Workbench({ perspective, stored, children, side, dock, inspector }: WorkbenchProps) {
   const [runId] = useRunId();
-  /**
-   * Whether this route has a right-hand pane.
-   *
-   * 검사 is a rail, an editor and the finding under it -- there is no fourth
-   * thing, and a panel rendered anyway is an empty column asking to be filled.
-   *
-   * Decided here rather than in the layout, which is a server component: a
-   * layout is not re-rendered for a client-side navigation within its own
-   * segment, so switching 검사 → 에이전트 kept whichever answer the first
-   * request happened to produce, and the record pane never appeared.
-   */
-  const showInspector = !isInspectSpace(usePathname());
   // Here because the shell is what owns which run the tab is on, and because it
   // is mounted exactly once -- a dozen components each deciding to drop the id
   // would be a dozen writes to the address bar.
@@ -149,8 +138,6 @@ export default function Workbench({ perspective, stored, children, side, dock, i
     // Once, from the server's answer. Later folds go through the panel handles.
   }, []);
 
-  const horizontal = useMemo(() => widths(initial.h, showInspector), [showInspector, initial.h]);
-
   const persist = useCallback(
     (axis: "h" | "v", sizes: Layout) => {
       latest.current = { ...latest.current, [axis]: sizes };
@@ -170,8 +157,12 @@ export default function Workbench({ perspective, stored, children, side, dock, i
     // perspectives. See lib/run/stream.tsx for why that is load-bearing.
     <RunStreamProvider runId={runId}>
       <CpgSourceProvider>
-        <div className="grid h-dvh grid-rows-[auto_1fr] overflow-hidden bg-bg text-ink">
+        <div className="grid h-dvh grid-rows-[auto_auto_1fr] overflow-hidden bg-bg text-ink">
           <PerspectiveHeader />
+
+          {/* The run, across the top of every panel that is about it. See
+              features/inspect/PipelineStrip.tsx. */}
+          {perspective === "agent" && <PipelineStrip />}
 
           {/*
             `min-w-0` is load-bearing, and its absence was visible as the right
@@ -194,7 +185,7 @@ export default function Workbench({ perspective, stored, children, side, dock, i
 
             <ResizablePanelGroup
               orientation="horizontal"
-              defaultLayout={horizontal}
+              defaultLayout={initial.h}
               onLayoutChanged={(sizes) => persist("h", sizes)}
             >
               <ResizablePanel
@@ -236,10 +227,9 @@ export default function Workbench({ perspective, stored, children, side, dock, i
                 </ResizablePanelGroup>
               </ResizablePanel>
 
-              {showInspector && <ResizableHandle />}
+              <ResizableHandle />
 
-              {showInspector && (
-                <ResizablePanel
+              <ResizablePanel
                   id="inspector"
                   collapsible
                   collapsedSize={SIZE.collapsed}
@@ -248,12 +238,12 @@ export default function Workbench({ perspective, stored, children, side, dock, i
                   panelRef={inspectorPane.panelRef}
                   onResize={inspectorPane.onResize}
                 >
-                  {inspector}
-                </ResizablePanel>
-              )}
+                {inspector}
+              </ResizablePanel>
             </ResizablePanelGroup>
           </div>
         </div>
+        {perspective === "agent" && <AgentSheet />}
       </CpgSourceProvider>
     </RunStreamProvider>
   );

@@ -15,10 +15,10 @@ import { useApplyFix, useFindings, useProposeFix } from "@/lib/run/queries";
 import { useOpenFile, useRevealLine, useSelectedFinding } from "@/lib/run/selection";
 import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
+import { useAgentSheet } from "@/features/trace/state";
 import { useThreads } from "@/lib/run/trace-queries";
 import { claimOf, labelOf, trailOf, unitsOf } from "@/lib/trace/process";
 import { useGraphShape } from "@/lib/run/trace-queries";
-import Link from "next/link";
 
 /**
  * One problem, in full.
@@ -182,6 +182,7 @@ export default function FindingDetail() {
  */
 function Trail({ finding }: { finding: UiFinding }) {
   const [runId] = useRunId();
+  const [, setSheet] = useAgentSheet();
   const threads = useThreads(runId);
   const shape = useGraphShape();
 
@@ -201,12 +202,16 @@ function Trail({ finding }: { finding: UiFinding }) {
     <Disclosure label="어떻게 알았나" tone="aside">
       <div className="mt-1 space-y-1.5 pl-4">
         <p className="text-2xs leading-relaxed text-accent-ink">{chain.join(" → ")}</p>
-        <Link
-          href={`/agent/machine?run=${runId ?? ""}&finding=${encodeURIComponent(finding.id)}`}
-          className="inline-block font-mono text-2xs text-ink-faint underline decoration-dotted hover:text-ink-muted"
+        {/* Opens the canvas over this screen rather than navigating to another
+            one: the panels behind it keep their widths and this finding stays
+            selected, so coming back costs nothing because you never left. */}
+        <button
+          type="button"
+          onClick={() => void setSheet(true)}
+          className="font-mono text-2xs text-ink-faint underline decoration-dotted hover:text-ink-muted"
         >
           주고받은 내용 전부 보기
-        </Link>
+        </button>
       </div>
     </Disclosure>
   );
