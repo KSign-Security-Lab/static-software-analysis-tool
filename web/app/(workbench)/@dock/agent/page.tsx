@@ -1,5 +1,5 @@
-import AgentDock from "@/features/agent/AgentDock";
+import FindingPane from "@/features/agent/FindingPane";
 
 export default function Slot() {
-  return <AgentDock />;
+  return <FindingPane />;
 }

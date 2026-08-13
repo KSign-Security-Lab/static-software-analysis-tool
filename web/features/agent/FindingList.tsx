@@ -43,19 +43,13 @@ export interface Comparison {
 
 export default function FindingList({
   findings,
-  knowledge,
   openId,
   compare,
-  onApply,
-  onPropose,
-  proposing,
-  applying,
   onOpen,
   onNavigate,
   emptyHint,
 }: {
   findings: UiFinding[];
-  knowledge?: KnowledgeGraph;
   /** The finding whose grounds are showing; also what the editor is marking. */
   openId: string | null;
   compare?: Comparison | null;
@@ -152,18 +146,6 @@ export default function FindingList({
                 </span>
               </span>
             </button>
-
-            {open && (
-              <Grounds
-                finding={finding}
-                knowledge={knowledge}
-                onNavigate={onNavigate}
-                onApply={onApply}
-                onPropose={onPropose}
-                proposing={proposing}
-                applying={applying}
-              />
-            )}
           </li>
         );
       })}
@@ -252,7 +234,7 @@ const COLUMNS = {
  * somebody dragged, not the viewport's, and `lg:` would have gone to three
  * columns on a wide window with the dock pulled in narrow.
  */
-function Grounds({
+export function Grounds({
   finding,
   knowledge,
   onNavigate,

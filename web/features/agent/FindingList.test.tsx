@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Span, UiFinding } from "@/lib/model/finding";
-import FindingList from "./FindingList";
+import FindingList, { Grounds } from "./FindingList";
 
 /**
  * A finding, and the argument under it.
@@ -51,6 +51,19 @@ const FINDING: UiFinding = {
   raw: {} as UiFinding["raw"],
 };
 
+/**
+ * The grounds, on their own.
+ *
+ * They used to open inside the list and are the dock's now, so the pane you
+ * read in stopped being the pane you choose in. Rendered directly here, which
+ * is also what `FindingPane` does.
+ */
+function grounds(overrides: Partial<React.ComponentProps<typeof Grounds>> = {}) {
+  const onNavigate = vi.fn();
+  render(<Grounds finding={FINDING} onNavigate={onNavigate} {...overrides} />);
+  return { onNavigate };
+}
+
 function draw(overrides: Partial<React.ComponentProps<typeof FindingList>> = {}) {
   const onNavigate = vi.fn();
   const onOpen = vi.fn();
@@ -81,7 +94,7 @@ describe("walking the evidence trail", () => {
   it("sends each step's own file and line, not the claim's", async () => {
     // The bug this covers: the trail crosses files, and every step used to
     // arrive at the finding's primary line because the line was dropped.
-    const { onNavigate } = draw({ openId: "f1" });
+    const { onNavigate } = grounds();
 
     await userEvent.click(screen.getByRole("button", { name: /요청에서 그대로 읽습니다/ }));
     expect(onNavigate).toHaveBeenLastCalledWith("http.c", 12);
@@ -91,7 +104,7 @@ describe("walking the evidence trail", () => {
   });
 
   it("labels each step by its role", () => {
-    draw({ openId: "f1" });
+    grounds();
     for (const label of ["유입", "전파", "위험 지점"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
@@ -104,7 +117,7 @@ describe("the grounds", () => {
     // and a patch in a third of the dock scrolled sideways to show a line that
     // would have fitted whole -- while 근거, two sentences long, reserved another
     // third and left it empty to the bottom of the tallest column.
-    draw({ openId: "f1" });
+    grounds();
     for (const heading of ["판단", "근거", "고치는 방법"]) {
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
@@ -113,17 +126,18 @@ describe("the grounds", () => {
     expect(fix.parentElement).not.toBe(claim.parentElement);
   });
 
-  it("says the confidence once, on the badge", () => {
-    // It was on a meter as well, three lines under a badge that had just said
-    // `취약 확인 · 95%` -- the same number twice, in two shapes.
-    draw({ openId: "f1" });
+  it("leaves the confidence to the badge that already carries it", () => {
+    // It was on a meter here as well, three lines under a badge that had just
+    // said `취약 확인 · 95%`. The badge is the pane's header now; the grounds
+    // say nothing about it.
+    grounds();
 
-    expect(screen.getAllByText(/\d+%/)).toHaveLength(1);
     expect(screen.queryByRole("meter")).toBeNull();
+    expect(screen.queryByText(/\d+%/)).toBeNull();
   });
 
   it("says nothing about a fix when there is none to suggest", () => {
-    draw({ findings: [{ ...FINDING, remediation: null }], openId: "f1" });
+    grounds({ finding: { ...FINDING, remediation: null } });
     expect(screen.queryByRole("heading", { name: "고치는 방법" })).toBeNull();
   });
 });

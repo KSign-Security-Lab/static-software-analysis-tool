@@ -8,14 +8,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PanelShell } from "@/components/workbench/PanelShell";
 import { describeError } from "@/lib/api/client";
-import { fromAgent, wireId } from "@/lib/model/finding";
-import { useKnowledge } from "@/lib/run/knowledge-queries";
-import { useApplyFix, useDiff, useFindings, useProposeFix, useRun, useRuns } from "@/lib/run/queries";
+import { fromAgent } from "@/lib/model/finding";
+import { useDiff, useFindings, useRun, useRuns } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useSpans } from "@/lib/run/trace-queries";
 import { useOpenFile, useRevealLine, useSelectedFinding } from "@/lib/run/selection";
 import { useRunId } from "@/lib/run/use-run-id";
-import { cn } from "@/lib/utils";
 import type { RunSummary as RunRecord } from "@/lib/api/types";
 import FindingList from "./FindingList";
 import RunSummary, { coverageOf } from "./RunSummary";
@@ -55,7 +53,7 @@ function labelOf(run: RunRecord): string {
  * all along -- so it sits behind one toggle here rather than in a tab of its own,
  * and opens by itself in the one case where it is the whole answer.
  */
-export default function AgentDock() {
+export default function FindingRail() {
   const [runId] = useRunId();
   const [, setPath] = useOpenFile();
   const [, setLine] = useRevealLine();
@@ -63,7 +61,6 @@ export default function AgentDock() {
 
   const { phase, live } = useRunStream();
   const findings = useFindings(runId);
-  const knowledge = useKnowledge(runId);
   const spans = useSpans(runId);
   const run = useRun(runId);
 
@@ -87,8 +84,6 @@ export default function AgentDock() {
     [runs.data, runId],
   );
   const diff = useDiff(runId, against);
-  const apply = useApplyFix(runId);
-  const propose = useProposeFix(runId);
 
   const compare = useMemo(() => {
     if (!against || !diff.data) return null;
@@ -136,8 +131,21 @@ export default function AgentDock() {
           </>
         }
         actions={
-          <>
-            {others.length > 0 && (
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="icon-xs" aria-expanded={open} aria-label="실행 요약">
+              <BarChart3 className="text-ink-faint" />
+            </Button>
+          </CollapsibleTrigger>
+        }
+      >
+        <CollapsibleContent>
+          {/* 비교 lives with 요약 rather than in the header: the rail is 245px
+              and a bordered select beside a title and a count clipped the count
+              to `1건 ...`. Both are about the run rather than about the list,
+              which is what this section is. */}
+          {others.length > 0 && (
+            <div className="flex items-center gap-2 border-b border-line px-2.5 py-1.5">
+              <span className="shrink-0 text-2xs text-ink-faint">비교</span>
               <Select
                 value={against ?? NO_COMPARISON}
                 onValueChange={(next) => setAgainst(next === NO_COMPARISON ? null : next)}
@@ -146,17 +154,10 @@ export default function AgentDock() {
                     rarest thing on this strip and it was the heaviest -- a
                     bordered control beside a ghost button and a count, drawing
                     the eye first on a pane whose subject is the list below. */}
-                <SelectTrigger
-                  size="sm"
-                  className={cn(
-                    "h-7 max-w-52 gap-1 text-2xs",
-                    !against && "border-transparent bg-transparent text-ink-faint hover:text-ink-muted",
-                  )}
-                  aria-label="비교할 실행"
-                >
+                <SelectTrigger size="sm" className="h-7 min-w-0 flex-1 gap-1 text-2xs" aria-label="비교할 실행">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent align="end">
+                <SelectContent align="start">
                   <SelectItem value={NO_COMPARISON} className="text-xs">
                     비교 안 함
                   </SelectItem>
@@ -167,17 +168,8 @@ export default function AgentDock() {
                   ))}
                 </SelectContent>
               </Select>
-            )}
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" size="xs" aria-expanded={open}>
-                <BarChart3 />
-                요약
-              </Button>
-            </CollapsibleTrigger>
-          </>
-        }
-      >
-        <CollapsibleContent>
+            </div>
+          )}
           <RunSummary
             stats={findings.data?.stats}
             spans={spans.data?.summary}
@@ -200,15 +192,8 @@ export default function AgentDock() {
 
         <FindingList
           findings={ui}
-          knowledge={knowledge.data}
           openId={findingId}
           compare={compare}
-          // Only with a run to write to, and never while one is in flight: the
-          // inspection is reading these files.
-          onApply={runId && !running ? (finding) => apply.mutate(wireId(finding.id)) : undefined}
-          applying={apply.isPending}
-          onPropose={runId && !running ? (finding) => propose.mutate(wireId(finding.id)) : undefined}
-          proposing={propose.isPending}
           onOpen={(finding) => void setFindingId(finding?.id ?? null)}
           // Opening a row navigates too -- FindingList calls both -- so the file
           // and the line are set in exactly one place, here.
