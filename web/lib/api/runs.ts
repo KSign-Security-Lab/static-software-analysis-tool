@@ -4,6 +4,7 @@ import type {
   FileContents,
   FileWriteResult,
   ApplyResult,
+  ProposeResult,
   FindingDiff,
   Report,
   RunSummary,
@@ -97,6 +98,17 @@ export function fetchFindings(runId: string, options?: RequestOptions): Promise<
  */
 export function applyFix(runId: string, findingId: string): Promise<ApplyResult> {
   return post<ApplyResult>(`/agent/runs/${seg(runId)}/apply`, { finding_id: findingId });
+}
+
+/**
+ * Ask for code to fix a finding that arrived with advice and none.
+ *
+ * A separate call from `applyFix`, and deliberately: it writes the proposal into
+ * the report and stops. The diff a reader approves has to be the diff that gets
+ * spliced, and that means showing it before anything is written to their source.
+ */
+export function proposeFix(runId: string, findingId: string): Promise<ProposeResult> {
+  return post<ProposeResult>(`/agent/runs/${seg(runId)}/propose`, { finding_id: findingId });
 }
 
 export function diffRuns(runId: string, against: string): Promise<FindingDiff> {

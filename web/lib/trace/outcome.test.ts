@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { outcomeOf, unitOutcome } from "./outcome";
+import { byFile, isWholeFile, outcomeOf, unitOutcome, worst } from "./outcome";
 import type { Exchange } from "./process";
 
 function exchange(over: Partial<Exchange> = {}): Exchange {
@@ -100,5 +100,45 @@ describe("unitOutcome", () => {
   it("is nothing when no step could say anything", () => {
     expect(unitOutcome([exchange({ step: "locate" })])).toBeNull();
     expect(unitOutcome([])).toBeNull();
+  });
+});
+
+describe("byFile", () => {
+  it("gathers a file's units under it, in the order they ran", () => {
+    const groups = byFile([
+      { id: "1", symbol: "main.c", file: "main.c" },
+      { id: "2", symbol: "shorten", file: "util.c" },
+      { id: "3", symbol: "handle", file: "main.c" },
+    ]);
+
+    expect(groups.map((group) => group.file)).toEqual(["main.c", "util.c"]);
+    expect(groups[0].units.map((unit) => unit.symbol)).toEqual(["main.c", "handle"]);
+  });
+
+  it("still shows a unit the index could not place", () => {
+    // Rather than losing it into a group called "null".
+    const groups = byFile([{ id: "1", symbol: "orphan", file: null }]);
+    expect(groups[0].file).toBe("orphan");
+  });
+});
+
+describe("isWholeFile", () => {
+  it("is the chunk whose symbol is its own filename", () => {
+    expect(isWholeFile({ symbol: "main.c", file: "main.c" })).toBe(true);
+    expect(isWholeFile({ symbol: "handle", file: "main.c" })).toBe(false);
+    expect(isWholeFile({ symbol: null, file: null })).toBe(false);
+  });
+});
+
+describe("worst", () => {
+  it("takes the loudest outcome, not the last", () => {
+    // A file whose second function had a claim survive is a file with a problem,
+    // whatever its third concluded afterwards.
+    const survived = { text: "반박을 견딤", tone: "danger" } as const;
+    expect(worst([{ text: "분석 안 함", tone: "quiet" }, survived, { text: "반박됨", tone: "ok" }])).toBe(survived);
+  });
+
+  it("is nothing when nothing could say anything", () => {
+    expect(worst([null, null])).toBeNull();
   });
 });

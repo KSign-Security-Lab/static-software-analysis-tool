@@ -8,7 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Progress } from "@/components/ui/progress";
 import type { AgentStep, NodeNote, PromptRow } from "@/lib/api/types";
 import type { RunLive, RunPhase } from "@/lib/run/reduce";
-import { type Outcome, outcomeOf, unitOutcome } from "@/lib/trace/outcome";
+import { type Outcome, byFile, isWholeFile, outcomeOf, unitOutcome, worst } from "@/lib/trace/outcome";
 import { type Exchange, type ToolRun, type Unit, labelOf, seconds } from "@/lib/trace/process";
 import { parseReply } from "@/lib/trace/reply";
 import { toolResult, whereOf } from "@/lib/trace/tool-result";
@@ -116,10 +116,10 @@ export default function RunPane({
           <>
             {!opened && <Tally units={units} />}
             <ul>
-              {units.map((unit) => (
-                <UnitRow
-                  key={unit.id}
-                  unit={unit}
+              {byFile(units).map((group) => (
+                <FileRow
+                  key={group.file}
+                  group={group}
                   open={opened}
                   selected={selected}
                   onTunePrompt={onTunePrompt}
@@ -181,6 +181,84 @@ function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (
   );
 }
 
+/* -- file -------------------------------------------------------------------- */
+
+/**
+ * One file, and the units the run made of it.
+ *
+ * The list used to read `main.c`, `util.c`, `shorten`, `handle`: two files and
+ * two functions side by side, with nothing saying which was which, or that
+ * `handle` lives in `main.c`. That was the chunker showing through -- it makes a
+ * unit of each file's top-level declarations *and* a unit of each function -- as
+ * one flat list of things that are not the same kind of thing.
+ *
+ * So the file is the outer level and its units sit inside it, the file's own
+ * chunk among them under the only name that distinguishes it: 최상위 선언, which
+ * is what it holds. A file whose units all came out quiet says so on one line and
+ * never has to be opened.
+ */
+function FileRow({
+  group,
+  open,
+  selected,
+  onTunePrompt,
+}: {
+  group: { file: string; units: Unit[] };
+  open: boolean;
+  selected: string | null;
+  onTunePrompt: (spanId: string) => void;
+}) {
+  // The loudest, not the last: a file with a surviving claim in its second
+  // function is a file with a problem, whatever its third concluded after.
+  const outcome = worst(group.units.map((unit) => unitOutcome(unit.exchanges)));
+  const tokens = group.units.reduce((sum, unit) => sum + unit.tokens, 0);
+  // One unit is not a list. Showing `main.c` over `최상위 선언` and nothing else
+  // is a level of hierarchy carrying no information.
+  const only = group.units.length === 1 ? group.units[0] : null;
+
+  if (only) {
+    return (
+      <li className="border-b border-line">
+        <UnitRow unit={only} open={open} selected={selected} onTunePrompt={onTunePrompt} />
+      </li>
+    );
+  }
+
+  return (
+    <li className="border-b border-line">
+      <Collapsible defaultOpen>
+        <CollapsibleTrigger className="group/file flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-surface-2">
+          <ChevronRight
+            className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/file:rotate-90"
+            aria-hidden
+          />
+          <span className="min-w-0 truncate font-mono text-xs font-semibold text-ink-strong">{group.file}</span>
+          <span className="shrink-0 text-2xs text-ink-faint">단위 {group.units.length}</span>
+          <span className="ml-auto flex shrink-0 items-baseline gap-2">
+            {outcome && <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>}
+            {tokens > 0 && <span className="font-mono text-2xs text-ink-faint">{tokens.toLocaleString()}</span>}
+          </span>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <ul className="pl-3">
+            {group.units.map((unit) => (
+              <UnitRow
+                key={unit.id}
+                unit={unit}
+                open={open}
+                selected={selected}
+                onTunePrompt={onTunePrompt}
+                nested
+              />
+            ))}
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
+    </li>
+  );
+}
+
 /* -- unit -------------------------------------------------------------------- */
 
 /** One code unit: a row that says what became of it, and its steps when opened. */
@@ -189,57 +267,66 @@ function UnitRow({
   open,
   selected,
   onTunePrompt,
+  nested,
 }: {
   unit: Unit;
   open: boolean;
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
+  /** Inside a file group, which already carries the filename. */
+  nested?: boolean;
 }) {
   const outcome = unitOutcome(unit.exchanges);
-  // Only when it says something the symbol does not. A file chunk's symbol *is*
-  // its filename, and `main.c main.c` was the header on every one of them.
-  const file = unit.file && unit.file !== unit.symbol ? unit.file : null;
+  // The file chunk holds the declarations above every function -- includes,
+  // prototypes, globals -- and its symbol *is* the filename, which is how it came
+  // to sit in the list looking like a second copy of its own file.
+  const name = isWholeFile(unit) ? "최상위 선언" : (unit.symbol ?? unit.id);
+  // Only when the group above is not already saying it.
+  const file = !nested && unit.file && unit.file !== unit.symbol ? unit.file : null;
 
   return (
-    <li className="border-b border-line">
-      <Collapsible defaultOpen={open}>
-        <CollapsibleTrigger className="group/unit flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-surface-2">
-          <ChevronRight
-            className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/unit:rotate-90"
-            aria-hidden
-          />
-          <span className="min-w-0 truncate font-mono text-xs font-semibold text-ink-strong">
-            {unit.symbol ?? unit.id}
-          </span>
-          {file && <span className="min-w-0 shrink truncate font-mono text-2xs text-ink-faint">{file}</span>}
-          <span className="ml-auto flex shrink-0 items-baseline gap-2">
-            {outcome && <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>}
-            {unit.tokens > 0 && (
-              <span className="font-mono text-2xs text-ink-faint">{unit.tokens.toLocaleString()}</span>
-            )}
-          </span>
-        </CollapsibleTrigger>
+    <Collapsible defaultOpen={open}>
+      <CollapsibleTrigger className="group/unit flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-surface-2">
+        <ChevronRight
+          className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/unit:rotate-90"
+          aria-hidden
+        />
+        <span
+          className={cn(
+            "min-w-0 truncate font-mono text-xs",
+            isWholeFile(unit) ? "text-ink-muted" : "font-semibold text-ink-strong",
+          )}
+        >
+          {name}
+        </span>
+        {file && <span className="min-w-0 shrink truncate font-mono text-2xs text-ink-faint">{file}</span>}
+        <span className="ml-auto flex shrink-0 items-baseline gap-2">
+          {outcome && <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>}
+          {unit.tokens > 0 && (
+            <span className="font-mono text-2xs text-ink-faint">{unit.tokens.toLocaleString()}</span>
+          )}
+        </span>
+      </CollapsibleTrigger>
 
-        <CollapsibleContent>
-          <ul className="pb-1">
-            {unit.exchanges.slice(0, TURN_CAP).map((exchange) => (
-              <StepRow
-                key={exchange.id}
-                exchange={exchange}
-                unit={unit.symbol ?? unit.id}
-                highlighted={exchange.id === selected}
-                onTunePrompt={() => onTunePrompt(exchange.id)}
-              />
-            ))}
-            {unit.exchanges.length > TURN_CAP && (
-              <li className="px-3 py-1 pl-8 font-mono text-2xs text-ink-faint">
-                +{unit.exchanges.length - TURN_CAP} more
-              </li>
-            )}
-          </ul>
-        </CollapsibleContent>
-      </Collapsible>
-    </li>
+      <CollapsibleContent>
+        <ul className="pb-1">
+          {unit.exchanges.slice(0, TURN_CAP).map((exchange) => (
+            <StepRow
+              key={exchange.id}
+              exchange={exchange}
+              unit={unit.symbol ?? unit.id}
+              highlighted={exchange.id === selected}
+              onTunePrompt={() => onTunePrompt(exchange.id)}
+            />
+          ))}
+          {unit.exchanges.length > TURN_CAP && (
+            <li className="px-3 py-1 pl-8 font-mono text-2xs text-ink-faint">
+              +{unit.exchanges.length - TURN_CAP} more
+            </li>
+          )}
+        </ul>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

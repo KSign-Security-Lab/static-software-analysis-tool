@@ -66,6 +66,13 @@ export interface RunSummary {
 }
 
 /** What applying a proposed fix changed. */
+/** What `/propose` wrote into the report: the same shape a run would have made. */
+export interface ProposeResult {
+  run_id: string;
+  finding_id: string;
+  remediation: { summary: string; detail: string; diff: string | null; replacement: string | null };
+}
+
 export interface ApplyResult {
   run_id: string;
   finding_id: string;

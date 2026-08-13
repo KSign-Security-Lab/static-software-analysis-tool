@@ -222,9 +222,40 @@ describe("RunPane", () => {
     expect(screen.getByText("선별")).toBeTruthy();
   });
 
-  it("does not print the unit's name twice when the file is the name", () => {
+  it("names a file's own chunk for what it holds", () => {
+    // The chunker makes a unit of each file's top-level declarations as well as
+    // one of each function, and its symbol *is* the filename -- so it sat in the
+    // list looking like a second copy of its own file.
     setup({ units: unitsOf([{ ...THREADS[0], symbol: "net.c", file: "net.c" }], STEPS) });
-    expect(screen.getAllByText("net.c")).toHaveLength(1);
+    expect(screen.getByText("최상위 선언")).toBeTruthy();
+    expect(screen.queryByText("net.c")).toBeNull();
+  });
+
+  it("puts a file's units under the file", () => {
+    // `main.c`, `util.c`, `shorten`, `handle` read as two files and two functions
+    // side by side, with nothing saying that handle lives in main.c.
+    setup({
+      units: unitsOf(
+        [
+          { ...THREADS[0], id: "whole", symbol: "net.c", file: "net.c" },
+          { ...THREADS[0], id: "fn", symbol: "ping_host", file: "net.c" },
+        ],
+        STEPS,
+      ),
+    });
+
+    expect(screen.getByText("net.c")).toBeTruthy();
+    expect(screen.getByText("단위 2")).toBeTruthy();
+    expect(screen.getByText("최상위 선언")).toBeTruthy();
+    expect(screen.getByText("ping_host")).toBeTruthy();
+  });
+
+  it("does not add a level of hierarchy carrying no information", () => {
+    // One unit is not a list: a `net.c` header over a lone `최상위 선언` says
+    // nothing the row does not.
+    setup({ units: unitsOf([{ ...THREADS[0], symbol: "ping_host", file: "net.c" }], STEPS) });
+    expect(screen.queryByText("단위 1")).toBeNull();
+    expect(screen.getByText("ping_host")).toBeTruthy();
   });
 
   it("shows where a step handed on to, and what it spent", async () => {

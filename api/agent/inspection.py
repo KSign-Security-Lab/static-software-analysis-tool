@@ -421,6 +421,94 @@ class ApplyRequest(BaseModel):
     finding_id: str
 
 
+@router.post("/runs/{run_id}/propose")
+def run_propose(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
+    """Ask for code to fix a finding that arrived without any.
+
+    A specialist proposes a fix while it is analysing, and only when the fix
+    happens to fit the lines the anchor resolved to. When it does not -- and that
+    is common -- the reader was left with a paragraph of advice and nothing to
+    press. Telling somebody how to fix their code is not fixing it.
+
+    So the fix becomes something that can be asked for. Narrower than the
+    analysis: the judgement is already made and this is not a second opinion, it
+    is one question about one span. The result is written back into the report,
+    which means it arrives in exactly the shape the run would have produced --
+    same builder, same re-indentation, same computed diff -- and lights up the
+    apply button that was already there.
+
+    Deliberately does not apply it. This writes to somebody's source, and the
+    diff is shown first for the same reason it always was: offering to change a
+    file without showing what would change asks for a decision nobody can make.
+    """
+    from agent.llm import StructuredCaller
+    from agent.remediate import build as build_remediation
+    from agent.remediate import propose as propose_fix
+
+    report = paths.load_report()
+    if report is None:
+        raise HTTPException(status_code=409, detail="this run has no completed report")
+
+    at = next((i for i, f in enumerate(report.findings) if f.id == request.finding_id), None)
+    if at is None:
+        raise HTTPException(status_code=404, detail=f"unknown finding: {request.finding_id}")
+    finding = report.findings[at]
+
+    span = finding.primary
+    try:
+        resolved = resolve_within(paths.source, span.file)
+        text = resolved.read_text(encoding="utf-8")
+    except PathEscape as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except OSError as err:
+        raise HTTPException(status_code=404, detail=f"cannot read {span.file}: {err}") from err
+
+    lines = text.splitlines()
+    if span.end_line > len(lines) or span.start_line < 1:
+        raise HTTPException(status_code=409, detail="the file no longer has the lines this finding is anchored to")
+
+    # Read from disk rather than from the report: the fix has to replace what is
+    # there now, and `/apply` refuses anyway if those two have diverged.
+    excerpt = "\n".join(lines[span.start_line - 1 : span.end_line])
+
+    config = AgentConfig()
+    try:
+        config.require_model()
+    except RuntimeError as err:
+        # A deployment with no endpoint configured is a normal state here -- the
+        # rest of this page reads a recorded run and needs no model at all -- so
+        # it is an answer, not a crash.
+        raise HTTPException(status_code=503, detail=str(err)) from err
+
+    candidate = propose_fix(
+        StructuredCaller(config),
+        title=finding.title,
+        explanation=finding.explanation,
+        span=span,
+        excerpt=excerpt,
+        context=text,
+    )
+    if candidate is None or not (candidate.replacement or "").strip():
+        raise HTTPException(status_code=409, detail="이 문제는 해당 줄만 바꿔서는 고칠 수 없습니다.")
+
+    built = build_remediation(candidate, span, text)
+    if not built.replacement:
+        # Re-indented to exactly what is already there: a fix that changes
+        # nothing, which is not a fix.
+        raise HTTPException(status_code=409, detail="제안된 코드가 지금 코드와 같습니다.")
+
+    # Kept, so the diff a reader approves is the one `/apply` splices, and so a
+    # reload does not lose it.
+    report.findings[at] = finding.model_copy(update={"remediation": built})
+    paths.save_report(report)
+
+    return {
+        "run_id": paths.run_id,
+        "finding_id": finding.id,
+        "remediation": built.model_dump(),
+    }
+
+
 @router.post("/runs/{run_id}/apply")
 def run_apply(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     """Splice a finding's proposed replacement over the lines it is anchored to.

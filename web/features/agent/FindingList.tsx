@@ -37,6 +37,8 @@ export default function FindingList({
   openId,
   compare,
   onApply,
+  onPropose,
+  proposing,
   applying,
   onOpen,
   onNavigate,
@@ -49,6 +51,9 @@ export default function FindingList({
   compare?: Comparison | null;
   /** Splice the proposed fix into the file. Absent when there is no run to write to. */
   onApply?: (finding: UiFinding) => void;
+  /** Ask the model for code, when the finding came without any. */
+  onPropose?: (finding: UiFinding) => void;
+  proposing?: boolean;
   applying?: boolean;
   onOpen: (finding: UiFinding | null) => void;
   onNavigate: (file: string, line: number) => void;
@@ -140,6 +145,8 @@ export default function FindingList({
                 knowledge={knowledge}
                 onNavigate={onNavigate}
                 onApply={onApply}
+                onPropose={onPropose}
+                proposing={proposing}
                 applying={applying}
               />
             )}
@@ -230,12 +237,17 @@ function Grounds({
   knowledge,
   onNavigate,
   onApply,
+  onPropose,
+  proposing,
   applying,
 }: {
   finding: UiFinding;
   knowledge?: KnowledgeGraph;
   onNavigate: (file: string, line: number) => void;
   onApply?: (finding: UiFinding) => void;
+  /** Ask the model for code, when the finding came without any. */
+  onPropose?: (finding: UiFinding) => void;
+  proposing?: boolean;
   applying?: boolean;
 }) {
   const confidence = Math.round(finding.confidence * 100);
@@ -338,6 +350,20 @@ function Grounds({
                     {applying ? "적용하는 중…" : "이대로 고치기"}
                   </Button>
                 )}
+              </div>
+            )}
+
+            {/* A finding whose fix did not fit the lines it is anchored to
+                arrives with a paragraph and nothing to press. Telling somebody
+                how to fix their code is not fixing it, so the code becomes
+                something they can ask for -- and it lands in the block above,
+                as a diff, because this ends in a write to their source. */}
+            {!patch && onPropose && (
+              <div className="space-y-1">
+                <Button size="xs" variant="outline" disabled={proposing} onClick={() => onPropose(finding)}>
+                  <Wrench />
+                  {proposing ? "만드는 중…" : "고칠 코드 만들기"}
+                </Button>
               </div>
             )}
 

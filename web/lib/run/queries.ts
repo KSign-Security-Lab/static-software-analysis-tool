@@ -7,6 +7,7 @@ import { describeError } from "@/lib/api/client";
 import { startRun, type StartOptions } from "@/lib/api/control";
 import {
   applyFix,
+  proposeFix,
   createEmptyRun,
   deleteFile,
   deleteRun,
@@ -97,6 +98,28 @@ export function useApplyFix(runId: string | null) {
       void client.invalidateQueries({ queryKey: keys.run(result.run_id) });
     },
     onError: (error) => toast.error("고침을 적용할 수 없습니다", { description: describeError(error) }),
+  });
+}
+
+/**
+ * Ask the model for code to fix a finding that arrived without any.
+ *
+ * The counterpart to `useApplyFix` and never folded into it. A finding that came
+ * with a patch is one click; a finding that came with only advice is now two --
+ * make it, then approve it -- rather than the nothing it used to be. The middle
+ * step is the diff, and it is not ceremony: this ends in a write to somebody's
+ * source file.
+ */
+export function useProposeFix(runId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (findingId: string) => proposeFix(runId!, findingId),
+    onSuccess: (result) => {
+      toast.success("고칠 코드를 만들었습니다", { description: "바뀔 내용을 확인하고 적용하세요." });
+      // The report holds it now, so the finding list has to re-read it.
+      void client.invalidateQueries({ queryKey: keys.run(result.run_id) });
+    },
+    onError: (error) => toast.error("고칠 코드를 만들 수 없습니다", { description: describeError(error) }),
   });
 }
 

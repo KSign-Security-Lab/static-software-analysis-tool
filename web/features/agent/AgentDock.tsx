@@ -10,7 +10,7 @@ import { PanelShell } from "@/components/workbench/PanelShell";
 import { describeError } from "@/lib/api/client";
 import { fromAgent } from "@/lib/model/finding";
 import { useKnowledge } from "@/lib/run/knowledge-queries";
-import { useApplyFix, useDiff, useFindings, useRun, useRuns } from "@/lib/run/queries";
+import { useApplyFix, useDiff, useFindings, useProposeFix, useRun, useRuns } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useSpans } from "@/lib/run/trace-queries";
 import { useOpenFile, useRevealLine, useSelectedFinding } from "@/lib/run/selection";
@@ -87,6 +87,7 @@ export default function AgentDock() {
   );
   const diff = useDiff(runId, against);
   const apply = useApplyFix(runId);
+  const propose = useProposeFix(runId);
 
   const compare = useMemo(() => {
     if (!against || !diff.data) return null;
@@ -194,6 +195,8 @@ export default function AgentDock() {
           // inspection is reading these files.
           onApply={runId && !running ? (finding) => apply.mutate(finding.id) : undefined}
           applying={apply.isPending}
+          onPropose={runId && !running ? (finding) => propose.mutate(finding.id) : undefined}
+          proposing={propose.isPending}
           onOpen={(finding) => void setFindingId(finding?.id ?? null)}
           // Opening a row navigates too -- FindingList calls both -- so the file
           // and the line are set in exactly one place, here.

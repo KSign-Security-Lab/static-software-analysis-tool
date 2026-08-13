@@ -104,3 +104,56 @@ export function unitOutcome(exchanges: Exchange[]): Outcome | null {
   }
   return null;
 }
+
+/**
+ * The units of one file, and how that file came out.
+ *
+ * A run's units are a file's top-level declarations *and* each function in it,
+ * which is why the list read as `main.c`, `util.c`, `shorten`, `handle` -- two
+ * files and two functions, side by side, with nothing saying which was which or
+ * that `handle` lives in `main.c`. The chunker's two kinds were showing through
+ * as one flat list.
+ *
+ * A file chunk is told from a function chunk by its symbol being the filename,
+ * which is what the store writes: `main.c :: main.c`.
+ */
+export interface FileGroup<T> {
+  file: string;
+  units: T[];
+}
+
+export function byFile<T extends { symbol: string | null; file: string | null; id: string }>(
+  units: T[],
+): FileGroup<T>[] {
+  const groups: FileGroup<T>[] = [];
+  for (const unit of units) {
+    // Falls back to the unit's own name, so a unit the index could not place
+    // still appears rather than vanishing into a group called "null".
+    const file = unit.file ?? unit.symbol ?? unit.id;
+    const found = groups.find((group) => group.file === file);
+    if (found) found.units.push(unit);
+    else groups.push({ file, units: [unit] });
+  }
+  return groups;
+}
+
+/** True for the chunk that holds a file's top-level declarations. */
+export function isWholeFile(unit: { symbol: string | null; file: string | null }): boolean {
+  return Boolean(unit.symbol) && unit.symbol === unit.file;
+}
+
+/**
+ * How a file came out, over its units.
+ *
+ * The loudest outcome rather than the last: a file whose second function had a
+ * claim survive is a file with a problem in it, whatever its third function
+ * concluded afterwards.
+ */
+export function worst(outcomes: (Outcome | null)[]): Outcome | null {
+  const rank: Record<Outcome["tone"], number> = { danger: 3, plain: 2, ok: 1, quiet: 0 };
+  let best: Outcome | null = null;
+  for (const outcome of outcomes) {
+    if (outcome && (best === null || rank[outcome.tone] > rank[best.tone])) best = outcome;
+  }
+  return best;
+}
