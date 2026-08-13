@@ -141,6 +141,24 @@ export function fromF2A(result: F2AResult | null | undefined, file: string): UiF
 }
 
 /** Agent findings -> the shared shape. Already close; mostly renaming. */
+/**
+ * The id the producing engine knows a finding by.
+ *
+ * View-model ids are prefixed with their engine so that two engines' findings can
+ * share one list without colliding -- and anything talking *back* to an engine
+ * has to take the prefix off again. It did not, so both `이대로 고치기` and
+ * `고칠 코드 만들기` posted `agent:0a6b…` to an API that only knows `0a6b…` and
+ * got `unknown finding` every time.
+ *
+ * This is the second time the prefix has been missed in a round trip; the first
+ * was `?finding=` matching nothing, silently. One function now, so the next
+ * caller has something to reach for.
+ */
+export function wireId(id: string): string {
+  const at = id.indexOf(":");
+  return at === -1 ? id : id.slice(at + 1);
+}
+
 export function fromAgent(findings: AgentFinding[] | null | undefined): UiFinding[] {
   return (findings ?? []).map((f) => ({
     id: `agent:${f.id}`,

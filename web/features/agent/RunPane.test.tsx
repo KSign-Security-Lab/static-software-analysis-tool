@@ -137,6 +137,8 @@ function setup(over: Partial<Parameters<typeof RunPane>[0]> = {}) {
       units={unitsOf(THREADS, STEPS)}
       steps={STEPS}
       prompts={[]}
+      mode="log"
+      onMode={() => {}}
       phase="finished"
       live={IDLE}
       node={null}
@@ -201,18 +203,49 @@ describe("RunPane", () => {
     expect(screen.getAllByText("근거 2건 조회").length).toBeGreaterThan(0);
   });
 
-  it("collapses the units when there is a choice, and opens the one when there is not", () => {
-    // One unit is not a menu, so it skips the choosing step.
-    setup();
-    expect(screen.getByText("선별")).toBeTruthy();
-
-    cleanup();
+  it("opens as the record, because that is the pane's first job", () => {
+    // A pane whose job is to be the record should not ask you to guess where to
+    // click before it has told you anything. `log` is the default.
     setup({ units: unitsOf([THREADS[0], { ...THREADS[0], id: "other", symbol: "send_it" }], STEPS) });
+    expect(screen.getAllByText("선별").length).toBe(2);
+  });
+
+  it("folds to one row per unit under 요약", () => {
+    setup({
+      mode: "map",
+      units: unitsOf([THREADS[0], { ...THREADS[0], id: "other", symbol: "send_it" }], STEPS),
+    });
+
     expect(screen.queryByText("선별")).toBeNull();
     expect(screen.getByText("ping_host")).toBeTruthy();
     expect(screen.getByText("send_it")).toBeTruthy();
-    // And a strip over them, so the run has a size before anything is opened.
     expect(screen.getByText(/단위 2 · 호출 4/)).toBeTruthy();
+  });
+
+  it("opens the one unit there is, even folded: one unit is not a menu", () => {
+    setup({ mode: "map" });
+    expect(screen.getByText("선별")).toBeTruthy();
+  });
+
+  it("keeps only the steps that reached for something under 조회", () => {
+    // "What did it actually go and read" is a real question, and in the record it
+    // is a handful of rows scattered through the whole run.
+    setup({ mode: "tools" });
+
+    expect(screen.getByText("근거 모으기")).toBeTruthy();
+    expect(screen.queryByText("선별")).toBeNull();
+    expect(screen.getByText(/symbol="pick_target"/)).toBeTruthy();
+  });
+
+  it("says so rather than looking broken when nothing used a tool", () => {
+    setup({ mode: "tools", units: unitsOf([{ ...THREADS[0], turns: [THREADS[0].turns[0]] }], STEPS) });
+    expect(screen.getByText("이 실행에서 도구를 쓴 단계가 없습니다.")).toBeTruthy();
+  });
+
+  it("offers the three readings, and marks the one in use", () => {
+    setup({ mode: "map" });
+    expect(screen.getByRole("button", { name: "요약" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "기록" }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("opens everything down to the steps when scoped to one finding", () => {

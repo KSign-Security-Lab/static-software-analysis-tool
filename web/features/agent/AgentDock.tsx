@@ -8,7 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PanelShell } from "@/components/workbench/PanelShell";
 import { describeError } from "@/lib/api/client";
-import { fromAgent } from "@/lib/model/finding";
+import { fromAgent, wireId } from "@/lib/model/finding";
 import { useKnowledge } from "@/lib/run/knowledge-queries";
 import { useApplyFix, useDiff, useFindings, useProposeFix, useRun, useRuns } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
@@ -193,9 +193,9 @@ export default function AgentDock() {
           compare={compare}
           // Only with a run to write to, and never while one is in flight: the
           // inspection is reading these files.
-          onApply={runId && !running ? (finding) => apply.mutate(finding.id) : undefined}
+          onApply={runId && !running ? (finding) => apply.mutate(wireId(finding.id)) : undefined}
           applying={apply.isPending}
-          onPropose={runId && !running ? (finding) => propose.mutate(finding.id) : undefined}
+          onPropose={runId && !running ? (finding) => propose.mutate(wireId(finding.id)) : undefined}
           proposing={propose.isPending}
           onOpen={(finding) => void setFindingId(finding?.id ?? null)}
           // Opening a row navigates too -- FindingList calls both -- so the file

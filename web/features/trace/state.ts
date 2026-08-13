@@ -1,6 +1,6 @@
 "use client";
 
-import { parseAsBoolean, parseAsString, useQueryState } from "nuqs";
+import { parseAsBoolean, parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
 
 /**
  * What the trace is looking at, in the URL.
@@ -30,4 +30,28 @@ export function useSelectedCheckpoint() {
  */
 export function useFullState() {
   return useQueryState("fullstate", parseAsBoolean.withDefault(false).withOptions({ history: "replace" }));
+}
+
+/**
+ * What the right pane is showing.
+ *
+ * The pane answers three questions and they want different amounts of the same
+ * material, so which one you are asking is a mode rather than a scroll position.
+ *
+ * `log` is the default and deliberately so: the pane's first job is to be the
+ * record, and a record that opens folded asks you to guess where to click before
+ * it has told you anything.
+ *
+ * In the address bar with everything else that scopes this page -- the run, the
+ * node, the finding -- so a link to what you are looking at is a link to what you
+ * are looking at.
+ */
+export const PANE_MODES = ["log", "map", "tools"] as const;
+export type PaneMode = (typeof PANE_MODES)[number];
+
+export function usePaneMode() {
+  return useQueryState(
+    "pane",
+    parseAsStringLiteral(PANE_MODES).withDefault("log").withOptions({ history: "replace" }),
+  );
 }

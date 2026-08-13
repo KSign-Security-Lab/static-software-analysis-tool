@@ -9,7 +9,7 @@ import { useRunStream } from "@/lib/run/stream";
 import { useGraphShape, usePrompts, useSpans, useThreads } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import { claimOf, trailOf, unitsOf } from "@/lib/trace/process";
-import { useScopedNode, useSelectedSpan } from "../trace/state";
+import { usePaneMode, useScopedNode, useSelectedSpan } from "../trace/state";
 import RunPane from "./RunPane";
 import PromptSheet from "./PromptSheet";
 
@@ -36,6 +36,7 @@ export default function InspectorPane() {
   const [runId] = useRunId();
   const [spanId, setSpanId] = useSelectedSpan();
   const [node] = useScopedNode();
+  const [mode, setMode] = usePaneMode();
   const [findingId] = useSelectedFinding();
   const { live, phase } = useRunStream();
 
@@ -99,6 +100,8 @@ export default function InspectorPane() {
         // The standing brief behind a node, which is most of what a node *is*. The
         // list was already fetched here for the editor and only the editor saw it.
         prompts={prompts.data ?? []}
+        mode={mode}
+        onMode={(next) => void setMode(next)}
         phase={phase}
         live={live}
         node={node}

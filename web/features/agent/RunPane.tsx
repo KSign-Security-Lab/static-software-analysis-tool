@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronRight, CirclePause, Loader2, Pencil, Wrench } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -13,6 +13,7 @@ import { type Exchange, type ToolRun, type Unit, labelOf, seconds } from "@/lib/
 import { parseReply } from "@/lib/trace/reply";
 import { toolResult, whereOf } from "@/lib/trace/tool-result";
 import { cn } from "@/lib/utils";
+import type { PaneMode } from "../trace/state";
 
 /**
  * The run.
@@ -59,6 +60,8 @@ export default function RunPane({
   units,
   steps,
   prompts,
+  mode,
+  onMode,
   phase,
   live,
   node,
@@ -71,6 +74,9 @@ export default function RunPane({
   steps: AgentStep[];
   /** The standing briefs, so a node can show the one it runs under. */
   prompts: PromptRow[];
+  /** Which question the pane is answering. */
+  mode: PaneMode;
+  onMode: (next: PaneMode) => void;
   phase: RunPhase;
   live: RunLive;
   /** Narrowed to one node of the graph, if anything is. */
@@ -84,19 +90,33 @@ export default function RunPane({
   onTunePrompt: (spanId: string) => void;
 }) {
   const running = phase === "running" || phase === "starting";
-  // Scoped to a finding, or down to a single unit by any other route: there is
-  // nothing to choose between, so the choosing step is skipped.
-  const opened = Boolean(focus?.scoped) || units.length === 1;
+  // `map` is the only mode that folds. `log` is the record and opens as one;
+  // `tools` has already thrown away everything that is not a lookup, so there is
+  // nothing left to hide.
+  const opened = mode !== "map" || Boolean(focus?.scoped) || units.length === 1;
+  // Only the steps that reached for something. The question is "what did it
+  // actually go and read", and in `log` that is nine rows scattered through
+  // twelve screens.
+  const shown = useMemo(
+    () =>
+      mode === "tools"
+        ? units
+            .map((unit) => ({ ...unit, exchanges: unit.exchanges.filter((each) => each.calls.length > 0) }))
+            .filter((unit) => unit.exchanges.length > 0)
+        : units,
+    [units, mode],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       <Status phase={phase} live={live} />
+      <Modes mode={mode} onMode={onMode} />
       {focus && <Focus focus={focus} />}
 
       <div className="min-h-0 flex-1 overflow-auto">
         {note && <NodeCard note={note} steps={steps} prompts={prompts} />}
 
-        {units.length === 0 ? (
+        {shown.length === 0 ? (
           <div className="space-y-3 p-3">
             <p className="text-xs leading-relaxed text-ink-faint">
               {focus?.scoped
@@ -104,7 +124,9 @@ export default function RunPane({
                   // cached unit is not re-read, so it leaves no conversation behind
                   // in this run even though its findings are in the report.
                   "이 문제를 낸 단위의 대화가 이 실행에는 없습니다. 지난 검사 결과를 그대로 가져왔을 수 있습니다."
-                : node
+                : mode === "tools"
+                  ? "이 실행에서 도구를 쓴 단계가 없습니다."
+                  : node
                   ? `${node} 에서 이뤄진 대화가 없습니다.`
                   : running
                     ? "첫 응답을 기다리고 있습니다."
@@ -114,13 +136,14 @@ export default function RunPane({
           </div>
         ) : (
           <>
-            {!opened && <Tally units={units} />}
+            <Tally units={shown} />
             <ul>
-              {byFile(units).map((group) => (
+              {byFile(shown).map((group) => (
                 <FileRow
                   key={group.file}
                   group={group}
                   open={opened}
+                  openSteps={mode === "tools"}
                   selected={selected}
                   onTunePrompt={onTunePrompt}
                 />
@@ -129,6 +152,45 @@ export default function RunPane({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+const MODES: { id: PaneMode; label: string; hint: string }[] = [
+  { id: "log", label: "기록", hint: "일어난 일 전부" },
+  { id: "map", label: "요약", hint: "한 줄씩, 접은 채로" },
+  { id: "tools", label: "조회", hint: "도구를 쓴 단계만" },
+];
+
+/**
+ * Which question the pane is answering.
+ *
+ * Three, and they are not densities of one view -- they are different readings.
+ * `기록` is the record and is what this opens as, because a pane whose first job
+ * is to be the record should not ask you to guess where to click before it has
+ * said anything. `요약` is every unit on one screen for when the question is what
+ * happened rather than what was said. `조회` throws away everything that is not a
+ * lookup, because "what did it actually go and read" is a real question and the
+ * answer is nine rows scattered through twelve screens of the other two.
+ */
+function Modes({ mode, onMode }: { mode: PaneMode; onMode: (next: PaneMode) => void }) {
+  return (
+    <div className="flex shrink-0 gap-0.5 border-b border-line px-2 py-1">
+      {MODES.map((each) => (
+        <button
+          key={each.id}
+          type="button"
+          title={each.hint}
+          aria-pressed={mode === each.id}
+          onClick={() => onMode(each.id)}
+          className={cn(
+            "rounded-sm px-2 py-0.5 text-2xs transition-colors",
+            mode === each.id ? "bg-accent-wash text-accent-ink" : "text-ink-faint hover:text-ink-muted",
+          )}
+        >
+          {each.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -200,11 +262,14 @@ function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (
 function FileRow({
   group,
   open,
+  openSteps,
   selected,
   onTunePrompt,
 }: {
   group: { file: string; units: Unit[] };
   open: boolean;
+  /** 조회 has already discarded everything else; there is nothing left to fold. */
+  openSteps: boolean;
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
 }) {
@@ -219,7 +284,7 @@ function FileRow({
   if (only) {
     return (
       <li className="border-b border-line">
-        <UnitRow unit={only} open={open} selected={selected} onTunePrompt={onTunePrompt} />
+        <UnitRow unit={only} open={open} openSteps={openSteps} selected={selected} onTunePrompt={onTunePrompt} />
       </li>
     );
   }
@@ -247,6 +312,7 @@ function FileRow({
                 key={unit.id}
                 unit={unit}
                 open={open}
+                openSteps={openSteps}
                 selected={selected}
                 onTunePrompt={onTunePrompt}
                 nested
@@ -265,12 +331,14 @@ function FileRow({
 function UnitRow({
   unit,
   open,
+  openSteps,
   selected,
   onTunePrompt,
   nested,
 }: {
   unit: Unit;
   open: boolean;
+  openSteps: boolean;
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
   /** Inside a file group, which already carries the filename. */
@@ -316,6 +384,7 @@ function UnitRow({
               exchange={exchange}
               unit={unit.symbol ?? unit.id}
               highlighted={exchange.id === selected}
+              opened={openSteps}
               onTunePrompt={() => onTunePrompt(exchange.id)}
             />
           ))}
@@ -337,12 +406,14 @@ function StepRow({
   exchange,
   unit,
   highlighted,
+  opened,
   onTunePrompt,
 }: {
   exchange: Exchange;
   /** The unit's own name, so a step does not repeat it as its subject. */
   unit: string;
   highlighted: boolean;
+  opened: boolean;
   onTunePrompt: () => void;
 }) {
   const outcome = outcomeOf(exchange);
@@ -350,7 +421,7 @@ function StepRow({
 
   return (
     <li className={cn(highlighted && "bg-accent-wash")}>
-      <Collapsible defaultOpen={highlighted}>
+      <Collapsible defaultOpen={highlighted || opened}>
         <div className="group/step flex items-baseline">
           <CollapsibleTrigger className="group/row flex min-w-0 flex-1 items-baseline gap-2 py-1 pr-2 pl-3 text-left hover:bg-surface-2">
             <ChevronRight

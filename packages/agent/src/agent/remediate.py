@@ -63,14 +63,20 @@ def build(candidate: CandidateRemediation, span: Span, text: str) -> Remediation
         # Nothing to do, and offering to do it would be a lie.
         return Remediation(summary=candidate.summary, detail=candidate.detail)
 
+    # Against the whole file, which is what makes it a diff somebody can read.
+    # It used to diff the replaced lines against themselves in isolation, so a
+    # change at line 6 was headed `@@ -1 +1 @@` -- the right change under the
+    # wrong line number, with no surrounding code to place it. Three lines of
+    # context and real offsets, which is `git diff`.
+    after = lines[: span.start_line - 1] + proposed.splitlines() + lines[span.end_line :]
     diff = "".join(
         difflib.unified_diff(
-            [f"{line}\n" for line in before],
-            [f"{line}\n" for line in proposed.splitlines()],
+            [f"{line}\n" for line in lines],
+            [f"{line}\n" for line in after],
             fromfile=f"a/{span.file}",
             tofile=f"b/{span.file}",
             lineterm="\n",
-            n=0,
+            n=3,
         )
     )
     return Remediation(
