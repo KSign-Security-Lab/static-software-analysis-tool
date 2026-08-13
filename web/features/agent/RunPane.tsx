@@ -297,15 +297,22 @@ function Tally({ units }: { units: Unit[] }) {
   const tokens = units.reduce((sum, unit) => sum + unit.tokens, 0);
   const tools = units.reduce((sum, unit) => sum + unit.exchanges.reduce((n, e) => n + e.calls.length, 0), 0);
 
+  // Two facts here, the rest on hover. All four wanted 246px of a header that
+  // has 194 once the title and the mode switch have taken theirs, so the last
+  // one was cut mid-number -- `13,` -- which is worse than not showing it.
   return (
-    <Meta
-      parts={[
-        `단위 ${units.length}`,
-        `호출 ${calls}`,
-        tools > 0 && `도구 ${tools}`,
-        tokens > 0 && `${tokens.toLocaleString()} tok`,
-      ]}
-    />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span>
+          <Meta parts={[`단위 ${units.length}`, tokens > 0 && `${tokens.toLocaleString()} tok`]} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        단위 {units.length} · 호출 {calls}
+        {tools > 0 && ` · 도구 ${tools}`}
+        {tokens > 0 && ` · ${tokens.toLocaleString()} tok`}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

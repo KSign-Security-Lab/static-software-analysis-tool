@@ -280,7 +280,10 @@ describe("RunPane", () => {
     expect(screen.queryByText("선별")).toBeNull();
     expect(screen.getByText("ping_host")).toBeTruthy();
     expect(screen.getByText("send_it")).toBeTruthy();
-    expect(screen.getByText(/단위 2 · 호출 4/)).toBeTruthy();
+    // Two facts in the header; the full breakdown is on hover, because all four
+    // wanted more width than the header has. `getAll`, because the tooltip
+    // renders its copy into the DOM as well.
+    expect(screen.getAllByText(/단위 2/).length).toBeGreaterThan(0);
   });
 
   it("folds a lone unit too, because 요약 means one rule", () => {
