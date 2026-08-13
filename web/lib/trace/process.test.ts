@@ -485,8 +485,8 @@ describe("roleOf", () => {
   it("narrates a chain rather than naming it", () => {
     expect(["triage", "lens:injection", "gather", "verify"].map(roleOf)).toEqual([
       "선별",
-      "injection 가 제기",
-      "근거 모으기",
+      "injection 분석",
+      "근거 수집",
       "판정",
     ]);
   });
@@ -496,8 +496,8 @@ describe("labelOf", () => {
   it("tells a specialist's lookup pass from the analysis that raises the finding", () => {
     // Both are `lens:memory`, so both read as `memory 가 제기` -- two identical
     // headings in a row where the first had raised nothing.
-    expect(labelOf({ step: "lens:memory", calls: [{ name: "find_definition", args: {}, inputs: null, outputs: null, error: null, latency_ms: 1 }] })).toBe("memory 가 조회");
-    expect(labelOf({ step: "lens:memory", calls: [] })).toBe("memory 가 제기");
+    expect(labelOf({ step: "lens:memory", calls: [{ name: "find_definition", args: {}, inputs: null, outputs: null, error: null, latency_ms: 1 }] })).toBe("memory 조회");
+    expect(labelOf({ step: "lens:memory", calls: [] })).toBe("memory 분석");
   });
 
   it("leaves every other step to its role", () => {

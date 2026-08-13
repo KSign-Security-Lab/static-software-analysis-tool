@@ -67,7 +67,7 @@ export default function CentrePane() {
         onValueChange={(next) => void setView(next as CentreView)}
         className="shrink-0 gap-0"
       >
-        <header className="flex h-8 shrink-0 items-center border-b border-line px-1.5">
+        <header className="flex h-9 shrink-0 items-center border-b border-line px-1.5">
           <TabsList variant="line" className="h-full gap-0 bg-transparent p-0">
             {TABS.map((each) => (
               <TabsTrigger key={each.id} value={each.id} className="h-full gap-1.5 px-2.5 text-xs font-medium">

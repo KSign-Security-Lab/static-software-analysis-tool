@@ -254,6 +254,39 @@ export function countByChunk(findings: UiFinding[]): Map<string, FileCount> {
   return counts;
 }
 
+/**
+ * What verification made of a claim.
+ *
+ * Three states, and the third was invisible. A finding over
+ * `max_verify_per_chunk` is stored `verified: false, confidence 0.3` -- never put
+ * to a verifier at all -- and the list showed it exactly like one that had been
+ * checked and held. Neither confirmed nor refuted is its own answer and now says
+ * so.
+ *
+ * The words are compounds rather than sentences. `반박을 견딤` was a literal
+ * rendering of "withstood refutation": accurate about the mechanism, and not
+ * something anybody says.
+ */
+export type Standing = "confirmed" | "candidate";
+
+/**
+ * Null is not a third state, it is no state: F2-A findings never go near a
+ * verifier, so a badge saying anything about verification would be inventing a
+ * step that does not exist for them.
+ */
+export function standingOf(finding: { verified: boolean | null }): Standing | null {
+  if (finding.verified === null) return null;
+  return finding.verified ? "confirmed" : "candidate";
+}
+
+export const STANDING_LABEL: Record<Standing, string> = {
+  confirmed: "취약 확인",
+  candidate: "취약 후보",
+};
+
+/** Refuted claims never reach a report, so this only ever appears in the record. */
+export const REFUTED_LABEL = "취약 미검출";
+
 export const SEVERITY_LABEL: Record<Severity, string> = {
   critical: "치명적",
   high: "높음",

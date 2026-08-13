@@ -32,13 +32,14 @@ const call = { name: "find_definition", args: {}, inputs: null, outputs: null, e
 describe("outcomeOf", () => {
   it("reads a verdict the way round it actually means", () => {
     // `refuted: true` means there is *no* problem, which is exactly backwards
-    // from how the bare field reads at a glance. It is the single easiest mistake
-    // to make about this pipeline, so the words carry the tone as well.
+    // from how the bare field reads at a glance. The words come from
+    // `lib/model/finding.ts` so the dock, this pane and the editor hover cannot
+    // drift into three names -- and three colours -- for one fact.
     const survived = outcomeOf(exchange({ step: "verify", reply: '{"refuted": false, "confidence": 0.95}' }));
-    expect(survived).toEqual({ text: "반박을 견딤 · 95%", tone: "danger" });
+    expect(survived).toEqual({ text: "취약 확인 · 95%", tone: "plain" });
 
     const killed = outcomeOf(exchange({ step: "verify", reply: '{"refuted": true, "confidence": 0.9}' }));
-    expect(killed).toEqual({ text: "반박됨 · 90%", tone: "ok" });
+    expect(killed).toEqual({ text: "취약 미검출 · 90%", tone: "quiet" });
   });
 
   it("says which specialists a screening dispatched", () => {
@@ -51,8 +52,8 @@ describe("outcomeOf", () => {
   });
 
   it("counts what a specialist raised", () => {
-    expect(outcomeOf(exchange({ step: "lens:memory", reply: '{"findings": [{}, {}]}' }))?.text).toBe("2건 제기");
-    expect(outcomeOf(exchange({ step: "lens:memory", reply: '{"findings": []}' }))?.text).toBe("제기 없음");
+    expect(outcomeOf(exchange({ step: "lens:memory", reply: '{"findings": [{}, {}]}' }))?.text).toBe("2건 발견");
+    expect(outcomeOf(exchange({ step: "lens:memory", reply: '{"findings": []}' }))?.text).toBe("발견 없음");
   });
 
   it("tells a specialist's lookup pass by the calls it made", () => {
@@ -61,8 +62,8 @@ describe("outcomeOf", () => {
   });
 
   it("says how hard a gather looked, having no schema to read", () => {
-    expect(outcomeOf(exchange({ step: "gather", calls: [call] }))?.text).toBe("근거 1건 조회");
-    expect(outcomeOf(exchange({ step: "gather" }))?.text).toBe("조회 없이 판단");
+    expect(outcomeOf(exchange({ step: "gather", calls: [call] }))?.text).toBe("근거 1건");
+    expect(outcomeOf(exchange({ step: "gather" }))?.text).toBe("조회 없음");
   });
 
   it("says nothing rather than something wrong", () => {
@@ -76,7 +77,7 @@ describe("outcomeOf", () => {
   });
 
   it("omits a confidence the model did not give", () => {
-    expect(outcomeOf(exchange({ step: "verify", reply: '{"refuted": false}' }))?.text).toBe("반박을 견딤");
+    expect(outcomeOf(exchange({ step: "verify", reply: '{"refuted": false}' }))?.text).toBe("취약 확인");
   });
 });
 
@@ -86,7 +87,7 @@ describe("unitOutcome", () => {
       exchange({ reply: '{"worth_analysing": true, "lenses": ["memory"]}' }),
       exchange({ step: "verify", reply: '{"refuted": false, "confidence": 0.8}' }),
     ]);
-    expect(outcome?.text).toBe("반박을 견딤 · 80%");
+    expect(outcome?.text).toBe("취약 확인 · 80%");
   });
 
   it("skips past steps that cannot summarise themselves", () => {
@@ -134,8 +135,8 @@ describe("worst", () => {
   it("takes the loudest outcome, not the last", () => {
     // A file whose second function had a claim survive is a file with a problem,
     // whatever its third concluded afterwards.
-    const survived = { text: "반박을 견딤", tone: "danger" } as const;
-    expect(worst([{ text: "분석 안 함", tone: "quiet" }, survived, { text: "반박됨", tone: "ok" }])).toBe(survived);
+    const survived = { text: "취약 확인", tone: "danger" } as const;
+    expect(worst([{ text: "분석 안 함", tone: "quiet" }, survived, { text: "취약 미검출", tone: "ok" }])).toBe(survived);
   });
 
   it("is nothing when nothing could say anything", () => {

@@ -1,3 +1,4 @@
+import { REFUTED_LABEL, STANDING_LABEL } from "@/lib/model/finding";
 import type { Exchange } from "./process";
 
 /**
@@ -70,16 +71,16 @@ export function outcomeOf(exchange: Exchange): Outcome | null {
     const findings = count(reply?.findings);
     if (findings === null) return null;
     return findings > 0
-      ? { text: `${findings}건 제기`, tone: "plain" }
-      : { text: "제기 없음", tone: "quiet" };
+      ? { text: `${findings}건 발견`, tone: "plain" }
+      : { text: "발견 없음", tone: "quiet" };
   }
 
   if (exchange.step === "gather") {
     // A tool loop has no schema to read. What it was about is the claim, which
     // the row already carries, so the news is how hard it looked.
     return exchange.calls.length > 0
-      ? { text: `근거 ${exchange.calls.length}건 조회`, tone: "quiet" }
-      : { text: "조회 없이 판단", tone: "quiet" };
+      ? { text: `근거 ${exchange.calls.length}건`, tone: "quiet" }
+      : { text: "조회 없음", tone: "quiet" };
   }
 
   if (exchange.step === "verify") {
@@ -88,9 +89,12 @@ export function outcomeOf(exchange: Exchange): Outcome | null {
     // Refuted means the claim did *not* survive, so it is the quiet outcome and
     // surviving is the loud one. Reading these the wrong way round is the single
     // easiest mistake to make about this pipeline.
+    // The vocabulary is `lib/model/finding.ts`'s, not a second copy: the dock and
+    // this pane showed the same fact in opposite colours because each had coined
+    // its own words for it.
     return reply.refuted
-      ? { text: `반박됨${sure}`, tone: "ok" }
-      : { text: `반박을 견딤${sure}`, tone: "danger" };
+      ? { text: `${REFUTED_LABEL}${sure}`, tone: "quiet" }
+      : { text: `${STANDING_LABEL.confirmed}${sure}`, tone: "plain" };
   }
 
   return null;

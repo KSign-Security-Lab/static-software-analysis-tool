@@ -290,8 +290,8 @@ export function trailOf(unit: Unit, claim: string): Unit {
 export function roleOf(step: string): string {
   if (step === "triage") return "선별";
   if (step === "scout") return "범위 좁히기";
-  if (step.startsWith("lens:")) return `${step.slice(5)} 가 제기`;
-  if (step === "gather") return "근거 모으기";
+  if (step.startsWith("lens:")) return `${step.slice(5)} 분석`;
+  if (step === "gather") return "근거 수집";
   if (step === "verify") return "판정";
   return step;
 }
@@ -312,7 +312,7 @@ export function roleOf(step: string): string {
  */
 export function labelOf(exchange: Pick<Exchange, "step" | "calls">): string {
   if (exchange.step.startsWith("lens:") && exchange.calls.length > 0) {
-    return `${exchange.step.slice(5)} 가 조회`;
+    return `${exchange.step.slice(5)} 조회`;
   }
   return roleOf(exchange.step);
 }
@@ -330,7 +330,10 @@ export function labelOf(exchange: Pick<Exchange, "step" | "calls">): string {
 function merge(turns: Turn[]): Turn[][] {
   const groups = new Map<string, Turn[]>();
   for (const turn of turns) {
-    const key = `${turn.step} ${subjectOf(turn.name, turn.step)}`;
+    // `\0` written as an escape rather than as the byte itself. A raw NUL in the
+    // source makes the whole file binary to every text tool -- grep skips it in
+    // silence, which is a confusing way to be told your search matched nothing.
+    const key = `${turn.step}\u0000${subjectOf(turn.name, turn.step)}`;
     groups.set(key, [...(groups.get(key) ?? []), turn]);
   }
   return [...groups.values()];

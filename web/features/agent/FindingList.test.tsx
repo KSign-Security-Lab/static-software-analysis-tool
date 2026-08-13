@@ -99,18 +99,27 @@ describe("walking the evidence trail", () => {
 });
 
 describe("the grounds", () => {
-  it("lays the claim, the trail and the fix out as three columns", () => {
-    // Three headings, one per column: the dock is as wide as the window and
-    // this was a single narrow column down the left of it.
+  it("keeps the fix out of the columns, where it has room for a patch", () => {
+    // 판단 and 근거 read as prose and sit side by side. The fix holds a patch,
+    // and a patch in a third of the dock scrolled sideways to show a line that
+    // would have fitted whole -- while 근거, two sentences long, reserved another
+    // third and left it empty to the bottom of the tallest column.
     draw({ openId: "f1" });
     for (const heading of ["판단", "근거", "고치는 방법"]) {
       expect(screen.getByRole("heading", { name: heading })).toBeTruthy();
     }
+    const fix = screen.getByRole("heading", { name: "고치는 방법" }).closest("section")!;
+    const claim = screen.getByRole("heading", { name: "판단" }).closest("section")!;
+    expect(fix.parentElement).not.toBe(claim.parentElement);
   });
 
-  it("reports confidence as a measurement rather than a task", () => {
+  it("says the confidence once, on the badge", () => {
+    // It was on a meter as well, three lines under a badge that had just said
+    // `취약 확인 · 95%` -- the same number twice, in two shapes.
     draw({ openId: "f1" });
-    expect(screen.getByRole("meter", { name: "확신도" }).getAttribute("aria-valuenow")).toBe("85");
+
+    expect(screen.getAllByText(/\d+%/)).toHaveLength(1);
+    expect(screen.queryByRole("meter")).toBeNull();
   });
 
   it("says nothing about a fix when there is none to suggest", () => {

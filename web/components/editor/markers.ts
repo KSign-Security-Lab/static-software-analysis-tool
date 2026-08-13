@@ -1,6 +1,6 @@
 import type * as Monaco from "monaco-editor";
 
-import { SEVERITY_LABEL, markerSeverity, type UiFinding } from "@/lib/model/finding";
+import { SEVERITY_LABEL, STANDING_LABEL, markerSeverity, standingOf, type UiFinding } from "@/lib/model/finding";
 
 /**
  * Findings as editor markers.
@@ -29,8 +29,10 @@ export function applyMarkers(
       // The fix on the hover, under the explanation. Monaco shows a marker's
       // message when you hover its squiggle, so this is where a reader already
       // looks -- and the lightbulb beside it is what actually applies it.
+      // The same vocabulary the dock and the run record use. A hover that called
+      // it something else would be a fourth name for one fact.
       message: [
-        `${SEVERITY_LABEL[finding.severity]} · ${finding.title}`,
+        [SEVERITY_LABEL[finding.severity], standingLabel(finding), finding.title].filter(Boolean).join(" · "),
         finding.explanation,
         finding.remediation ? `고치는 방법\n${finding.remediation}` : "",
       ]
@@ -40,6 +42,11 @@ export function applyMarkers(
     }));
 
   monaco.editor.setModelMarkers(model, "ssat", markers);
+}
+
+function standingLabel(finding: UiFinding): string {
+  const standing = standingOf(finding);
+  return standing ? STANDING_LABEL[standing] : "";
 }
 
 /**

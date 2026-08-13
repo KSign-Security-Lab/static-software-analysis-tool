@@ -37,7 +37,7 @@ export default function DockTabs({ tabs }: { tabs: DockTab[] }) {
           pushed the panel's content to the bottom of the dock, under a screen
           of empty space. */}
       <Tabs value={active?.id} onValueChange={setChosen} className="shrink-0 gap-0">
-        <header className="flex h-8 shrink-0 items-center border-b border-line px-1.5">
+        <header className="flex h-9 shrink-0 items-center border-b border-line px-1.5">
           <TabsList variant="line" className="h-full gap-0 bg-transparent p-0">
             {tabs.map((tab) => (
               <TabsTrigger

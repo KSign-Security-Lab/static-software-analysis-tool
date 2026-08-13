@@ -3,7 +3,13 @@
 import { ChevronRight, CirclePause, Loader2, Pencil, Wrench, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
+import { CodeBlock, Meta } from "@/components/panel/code-block";
+import { Disclosure } from "@/components/panel/disclosure";
+import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { PanelShell } from "@/components/workbench/PanelShell";
 import { Progress } from "@/components/ui/progress";
 import type { AgentStep, NodeNote, PromptRow } from "@/lib/api/types";
 import type { RunLive, RunPhase } from "@/lib/run/reduce";
@@ -44,9 +50,6 @@ import type { PaneMode } from "../trace/state";
 
 /** Past this a unit is scrolled through rather than read. */
 const TURN_CAP = 40;
-
-/** Lines of a long block shown before it has to be asked for. */
-const CLAMP_LINES = 6;
 
 const TONE: Record<Outcome["tone"], string> = {
   plain: "text-ink",
@@ -141,12 +144,15 @@ export default function RunPane({
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-surface">
+    // On `PanelShell` like the fourteen other panes in the workbench. This one
+    // grew four stacked strips of its own -- status, modes, scope, tally -- at
+    // three heights, none of them the `h-9` every other header uses, which is
+    // most of why it read as a different application.
+    <PanelShell title="실행" note={<Tally units={shown} />} actions={<Modes mode={mode} onMode={onMode} />}>
       <Status phase={phase} live={live} />
-      <Modes mode={mode} onMode={onMode} />
       <Scope node={node} onClearNode={onClearNode} focus={focus} />
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div>
         {note && <NodeCard note={note} steps={steps} prompts={prompts} />}
 
         {shown.length === 0 ? (
@@ -169,7 +175,6 @@ export default function RunPane({
           </div>
         ) : (
           <>
-            <Tally units={shown} />
             <ul>
               {byFile(shown).map((group) => (
                 <FileRow
@@ -185,7 +190,7 @@ export default function RunPane({
           </>
         )}
       </div>
-    </div>
+    </PanelShell>
   );
 }
 
@@ -248,23 +253,33 @@ const MODES: { id: PaneMode; label: string; hint: string }[] = [
  */
 function Modes({ mode, onMode }: { mode: PaneMode; onMode: (next: PaneMode) => void }) {
   return (
-    <div className="flex shrink-0 gap-0.5 border-b border-line px-2 py-1">
+    <ToggleGroup
+      type="single"
+      size="sm"
+      value={mode}
+      onValueChange={(next) => next && onMode(next as PaneMode)}
+      className="gap-0"
+    >
       {MODES.map((each) => (
-        <button
-          key={each.id}
-          type="button"
-          title={each.hint}
-          aria-pressed={mode === each.id}
-          onClick={() => onMode(each.id)}
-          className={cn(
-            "rounded-sm px-2 py-0.5 text-2xs transition-colors",
-            mode === each.id ? "bg-accent-wash text-accent-ink" : "text-ink-faint hover:text-ink-muted",
-          )}
-        >
-          {each.label}
-        </button>
+        <Tooltip key={each.id}>
+          {/* A span between the two, which is not fussiness. `asChild` onto the
+              item lets the tooltip's `data-state` overwrite the toggle's, so the
+              pressed one cannot say it is pressed; without `asChild` the trigger
+              renders its own button and nests one button inside another, which is
+              invalid HTML and hydrates as a mismatch. */}
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <ToggleGroupItem value={each.id} aria-label={each.label} className="h-6 px-2 text-2xs">
+                {each.label}
+              </ToggleGroupItem>
+            </span>
+          </TooltipTrigger>
+          {/* The hint was a `title` attribute: no keyboard access, no styling, and
+              a delay the browser picks. */}
+          <TooltipContent>{each.hint}</TooltipContent>
+        </Tooltip>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 
@@ -277,18 +292,21 @@ function Modes({ mode, onMode }: { mode: PaneMode; onMode: (next: PaneMode) => v
  * no strip.
  */
 function Tally({ units }: { units: Unit[] }) {
+  if (units.length === 0) return null;
   const calls = units.reduce((sum, unit) => sum + unit.exchanges.length, 0);
   const tokens = units.reduce((sum, unit) => sum + unit.tokens, 0);
-  const tools = units.reduce(
-    (sum, unit) => sum + unit.exchanges.reduce((n, each) => n + each.calls.length, 0),
-    0,
+  const tools = units.reduce((sum, unit) => sum + unit.exchanges.reduce((n, e) => n + e.calls.length, 0), 0);
+
+  return (
+    <Meta
+      parts={[
+        `단위 ${units.length}`,
+        `호출 ${calls}`,
+        tools > 0 && `도구 ${tools}`,
+        tokens > 0 && `${tokens.toLocaleString()} tok`,
+      ]}
+    />
   );
-
-  const bits = [`단위 ${units.length}`, `호출 ${calls}`];
-  if (tools > 0) bits.push(`도구 ${tools}`);
-  if (tokens > 0) bits.push(`${tokens.toLocaleString()} tok`);
-
-  return <p className="border-b border-line px-3 py-1.5 font-mono text-2xs text-ink-faint">{bits.join(" · ")}</p>;
 }
 
 /**
@@ -318,7 +336,7 @@ function Scope({
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line bg-accent-wash px-2 py-1">
-      {node && <Chip label={`${node} 만 보는 중`} onClear={onClearNode} mono />}
+      {node && <Chip label={`${node} 만 보는 중`} onClear={onClearNode} />}
       {narrowed && <Chip label={`‘${narrowed.title}’ 만 보는 중`} onClear={() => narrowed.onScoped(false)} />}
     </div>
   );
@@ -326,7 +344,7 @@ function Scope({
 
 function Chip({ label, onClear, mono }: { label: string; onClear: () => void; mono?: boolean }) {
   return (
-    <span className="flex min-w-0 max-w-full items-center gap-1 rounded-sm bg-surface-2 py-0.5 pr-0.5 pl-1.5 text-2xs text-ink-muted">
+    <Badge variant="secondary" className="max-w-full gap-1 py-0 pr-0.5 pl-1.5 font-normal">
       <span className={cn("min-w-0 truncate", mono && "font-mono")}>{label}</span>
       <button
         type="button"
@@ -336,7 +354,7 @@ function Chip({ label, onClear, mono }: { label: string; onClear: () => void; mo
       >
         <X className="size-3" />
       </button>
-    </span>
+    </Badge>
   );
 }
 
@@ -550,7 +568,7 @@ function StepRow({
             <p className="font-mono text-2xs text-ink-faint">{[exchange.step, subject].filter(Boolean).join(" · ")}</p>
             <Detail exchange={exchange} />
             {exchange.error && <p className="font-mono text-2xs text-danger">{exchange.error}</p>}
-            <Meta exchange={exchange} />
+            <StepMeta exchange={exchange} />
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <Sent exchange={exchange} />
               {/* Sized to its neighbour, not to itself. At the button's own scale
@@ -612,7 +630,7 @@ function Reply({ text }: { text: string | null }) {
 
   if (answer.kind === "empty") return <p className="font-mono text-2xs text-ink-faint">(no reply)</p>;
   if (answer.kind === "blank") return <p className="font-mono text-2xs text-ink-muted">{answer.text}</p>;
-  if (answer.kind === "text") return <Clamp text={answer.text} />;
+  if (answer.kind === "text") return <CodeBlock text={answer.text} mono={false} />;
 
   return (
     <dl className="space-y-1.5">
@@ -632,7 +650,7 @@ function Reply({ text }: { text: string | null }) {
                 <span className="whitespace-pre-wrap">{field.value}</span>
               ) : (
                 <Fold label={field.nested?.summary ?? ""}>
-                  <Clamp text={field.nested?.json ?? ""} mono />
+                  <CodeBlock text={field.nested?.json ?? ""} />
                 </Fold>
               )}
             </dd>
@@ -676,34 +694,34 @@ function ToolCall({ call }: { call: ToolRun }) {
                 <span className="text-ink-faint">{whereOf(found)}</span>
                 {found.kind && <span className="text-ink-faint">{found.kind}</span>}
               </p>
-              {found.body && <Clamp text={found.body} mono />}
+              {found.body && <CodeBlock text={found.body} />}
             </li>
           ))}
         </ul>
       ) : (
-        <Clamp text={result.text} mono />
+        <CodeBlock text={result.text} />
       )}
     </div>
   );
 }
 
 /** Where this step went, and what it spent. One line of numbers. */
-function Meta({ exchange }: { exchange: Exchange }) {
-  const bits: string[] = [];
-  if (exchange.attempts > 1) bits.push(`${exchange.attempts} calls`);
-  if (exchange.retried > 0) bits.push(`${exchange.retried} retried`);
-  if (exchange.tokens) bits.push(`${exchange.tokens.toLocaleString()} tok`);
-  const time = seconds(exchange.latency_ms);
-  if (time) bits.push(time);
-  if (exchange.offered.length > 0) bits.push(`도구 ${exchange.calls.length}/${exchange.offered.length}`);
-
-  if (bits.length === 0 && exchange.to.length === 0) return null;
-
+function StepMeta({ exchange }: { exchange: Exchange }) {
   return (
-    <p className="flex flex-wrap items-baseline gap-x-2 font-mono text-2xs text-ink-faint">
-      {exchange.to.length > 0 && <span className="text-alt">→ {exchange.to.join(", ")}</span>}
-      {bits.join(" · ")}
-    </p>
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      {exchange.to.length > 0 && (
+        <span className="font-mono text-2xs text-alt">→ {exchange.to.join(", ")}</span>
+      )}
+      <Meta
+        parts={[
+          exchange.attempts > 1 && `${exchange.attempts} calls`,
+          exchange.retried > 0 && `${exchange.retried} retried`,
+          exchange.tokens ? `${exchange.tokens.toLocaleString()} tok` : null,
+          seconds(exchange.latency_ms),
+          exchange.offered.length > 0 && `도구 ${exchange.calls.length}/${exchange.offered.length}`,
+        ]}
+      />
+    </div>
   );
 }
 
@@ -720,45 +738,15 @@ function Sent({ exchange }: { exchange: Exchange }) {
   return (
     <Fold label={`받은 지시 · ${size} chars`}>
       <div className="mt-1 space-y-1.5 rounded-sm bg-field p-2">
-        <Clamp text={exchange.user} mono />
+        <CodeBlock text={exchange.user} />
         {exchange.system && (
           <div className="border-t border-line pt-1.5">
             <p className="mb-1 font-mono text-2xs text-ink-faint">지시문</p>
-            <Clamp text={exchange.system} mono />
+            <CodeBlock text={exchange.system} />
           </div>
         )}
       </div>
     </Fold>
-  );
-}
-
-/** A block long enough to bury what comes after it. Clamped, not hidden. */
-function Clamp({ text, mono }: { text: string; mono?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const lines = text.split("\n");
-  const long = lines.length > CLAMP_LINES || text.length > 400;
-  const shown = open || !long ? text : lines.slice(0, CLAMP_LINES).join("\n").slice(0, 400);
-
-  return (
-    <div className="space-y-0.5">
-      <pre
-        className={cn(
-          "overflow-x-auto text-xs leading-relaxed whitespace-pre-wrap",
-          mono ? "font-mono text-2xs text-ink-muted" : "font-sans text-ink",
-        )}
-      >
-        {shown || "(empty)"}
-      </pre>
-      {long && (
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          className="font-mono text-2xs text-ink-faint hover:text-ink-muted"
-        >
-          {open ? "접기" : `더 보기 · ${text.length.toLocaleString()} chars`}
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -771,16 +759,9 @@ function argsOf(args: Record<string, unknown>): string {
 /** A disclosure, for the things that are genuinely asides. */
 function Fold({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <Collapsible>
-      <CollapsibleTrigger className="group/fold flex items-center gap-0.5 font-mono text-2xs text-ink-faint hover:text-ink-muted">
-        <ChevronRight
-          className="size-3 shrink-0 transition-transform group-data-[state=open]/fold:rotate-90"
-          aria-hidden
-        />
-        {label}
-      </CollapsibleTrigger>
-      <CollapsibleContent>{children}</CollapsibleContent>
-    </Collapsible>
+    <Disclosure label={label} tone="aside">
+      {children}
+    </Disclosure>
   );
 }
 
@@ -853,7 +834,7 @@ function NodeCard({ note, steps, prompts }: { note: NodeNote; steps: AgentStep[]
           ).length.toLocaleString()} chars`}
         >
           <div className="mt-1 rounded-sm bg-field p-2">
-            <Clamp text={brief.row.override ?? brief.row.default} mono />
+            <CodeBlock text={brief.row.override ?? brief.row.default} />
           </div>
         </Fold>
       ))}

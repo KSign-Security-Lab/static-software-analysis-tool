@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentStep, Thread } from "@/lib/api/types";
 import { IDLE } from "@/lib/run/reduce";
 import { unitsOf } from "@/lib/trace/process";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import RunPane from "./RunPane";
 
 /**
@@ -146,12 +147,22 @@ function setup(over: Partial<Parameters<typeof RunPane>[0]> = {}) {
     onTunePrompt,
     ...over,
   };
-  const view = render(<RunPane {...props} />);
+  // The app mounts one in `app/providers.tsx`; the harness has to as well or
+  // the mode switcher throws rather than rendering.
+  const view = render(
+    <TooltipProvider>
+      <RunPane {...props} />
+    </TooltipProvider>,
+  );
   // Re-rendering rather than re-mounting: mounting fresh per mode is the case
   // that always worked, and the one that did not is a mode changing under a tree
   // that is already on screen.
   const rerender = (mode: Parameters<typeof RunPane>[0]["mode"]) =>
-    view.rerender(<RunPane {...props} mode={mode} />);
+    view.rerender(
+      <TooltipProvider>
+        <RunPane {...props} mode={mode} />
+      </TooltipProvider>,
+    );
   return { onTunePrompt, rerender };
 }
 
@@ -241,7 +252,7 @@ describe("RunPane", () => {
   it("names a step in the reader's language", () => {
     setup();
     expect(screen.getByText("선별")).toBeTruthy();
-    expect(screen.getByText("근거 모으기")).toBeTruthy();
+    expect(screen.getByText("근거 수집")).toBeTruthy();
   });
 
   it("says what became of a unit on its own row", () => {
@@ -250,7 +261,7 @@ describe("RunPane", () => {
     // indistinguishable walls of prompt text. Twice on screen here because the
     // unit is open and its last step says the same thing -- which is the point,
     // not a clash: the row is that step's summary standing in for it.
-    expect(screen.getAllByText("근거 2건 조회").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("근거 2건").length).toBeGreaterThan(0);
   });
 
   it("opens as the record, because that is the pane's first job", () => {
@@ -286,7 +297,7 @@ describe("RunPane", () => {
     // is a handful of rows scattered through the whole run.
     setup({ mode: "tools" });
 
-    expect(screen.getByText("근거 모으기")).toBeTruthy();
+    expect(screen.getByText("근거 수집")).toBeTruthy();
     expect(screen.queryByText("선별")).toBeNull();
     expect(screen.getByText(/symbol="pick_target"/)).toBeTruthy();
   });
@@ -297,9 +308,11 @@ describe("RunPane", () => {
   });
 
   it("offers the three readings, and marks the one in use", () => {
+    // A shadcn `ToggleGroup` rather than three hand-rolled buttons, so the
+    // pressed state is `data-state` and the keyboard behaviour comes with it.
     setup({ mode: "map" });
-    expect(screen.getByRole("button", { name: "요약" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("button", { name: "기록" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("radio", { name: "요약" }).getAttribute("data-state")).toBe("on");
+    expect(screen.getByRole("radio", { name: "기록" }).getAttribute("data-state")).toBe("off");
   });
 
   it("shows the finding it is narrowed to as a chip beside any other scope", async () => {

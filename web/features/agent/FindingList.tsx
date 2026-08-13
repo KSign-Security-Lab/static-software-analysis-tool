@@ -3,10 +3,20 @@
 import { ChevronRight, ShieldCheck, Wrench } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Patch } from "@/components/panel/patch";
+import { Verdict } from "@/components/panel/verdict";
 import { Button } from "@/components/ui/button";
 import { neighbours } from "@/lib/api/knowledge";
 import type { KnowledgeGraph } from "@/lib/api/types";
-import { ROLE_LABEL, ROLE_TONE, SEVERITY_DOT, SEVERITY_LABEL, sortFindings, type UiFinding } from "@/lib/model/finding";
+import {
+  ROLE_LABEL,
+  ROLE_TONE,
+  SEVERITY_DOT,
+  SEVERITY_LABEL,
+  sortFindings,
+  standingOf,
+  type UiFinding,
+} from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
 /**
@@ -128,7 +138,7 @@ export default function FindingList({
                   <span className="font-mono">
                     {finding.primary.file}:{finding.primary.startLine}
                   </span>
-                  {finding.verified && <span className="text-ok">반박을 견딤</span>}
+                  <VerdictOf finding={finding} />
                   {compare &&
                     (compare.fresh.has(finding.id) ? (
                       <span className="text-accent-ink">새로</span>
@@ -166,6 +176,12 @@ export default function FindingList({
  * them being gone. Listed rather than counted because "3 closed" is worth
  * nothing if you cannot check which three.
  */
+/** Nothing at all for an engine that has no verification step. */
+function VerdictOf({ finding }: { finding: UiFinding }) {
+  const standing = standingOf(finding);
+  return standing ? <Verdict standing={standing} confidence={finding.confidence ?? undefined} /> : null;
+}
+
 function Fixed({ findings }: { findings: UiFinding[] }) {
   const [open, setOpen] = useState(false);
 
@@ -250,7 +266,6 @@ function Grounds({
   proposing?: boolean;
   applying?: boolean;
 }) {
-  const confidence = Math.round(finding.confidence * 100);
   // The callers and callees of the unit this sits in. Computed here because the
   // whole graph is already in the cache -- the server can do it and does not
   // expose it, and a walk beats a round trip per opened finding.
@@ -259,30 +274,19 @@ function Grounds({
   const hasTrail = finding.evidence.length > 0;
   const hasFix = Boolean(finding.remediation) || related.length > 0;
   const patch = finding.diff;
-  const columns = (1 + (hasTrail ? 1 : 0) + (hasFix ? 1 : 0)) as keyof typeof COLUMNS;
+  // The fix is no longer one of the columns. It holds a patch, and a patch in a
+  // third of the dock scrolled sideways to show a line that would have fitted
+  // whole -- while 근거, two sentences long, reserved another third and left it
+  // empty down to the bottom of the tallest column.
+  const columns = (1 + (hasTrail ? 1 : 0)) as keyof typeof COLUMNS;
 
   return (
-    <div className="@container px-3 pb-3 pl-8">
+    <div className="@container space-y-4 px-3 pb-3 pl-8">
       <div className={cn("grid items-start gap-x-6 gap-y-4", COLUMNS[columns])}>
         <section className="min-w-0 space-y-2">
           <h4 className="text-2xs text-ink-muted">판단</h4>
           <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.explanation}</p>
 
-          <div className="flex items-center gap-2">
-            <span className="text-2xs text-ink-faint">확신도</span>
-            {/* A meter, not a progress bar: it is a measurement, not a task. */}
-            <div
-              role="meter"
-              aria-valuenow={confidence}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label="확신도"
-              className="h-1 w-24 overflow-hidden rounded-full bg-surface-3"
-            >
-              <div className="h-full rounded-full bg-accent-solid" style={{ width: `${confidence}%` }} />
-            </div>
-            <span className="font-mono text-2xs text-ink-faint">{confidence}%</span>
-          </div>
         </section>
 
         {hasTrail && (
@@ -315,59 +319,45 @@ function Grounds({
           </section>
         )}
 
-        {hasFix && (
-          <section className="min-w-0 space-y-3">
-            {finding.remediation && (
-              <div className="space-y-1">
-                <h4 className="text-2xs text-ink-muted">고치는 방법</h4>
-                <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.remediation}</p>
-              </div>
-            )}
+      </div>
 
-            {patch && (
-              <div className="space-y-1">
-                {/* The patch before the button, always. This writes to the
-                    reader's source; offering to do that without showing what
-                    would change is asking for a decision nobody can make. */}
-                <pre className="max-h-40 overflow-auto rounded-sm bg-field p-2 font-mono text-2xs leading-relaxed">
-                  {patch.split("\n").map((line, index) => (
-                    <span
-                      key={index}
-                      className={cn(
-                        "block",
-                        line.startsWith("+") && !line.startsWith("+++") && "text-ok",
-                        line.startsWith("-") && !line.startsWith("---") && "text-danger",
-                        line.startsWith("@@") && "text-ink-faint",
-                      )}
-                    >
-                      {line}
-                    </span>
-                  ))}
-                </pre>
-                {onApply && (
-                  <Button size="xs" variant="outline" disabled={applying} onClick={() => onApply(finding)}>
-                    <Wrench />
-                    {applying ? "적용하는 중…" : "이대로 고치기"}
-                  </Button>
-                )}
-              </div>
-            )}
+      {hasFix && (
+        <section className="min-w-0 space-y-3 border-t border-line pt-3">
+          {finding.remediation && (
+            <div className="space-y-1">
+              <h4 className="text-2xs text-ink-muted">고치는 방법</h4>
+              <p className="max-w-prose text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">
+                {finding.remediation}
+              </p>
+            </div>
+          )}
 
-            {/* A finding whose fix did not fit the lines it is anchored to
-                arrives with a paragraph and nothing to press. Telling somebody
-                how to fix their code is not fixing it, so the code becomes
-                something they can ask for -- and it lands in the block above,
-                as a diff, because this ends in a write to their source. */}
-            {!patch && onPropose && (
-              <div className="space-y-1">
-                <Button size="xs" variant="outline" disabled={proposing} onClick={() => onPropose(finding)}>
+          {patch && (
+            <div className="space-y-2">
+              {/* The patch before the button, always. This writes to the reader's
+                  source; offering to do that without showing what would change is
+                  asking for a decision nobody can make. */}
+              <Patch diff={patch} className="max-h-56" />
+              {onApply && (
+                <Button size="xs" variant="outline" disabled={applying} onClick={() => onApply(finding)}>
                   <Wrench />
-                  {proposing ? "만드는 중…" : "고칠 코드 만들기"}
+                  {applying ? "적용하는 중…" : "이대로 고치기"}
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
+          )}
 
-            {related.length > 0 && (
+          {/* A finding whose fix did not fit the lines it is anchored to arrives
+              with a paragraph and nothing to press. Telling somebody how to fix
+              their code is not fixing it. */}
+          {!patch && onPropose && (
+            <Button size="xs" variant="outline" disabled={proposing} onClick={() => onPropose(finding)}>
+              <Wrench />
+              {proposing ? "만드는 중…" : "고칠 코드 만들기"}
+            </Button>
+          )}
+
+          {related.length > 0 && (
               <div className="space-y-1">
                 <h4 className="text-2xs text-ink-muted">관련 코드</h4>
                 <ul className="flex flex-wrap gap-1">
@@ -387,10 +377,9 @@ function Grounds({
                   ))}
                 </ul>
               </div>
-            )}
-          </section>
-        )}
-      </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
