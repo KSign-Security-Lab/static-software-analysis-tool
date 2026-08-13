@@ -421,7 +421,12 @@ function FileRow({
           <span className="min-w-0 truncate font-mono text-xs font-semibold text-ink-strong">{group.file}</span>
           <span className="shrink-0 text-2xs text-ink-faint">단위 {group.units.length}</span>
           <span className="ml-auto flex shrink-0 items-baseline gap-2">
-            {outcome && <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>}
+            {/* Only while shut. A row's outcome is a stand-in for what is inside
+                it, and open, the thing it stands in for is directly underneath --
+                which is how `분석 안 함` came to be on screen five times. */}
+            {outcome && !open.has(fileId(group.file)) && (
+              <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>
+            )}
             {tokens > 0 && <span className="font-mono text-2xs text-ink-faint">{tokens.toLocaleString()}</span>}
           </span>
         </CollapsibleTrigger>
@@ -490,7 +495,9 @@ function UnitRow({
         </span>
         {file && <span className="min-w-0 shrink truncate font-mono text-2xs text-ink-faint">{file}</span>}
         <span className="ml-auto flex shrink-0 items-baseline gap-2">
-          {outcome && <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>}
+          {outcome && !open.has(unitId(unit.id)) && (
+            <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>
+          )}
           {unit.tokens > 0 && (
             <span className="font-mono text-2xs text-ink-faint">{unit.tokens.toLocaleString()}</span>
           )}

@@ -107,6 +107,10 @@ export default function FindingList({
             ref={open ? openRow : undefined}
             className="border-b border-line/60 last:border-b-0"
           >
+            {/* Sticky while it is open. The dock is about four hundred pixels
+                tall and an opened finding's grounds are taller than that, so
+                scrolling to read the fix took the claim it was a fix for off
+                the top of the pane. */}
             <button
               type="button"
               aria-expanded={open}
@@ -117,7 +121,7 @@ export default function FindingList({
               }}
               className={cn(
                 "flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2",
-                open && "bg-surface-2",
+                open && "sticky top-0 z-10 bg-surface-2",
               )}
             >
               <ChevronRight

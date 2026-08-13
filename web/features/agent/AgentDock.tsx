@@ -15,6 +15,7 @@ import { useRunStream } from "@/lib/run/stream";
 import { useSpans } from "@/lib/run/trace-queries";
 import { useOpenFile, useRevealLine, useSelectedFinding } from "@/lib/run/selection";
 import { useRunId } from "@/lib/run/use-run-id";
+import { cn } from "@/lib/utils";
 import type { RunSummary as RunRecord } from "@/lib/api/types";
 import FindingList from "./FindingList";
 import RunSummary, { coverageOf } from "./RunSummary";
@@ -141,7 +142,18 @@ export default function AgentDock() {
                 value={against ?? NO_COMPARISON}
                 onValueChange={(next) => setAgainst(next === NO_COMPARISON ? null : next)}
               >
-                <SelectTrigger size="sm" className="h-7 max-w-52 gap-1 text-2xs" aria-label="비교할 실행">
+                {/* Quiet until it is doing something. Comparing runs is the
+                    rarest thing on this strip and it was the heaviest -- a
+                    bordered control beside a ghost button and a count, drawing
+                    the eye first on a pane whose subject is the list below. */}
+                <SelectTrigger
+                  size="sm"
+                  className={cn(
+                    "h-7 max-w-52 gap-1 text-2xs",
+                    !against && "border-transparent bg-transparent text-ink-faint hover:text-ink-muted",
+                  )}
+                  aria-label="비교할 실행"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">
