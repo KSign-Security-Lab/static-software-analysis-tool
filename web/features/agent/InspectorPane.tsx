@@ -10,7 +10,7 @@ import { useGraphShape, usePrompts, useSpans, useThreads } from "@/lib/run/trace
 import { useRunId } from "@/lib/run/use-run-id";
 import { claimOf, trailOf, unitsOf } from "@/lib/trace/process";
 import { useScopedNode, useSelectedSpan } from "../trace/state";
-import ChatPane from "./ChatPane";
+import RunPane from "./RunPane";
 import PromptSheet from "./PromptSheet";
 
 /**
@@ -93,7 +93,7 @@ export default function InspectorPane() {
 
   return (
     <>
-      <ChatPane
+      <RunPane
         units={units}
         steps={steps}
         // The standing brief behind a node, which is most of what a node *is*. The

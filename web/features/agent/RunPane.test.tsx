@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentStep, Thread } from "@/lib/api/types";
 import { IDLE } from "@/lib/run/reduce";
 import { unitsOf } from "@/lib/trace/process";
-import ChatPane from "./ChatPane";
+import RunPane from "./RunPane";
 
 /**
  * The run read as a conversation.
@@ -110,7 +110,7 @@ const THREADS: Thread[] = [
           {
             name: "find_definition",
             inputs: { symbol: "pick_target" },
-            outputs: [{ type: "text", text: "static char *pick_target(const char *raw)", id: "lc_1" }],
+            outputs: [{ type: "text", text: "[\n  {\n    \"chunk_id\": \"9a4f\",\n    \"file\": \"net.c\",\n    \"symbol\": \"pick_target\",\n    \"kind\": \"function\",\n    \"start_line\": 2,\n    \"end_line\": 6,\n    \"body\": \"static char *pick_target(const char *raw) {\\n    return strdup(raw);\\n}\"\n  }\n]", id: "lc_1" }],
             error: null,
             latency_ms: 432,
           },
@@ -130,10 +130,10 @@ const THREADS: Thread[] = [
   },
 ];
 
-function setup(over: Partial<Parameters<typeof ChatPane>[0]> = {}) {
+function setup(over: Partial<Parameters<typeof RunPane>[0]> = {}) {
   const onTunePrompt = vi.fn();
   render(
-    <ChatPane
+    <RunPane
       units={unitsOf(THREADS, STEPS)}
       steps={STEPS}
       prompts={[]}
@@ -148,99 +148,109 @@ function setup(over: Partial<Parameters<typeof ChatPane>[0]> = {}) {
   return { onTunePrompt };
 }
 
-describe("ChatPane", () => {
-  it("leads a step with what it concluded, not with what it was asked", async () => {
-    // The point of the rewrite. A step's brief is a template -- the same standing
-    // instructions and the same framing on every unit, around code that is open
-    // two panes to the left -- and rendering it first and four times taller than
-    // the answer put the emphasis exactly backwards.
+describe("RunPane", () => {
+  /** Open a unit's step by the name on its closed row. */
+  async function openStep(name: string) {
+    await userEvent.click(screen.getByRole("button", { name: new RegExp(name) }));
+  }
+
+  it("says what a step decided without being opened", () => {
+    // The whole bet of the rewrite: a row is worth not opening. The schema's own
+    // keys cannot do that -- `worth_analysing` names a field, not an outcome --
+    // so this is the one place the agent's vocabulary becomes the product's.
     setup();
+    expect(screen.getByText("분석 대상 · memory, injection")).toBeTruthy();
+    // And the detail is not on screen until asked for.
+    expect(screen.queryByText("worth_analysing")).toBeNull();
+  });
+
+  it("opens a step to the reply in full, under the id the agent files it by", async () => {
+    setup();
+    await openStep("선별");
 
     expect(screen.getByText("worth_analysing")).toBeTruthy();
     expect(screen.getByText(/sprintf 와 system 을 씁니다/)).toBeTruthy();
-
-    // Folded, and the fold says how much is behind it.
-    expect(screen.queryByText(/=== UNIT UNDER ANALYSIS: net\.c :: ping_host/)).toBeNull();
-    const brief = screen.getAllByRole("button", { name: /받은 지시 · [\d,]+ chars/ })[0];
-    await userEvent.click(brief);
-    expect(screen.getByText(/=== UNIT UNDER ANALYSIS: net\.c :: ping_host/)).toBeTruthy();
+    // `triage` is what the prompt is filed under and what a breakpoint is set on.
+    expect(screen.getByText(/^triage/)).toBeTruthy();
   });
 
-  it("names a step in the reader's language and keeps the agent's own id beside it", () => {
-    // `선별` is what it is doing; `triage` is what the prompt is filed under and
-    // what a breakpoint is set on. Both, because both are load-bearing.
+  it("keeps the brief a further step in, because it is a template", async () => {
+    // The same standing instructions on every unit, wrapped around code that is
+    // open two panes to the left.
+    setup();
+    await openStep("선별");
+    expect(screen.queryByText(/=== UNIT UNDER ANALYSIS/)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /받은 지시 · [\d,]+ chars/ }));
+    expect(screen.getByText(/=== UNIT UNDER ANALYSIS/)).toBeTruthy();
+    expect(screen.getByText(/값싼 첫 통과입니다/)).toBeTruthy();
+  });
+
+  it("names a step in the reader's language", () => {
     setup();
     expect(screen.getByText("선별")).toBeTruthy();
     expect(screen.getByText("근거 모으기")).toBeTruthy();
-    expect(screen.getByText("triage")).toBeTruthy();
   });
 
-  it("says what became of the unit, in its header", () => {
-    // So a run can be scanned. Four units were four indistinguishable walls of
-    // prompt text, and which was screened out in one call and which went the
-    // whole way was something you found out by reading all of both.
+  it("says what became of a unit on its own row", () => {
     setup();
-    expect(screen.getByText("선별 → 근거 모으기")).toBeTruthy();
+    // The last thing that happened to it. Four units used to be four
+    // indistinguishable walls of prompt text. Twice on screen here because the
+    // unit is open and its last step says the same thing -- which is the point,
+    // not a clash: the row is that step's summary standing in for it.
+    expect(screen.getAllByText("근거 2건 조회").length).toBeGreaterThan(0);
+  });
+
+  it("collapses the units when there is a choice, and opens the one when there is not", () => {
+    // One unit is not a menu, so it skips the choosing step.
+    setup();
+    expect(screen.getByText("선별")).toBeTruthy();
+
+    cleanup();
+    setup({ units: unitsOf([THREADS[0], { ...THREADS[0], id: "other", symbol: "send_it" }], STEPS) });
+    expect(screen.queryByText("선별")).toBeNull();
+    expect(screen.getByText("ping_host")).toBeTruthy();
+    expect(screen.getByText("send_it")).toBeTruthy();
+    // And a strip over them, so the run has a size before anything is opened.
+    expect(screen.getByText(/단위 2 · 호출 4/)).toBeTruthy();
+  });
+
+  it("opens everything down to the steps when scoped to one finding", () => {
+    // The finding view is this view, filtered -- not a second design.
+    setup({ focus: { title: "버퍼 오버플로우", scoped: true, onScoped: vi.fn() } });
+    expect(screen.getByText("‘버퍼 오버플로우’ 을 찾아낸 과정")).toBeTruthy();
+    expect(screen.getByText("선별")).toBeTruthy();
   });
 
   it("does not print the unit's name twice when the file is the name", () => {
-    // A file chunk's symbol *is* its filename, and `main.c main.c` was the header
-    // on every one of them.
     setup({ units: unitsOf([{ ...THREADS[0], symbol: "net.c", file: "net.c" }], STEPS) });
     expect(screen.getAllByText("net.c")).toHaveLength(1);
   });
 
-  it("shows where a step handed on to", () => {
-    // triage names the specialists in its own reply.
+  it("shows where a step handed on to, and what it spent", async () => {
     setup();
+    await openStep("선별");
     expect(screen.getByText("→ lens:memory, lens:injection")).toBeTruthy();
   });
 
-  it("plays a tool loop back as the exchange it was", () => {
-    // What the model said, then what it asked the tool, then what the tool
-    // answered -- in that order. Flattened it read as a tally of three calls.
+  it("plays a tool loop back as the exchange it was", async () => {
     setup();
+    await openStep("근거 모으기");
 
     expect(screen.getByText(/argv 에서 그대로 옵니다/)).toBeTruthy();
     expect(screen.getByText(/symbol="pick_target"/)).toBeTruthy();
-    // The answer stays on screen: it is the evidence, not an aside.
-    expect(screen.getByText("static char *pick_target(const char *raw)")).toBeTruthy();
-  });
-
-  it("clamps a long block rather than hiding it", async () => {
-    // Nothing is long enough to clamp until a brief is opened, which is itself the
-    // result worth having: a step's own answer fits.
-    setup();
-    expect(screen.queryAllByRole("button", { name: /더 보기 · [\d,]+ chars/ })).toHaveLength(0);
-
-    await userEvent.click(screen.getAllByRole("button", { name: /받은 지시 · [\d,]+ chars/ })[0]);
-    const more = screen.getAllByRole("button", { name: /더 보기 · [\d,]+ chars/ });
-    expect(more.length).toBeGreaterThan(0);
-
-    await userEvent.click(more[0]);
-    expect(screen.getByRole("button", { name: "접기" })).toBeTruthy();
-  });
-
-  it("keeps the standing instructions with the brief rather than in the record", async () => {
-    // Identical for every unit this agent reads, and on the node card in full. One
-    // disclosure, not a fold nested inside a message.
-    setup();
-    expect(screen.queryByText(/값싼 첫 통과입니다/)).toBeNull();
-    await userEvent.click(screen.getAllByRole("button", { name: /받은 지시 · [\d,]+ chars/ })[0]);
-    expect(screen.getByText(/값싼 첫 통과입니다/)).toBeTruthy();
-  });
-
-  it("counts the tools a step held against the ones it called", () => {
-    // The half no record of the run can supply: a tool offered and never called
-    // leaves no span behind. One line of numbers now rather than a disclosure --
-    // the roster itself is on the node card.
-    setup();
     expect(screen.getByText(/도구 2\/3/)).toBeTruthy();
   });
 
-  it("says nothing about tools for a step that has none", () => {
-    setup();
-    expect(screen.queryAllByText(/도구 \d+\/\d+/)).toHaveLength(1);
+  it("renders a tool's answer as the facts it is, not as its JSON", async () => {
+    // `find_definition` replies with 295 characters of indented JSON headed by a
+    // chunk_id, to say a symbol is at a place and here is its body.
+    setup({ units: unitsOf([{ ...THREADS[0], turns: [THREADS[0].turns[1]] }], STEPS) });
+    await openStep("근거 모으기");
+
+    expect(screen.getByText("pick_target")).toBeTruthy();
+    expect(screen.getByText("net.c:2-6")).toBeTruthy();
+    expect(screen.queryByText(/chunk_id/)).toBeNull();
   });
 
   it("keeps the prompt editor out of the way until a turn is hovered", () => {

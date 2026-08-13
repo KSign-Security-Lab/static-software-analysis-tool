@@ -1,0 +1,106 @@
+import type { Exchange } from "./process";
+
+/**
+ * What a step decided, in one line.
+ *
+ * The pane shows a run as rows now, and a row has to be worth not opening. The
+ * field names alone are not: `worth_analysing`, `refuted`, `confidence` are the
+ * schema's own identifiers, correct in the record and useless as a summary --
+ * and `refuted: true` is a double negative that means *there is no problem*,
+ * which is exactly backwards from how it reads at a glance.
+ *
+ * So this is the one place the agent's vocabulary is turned into the product's.
+ * `반박을 견딤` and `반박됨` are the words the finding list already uses, not new
+ * ones invented here; the schema keys are still shown in full when a step is
+ * open, because the record is the record.
+ *
+ * Every rule fails soft. A reply that will not parse, a field that is missing, a
+ * schema that has changed shape: all of them return null and the row shows its
+ * name alone. A wrong summary is worse than none.
+ */
+export interface Outcome {
+  text: string;
+  /** How it should read at a glance. `danger` means a claim survived. */
+  tone: "plain" | "quiet" | "ok" | "danger";
+}
+
+function parsed(reply: string | null): Record<string, unknown> | null {
+  const text = reply?.trim();
+  if (!text?.startsWith("{")) return null;
+  try {
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function count(value: unknown): number | null {
+  return Array.isArray(value) ? value.length : null;
+}
+
+function names(value: unknown): string {
+  return Array.isArray(value) ? value.filter((each) => typeof each === "string").join(", ") : "";
+}
+
+export function outcomeOf(exchange: Exchange): Outcome | null {
+  // A specialist's lookup pass answers in prose, not a schema: what it did is
+  // what it looked up.
+  if (exchange.step.startsWith("lens:") && exchange.calls.length > 0) {
+    return { text: `도구 ${exchange.calls.length}개`, tone: "quiet" };
+  }
+
+  const reply = parsed(exchange.reply);
+
+  if (exchange.step === "triage") {
+    if (!reply || typeof reply.worth_analysing !== "boolean") return null;
+    if (!reply.worth_analysing) return { text: "분석 안 함", tone: "quiet" };
+    const lenses = names(reply.lenses);
+    return { text: lenses ? `분석 대상 · ${lenses}` : "분석 대상", tone: "plain" };
+  }
+
+  if (exchange.step === "scout") {
+    const regions = count(reply?.regions);
+    return regions === null ? null : { text: `구간 ${regions}개`, tone: "quiet" };
+  }
+
+  if (exchange.step.startsWith("lens:")) {
+    const findings = count(reply?.findings);
+    if (findings === null) return null;
+    return findings > 0
+      ? { text: `${findings}건 제기`, tone: "plain" }
+      : { text: "제기 없음", tone: "quiet" };
+  }
+
+  if (exchange.step === "gather") {
+    // A tool loop has no schema to read. What it was about is the claim, which
+    // the row already carries, so the news is how hard it looked.
+    return exchange.calls.length > 0
+      ? { text: `근거 ${exchange.calls.length}건 조회`, tone: "quiet" }
+      : { text: "조회 없이 판단", tone: "quiet" };
+  }
+
+  if (exchange.step === "verify") {
+    if (!reply || typeof reply.refuted !== "boolean") return null;
+    const sure = typeof reply.confidence === "number" ? ` · ${Math.round(reply.confidence * 100)}%` : "";
+    // Refuted means the claim did *not* survive, so it is the quiet outcome and
+    // surviving is the loud one. Reading these the wrong way round is the single
+    // easiest mistake to make about this pipeline.
+    return reply.refuted
+      ? { text: `반박됨${sure}`, tone: "ok" }
+      : { text: `반박을 견딤${sure}`, tone: "danger" };
+  }
+
+  return null;
+}
+
+/** How a unit ended: the last thing that happened to it, for its collapsed row. */
+export function unitOutcome(exchanges: Exchange[]): Outcome | null {
+  for (let at = exchanges.length - 1; at >= 0; at -= 1) {
+    const outcome = outcomeOf(exchanges[at]);
+    if (outcome) return outcome;
+  }
+  return null;
+}

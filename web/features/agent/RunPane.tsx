@@ -6,41 +6,40 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
-import { isTruncated } from "@/lib/api/types";
 import type { AgentStep, NodeNote, PromptRow } from "@/lib/api/types";
 import type { RunLive, RunPhase } from "@/lib/run/reduce";
+import { type Outcome, outcomeOf, unitOutcome } from "@/lib/trace/outcome";
 import { type Exchange, type ToolRun, type Unit, labelOf, seconds } from "@/lib/trace/process";
 import { parseReply } from "@/lib/trace/reply";
+import { toolResult, whereOf } from "@/lib/trace/tool-result";
 import { cn } from "@/lib/utils";
 
 /**
- * The run, as the record of a pipeline.
+ * The run.
  *
- * This was drawn as a chat: senders, bubbles, sent on the right and said on the
- * left. The metaphor was wrong and the pane was hard to read because of it.
+ * Rewritten twice. It was a chat -- senders, bubbles, sent on the right and said
+ * on the left -- which spent a 368px pane on a spatial grammar answering questions
+ * nobody had, since every prompt is from the orchestrator and the alternation is a
+ * pipeline drawn on a canvas one pane over. Replacing the bubbles with a rail fixed
+ * the alignment and left the real problem untouched: it was still one scroll of
+ * everything, and a run is 4 units × 5 steps × (a schema reply, a tool loop, a
+ * 2,000-character brief). Nothing could be seen without reading all of it.
  *
- * A chat's spatial grammar buys you two things -- who spoke, and turn-taking --
- * and neither is in question here. Every prompt is from the orchestrator and every
- * reply is from the step named beside it; the alternation is the pipeline, which is
- * fixed and known. What it cost was everything else: right-aligned senders and
- * 92%-width bubbles alternating sides meant nothing shared a left edge, in a pane
- * 368 pixels wide, and one step came to 4 stacked blocks -- sender, prompt bubble,
- * answer bubble, footnote -- with 14 steps in a run and no spine to hang them on.
+ * Three levels now, each one line until asked:
  *
- * Worse, it put the emphasis exactly backwards. A step's prompt is a *template*:
- * `이것은 보안 전문가의 시간을 들일 만합니까?` is identical on all four units, and
- * the code inside it is already open two panes to the left, wrapped here to a width
- * that breaks its own line-number gutter. It was rendered first, and four times
- * taller than the answer, which is the one part of a step that is news.
+ *   run    -- what it did, in a strip
+ *   unit   -- one row: name, what became of it, cost
+ *   step   -- one row: what it is, what it decided
+ *   detail -- the reply in full, what it ran, what it was asked
  *
- * So: one step, one row, on a rail. The answer leads. What was sent is one
- * disclosure, because it is reference rather than reading. A unit says in its header
- * what became of it, so the run can be scanned rather than read through.
+ * The rows are worth not opening, which is the whole bet. `분석 안 함`,
+ * `1건 제기`, `반박을 견딤 · 95%` -- see `outcome.ts`, and note that it is the one
+ * place the schema's vocabulary is translated. The record keeps the schema's own
+ * field names, because the record is the record.
  *
- * Kept from the chat, because both were right: the order is the argument -- a tool
- * loop shows its passes one after another, not as a tally -- and nothing is rendered
- * as markdown, because a reply may contain a diff or an injected prompt and
- * formatting it is how a reader stops seeing what was actually said.
+ * Opening a finding scopes this to the chain that produced it -- see `trailOf` --
+ * and it is the same tree, filtered: one unit, its steps, opened, because a
+ * question that specific has already asked to be let in.
  */
 
 /** Past this a unit is scrolled through rather than read. */
@@ -49,7 +48,14 @@ const TURN_CAP = 40;
 /** Lines of a long block shown before it has to be asked for. */
 const CLAMP_LINES = 6;
 
-export default function ChatPane({
+const TONE: Record<Outcome["tone"], string> = {
+  plain: "text-ink",
+  quiet: "text-ink-faint",
+  ok: "text-ok",
+  danger: "text-danger",
+};
+
+export default function RunPane({
   units,
   steps,
   prompts,
@@ -78,6 +84,9 @@ export default function ChatPane({
   onTunePrompt: (spanId: string) => void;
 }) {
   const running = phase === "running" || phase === "starting";
+  // Scoped to a finding, or down to a single unit by any other route: there is
+  // nothing to choose between, so the choosing step is skipped.
+  const opened = Boolean(focus?.scoped) || units.length === 1;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
@@ -99,14 +108,25 @@ export default function ChatPane({
                   ? `${node} 에서 이뤄진 대화가 없습니다.`
                   : running
                     ? "첫 응답을 기다리고 있습니다."
-                    : "‘검사 실행’을 누르면 에이전트끼리 주고받은 대화가 여기 쌓입니다."}
+                    : "‘검사 실행’을 누르면 에이전트가 무엇을 했는지 여기 쌓입니다."}
             </p>
             <Roster steps={steps} />
           </div>
         ) : (
-          units.map((unit) => (
-            <UnitBlock key={unit.id} unit={unit} selected={selected} onTunePrompt={onTunePrompt} />
-          ))
+          <>
+            {!opened && <Tally units={units} />}
+            <ul>
+              {units.map((unit) => (
+                <UnitRow
+                  key={unit.id}
+                  unit={unit}
+                  open={opened}
+                  selected={selected}
+                  onTunePrompt={onTunePrompt}
+                />
+              ))}
+            </ul>
+          </>
         )}
       </div>
     </div>
@@ -114,17 +134,39 @@ export default function ChatPane({
 }
 
 /**
- * Which finding the transcript is narrowed to, and the way out.
+ * What the run came to, over every unit on screen.
  *
- * One line, because the chain that produced the finding is on the unit's own
- * header now -- every unit states its path, and a scoped pane has exactly one
- * unit, so saying it twice was saying it twice.
+ * Counted here rather than read off `RunStats`, because it has to agree with the
+ * rows underneath it: narrowed to a node, this is that node's tally and not the
+ * run's, and a strip that disagreed with the list it heads would be worse than
+ * no strip.
+ */
+function Tally({ units }: { units: Unit[] }) {
+  const calls = units.reduce((sum, unit) => sum + unit.exchanges.length, 0);
+  const tokens = units.reduce((sum, unit) => sum + unit.tokens, 0);
+  const tools = units.reduce(
+    (sum, unit) => sum + unit.exchanges.reduce((n, each) => n + each.calls.length, 0),
+    0,
+  );
+
+  const bits = [`단위 ${units.length}`, `호출 ${calls}`];
+  if (tools > 0) bits.push(`도구 ${tools}`);
+  if (tokens > 0) bits.push(`${tokens.toLocaleString()} tok`);
+
+  return <p className="border-b border-line px-3 py-1.5 font-mono text-2xs text-ink-faint">{bits.join(" · ")}</p>;
+}
+
+/**
+ * Which finding the record is narrowed to, and the way out.
+ *
+ * One line: the chain that produced the finding is the unit's own row and its
+ * steps, right underneath, so stating it here as well was stating it twice.
  */
 function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (next: boolean) => void } }) {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-line bg-accent-wash px-3 py-1.5">
       <p className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
-        {focus.scoped ? `‘${focus.title}’ 을 찾아낸 과정` : "실행 전체의 기록"}
+        {focus.scoped ? `‘${focus.title}’ 을 찾아낸 과정` : "실행 전체"}
       </p>
       <Button
         size="xs"
@@ -139,77 +181,71 @@ function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (
   );
 }
 
-/* -- one unit ---------------------------------------------------------------- */
+/* -- unit -------------------------------------------------------------------- */
 
-/**
- * One code unit and every step taken over it.
- *
- * The header carries the path the unit took -- `선별 → memory 가 제기 → 근거 모으기
- * → 판정` -- so a run can be scanned. Four units used to be four indistinguishable
- * walls of prompt text, and which of them was screened out in one call and which
- * went the whole way was a thing you found out by reading all of both.
- */
-function UnitBlock({
+/** One code unit: a row that says what became of it, and its steps when opened. */
+function UnitRow({
   unit,
+  open,
   selected,
   onTunePrompt,
 }: {
   unit: Unit;
+  open: boolean;
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
 }) {
-  const path = unit.exchanges.map(labelOf).filter((role, at, all) => all.indexOf(role) === at);
+  const outcome = unitOutcome(unit.exchanges);
   // Only when it says something the symbol does not. A file chunk's symbol *is*
   // its filename, and `main.c main.c` was the header on every one of them.
   const file = unit.file && unit.file !== unit.symbol ? unit.file : null;
 
   return (
-    <section>
-      {/* Sticky, because a long unit scrolls past its own subject and "which
-          function is this about" is the first thing you lose. */}
-      <header className="sticky top-0 z-10 space-y-0.5 border-y border-line bg-surface-2 px-3 py-1.5">
-        <div className="flex items-baseline gap-2">
-          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-ink-strong">
-            {unit.symbol ?? unit.id}
-          </h3>
-          {file && <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{file}</span>}
-          {unit.tokens > 0 && (
-            <span className="ml-auto shrink-0 font-mono text-2xs text-ink-faint">
-              {unit.tokens.toLocaleString()} tok
-            </span>
-          )}
-        </div>
-        {path.length > 0 && <p className="text-2xs leading-snug text-accent-ink">{path.join(" → ")}</p>}
-      </header>
-
-      <ol className="px-3 py-2">
-        {unit.exchanges.slice(0, TURN_CAP).map((exchange) => (
-          <StepRow
-            key={exchange.id}
-            exchange={exchange}
-            unit={unit.symbol ?? unit.id}
-            highlighted={exchange.id === selected}
-            onTunePrompt={() => onTunePrompt(exchange.id)}
+    <li className="border-b border-line">
+      <Collapsible defaultOpen={open}>
+        <CollapsibleTrigger className="group/unit flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-surface-2">
+          <ChevronRight
+            className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/unit:rotate-90"
+            aria-hidden
           />
-        ))}
-        {unit.exchanges.length > TURN_CAP && (
-          <li className="pl-4 font-mono text-2xs text-ink-faint">+{unit.exchanges.length - TURN_CAP} more</li>
-        )}
-      </ol>
-    </section>
+          <span className="min-w-0 truncate font-mono text-xs font-semibold text-ink-strong">
+            {unit.symbol ?? unit.id}
+          </span>
+          {file && <span className="min-w-0 shrink truncate font-mono text-2xs text-ink-faint">{file}</span>}
+          <span className="ml-auto flex shrink-0 items-baseline gap-2">
+            {outcome && <span className={cn("text-2xs", TONE[outcome.tone])}>{outcome.text}</span>}
+            {unit.tokens > 0 && (
+              <span className="font-mono text-2xs text-ink-faint">{unit.tokens.toLocaleString()}</span>
+            )}
+          </span>
+        </CollapsibleTrigger>
+
+        <CollapsibleContent>
+          <ul className="pb-1">
+            {unit.exchanges.slice(0, TURN_CAP).map((exchange) => (
+              <StepRow
+                key={exchange.id}
+                exchange={exchange}
+                unit={unit.symbol ?? unit.id}
+                highlighted={exchange.id === selected}
+                onTunePrompt={() => onTunePrompt(exchange.id)}
+              />
+            ))}
+            {unit.exchanges.length > TURN_CAP && (
+              <li className="px-3 py-1 pl-8 font-mono text-2xs text-ink-faint">
+                +{unit.exchanges.length - TURN_CAP} more
+              </li>
+            )}
+          </ul>
+        </CollapsibleContent>
+      </Collapsible>
+    </li>
   );
 }
 
-/**
- * One step: what it concluded, what it ran to get there, and what it was asked.
- *
- * In that order, which is the whole of the change. The conclusion is the news; the
- * calls are the working; the brief is reference, and a template besides.
- *
- * On a rail rather than in boxes. Fourteen steps need to read as a sequence, and a
- * 1px line with a dot per step does that in no horizontal space at all -- where
- * bubbles cost an indent, a max-width and an alignment each.
- */
+/* -- step -------------------------------------------------------------------- */
+
+/** One step: a row that says what it decided, and the whole of it when opened. */
 function StepRow({
   exchange,
   unit,
@@ -222,134 +258,175 @@ function StepRow({
   highlighted: boolean;
   onTunePrompt: () => void;
 }) {
-  const answer = parseReply(exchange.reply);
+  const outcome = outcomeOf(exchange);
   const subject = exchange.subject === unit ? "" : exchange.subject;
 
   return (
-    <li
-      className={cn(
-        "group/step relative border-l border-line pb-3 pl-4 last:border-transparent last:pb-0",
-        highlighted && "bg-accent-wash",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute top-[7px] -left-[3.5px] size-[7px] rounded-full",
-          exchange.error ? "bg-danger" : "bg-accent",
-        )}
-        aria-hidden
-      />
+    <li className={cn(highlighted && "bg-accent-wash")}>
+      <Collapsible defaultOpen={highlighted}>
+        <div className="group/step flex items-baseline">
+          <CollapsibleTrigger className="group/row flex min-w-0 flex-1 items-baseline gap-2 py-1 pr-2 pl-3 text-left hover:bg-surface-2">
+            <ChevronRight
+              className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/row:rotate-90"
+              aria-hidden
+            />
+            <span className="shrink-0 text-xs text-ink-muted">{labelOf(exchange)}</span>
+            <span className="ml-auto min-w-0 truncate text-right text-2xs">
+              {exchange.error ? (
+                <span className="text-danger">실패</span>
+              ) : outcome ? (
+                <span className={TONE[outcome.tone]}>{outcome.text}</span>
+              ) : (
+                <span className="font-mono text-ink-faint">{subject}</span>
+              )}
+            </span>
+          </CollapsibleTrigger>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            title="프롬프트 고쳐 다시 실행"
+            aria-label="프롬프트 고쳐 다시 실행"
+            onClick={onTunePrompt}
+            className="mr-1 shrink-0 self-center opacity-0 transition-opacity group-hover/step:opacity-100 focus-visible:opacity-100"
+          >
+            <Pencil className="text-ink-faint" />
+          </Button>
+        </div>
 
-      <div className="flex items-baseline gap-1.5">
-        <h4 className="shrink-0 text-xs font-semibold text-ink-strong">{labelOf(exchange)}</h4>
-        <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{subject || exchange.step}</span>
-        <Button
-          size="icon-xs"
-          variant="ghost"
-          title="프롬프트 고쳐 다시 실행"
-          aria-label="프롬프트 고쳐 다시 실행"
-          onClick={onTunePrompt}
-          className="ml-auto shrink-0 opacity-0 transition-opacity group-hover/step:opacity-100 focus-visible:opacity-100"
-        >
-          <Pencil className="text-ink-faint" />
-        </Button>
-      </div>
-
-      <div className="mt-1 space-y-1.5">
-        <Answer answer={answer} rounds={exchange.rounds} />
-        {exchange.error && <p className="font-mono text-2xs text-danger">{exchange.error}</p>}
-        <Meta exchange={exchange} />
-        <Sent exchange={exchange} />
-      </div>
+        <CollapsibleContent>
+          <div className="space-y-2 border-l border-line py-2 pr-3 pl-3 ml-[22px]">
+            {/* The agent's own id for this call, which the closed row has no width
+                for and which is what a prompt is filed under and a breakpoint set
+                on. With the subject when there is one: `gather · CWE-122 main.c:6`. */}
+            <p className="font-mono text-2xs text-ink-faint">{[exchange.step, subject].filter(Boolean).join(" · ")}</p>
+            <Detail exchange={exchange} />
+            {exchange.error && <p className="font-mono text-2xs text-danger">{exchange.error}</p>}
+            <Meta exchange={exchange} />
+            <Sent exchange={exchange} />
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </li>
   );
 }
 
 /**
- * What the step concluded.
+ * What the step actually said.
  *
- * A tool loop concluded it over several passes and the passes are the argument --
- * wanted the definition, read it, wanted the caller -- so those are shown in order
- * rather than folded into one reply and a list of calls. Everything else said one
- * thing once, and its rounds would be one message repeating the answer.
+ * A tool loop said it over several passes and the passes are the argument --
+ * wanted the definition, read it, wanted the caller -- so those stay in order
+ * rather than folding into one reply and a tally of calls. Everything else said
+ * one thing once.
  */
-function Answer({ answer, rounds }: { answer: ReturnType<typeof parseReply>; rounds: Exchange["rounds"] }) {
-  const looped = rounds.some((round) => round.calls.length > 0);
+function Detail({ exchange }: { exchange: Exchange }) {
+  const looped = exchange.rounds.some((round) => round.calls.length > 0);
 
-  if (looped) {
-    return (
-      <div className="space-y-1.5">
-        {rounds.map((round, index) => (
-          <div key={index} className="space-y-1.5">
-            {round.said && <Clamp text={round.said} />}
-            {round.calls.map((call, at) => (
-              <ToolCall key={at} call={call} />
-            ))}
-          </div>
-        ))}
-      </div>
-    );
-  }
+  if (!looped) return <Reply text={exchange.reply} />;
+
+  return (
+    <div className="space-y-2">
+      {exchange.rounds.map((round, index) => (
+        <div key={index} className="space-y-2">
+          {round.said && <Reply text={round.said} />}
+          {round.calls.map((call, at) => (
+            <ToolCall key={at} call={call} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One thing an agent said, as the shape it said it in.
+ *
+ * Every reply goes through here, including the passes of a tool loop -- which is
+ * the fix for `gather` ending its loop with 1,106 characters of raw JSON on
+ * screen. A loop's last pass is usually the structured answer and its earlier
+ * passes are prose; `parseReply` tells them apart already, and the loop branch was
+ * simply not asking it.
+ */
+function Reply({ text }: { text: string | null }) {
+  const answer = parseReply(text);
 
   if (answer.kind === "empty") return <p className="font-mono text-2xs text-ink-faint">(no reply)</p>;
   if (answer.kind === "blank") return <p className="font-mono text-2xs text-ink-muted">{answer.text}</p>;
   if (answer.kind === "text") return <Clamp text={answer.text} />;
 
   return (
-    <dl className="space-y-1">
-      {answer.fields.map((field) => (
-        // Wrapping rather than a fixed key column: `worth_analysing` is 15
-        // characters of mono and used to squeeze the value it labelled into
-        // nothing. A long key now takes the line and the value gets the next one.
-        <div key={field.key} className="flex flex-wrap items-baseline gap-x-2">
-          <dt className="shrink-0 font-mono text-2xs text-ink-faint">{field.key}</dt>
-          <dd className="min-w-0 flex-1 text-xs leading-relaxed text-ink">
-            {field.value !== undefined ? (
-              <span className="whitespace-pre-wrap">{field.value}</span>
-            ) : (
-              <Fold label={field.nested?.summary ?? ""}>
-                <Clamp text={field.nested?.json ?? ""} mono />
-              </Fold>
-            )}
-          </dd>
-        </div>
-      ))}
+    <dl className="space-y-1.5">
+      {answer.fields.map((field) => {
+        // Inline while it fits, stacked when it does not. `refuted` above `false`
+        // is two lines to carry one word, and a paragraph of reasoning crammed
+        // beside its key is the fixed-column problem all over again.
+        const short = field.value !== undefined && field.value.length <= 32 && !field.value.includes("\n");
+        return (
+          <div key={field.key} className={cn(short && "flex flex-wrap items-baseline gap-x-2")}>
+            {/* The schema's own field names, kept: a Korean gloss here would be a
+                second name for what the prompt asks for and the editor edits. The
+                summary on the closed row is where the translation belongs. */}
+            <dt className="shrink-0 font-mono text-2xs text-ink-faint">{field.key}</dt>
+            <dd className="min-w-0 flex-1 text-xs leading-relaxed text-ink">
+              {field.value !== undefined ? (
+                <span className="whitespace-pre-wrap">{field.value}</span>
+              ) : (
+                <Fold label={field.nested?.summary ?? ""}>
+                  <Clamp text={field.nested?.json ?? ""} mono />
+                </Fold>
+              )}
+            </dd>
+          </div>
+        );
+      })}
     </dl>
   );
 }
 
-/** An agent asking a tool something, and the tool answering. */
+/**
+ * An agent asking a tool something, and what came back.
+ *
+ * The answer is rendered as the facts it is. `find_definition("shorten")` replies
+ * with 295 characters of indented JSON headed by a `chunk_id`, to say that shorten
+ * is at util.c:2-6 and here is its body -- so that is what it says now, and the
+ * body arrives as code rather than as a string with `\n` in it.
+ */
 function ToolCall({ call }: { call: ToolRun }) {
+  const result = toolResult(call.outputs);
+
   return (
     <div className="space-y-1 rounded-sm bg-field px-2 py-1.5">
       <div className="flex items-baseline gap-1.5 font-mono text-2xs">
         <Wrench className="size-3 shrink-0 self-center text-alt" aria-hidden />
-        <span className="min-w-0 truncate text-alt">{call.name}</span>
+        <span className="shrink-0 text-alt">{call.name}</span>
         <span className="min-w-0 flex-1 truncate text-ink-faint">{argsOf(call.args)}</span>
-        {call.latency_ms !== null && (
-          <span className="shrink-0 text-ink-faint">{seconds(call.latency_ms)}</span>
-        )}
+        {call.latency_ms !== null && <span className="shrink-0 text-ink-faint">{seconds(call.latency_ms)}</span>}
       </div>
+
       {call.error ? (
         <p className="font-mono text-2xs text-danger">{call.error}</p>
+      ) : result.kind === "empty" ? (
+        <p className="font-mono text-2xs text-ink-faint">없음</p>
+      ) : result.kind === "units" ? (
+        <ul className="space-y-1">
+          {result.units.map((found, at) => (
+            <li key={at} className="space-y-0.5">
+              <p className="flex flex-wrap items-baseline gap-x-1.5 font-mono text-2xs">
+                <span className="text-ink">{found.symbol}</span>
+                <span className="text-ink-faint">{whereOf(found)}</span>
+                {found.kind && <span className="text-ink-faint">{found.kind}</span>}
+              </p>
+              {found.body && <Clamp text={found.body} mono />}
+            </li>
+          ))}
+        </ul>
       ) : (
-        // The tool's answer is the evidence, so it stays on screen rather than
-        // going behind a fold -- clamped, which is the same bargain the prompts
-        // get and the reason `step → tool` and `tool → step` labels are gone: in
-        // a box under the call there was only ever one direction it could be.
-        <Clamp text={resultText(call.outputs)} mono />
+        <Clamp text={result.text} mono />
       )}
     </div>
   );
 }
 
-/**
- * Where this step went, and what it spent.
- *
- * One line of numbers. `← triage` is not among them: every step already says what
- * fed it by sitting under it on the rail, and the unit's header names the whole
- * path in order.
- */
+/** Where this step went, and what it spent. One line of numbers. */
 function Meta({ exchange }: { exchange: Exchange }) {
   const bits: string[] = [];
   if (exchange.attempts > 1) bits.push(`${exchange.attempts} calls`);
@@ -372,11 +449,9 @@ function Meta({ exchange }: { exchange: Exchange }) {
 /**
  * The brief, folded.
  *
- * Both halves in one disclosure. They were two -- a bubble for the message and a
- * fold inside it for the standing instructions -- and the standing half is per
- * *step kind*, not per call: the same 1,461 characters on every unit, and it is on
- * the node card now, in full, where it is a fact about the node rather than the
- * fourteenth copy of one.
+ * Both halves in one disclosure. The standing half is per *step kind*, not per
+ * call -- the same 1,461 characters on every unit -- and it is on the node card in
+ * full, where it is a fact about the node rather than the fourteenth copy of one.
  */
 function Sent({ exchange }: { exchange: Exchange }) {
   const size = (exchange.user.length + exchange.system.length).toLocaleString();
@@ -396,14 +471,7 @@ function Sent({ exchange }: { exchange: Exchange }) {
   );
 }
 
-/**
- * A block long enough to bury what comes after it.
- *
- * Clamped, not folded: the first lines are on screen and the rest is one click
- * away. Six lines rather than eight, because a step now shows its answer, its
- * calls and its brief in one column and each of them is bidding for the same
- * screen.
- */
+/** A block long enough to bury what comes after it. Clamped, not hidden. */
 function Clamp({ text, mono }: { text: string; mono?: boolean }) {
   const [open, setOpen] = useState(false);
   const lines = text.split("\n");
@@ -431,14 +499,6 @@ function Clamp({ text, mono }: { text: string; mono?: boolean }) {
       )}
     </div>
   );
-}
-
-/** Whatever the tool answered, as text. The store's truncation is kept visible. */
-function resultText(outputs: unknown): string {
-  if (outputs === null || outputs === undefined) return "(empty)";
-  if (typeof outputs === "string") return outputs;
-  if (isTruncated(outputs)) return `${outputs.preview}\n\n… ${outputs._chars.toLocaleString()} chars, truncated at 20,000`;
-  return JSON.stringify(outputs, null, 2);
 }
 
 /** `path="net.c", start_line=15` -- the call as it was made. */
@@ -478,11 +538,6 @@ function Fold({ label, children }: { label: string; children: React.ReactNode })
  */
 function NodeCard({ note, steps, prompts }: { note: NodeNote; steps: AgentStep[]; prompts: PromptRow[] }) {
   const mine = steps.filter((step) => step.node === note.node);
-  // Named, not counted. The drawing says `4 tools`, which cannot tell you the
-  // run can search semantically -- and listing them on every box made five
-  // specialists repeat one toolbox and shrank the whole canvas. Here is where
-  // the drawing already says detail lives: "노드를 누르면 오른쪽에 그 노드가
-  // 무엇인지 나옵니다".
   const tools = mine
     .flatMap((step) => step.tools)
     .filter((tool, index, all) => all.findIndex((other) => other.name === tool.name) === index);
@@ -492,8 +547,8 @@ function NodeCard({ note, steps, prompts }: { note: NodeNote; steps: AgentStep[]
   const shapes = mine
     .filter((step) => step.schema)
     .map((step) => `${step.schema}(${step.schema_fields.join(", ")})`);
-  // The standing instructions. This is the node's role in the most literal sense
-  // available: the text it is actually run under.
+  // The standing instructions: the node's role in the most literal sense
+  // available, the text it is actually run under.
   const briefs = mine
     .map((step) => ({ step: step.step, row: prompts.find((row) => row.name === step.prompt) }))
     .filter((each): each is { step: string; row: PromptRow } => Boolean(each.row));
