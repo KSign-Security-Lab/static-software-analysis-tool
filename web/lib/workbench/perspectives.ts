@@ -136,3 +136,14 @@ export function hrefFor(id: PerspectiveId, params?: URLSearchParams | null): str
   const query = carried.toString();
   return query ? `${target.href}?${query}` : target.href;
 }
+
+/**
+ * The 검사 half of the agent surface, as opposed to `/agent/machine`.
+ *
+ * One surface, two workspaces: one about your code and the problems in it, one
+ * about the checker that found them. They share the run, the rail entry and the
+ * layout cookie; what differs is which panes are worth having.
+ */
+export function isInspectSpace(pathname: string): boolean {
+  return pathname === "/agent" || pathname === "/agent/";
+}

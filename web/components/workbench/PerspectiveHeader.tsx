@@ -1,14 +1,15 @@
 "use client";
 
 import { Contrast, HelpCircle, PanelBottom, PanelLeft, PanelRight } from "lucide-react";
-import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { perspectiveFor } from "@/lib/workbench/perspectives";
+import { isInspectSpace, perspectiveFor } from "@/lib/workbench/perspectives";
 import { PANE_LABEL, type PaneId } from "@/lib/workbench/store";
 import { useWorkbench } from "@/lib/workbench/store-provider";
 
@@ -39,6 +40,48 @@ const PANES: { id: PaneId; icon: typeof PanelLeft }[] = [
  * The folds no longer advertise a keybinding: ⌘B and ⌘J went with the keyboard
  * layer, which existed to feed a command palette this app does not have.
  */
+/**
+ * The two halves of 검사.
+ *
+ * One is about your code and the problems in it; the other is about the checker
+ * that found them. They were the same screen, which is why the checker's
+ * machinery -- a structure graph, a call record, a prompt editor -- kept taking
+ * space from the answer and reading as though it were part of it.
+ *
+ * A link rather than a mode flag, so each is a place you can send someone. The
+ * query string carries across because both are the same route segment as far as
+ * `hrefFor` is concerned.
+ */
+function SpaceSwitch() {
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const query = params.toString();
+  const here = isInspectSpace(pathname) ? "inspect" : "machine";
+
+  return (
+    <nav className="flex shrink-0 items-center gap-0.5" aria-label="작업 공간">
+      {(
+        [
+          { id: "inspect", label: "검사", href: "/agent" },
+          { id: "machine", label: "에이전트", href: "/agent/machine" },
+        ] as const
+      ).map((space) => (
+        <Link
+          key={space.id}
+          href={query ? `${space.href}?${query}` : space.href}
+          aria-current={here === space.id ? "page" : undefined}
+          className={cn(
+            "rounded-sm px-2 py-0.5 text-xs transition-colors",
+            here === space.id ? "bg-accent-wash text-accent-ink" : "text-ink-faint hover:text-ink-muted",
+          )}
+        >
+          {space.label}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
 export default function PerspectiveHeader() {
   const current = perspectiveFor(usePathname());
   const { setTheme } = useTheme();
@@ -58,8 +101,12 @@ export default function PerspectiveHeader() {
           changed and never told anyone anything twice; it is in 사용법 now, with
           the rest of the explaining. */}
       {current && (
-        <h1 className="min-w-0 flex-1 truncate px-3 text-sm font-semibold text-ink-strong">{current.label}</h1>
+        <h1 className="shrink-0 truncate px-3 text-sm font-semibold text-ink-strong">{current.label}</h1>
       )}
+
+      {current?.id === "agent" && <SpaceSwitch />}
+
+      <div className="flex-1" />
 
       <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
         {current && (

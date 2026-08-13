@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import type { Layout, PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -10,8 +11,8 @@ import { CpgSourceProvider } from "@/features/cpg/provider";
 import { useForgetMissingRun } from "@/lib/run/forget-missing";
 import { RunStreamProvider } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
-import { cookieValue, layoutFor, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
-import type { PerspectiveId } from "@/lib/workbench/perspectives";
+import { cookieValue, layoutFor, widths, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
+import { isInspectSpace, type PerspectiveId } from "@/lib/workbench/perspectives";
 import type { PaneId } from "@/lib/workbench/store";
 import { useWorkbench } from "@/lib/workbench/store-provider";
 
@@ -101,6 +102,18 @@ const SIZE = {
 
 export default function Workbench({ perspective, stored, children, side, dock, inspector }: WorkbenchProps) {
   const [runId] = useRunId();
+  /**
+   * Whether this route has a right-hand pane.
+   *
+   * 검사 is a rail, an editor and the finding under it -- there is no fourth
+   * thing, and a panel rendered anyway is an empty column asking to be filled.
+   *
+   * Decided here rather than in the layout, which is a server component: a
+   * layout is not re-rendered for a client-side navigation within its own
+   * segment, so switching 검사 → 에이전트 kept whichever answer the first
+   * request happened to produce, and the record pane never appeared.
+   */
+  const showInspector = !isInspectSpace(usePathname());
   // Here because the shell is what owns which run the tab is on, and because it
   // is mounted exactly once -- a dozen components each deciding to drop the id
   // would be a dozen writes to the address bar.
@@ -135,6 +148,8 @@ export default function Workbench({ perspective, stored, children, side, dock, i
     }
     // Once, from the server's answer. Later folds go through the panel handles.
   }, []);
+
+  const horizontal = useMemo(() => widths(initial.h, showInspector), [showInspector, initial.h]);
 
   const persist = useCallback(
     (axis: "h" | "v", sizes: Layout) => {
@@ -179,7 +194,7 @@ export default function Workbench({ perspective, stored, children, side, dock, i
 
             <ResizablePanelGroup
               orientation="horizontal"
-              defaultLayout={initial.h}
+              defaultLayout={horizontal}
               onLayoutChanged={(sizes) => persist("h", sizes)}
             >
               <ResizablePanel
@@ -221,19 +236,21 @@ export default function Workbench({ perspective, stored, children, side, dock, i
                 </ResizablePanelGroup>
               </ResizablePanel>
 
-              <ResizableHandle />
+              {showInspector && <ResizableHandle />}
 
-              <ResizablePanel
-                id="inspector"
-                collapsible
-                collapsedSize={SIZE.collapsed}
-                minSize={SIZE.inspectorMin}
-                maxSize={SIZE.inspectorMax}
-                panelRef={inspectorPane.panelRef}
-                onResize={inspectorPane.onResize}
-              >
-                {inspector}
-              </ResizablePanel>
+              {showInspector && (
+                <ResizablePanel
+                  id="inspector"
+                  collapsible
+                  collapsedSize={SIZE.collapsed}
+                  minSize={SIZE.inspectorMin}
+                  maxSize={SIZE.inspectorMax}
+                  panelRef={inspectorPane.panelRef}
+                  onResize={inspectorPane.onResize}
+                >
+                  {inspector}
+                </ResizablePanel>
+              )}
             </ResizablePanelGroup>
           </div>
         </div>

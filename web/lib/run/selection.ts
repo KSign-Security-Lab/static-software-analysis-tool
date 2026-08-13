@@ -56,3 +56,15 @@ export function useCentreView() {
     parseAsStringLiteral(CENTRE_VIEWS).withDefault("code").withOptions({ history: "replace" }),
   );
 }
+
+/**
+ * The run this one is being read against.
+ *
+ * In the URL now rather than in the dock's local state, because two things need
+ * it: the rail marks a row as 새로, and the header offers the picker. It was a
+ * `useState` inside the component that happened to own both, which stopped being
+ * true the moment the list and the control were separated.
+ */
+export function useCompareRun() {
+  return useQueryState("against", parseAsString.withOptions({ history: "replace" }));
+}

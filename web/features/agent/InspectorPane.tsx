@@ -50,12 +50,6 @@ export default function InspectorPane() {
   const findings = useFindings(runId);
 
   const steps = useMemo(() => shape.data?.steps ?? [], [shape.data]);
-  // What the picked node is. Five of them make no calls at all, so this is the only
-  // thing the pane can say about them -- and it is the answer to why.
-  const note = useMemo(
-    () => (node ? shape.data?.node_notes?.find((each) => each.node === node) : undefined),
-    [shape.data, node],
-  );
   // Through `fromAgent`, because `?finding=` holds the view model's id and the
   // view model prefixes it with the engine -- matching against the wire id
   // matches nothing, silently, which is exactly how it read.
@@ -97,16 +91,12 @@ export default function InspectorPane() {
       <RunPane
         units={units}
         steps={steps}
-        // The standing brief behind a node, which is most of what a node *is*. The
-        // list was already fetched here for the editor and only the editor saw it.
-        prompts={prompts.data ?? []}
         mode={mode}
         onMode={(next) => void setMode(next)}
         phase={phase}
         live={live}
         node={node}
         onClearNode={() => void setNode(null)}
-        note={note}
         focus={finding ? { title: finding.title, scoped: narrowed, onScoped: setScoped } : null}
         selected={spanId}
         onTunePrompt={(id) => {
