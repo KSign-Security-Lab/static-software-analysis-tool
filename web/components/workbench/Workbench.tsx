@@ -6,8 +6,6 @@ import type { Layout, PanelImperativeHandle, PanelSize } from "react-resizable-p
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import ActivityBar from "@/components/workbench/ActivityBar";
 import PerspectiveHeader from "@/components/workbench/PerspectiveHeader";
-import AgentSheet from "@/features/inspect/AgentSheet";
-import PipelineStrip from "@/features/inspect/PipelineStrip";
 import { CpgSourceProvider } from "@/features/cpg/provider";
 import { useForgetMissingRun } from "@/lib/run/forget-missing";
 import { RunStreamProvider } from "@/lib/run/stream";
@@ -157,12 +155,8 @@ export default function Workbench({ perspective, stored, children, side, dock, i
     // perspectives. See lib/run/stream.tsx for why that is load-bearing.
     <RunStreamProvider runId={runId}>
       <CpgSourceProvider>
-        <div className="grid h-dvh grid-rows-[auto_auto_1fr] overflow-hidden bg-bg text-ink">
+        <div className="grid h-dvh grid-rows-[auto_1fr] overflow-hidden bg-bg text-ink">
           <PerspectiveHeader />
-
-          {/* The run, across the top of every panel that is about it. See
-              features/inspect/PipelineStrip.tsx. */}
-          {perspective === "agent" && <PipelineStrip />}
 
           {/*
             `min-w-0` is load-bearing, and its absence was visible as the right
@@ -230,20 +224,19 @@ export default function Workbench({ perspective, stored, children, side, dock, i
               <ResizableHandle />
 
               <ResizablePanel
-                  id="inspector"
-                  collapsible
-                  collapsedSize={SIZE.collapsed}
-                  minSize={SIZE.inspectorMin}
-                  maxSize={SIZE.inspectorMax}
-                  panelRef={inspectorPane.panelRef}
-                  onResize={inspectorPane.onResize}
-                >
+                id="inspector"
+                collapsible
+                collapsedSize={SIZE.collapsed}
+                minSize={SIZE.inspectorMin}
+                maxSize={SIZE.inspectorMax}
+                panelRef={inspectorPane.panelRef}
+                onResize={inspectorPane.onResize}
+              >
                 {inspector}
               </ResizablePanel>
             </ResizablePanelGroup>
           </div>
         </div>
-        {perspective === "agent" && <AgentSheet />}
       </CpgSourceProvider>
     </RunStreamProvider>
   );

@@ -1,5 +1,5 @@
-import FindingDetail from "@/features/inspect/FindingDetail";
+import AgentDock from "@/features/agent/AgentDock";
 
 export default function Slot() {
-  return <FindingDetail />;
+  return <AgentDock />;
 }
