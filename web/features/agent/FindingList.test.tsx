@@ -43,6 +43,7 @@ const FINDING: UiFinding = {
     { role: "propagation", span: span("net.c", 30), note: "버퍼로 복사됩니다" },
     { role: "sink", span: span("net.c", 41), note: "system() 으로 실행됩니다" },
   ],
+  replacement: null,
   remediation: "인자를 배열로 넘기세요.",
   diff: null,
   confidence: 0.85,

@@ -28,7 +28,9 @@ def test_every_lens_appears_without_the_roster_being_edited() -> None:
 def test_the_order_is_the_order_a_chunk_passes_through() -> None:
     assert [entry["step"] for entry in describe_steps()] == list(STEP_ORDER)
     assert STEP_ORDER[0] == "triage"
-    assert STEP_ORDER[-2:] == ("gather", "verify")
+    # `fix` last: it is the only step that runs *after* a claim is known to have
+    # survived, which is what stops it spending calls on findings nobody reads.
+    assert STEP_ORDER[-3:] == ("gather", "verify", "fix")
 
 
 def test_the_steps_that_read_something_new_are_the_ones_with_tools() -> None:
@@ -138,11 +140,13 @@ def test_an_agent_node_is_one_because_a_step_names_it() -> None:
         "calls": 1,
         "tools": 10,
     }
+    # Two steps in the one node: the ruling, and the fix that follows a claim
+    # surviving it. `lens:memory` in node `memory` is the same shape.
     assert by_node["verify"] == {
         **by_node["verify"],
         "agent": True,
-        "steps": ["verify"],
-        "calls": 1,
+        "steps": ["verify", "fix"],
+        "calls": 2,
         "tools": 0,
     }
     # The deterministic ones carry the explanation instead.

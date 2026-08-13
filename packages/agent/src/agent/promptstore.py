@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .prompts import GATHER_SYSTEM, LENS_SYSTEM, SCOUT_SYSTEM, TRIAGE_SYSTEM, VERIFY_SYSTEM
+from .remediate import FIX_SYSTEM
 from .schema import Lens
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ DEFAULTS: dict[str, str] = {
     **{lens_prompt(lens): text for lens, text in LENS_SYSTEM.items()},
     "gather": GATHER_SYSTEM,
     "verify": VERIFY_SYSTEM,
+    "fix": FIX_SYSTEM,
 }
 
 NAMES = tuple(DEFAULTS)

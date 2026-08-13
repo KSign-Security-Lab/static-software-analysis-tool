@@ -45,6 +45,7 @@ from ..prompts import analyse_user, gather_user, lookup_user, scout_user, triage
 from ..promptstore import DEFAULTS as DEFAULT_PROMPTS
 from ..promptstore import lens_prompt
 from ..remediate import build as build_remediation
+from ..remediate import propose as propose_fix
 from ..tracing import call_config
 from ..schema import (
     LENSES,
@@ -675,9 +676,61 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     "finding_id": finding.id,
                     "refuted": refuted,
                     "confidence": verdict.confidence if verdict is not None else 0.0,
+                    **({"remediation": _fix(finding, chunk, raised_by)} if not refuted else {}),
                 }
             ]
         }
+
+    def _fix(finding: Finding, chunk: Chunk, raised_by: str | None) -> dict[str, Any] | None:
+        """Code for a finding that survived, made here rather than on a button.
+
+        A specialist proposes a fix while it is analysing, and only when one
+        happens to fit the lines its anchor resolved to. When it does not, the
+        reader used to be offered a button that spent thirty seconds of model time
+        while they watched it say 만드는 중 -- work the run was already positioned
+        to do, on a claim it had just finished proving, with the file in hand.
+
+        Here, because this is where a claim is known to have survived: refuted
+        findings never reach the report, and fixing them would be most of the
+        calls spent on findings nobody will read.
+
+        Failure is silence. A fix is the one part of a finding that is optional --
+        the report is worth having without it -- so nothing here may cost the run
+        a finding it has already proved.
+        """
+        if (finding.remediation.replacement or "").strip():
+            return None
+        text = _file_text(deps.root, finding.primary.file)
+        if text is None:
+            return None
+
+        lines = text.splitlines()
+        span = finding.primary
+        if span.start_line < 1 or span.end_line > len(lines):
+            return None
+
+        candidate = propose_fix(
+            deps.caller,
+            title=finding.title,
+            explanation=finding.explanation,
+            span=span,
+            excerpt="\n".join(lines[span.start_line - 1 : span.end_line]),
+            context=text,
+            prompt=deps.prompts["fix"],
+            trace=call_config(
+                step="fix",
+                run_id=deps.run_id,
+                chunk_id=chunk.chunk_id,
+                file=chunk.file,
+                symbol=chunk.symbol,
+                subject=_finding_subject(finding),
+                lens=raised_by,
+            ),
+        )
+        if candidate is None:
+            return None
+        built = build_remediation(candidate, span, text)
+        return built.model_dump() if built.replacement else None
 
     def reduce(state: InspectionState) -> dict[str, Any]:
         """Write down what survived, and close the wave.
@@ -704,6 +757,11 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     continue
                 finding.verified = True
                 finding.confidence = float(ruling.get("confidence", 0.0))
+                # Made in `verify`, applied here, because this is where the
+                # finding that reaches the report is assembled.
+                fixed = ruling.get("remediation")
+                if fixed:
+                    finding.remediation = Remediation.model_validate(fixed)
             by_chunk.setdefault(str(item["chunk_id"]), []).append(finding.model_dump())
 
         confirmed: list[dict[str, Any]] = []

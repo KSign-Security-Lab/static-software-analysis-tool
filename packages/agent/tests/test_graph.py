@@ -1300,3 +1300,73 @@ def test_the_cache_can_be_turned_off(tmp_path: Path) -> None:
     _run(second_root, second_store, caller, cache_results=False)
     assert caller.prompts, "AGENT_CACHE=0 means analyse it again"
     second_store.close()
+
+
+def test_a_surviving_finding_gets_its_fix_during_the_run(indexed) -> None:
+    """The fix is the run's work, not a button's.
+
+    A specialist proposes one only when it happens to fit the lines its anchor
+    resolved to. When it does not, the reader used to press a button and watch it
+    spend model time on a claim the run had just finished proving, with the file
+    already in hand.
+    """
+    root, store = indexed
+
+    class Fixer(ScriptedCaller):
+        def call(self, schema, system, user, trace=None):
+            if schema is CandidateRemediation:
+                self.traces.append(trace)
+                return CandidateRemediation(summary="셸을 거치지 마십시오", detail="배열로 넘기기", replacement="  execv(cmd);")
+            return super().call(schema, system, user, trace)
+
+    caller = Fixer(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    report = _run(root, store, caller)
+
+    remediation = report.findings[0].remediation
+    assert remediation.replacement == "  execv(cmd);"
+    # A diff against the whole file, so it carries real line numbers and context.
+    assert remediation.diff is not None
+    assert "--- a/app.c" in remediation.diff
+    assert "-    system(cmd);" in remediation.diff
+    assert "@@ -8,7 +8,7 @@" in remediation.diff, "real line numbers, not the span in isolation"
+    store.close()
+
+
+def test_a_refuted_finding_is_not_fixed(indexed) -> None:
+    """Refuted findings never reach the report, so fixing them would be model
+    time spent on claims nobody will read."""
+    root, store = indexed
+    asked: list[str] = []
+
+    class Watcher(ScriptedCaller):
+        def call(self, schema, system, user, trace=None):
+            asked.append(schema.__name__)
+            return super().call(schema, system, user, trace)
+
+    caller = Watcher(
+        analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])},
+        verdict=Verdict(refuted=True, reason="no", confidence=0.9),
+    )
+    _run(root, store, caller)
+
+    assert "CandidateRemediation" not in asked
+    store.close()
+
+
+def test_a_fix_the_model_will_not_give_costs_the_run_nothing(indexed) -> None:
+    """A fix is the one optional part of a finding, so nothing about making it
+    may cost the run a finding it has already proved."""
+    root, store = indexed
+
+    class Broken(ScriptedCaller):
+        def call(self, schema, system, user, trace=None):
+            if schema is CandidateRemediation:
+                raise RuntimeError("the endpoint fell over")
+            return super().call(schema, system, user, trace)
+
+    caller = Broken(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    report = _run(root, store, caller)
+
+    assert len(report.findings) == 1
+    assert report.findings[0].remediation.replacement is None
+    store.close()

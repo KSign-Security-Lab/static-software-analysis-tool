@@ -64,6 +64,14 @@ export interface UiFinding {
   evidence: Evidence[];
   remediation: string | null;
   /**
+   * The code that replaces `primary`, when the run produced any.
+   *
+   * Separate from `remediation`, which is prose. This is what the editor's quick
+   * fix splices and what the apply endpoint writes; a finding with advice and no
+   * replacement must not be offered as something that can be fixed.
+   */
+  replacement: string | null;
+  /**
    * The fix as a patch, when the agent could name one for these exact lines.
    *
    * Computed server-side from the resolved span and the replacement, so what is
@@ -132,6 +140,8 @@ export function fromF2A(result: F2AResult | null | undefined, file: string): UiF
         explanation: d.overview,
         evidence,
         remediation: d.remediation.join("\n") || null,
+        // F2-A reports advice, never code.
+        replacement: null,
         diff: null,
         confidence: d.confidence,
         verified: null,
@@ -189,6 +199,7 @@ export function fromAgent(findings: AgentFinding[] | null | undefined): UiFindin
       note: e.note,
     })),
     remediation: f.remediation ? `${f.remediation.summary}\n\n${f.remediation.detail}` : null,
+    replacement: f.remediation?.replacement ?? null,
     diff: f.remediation?.diff ?? null,
     confidence: f.confidence,
     verified: f.verified,

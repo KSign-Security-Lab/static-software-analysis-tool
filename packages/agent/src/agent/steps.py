@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from .config import AgentConfig
 from .mcp.client import LENS_TOOLS, VERIFY_TOOLS
 from .promptstore import lens_prompt
-from .schema import LENSES, ChunkAnalysis, Scout, Triage, Verdict
+from .schema import CandidateRemediation, LENSES, ChunkAnalysis, Scout, Triage, Verdict
 
 #: Which graph node makes each kind of call.
 #:
@@ -35,6 +35,8 @@ STEP_NODE: dict[str, str] = {
     **{lens_prompt(lens): lens for lens in LENSES},
     "gather": "gather",
     "verify": "verify",
+    # Runs in the verify node, straight after the verdict it depends on.
+    "fix": "verify",
 }
 
 #: What guided decoding constrains each step's reply to. ``gather`` is the odd
@@ -48,6 +50,7 @@ STEP_SCHEMA: dict[str, type[BaseModel] | None] = {
     **{lens_prompt(lens): ChunkAnalysis for lens in LENSES},
     "gather": None,
     "verify": Verdict,
+    "fix": CandidateRemediation,
 }
 
 #: Which steps may call tools, and which ones. Only ``gather`` does, and not the
@@ -65,7 +68,7 @@ STEP_TOOLS: dict[str, tuple[str, ...]] = {
 }
 
 #: In the order a chunk passes through them, which is the order to read them in.
-STEP_ORDER: tuple[str, ...] = ("triage", "scout", *(lens_prompt(lens) for lens in LENSES), "gather", "verify")
+STEP_ORDER: tuple[str, ...] = ("triage", "scout", *(lens_prompt(lens) for lens in LENSES), "gather", "verify", "fix")
 
 
 def _fields(schema: type[BaseModel] | None) -> list[str]:

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useDeferredLayout } from "./use-deferred-layout";
 
-import { applyMarkers, evidenceDecorations } from "./markers";
+import { applyMarkers, evidenceDecorations, quickFixes } from "./markers";
 // Imported for its side effect: it configures the loader at module time,
 // which is the only point early enough. See monaco-setup.ts.
 import "./monaco-setup";
@@ -99,6 +99,36 @@ export default function CodeEditor({
     if (!ready || !monacoRef.current) return;
     return followTheme(monacoRef.current, (name) => monacoRef.current?.editor.setTheme(name));
   }, [ready]);
+
+  /**
+   * The fix, on the line it fixes.
+   *
+   * A code action provider is what turns a squiggle into something you can act
+   * on -- the lightbulb, ⌘. , the "Quick Fix" link on the hover -- and it is the
+   * affordance anyone who has used an editor reaches for first. The fix used to
+   * be reachable only from the bottom of a card in another pane.
+   *
+   * Registered per language rather than per model, because that is the only
+   * signature Monaco offers; the provider filters to this file's findings itself.
+   * Re-registered when the findings change and the old one disposed, which is
+   * also what stops a stale replacement being offered after a re-run.
+   */
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    const model = editorRef.current?.getModel();
+    if (!ready || !monaco || !model) return;
+
+    const mine = findings.filter((finding) => finding.primary.file === path && finding.replacement);
+    if (mine.length === 0) return;
+
+    const provider = monaco.languages.registerCodeActionProvider(model.getLanguageId(), {
+      provideCodeActions: (target, range) =>
+        target.uri.toString() === model.uri.toString()
+          ? quickFixes(monaco, model, mine, range)
+          : { actions: [], dispose: () => {} },
+    });
+    return () => provider.dispose();
+  }, [ready, findings, path]);
 
   // Markers follow the findings for this file.
   useEffect(() => {
@@ -219,7 +249,10 @@ export default function CodeEditor({
         codeLens: false,
         folding: false,
         links: false,
-        lightbulb: { enabled: "off" as never },
+        // On, now that there is something behind it. It was off with everything
+        // else that pops up while somebody is reading -- but this one appears
+        // only on a line we have squiggled, and it is the fix.
+        lightbulb: { enabled: "onCode" as never },
         matchBrackets: "never",
         bracketPairColorization: { enabled: false },
         occurrencesHighlight: "off",

@@ -135,6 +135,7 @@ def propose(
     span: Span,
     excerpt: str,
     context: str,
+    prompt: str | None = None,
     trace: dict | None = None,
 ) -> CandidateRemediation | None:
     """Ask for a fix. None when the model would not give one.
@@ -146,7 +147,9 @@ def propose(
     try:
         return caller.call(
             CandidateRemediation,
-            FIX_SYSTEM,
+            # Tunable from the studio like every other step's, and only falling
+            # back to the built-in when a caller has no prompt store to hand.
+            prompt or FIX_SYSTEM,
             fix_user(title=title, explanation=explanation, span=span, excerpt=excerpt, context=context),
             trace=trace,
         )
