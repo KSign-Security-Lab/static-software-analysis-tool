@@ -132,43 +132,68 @@ const THREADS: Thread[] = [
 
 function setup(over: Partial<Parameters<typeof RunPane>[0]> = {}) {
   const onTunePrompt = vi.fn();
-  render(
-    <RunPane
-      units={unitsOf(THREADS, STEPS)}
-      steps={STEPS}
-      prompts={[]}
-      mode="log"
-      onMode={() => {}}
-      phase="finished"
-      live={IDLE}
-      node={null}
-      selected={null}
-      onTunePrompt={onTunePrompt}
-      {...over}
-    />,
-  );
-  return { onTunePrompt };
+  const props = {
+    units: unitsOf(THREADS, STEPS),
+    steps: STEPS,
+    prompts: [],
+    mode: "log" as const,
+    onMode: () => {},
+    phase: "finished" as const,
+    live: IDLE,
+    node: null,
+    onClearNode: () => {},
+    selected: null,
+    onTunePrompt,
+    ...over,
+  };
+  const view = render(<RunPane {...props} />);
+  // Re-rendering rather than re-mounting: mounting fresh per mode is the case
+  // that always worked, and the one that did not is a mode changing under a tree
+  // that is already on screen.
+  const rerender = (mode: Parameters<typeof RunPane>[0]["mode"]) =>
+    view.rerender(<RunPane {...props} mode={mode} />);
+  return { onTunePrompt, rerender };
 }
 
 describe("RunPane", () => {
-  /** Open a unit's step by the name on its closed row. */
-  async function openStep(name: string) {
-    await userEvent.click(screen.getByRole("button", { name: new RegExp(name) }));
-  }
+  const row = (name: string) => screen.getByRole("button", { name: new RegExp(name) });
 
-  it("says what a step decided without being opened", () => {
-    // The whole bet of the rewrite: a row is worth not opening. The schema's own
-    // keys cannot do that -- `worth_analysing` names a field, not an outcome --
-    // so this is the one place the agent's vocabulary becomes the product's.
-    setup();
-    expect(screen.getByText("분석 대상 · memory, injection")).toBeTruthy();
-    // And the detail is not on screen until asked for.
-    expect(screen.queryByText("worth_analysing")).toBeNull();
+  it("switches mode on a tree already on screen", async () => {
+    // The regression, and the reason for the rewrite. `Collapsible` took
+    // `defaultOpen`, which is Radix's *initial* state, and nothing remounted when
+    // the mode changed -- so loading `?pane=map` gave a folded tree and switching
+    // to 요약 gave the same URL and an unfolded one. Mounting fresh per mode is
+    // exactly the case that already worked, so it has to be a click.
+    const { rerender } = setup({
+      units: unitsOf([THREADS[0], { ...THREADS[0], id: "other", symbol: "send_it" }], STEPS),
+    });
+    expect(screen.getAllByText("선별").length).toBe(2);
+
+    rerender("map");
+    expect(screen.queryByText("선별")).toBeNull();
+
+    rerender("log");
+    expect(screen.getAllByText("선별").length).toBe(2);
   });
 
-  it("opens a step to the reply in full, under the id the agent files it by", async () => {
+  it("lets a row be opened by hand, and puts it back when the mode changes", async () => {
+    // One gesture overrides one row; changing mode starts again. Without the
+    // second half, a tree drifts into a state no control can explain.
+    const { rerender } = setup({ mode: "map" });
+    expect(screen.queryByText("선별")).toBeNull();
+
+    await userEvent.click(row("ping_host"));
+    expect(screen.getByText("선별")).toBeTruthy();
+
+    rerender("log");
+    rerender("map");
+    expect(screen.queryByText("선별")).toBeNull();
+  });
+
+  it("opens to the replies, because 기록 is the record", () => {
+    // It used to open to step *rows* and leave every reply, tool call and result
+    // behind a click, which is not the full log it is named for.
     setup();
-    await openStep("선별");
 
     expect(screen.getByText("worth_analysing")).toBeTruthy();
     expect(screen.getByText(/sprintf 와 system 을 씁니다/)).toBeTruthy();
@@ -176,16 +201,41 @@ describe("RunPane", () => {
     expect(screen.getByText(/^triage/)).toBeTruthy();
   });
 
+  it("says what a step decided on its closed row", async () => {
+    // A row has to be worth not opening. The schema's own keys cannot do that --
+    // `worth_analysing` names a field, not an outcome -- so this is the one place
+    // the agent's vocabulary becomes the product's.
+    setup({ mode: "map" });
+    await userEvent.click(row("ping_host"));
+
+    expect(screen.getByText("분석 대상 · memory, injection")).toBeTruthy();
+    expect(screen.queryByText("worth_analysing")).toBeNull();
+  });
+
   it("keeps the brief a further step in, because it is a template", async () => {
     // The same standing instructions on every unit, wrapped around code that is
     // open two panes to the left.
     setup();
-    await openStep("선별");
     expect(screen.queryByText(/=== UNIT UNDER ANALYSIS/)).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: /받은 지시 · [\d,]+ chars/ }));
+    await userEvent.click(screen.getAllByRole("button", { name: /받은 지시 · [\d,]+ chars/ })[0]);
     expect(screen.getByText(/=== UNIT UNDER ANALYSIS/)).toBeTruthy();
     expect(screen.getByText(/값싼 첫 통과입니다/)).toBeTruthy();
+  });
+
+  it("names what the pane is narrowed to, and offers a way out", async () => {
+    // Clicking a node on the canvas filtered this pane and announced it nowhere.
+    const onClearNode = vi.fn();
+    setup({ node: "verify", onClearNode });
+
+    expect(screen.getByText("verify 만 보는 중")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /verify 만 보는 중 그만두기/ }));
+    expect(onClearNode).toHaveBeenCalled();
+  });
+
+  it("says nothing about scope when it is showing the whole run", () => {
+    setup();
+    expect(screen.queryByText(/만 보는 중/)).toBeNull();
   });
 
   it("names a step in the reader's language", () => {
@@ -222,9 +272,13 @@ describe("RunPane", () => {
     expect(screen.getByText(/단위 2 · 호출 4/)).toBeTruthy();
   });
 
-  it("opens the one unit there is, even folded: one unit is not a menu", () => {
+  it("folds a lone unit too, because 요약 means one rule", () => {
+    // It used to open itself on the grounds that one unit is not a menu -- true,
+    // and a fourth input to "why is this row open" on top of mode, scope and
+    // `?span=`. Predictable beats clever here.
     setup({ mode: "map" });
-    expect(screen.getByText("선별")).toBeTruthy();
+    expect(screen.queryByText("선별")).toBeNull();
+    expect(screen.getByText("ping_host")).toBeTruthy();
   });
 
   it("keeps only the steps that reached for something under 조회", () => {
@@ -248,11 +302,17 @@ describe("RunPane", () => {
     expect(screen.getByRole("button", { name: "기록" }).getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("opens everything down to the steps when scoped to one finding", () => {
-    // The finding view is this view, filtered -- not a second design.
-    setup({ focus: { title: "버퍼 오버플로우", scoped: true, onScoped: vi.fn() } });
-    expect(screen.getByText("‘버퍼 오버플로우’ 을 찾아낸 과정")).toBeTruthy();
-    expect(screen.getByText("선별")).toBeTruthy();
+  it("shows the finding it is narrowed to as a chip beside any other scope", async () => {
+    // The finding view is this view, filtered -- not a second design, and not a
+    // strip of its own competing with the node's.
+    const onScoped = vi.fn();
+    setup({ node: "verify", focus: { title: "버퍼 오버플로우", scoped: true, onScoped } });
+
+    expect(screen.getByText("verify 만 보는 중")).toBeTruthy();
+    expect(screen.getByText("‘버퍼 오버플로우’ 만 보는 중")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: /버퍼 오버플로우’ 만 보는 중 그만두기/ }));
+    expect(onScoped).toHaveBeenCalledWith(false);
   });
 
   it("names a file's own chunk for what it holds", () => {
@@ -291,42 +351,44 @@ describe("RunPane", () => {
     expect(screen.getByText("ping_host")).toBeTruthy();
   });
 
-  it("shows where a step handed on to, and what it spent", async () => {
+  it("shows where a step handed on to, and what it spent", () => {
     setup();
-    await openStep("선별");
     expect(screen.getByText("→ lens:memory, lens:injection")).toBeTruthy();
   });
 
-  it("plays a tool loop back as the exchange it was", async () => {
+  it("plays a tool loop back as the exchange it was", () => {
     setup();
-    await openStep("근거 모으기");
 
     expect(screen.getByText(/argv 에서 그대로 옵니다/)).toBeTruthy();
     expect(screen.getByText(/symbol="pick_target"/)).toBeTruthy();
     expect(screen.getByText(/도구 2\/3/)).toBeTruthy();
   });
 
-  it("renders a tool's answer as the facts it is, not as its JSON", async () => {
+  it("renders a tool's answer as the facts it is, not as its JSON", () => {
     // `find_definition` replies with 295 characters of indented JSON headed by a
     // chunk_id, to say a symbol is at a place and here is its body.
     setup({ units: unitsOf([{ ...THREADS[0], turns: [THREADS[0].turns[1]] }], STEPS) });
-    await openStep("근거 모으기");
 
     expect(screen.getByText("pick_target")).toBeTruthy();
     expect(screen.getByText("net.c:2-6")).toBeTruthy();
     expect(screen.queryByText(/chunk_id/)).toBeNull();
   });
 
-  it("keeps the prompt editor out of the way until a turn is hovered", () => {
+  it("keeps the prompt editor inside the step it acts on", () => {
+    // It used to sit on every step row on hover, a second control on the same
+    // line as the row's own expand -- appearing under the pointer on the way to
+    // the thing you meant to click. It acts on the brief, so it lives beside it.
+    setup({ mode: "map" });
+    expect(screen.queryByRole("button", { name: /고쳐서 다시 실행/ })).toBeNull();
+
+    cleanup();
     setup();
-    const edits = screen.getAllByRole("button", { name: "프롬프트 고쳐 다시 실행" });
-    expect(edits.length).toBeGreaterThan(1);
-    expect(edits[0].className).toContain("opacity-0");
+    expect(screen.getAllByRole("button", { name: /고쳐서 다시 실행/ }).length).toBeGreaterThan(1);
   });
 
   it("offers the prompt editor from the turn it belongs to", async () => {
     const { onTunePrompt } = setup();
-    const [first] = screen.getAllByRole("button", { name: "프롬프트 고쳐 다시 실행" });
+    const [first] = screen.getAllByRole("button", { name: /고쳐서 다시 실행/ });
     await userEvent.click(first);
     expect(onTunePrompt).toHaveBeenCalledWith("span-triage");
   });

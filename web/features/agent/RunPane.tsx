@@ -1,9 +1,8 @@
 "use client";
 
-import { ChevronRight, CirclePause, Loader2, Pencil, Wrench } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronRight, CirclePause, Loader2, Pencil, Wrench, X } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import type { AgentStep, NodeNote, PromptRow } from "@/lib/api/types";
@@ -65,6 +64,7 @@ export default function RunPane({
   phase,
   live,
   node,
+  onClearNode,
   note,
   focus,
   selected,
@@ -81,6 +81,7 @@ export default function RunPane({
   live: RunLive;
   /** Narrowed to one node of the graph, if anything is. */
   node: string | null;
+  onClearNode: () => void;
   /** What that node is, when one is picked. */
   note?: NodeNote;
   /** The finding being read in the dock, and whether this is narrowed to it. */
@@ -90,13 +91,9 @@ export default function RunPane({
   onTunePrompt: (spanId: string) => void;
 }) {
   const running = phase === "running" || phase === "starting";
-  // `map` is the only mode that folds. `log` is the record and opens as one;
-  // `tools` has already thrown away everything that is not a lookup, so there is
-  // nothing left to hide.
-  const opened = mode !== "map" || Boolean(focus?.scoped) || units.length === 1;
   // Only the steps that reached for something. The question is "what did it
-  // actually go and read", and in `log` that is nine rows scattered through
-  // twelve screens.
+  // actually go and read", and in the record that is a handful of rows scattered
+  // through the whole run.
   const shown = useMemo(
     () =>
       mode === "tools"
@@ -107,11 +104,47 @@ export default function RunPane({
     [units, mode],
   );
 
+  /**
+   * Which rows are open.
+   *
+   * Owned here, and that is the whole repair. Every `Collapsible` below used to
+   * take `defaultOpen`, which is Radix's *initial* state -- so nothing remounted
+   * when the mode changed and the rows kept whatever they had opened with.
+   * Loading `?pane=map` gave a folded tree; switching to 요약 gave the same URL
+   * and an unfolded one. A control that does nothing is bad; a control that does
+   * something only depending on how you arrived is worse.
+   *
+   * It also collapses the four separate answers to "why is this row open" --
+   * mode, the finding scope, a lone unit, `?span=` -- into one: it is open if it
+   * is in this set. Mode sets the baseline, a click overrides one row, changing
+   * mode starts again.
+   */
+  const [open, setOpen] = useState<Set<string>>(() => baseline(shown, mode, selected));
+  // Adjusted during render rather than in an effect, as `InspectorPane` does for
+  // its own scope: React re-runs this immediately, before the browser paints the
+  // stale tree. Keyed on everything the baseline is derived from, so a new run's
+  // units reset it as surely as a new mode does.
+  const signature = `${mode}|${selected ?? ""}|${shown.map((unit) => unit.id).join(",")}`;
+  const [madeFor, setMadeFor] = useState(signature);
+  if (madeFor !== signature) {
+    setMadeFor(signature);
+    setOpen(baseline(shown, mode, selected));
+  }
+
+  const toggle = useCallback((id: string, next: boolean) => {
+    setOpen((current) => {
+      const updated = new Set(current);
+      if (next) updated.add(id);
+      else updated.delete(id);
+      return updated;
+    });
+  }, []);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface">
       <Status phase={phase} live={live} />
       <Modes mode={mode} onMode={onMode} />
-      {focus && <Focus focus={focus} />}
+      <Scope node={node} onClearNode={onClearNode} focus={focus} />
 
       <div className="min-h-0 flex-1 overflow-auto">
         {note && <NodeCard note={note} steps={steps} prompts={prompts} />}
@@ -142,8 +175,8 @@ export default function RunPane({
                 <FileRow
                   key={group.file}
                   group={group}
-                  open={opened}
-                  openSteps={mode === "tools"}
+                  open={open}
+                  onToggle={toggle}
                   selected={selected}
                   onTunePrompt={onTunePrompt}
                 />
@@ -154,6 +187,46 @@ export default function RunPane({
       </div>
     </div>
   );
+}
+
+/** Row ids. Stable across renders, and distinct per level so the three cannot collide. */
+const fileId = (file: string) => `f:${file}`;
+const unitId = (id: string) => `u:${id}`;
+const stepId = (id: string) => `s:${id}`;
+
+/**
+ * What each mode opens.
+ *
+ * 기록 opens everything, because it is the record and was not behaving like one:
+ * it opened to step *rows* and left every reply, tool call and result behind a
+ * click. `Clamp` caps any one block at six lines and `받은 지시` stays folded, so
+ * "everything" is the whole argument rather than the whole prompt.
+ *
+ * 요약 is one row per unit. 조회 has already discarded every step that did not
+ * reach for something, so there is nothing left there to hide.
+ */
+function baseline(units: Unit[], mode: PaneMode, selected: string | null): Set<string> {
+  const open = new Set<string>();
+  for (const unit of units) {
+    // Files always: the group is a heading, and a run whose files were shut would
+    // open on nothing at all.
+    open.add(fileId(unit.file ?? unit.symbol ?? unit.id));
+    if (mode === "map") continue;
+    open.add(unitId(unit.id));
+    for (const exchange of unit.exchanges) open.add(stepId(exchange.id));
+  }
+  // The call the prompt editor is on, whatever the mode -- seeded here rather
+  // than read again three levels down, which is what made "why is this open" a
+  // question with four answers.
+  if (selected) {
+    open.add(stepId(selected));
+    const owner = units.find((unit) => unit.exchanges.some((each) => each.id === selected));
+    if (owner) {
+      open.add(unitId(owner.id));
+      open.add(fileId(owner.file ?? owner.symbol ?? owner.id));
+    }
+  }
+  return open;
 }
 
 const MODES: { id: PaneMode; label: string; hint: string }[] = [
@@ -219,27 +292,51 @@ function Tally({ units }: { units: Unit[] }) {
 }
 
 /**
- * Which finding the record is narrowed to, and the way out.
+ * What the pane is narrowed to, and how to stop.
  *
- * One line: the chain that produced the finding is the unit's own row and its
- * steps, right underneath, so stating it here as well was stating it twice.
+ * One strip, because there are two narrowings and only one of them ever said so.
+ * Clicking `verify` on the canvas filtered this pane from twelve steps to two
+ * and announced it nowhere: no name, no count, and no way back that did not
+ * involve going to the other pane and finding the chip there. The finding scope
+ * had a strip of its own, so the pane's answer to "why am I seeing less" depended
+ * on which of the two had caused it.
+ *
+ * A chip each, each with its own way out, and nothing at all when the pane is
+ * showing the whole run.
  */
-function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (next: boolean) => void } }) {
+function Scope({
+  node,
+  onClearNode,
+  focus,
+}: {
+  node: string | null;
+  onClearNode: () => void;
+  focus?: { title: string; scoped: boolean; onScoped: (next: boolean) => void } | null;
+}) {
+  const narrowed = focus?.scoped ? focus : null;
+  if (!node && !narrowed) return null;
+
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-line bg-accent-wash px-3 py-1.5">
-      <p className="min-w-0 flex-1 truncate text-2xs text-ink-muted">
-        {focus.scoped ? `‘${focus.title}’ 을 찾아낸 과정` : "실행 전체"}
-      </p>
-      <Button
-        size="xs"
-        variant="ghost"
-        className="shrink-0"
-        onClick={() => focus.onScoped(!focus.scoped)}
-        aria-pressed={focus.scoped}
-      >
-        {focus.scoped ? "전체 보기" : "이 문제만"}
-      </Button>
+    <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-line bg-accent-wash px-2 py-1">
+      {node && <Chip label={`${node} 만 보는 중`} onClear={onClearNode} mono />}
+      {narrowed && <Chip label={`‘${narrowed.title}’ 만 보는 중`} onClear={() => narrowed.onScoped(false)} />}
     </div>
+  );
+}
+
+function Chip({ label, onClear, mono }: { label: string; onClear: () => void; mono?: boolean }) {
+  return (
+    <span className="flex min-w-0 max-w-full items-center gap-1 rounded-sm bg-surface-2 py-0.5 pr-0.5 pl-1.5 text-2xs text-ink-muted">
+      <span className={cn("min-w-0 truncate", mono && "font-mono")}>{label}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`${label} 그만두기`}
+        className="shrink-0 rounded-sm p-0.5 text-ink-faint hover:bg-surface-3 hover:text-ink"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
   );
 }
 
@@ -262,14 +359,13 @@ function Focus({ focus }: { focus: { title: string; scoped: boolean; onScoped: (
 function FileRow({
   group,
   open,
-  openSteps,
+  onToggle,
   selected,
   onTunePrompt,
 }: {
   group: { file: string; units: Unit[] };
-  open: boolean;
-  /** 조회 has already discarded everything else; there is nothing left to fold. */
-  openSteps: boolean;
+  open: Set<string>;
+  onToggle: (id: string, next: boolean) => void;
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
 }) {
@@ -284,14 +380,14 @@ function FileRow({
   if (only) {
     return (
       <li className="border-b border-line">
-        <UnitRow unit={only} open={open} openSteps={openSteps} selected={selected} onTunePrompt={onTunePrompt} />
+        <UnitRow unit={only} open={open} onToggle={onToggle} selected={selected} onTunePrompt={onTunePrompt} />
       </li>
     );
   }
 
   return (
     <li className="border-b border-line">
-      <Collapsible defaultOpen>
+      <Collapsible open={open.has(fileId(group.file))} onOpenChange={(next) => onToggle(fileId(group.file), next)}>
         <CollapsibleTrigger className="group/file flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-surface-2">
           <ChevronRight
             className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/file:rotate-90"
@@ -312,7 +408,7 @@ function FileRow({
                 key={unit.id}
                 unit={unit}
                 open={open}
-                openSteps={openSteps}
+                onToggle={onToggle}
                 selected={selected}
                 onTunePrompt={onTunePrompt}
                 nested
@@ -331,14 +427,14 @@ function FileRow({
 function UnitRow({
   unit,
   open,
-  openSteps,
+  onToggle,
   selected,
   onTunePrompt,
   nested,
 }: {
   unit: Unit;
-  open: boolean;
-  openSteps: boolean;
+  open: Set<string>;
+  onToggle: (id: string, next: boolean) => void;
   selected: string | null;
   onTunePrompt: (spanId: string) => void;
   /** Inside a file group, which already carries the filename. */
@@ -353,7 +449,7 @@ function UnitRow({
   const file = !nested && unit.file && unit.file !== unit.symbol ? unit.file : null;
 
   return (
-    <Collapsible defaultOpen={open}>
+    <Collapsible open={open.has(unitId(unit.id))} onOpenChange={(next) => onToggle(unitId(unit.id), next)}>
       <CollapsibleTrigger className="group/unit flex w-full items-baseline gap-2 px-3 py-2 text-left hover:bg-surface-2">
         <ChevronRight
           className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/unit:rotate-90"
@@ -384,7 +480,8 @@ function UnitRow({
               exchange={exchange}
               unit={unit.symbol ?? unit.id}
               highlighted={exchange.id === selected}
-              opened={openSteps}
+              open={open.has(stepId(exchange.id))}
+              onToggle={(next) => onToggle(stepId(exchange.id), next)}
               onTunePrompt={() => onTunePrompt(exchange.id)}
             />
           ))}
@@ -406,14 +503,16 @@ function StepRow({
   exchange,
   unit,
   highlighted,
-  opened,
+  open,
+  onToggle,
   onTunePrompt,
 }: {
   exchange: Exchange;
   /** The unit's own name, so a step does not repeat it as its subject. */
   unit: string;
   highlighted: boolean;
-  opened: boolean;
+  open: boolean;
+  onToggle: (next: boolean) => void;
   onTunePrompt: () => void;
 }) {
   const outcome = outcomeOf(exchange);
@@ -421,35 +520,27 @@ function StepRow({
 
   return (
     <li className={cn(highlighted && "bg-accent-wash")}>
-      <Collapsible defaultOpen={highlighted || opened}>
-        <div className="group/step flex items-baseline">
-          <CollapsibleTrigger className="group/row flex min-w-0 flex-1 items-baseline gap-2 py-1 pr-2 pl-3 text-left hover:bg-surface-2">
-            <ChevronRight
-              className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/row:rotate-90"
-              aria-hidden
-            />
-            <span className="shrink-0 text-xs text-ink-muted">{labelOf(exchange)}</span>
-            <span className="ml-auto min-w-0 truncate text-right text-2xs">
-              {exchange.error ? (
-                <span className="text-danger">실패</span>
-              ) : outcome ? (
-                <span className={TONE[outcome.tone]}>{outcome.text}</span>
-              ) : (
-                <span className="font-mono text-ink-faint">{subject}</span>
-              )}
-            </span>
-          </CollapsibleTrigger>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            title="프롬프트 고쳐 다시 실행"
-            aria-label="프롬프트 고쳐 다시 실행"
-            onClick={onTunePrompt}
-            className="mr-1 shrink-0 self-center opacity-0 transition-opacity group-hover/step:opacity-100 focus-visible:opacity-100"
-          >
-            <Pencil className="text-ink-faint" />
-          </Button>
-        </div>
+      {/* One target. The prompt-edit pencil used to sit here on hover, a second
+          control on the same line as the row's own, appearing under the pointer
+          on the way to the thing you meant to click. It acts on the brief, so it
+          is beside the brief now. */}
+      <Collapsible open={open} onOpenChange={onToggle}>
+        <CollapsibleTrigger className="group/row flex w-full min-w-0 items-baseline gap-2 py-1 pr-3 pl-3 text-left hover:bg-surface-2">
+          <ChevronRight
+            className="size-3 shrink-0 self-center text-ink-faint transition-transform group-data-[state=open]/row:rotate-90"
+            aria-hidden
+          />
+          <span className="shrink-0 text-xs text-ink-muted">{labelOf(exchange)}</span>
+          <span className="ml-auto min-w-0 truncate text-right text-2xs">
+            {exchange.error ? (
+              <span className="text-danger">실패</span>
+            ) : outcome ? (
+              <span className={TONE[outcome.tone]}>{outcome.text}</span>
+            ) : (
+              <span className="font-mono text-ink-faint">{subject}</span>
+            )}
+          </span>
+        </CollapsibleTrigger>
 
         <CollapsibleContent>
           <div className="space-y-2 border-l border-line py-2 pr-3 pl-3 ml-[22px]">
@@ -460,7 +551,19 @@ function StepRow({
             <Detail exchange={exchange} />
             {exchange.error && <p className="font-mono text-2xs text-danger">{exchange.error}</p>}
             <Meta exchange={exchange} />
-            <Sent exchange={exchange} />
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Sent exchange={exchange} />
+              {/* Sized to its neighbour, not to itself. At the button's own scale
+                  it was the loudest thing in a step whose subject is the step. */}
+              <button
+                type="button"
+                onClick={onTunePrompt}
+                className="flex shrink-0 items-center gap-0.5 font-mono text-2xs text-ink-faint hover:text-ink-muted"
+              >
+                <Pencil className="size-3 shrink-0" aria-hidden />
+                고쳐서 다시 실행
+              </button>
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>

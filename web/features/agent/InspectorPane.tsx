@@ -35,7 +35,7 @@ import PromptSheet from "./PromptSheet";
 export default function InspectorPane() {
   const [runId] = useRunId();
   const [spanId, setSpanId] = useSelectedSpan();
-  const [node] = useScopedNode();
+  const [node, setNode] = useScopedNode();
   const [mode, setMode] = usePaneMode();
   const [findingId] = useSelectedFinding();
   const { live, phase } = useRunStream();
@@ -105,6 +105,7 @@ export default function InspectorPane() {
         phase={phase}
         live={live}
         node={node}
+        onClearNode={() => void setNode(null)}
         note={note}
         focus={finding ? { title: finding.title, scoped: narrowed, onScoped: setScoped } : null}
         selected={spanId}
