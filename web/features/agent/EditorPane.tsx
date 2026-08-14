@@ -1,12 +1,14 @@
 "use client";
 
-import { FileCode, FilePlus, FolderUp, Save } from "lucide-react";
+import { FileCode, FilePlus, FolderUp, Save, TriangleAlert } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import CodeEditor from "@/components/editor/CodeEditor.lazy";
 import { Button } from "@/components/ui/button";
 import { PanelShell } from "@/components/workbench/PanelShell";
-import { fromAgent, type UiFinding } from "@/lib/model/finding";
+import FileTabs from "@/features/agent/FileTabs";
+import { ago } from "@/lib/format";
+import { countByFile, fromAgent, type UiFinding } from "@/lib/model/finding";
 import { useFile, useFindings, useOpenFinding } from "@/lib/run/queries";
 import { STARTER, useCreateFile, useUploadTree } from "@/lib/run/new-file";
 import { useRunControls } from "@/lib/run/controls";
@@ -34,15 +36,44 @@ export default function EditorPane() {
   // that this is the whole of it, and every other consumer of the run id gets it
   // from the same hook anyway.
   const [runId] = useRunId();
-  const [path] = useOpenFile();
+  const [path, setPath] = useOpenFile();
   const [line] = useRevealLine();
   const [, setSelectedId] = useSelectedFinding();
-  const { draftOf, setDraft, save, saving } = useRunControls();
+  const { draftOf, setDraft, save, saving, savedAt, dirty: dirtyPaths } = useRunControls();
 
   const file = useFile(runId, path);
   const findings = useFindings(runId);
   const newFile = useCreateFile();
   const upload = useUploadTree();
+
+  /**
+   * The files this reader has open.
+   *
+   * `useState` here rather than a store: the centre slot mounts once for the
+   * surface, so this survives every file switch without one, and a tab list is
+   * not worth a URL parameter -- `?file=` already says which one is *active*,
+   * which is the part worth linking to.
+   *
+   * Adjusted during render rather than in an effect, the way the drafts store
+   * resets on a run change: React re-runs this immediately, so the strip is never
+   * a frame behind the file it is labelling.
+   */
+  const [open, setOpen] = useState<string[]>([]);
+  const [openedFor, setOpenedFor] = useState(runId);
+  if (openedFor !== runId) {
+    setOpenedFor(runId);
+    setOpen(path ? [path] : []);
+  } else if (path && !open.includes(path)) {
+    setOpen([...open, path]);
+  }
+
+  const closeTab = (each: string) => {
+    const rest = open.filter((name) => name !== each);
+    setOpen(rest);
+    // Closing the one you are looking at has to land somewhere. The neighbour to
+    // the left is where the eye already is.
+    if (each === path) void setPath(rest[Math.max(0, open.indexOf(each) - 1)] ?? null);
+  };
 
   /**
    * Dropping a folder here.
@@ -95,32 +126,102 @@ export default function EditorPane() {
   const dirty = draft !== undefined && draft !== server;
 
   const ui = useMemo<UiFinding[]>(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
+  const counts = useMemo(() => countByFile(ui), [ui]);
   const selected = useOpenFinding(runId) ?? null;
 
   const canSave = Boolean(runId && path && dirty && !saving);
 
+  /**
+   * Whether the report still describes what is in this file.
+   *
+   * `POST /agent/runs/{id}/apply` splices a fix in by matching the finding's
+   * `primary.excerpt` against the file, and **409s** when they no longer agree.
+   * Nothing said so until the patch had been pressed and the toast came back, so
+   * this says it first -- an unsaved edit to a line the report quotes is exactly
+   * the state where 이대로 고치기 is about to fail.
+   */
+  const stale = useMemo(() => {
+    if (!path) return false;
+    const quoted = ui.filter((each) => each.primary.file === path && each.primary.excerpt);
+    if (quoted.length === 0) return false;
+    return quoted.some((each) => !value.includes(each.primary.excerpt!.trim()));
+  }, [ui, path, value]);
+
   return (
     <div className="relative h-full min-h-0" {...dropping}>
     <PanelShell
-      title={path ?? "편집기"}
-      note={dirty ? "저장되지 않음" : undefined}
-      actions={
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => path && void save(path)}
-          disabled={!canSave}
-        >
-          <Save />
-          {saving ? "저장 중…" : dirty ? "저장" : "저장됨"}
-        </Button>
-      }
-      bodyClassName={cn("overflow-hidden", !path && "grid place-items-center")}
+      // No title once a file is open: the tabs are the identity, and a header
+      // repeating the path above them was a second name for the same thing. It
+      // was briefly the file's *directory*, which at the root of a run is the
+      // empty string -- so the pane called itself 편집기 while showing `util.c`.
+      title={path ? undefined : "편집기"}
+      bodyClassName={cn("flex flex-col overflow-hidden", !path && "grid place-items-center")}
     >
+      {path && (
+        <>
+          <FileTabs
+            open={open}
+            active={path}
+            dirty={dirtyPaths}
+            counts={counts}
+            onPick={(each) => void setPath(each)}
+            onClose={closeTab}
+          />
+
+          {/*
+            The file's own state, on its own row.
+
+            저장 was an `xs` ghost in the panel header -- the same mistake 검사
+            실행 had, and for the same reason it was fixed: this writes to
+            somebody's source tree and it should not look like a toolbar icon.
+            The row also has room for the two things nothing was saying: when the
+            file was last written, and whether the report still matches it.
+          */}
+          <div className="flex h-9 shrink-0 items-center gap-3 border-b border-line px-3">
+            {/* The path in full, since the tab only has room for the basename --
+                and this row was otherwise blank most of the time, which is a
+                32px band of nothing above the code. */}
+            <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{path}</span>
+
+            <span className="ml-auto flex shrink-0 items-center gap-3">
+              {stale && (
+                <span
+                  className="flex items-center gap-1.5 rounded-sm bg-warn-wash px-1.5 py-0.5 text-2xs text-warn"
+                  title="보고서가 인용한 코드가 지금 파일에 없습니다. ‘이대로 고치기’는 실패합니다."
+                >
+                  <TriangleAlert className="size-3 shrink-0" />
+                  지난 검사 이후 바뀜
+                </span>
+              )}
+
+              <span className="text-2xs text-ink-faint">
+                {saving
+                  ? "저장 중…"
+                  : dirty
+                    ? "저장되지 않음"
+                    : savedAt.has(path)
+                      ? `${ago(savedAt.get(path)!)}에 저장함`
+                      : "저장됨"}
+              </span>
+
+              {/* Filled, always. It was a ghost that read `저장됨` -- which is a
+                  status wearing a button's clothes, and the same mistake 검사
+                  실행 had. Disabled when there is nothing to write, so it is
+                  quiet without pretending to be a label. */}
+              <Button size="sm" className="shrink-0" onClick={() => path && void save(path)} disabled={!canSave}>
+                <Save />
+                저장
+              </Button>
+            </span>
+          </div>
+        </>
+      )}
+
       {path ? (
         <CodeEditor
           path={path}
           value={value}
+          density="comfortable"
           language={file.data?.language}
           findings={ui}
           selected={selected}

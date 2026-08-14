@@ -1,7 +1,9 @@
 "use client";
 
-import { Eraser, FileCode, FilePlus, FolderUp, Trash2 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Eraser, FilePlus, FolderUp, Trash2 } from "lucide-react";
+import { createElement, useMemo, useRef, useState } from "react";
+
+import { glyphForFile } from "@/lib/file-icon";
 
 import {
   AlertDialog,
@@ -128,7 +130,18 @@ export default function FileExplorer({
                     waiting && "opacity-55",
                   )}
                 >
-                  <FileCode className={cn("size-3.5 shrink-0 opacity-60", scanning && "text-accent-ink opacity-100")} />
+                  {/* By kind and in colour: a tree is scanned by shape and hue
+                      long before it is read, and every row drawing one grey
+                      `FileCode` made four kinds of file into four identical
+                      lines. Monochrome-at-60% was the first attempt and it may as
+                      well not have been made -- six glyphs that small are six
+                      smudges without a colour to tell them apart. */}
+                  {createElement(glyphForFile(path).icon, {
+                    className: cn(
+                      "size-3.5 shrink-0",
+                      scanning ? "text-accent-ink" : glyphForFile(path).tone,
+                    ),
+                  })}
                   <span className="truncate">{path}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-1 pr-0.5">
                     {scanning && (

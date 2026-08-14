@@ -27,6 +27,16 @@ export interface CodeEditorProps {
   value: string;
   language?: string;
   readOnly?: boolean;
+  /**
+   * Type size and leading, for panes that have the room.
+   *
+   * 13/20 is the density a pane competing with three others wants. 검사's centre
+   * is the widest thing on that surface and its editor is for *reading* -- the
+   * finding is on a line and the line is what somebody came to look at -- so it
+   * asks for more. F2-A and 스테이지 draw into narrower panels and keep the
+   * tighter setting.
+   */
+  density?: "compact" | "comfortable";
   findings?: UiFinding[];
   selected?: UiFinding | null;
   /**
@@ -47,6 +57,7 @@ export default function CodeEditor({
   value,
   language,
   readOnly = false,
+  density = "compact",
   findings = [],
   selected = null,
   line = null,
@@ -218,8 +229,10 @@ export default function CodeEditor({
       loading={<p className="p-4 text-sm text-ink-faint">편집기를 불러오는 중…</p>}
       options={{
         readOnly,
-        fontSize: 13,
-        lineHeight: 20,
+        // Roughly 1.7 line height at the comfortable setting, which is where a
+        // monospace stops reading as a wall. See `density`.
+        fontSize: density === "comfortable" ? 14 : 13,
+        lineHeight: density === "comfortable" ? 24 : 20,
         fontFamily: "var(--font-mono)",
         fontLigatures: true,
         minimap: { enabled: false },

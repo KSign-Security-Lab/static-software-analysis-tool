@@ -49,18 +49,39 @@ export function defineTheme(monaco: typeof Monaco): string {
   const alt = resolve(styles, "--alt", "#b08cf0");
   const warn = resolve(styles, "--warn", "#e0a33a");
   const ok = resolve(styles, "--ok", "#5cc98a");
+  const danger = resolve(styles, "--danger", "#e4696b");
   const line = resolve(styles, "--line-2", dark ? "#2a2f36" : "#dfe3e8");
+  const band = resolve(styles, "--surface-2", bg);
 
   monaco.editor.defineTheme(THEME_NAME, {
     base: dark ? "vs-dark" : "vs",
     inherit: true,
+    /**
+     * Seven rules coloured four things and left the rest at Monaco's defaults,
+     * so a C file came out mostly one shade of grey with occasional violet.
+     * Preprocessor lines, function names and operators -- the three things the
+     * eye actually uses to find its way down a page of C -- were all
+     * `identifier` or unstyled.
+     *
+     * Monaco's C tokenizer is coarse and emits scopes it does not document, so
+     * these are ordered general to specific: a longer scope wins, and the broad
+     * ones are the floor rather than the answer.
+     */
     rules: [
       { token: "comment", foreground: faint.slice(1), fontStyle: "italic" },
       { token: "keyword", foreground: alt.slice(1) },
+      // `#include`, `#define`. They are the loudest lines in a C file and they
+      // were the same colour as the code under them.
+      { token: "keyword.directive", foreground: danger.slice(1) },
+      { token: "keyword.directive.include", foreground: danger.slice(1) },
       { token: "string", foreground: ok.slice(1) },
+      { token: "string.include.identifier", foreground: ok.slice(1) },
       { token: "number", foreground: warn.slice(1) },
       { token: "type", foreground: accent.slice(1) },
+      { token: "type.identifier", foreground: accent.slice(1) },
       { token: "identifier", foreground: ink.slice(1) },
+      { token: "function", foreground: accent.slice(1) },
+      { token: "operator", foreground: alt.slice(1) },
       { token: "delimiter", foreground: muted.slice(1) },
     ],
     colors: {
@@ -69,7 +90,11 @@ export function defineTheme(monaco: typeof Monaco): string {
       "editorLineNumber.foreground": faint,
       "editorLineNumber.activeForeground": ink,
       "editorGutter.background": bg,
-      "editor.lineHighlightBorder": line,
+      // A band, not an outline. `lineHighlightBorder` draws a hairline box round
+      // the caret's line, which at this contrast is invisible against the gutter
+      // rule -- so nothing marked where you were. The reference fills it.
+      "editor.lineHighlightBackground": band,
+      "editor.lineHighlightBorder": "#00000000",
       "editorIndentGuide.background1": line,
       "editorWidget.background": resolve(styles, "--surface-2", bg),
       "editorWidget.border": line,
