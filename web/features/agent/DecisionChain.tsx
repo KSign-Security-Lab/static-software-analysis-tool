@@ -1,11 +1,12 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Workflow } from "lucide-react";
 
 import { Meta } from "@/components/panel/code-block";
+import { Button } from "@/components/ui/button";
 import type { UiFinding } from "@/lib/model/finding";
 import { useClaimTrail } from "@/lib/run/claim-trail";
-import { useSelection } from "@/lib/run/selection";
+import { useSelection, useStructureOpen } from "@/lib/run/selection";
 import { outcomeOf } from "@/lib/trace/outcome";
 import { labelOf, seconds } from "@/lib/trace/process";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ import { cn } from "@/lib/utils";
 export default function DecisionChain({ finding }: { finding: UiFinding }) {
   const trail = useClaimTrail(finding);
   const { select } = useSelection();
+  const [, setStructure] = useStructureOpen();
 
   if (trail.length === 0) {
     return (
@@ -54,7 +56,30 @@ export default function DecisionChain({ finding }: { finding: UiFinding }) {
 
   return (
     <section className="space-y-1 border-t border-line px-3 py-2.5">
-      <h4 className="text-2xs text-ink-muted">판단 과정</h4>
+      <div className="flex items-baseline gap-2">
+        <h4 className="text-2xs text-ink-muted">판단 과정</h4>
+        {/*
+          The same chain, on the pipeline that ran it.
+
+          This list is the order; the drawing is the shape -- which of the six
+          specialists were even asked, and which parts of the graph this claim
+          never went near. Both are answers to "how was this decided" and the
+          drawing's half was unreadable until it had a canvas: at scale(0.3) the
+          lit path and the dimmed rest were the same grey smudge.
+
+          `?finding=` is left exactly as it is, so the canvas opens already
+          narrowed to this claim.
+        */}
+        <Button
+          size="xs"
+          variant="ghost"
+          className="ml-auto h-5 px-1.5 text-2xs text-accent-ink"
+          onClick={() => void setStructure(true)}
+        >
+          <Workflow />
+          구조에서 보기
+        </Button>
+      </div>
       <ol className="-mx-1">
         {trail.map((exchange, index) => {
           const outcome = outcomeOf(exchange);

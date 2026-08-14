@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import StepGraph from "@/components/graph/StepGraph.lazy";
 import { Button } from "@/components/ui/button";
@@ -31,15 +31,24 @@ import { useRunId } from "@/lib/run/use-run-id";
  *
  * It has been a centre tab, the left column of a full-window overlay, a tab of
  * the bottom panel, a row of pills that was not the graph at all, and the top of
- * the bottom panel. `direction` is the only thing that changed with the last move
- * -- `layoutGraph` has always taken it.
+ * the bottom panel. It is the canvas of its own overlay now -- the first home
+ * that is actually big enough for it. Everywhere else it was fitted into a pane
+ * of a four-pane workbench, and the last of those was 460x334, which React Flow
+ * solved at scale(0.3).
  *
  * Breakpoints are still set on the node itself, and are still locked once a run
  * is going: they are compiled in when the graph is built, so changing one
  * mid-run would be a lie.
  */
-export default function GraphPane({ direction = "LR" }: { direction?: "LR" | "TB" } = {}) {
+export default function GraphPane({
+  direction = "LR",
+  fit = 0,
+}: { direction?: "LR" | "TB"; fit?: number } = {}) {
   const [runId] = useRunId();
+  // The five specialists, drawn as one or as five. Collapsed by default: that
+  // rank was six wide and owned ten of the graph's twenty-three edges, and five
+  // boxes differing only in a word are not five things to understand.
+  const [expanded, setExpanded] = useState(false);
   const { selection, select } = useSelection();
   const node = idOf(selection, "node");
   const { live } = useRunStream();
@@ -69,54 +78,50 @@ export default function GraphPane({ direction = "LR" }: { direction?: "LR" | "TB
 
   return (
     <PanelShell
-      // Titled again. It lost its title when it was a tab of the bottom panel and
-      // the tab strip named it; it is the top of the right column now, nothing
-      // else names it, and the app's own 사용법 was pointing at a pane with no
-      // label on it.
-      title="에이전트 구조"
-      actions={
-        node && (
-          <Button size="xs" variant="ghost" onClick={() => select(null)}>
-            {node}
-            <X />
-          </Button>
+      // No title. The overlay's own header names this, and a second 에이전트 구조
+      // one row under the first is the panel saying what the reader just clicked.
+      note={
+        path ? (
+          <span className="truncate text-2xs text-accent-ink">‘{finding!.title}’ 의 판단에 관여한 노드</span>
+        ) : (
+          <span className="truncate text-2xs text-ink-faint">노드를 누르면 오른쪽에 그 노드가 무엇인지 나옵니다</span>
         )
       }
-      bodyClassName="overflow-hidden"
+      actions={
+        <>
+          {expanded && (
+            <Button size="xs" variant="ghost" className="text-ink-muted" onClick={() => setExpanded(false)}>
+              전문가 접기
+            </Button>
+          )}
+          {node && (
+            <Button size="xs" variant="ghost" onClick={() => select(null)}>
+              {node}
+              <X />
+            </Button>
+          )}
+        </>
+      }
+      // `relative`, because the canvas inside is `absolute inset-0`. It cannot
+      // take a percentage height off this box -- `PanelShell`'s body is
+      // `min-h-0 flex-1`, which has no definite height for a percentage to
+      // resolve against, so React Flow measured 0x0 and refused to draw
+      // (error #004). Positioning sidesteps the question entirely.
+      bodyClassName="relative overflow-hidden"
     >
-      {/* Nothing on screen said what a dotted line meant, so it had to be asked.
-          The distinction is LangGraph's own -- `add_conditional_edges` against
-          `add_edge` -- and it comes through the shape untouched. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-2.5 py-1.5 text-2xs text-ink-faint">
-        <span className="flex items-center gap-1.5">
-          <svg width="22" height="6" aria-hidden className="shrink-0">
-            <line x1="0" y1="3" x2="22" y2="3" stroke="var(--line-3)" strokeWidth="1.5" />
-          </svg>
-          항상 실행
-        </span>
-        <span className="flex items-center gap-1.5">
-          <svg width="22" height="6" aria-hidden className="shrink-0">
-            <line x1="0" y1="3" x2="22" y2="3" stroke="var(--line-3)" strokeWidth="1.5" strokeDasharray="5 4" />
-          </svg>
-          조건부 — 라우터가 고릅니다
-        </span>
-        <span className="flex items-center gap-1.5">
-          <svg width="22" height="6" aria-hidden className="shrink-0">
-            <line x1="0" y1="3" x2="22" y2="3" stroke="var(--alt)" strokeWidth="1.5" />
-          </svg>
-          다음 차례로 되돌아가기
-        </span>
-        {path ? (
-          <span className="ml-auto text-accent-ink">
-            ‘{finding!.title}’ 의 판단에 관여한 노드만 밝게 — 위 ‘문제’ 칩의 × 로 전체를 봅니다
-          </span>
-        ) : (
-          <span className="ml-auto">노드를 누르면 오른쪽 ‘상세’에 그 노드가 무엇인지 나옵니다</span>
-        )}
-      </div>
+      {/*
+        The three-item legend that used to sit here is deleted, not moved.
 
-      {/* The refusal that used to sit here is on the run bar. It is a fact about
-          the run rather than about the drawing, and it was on both. */}
+        It explained a dash pattern, a solid line and a colour, and it cost two
+        wrapped lines -- 55px of a pane that had 334px to draw in, so 13% of the
+        canvas was spent teaching the reader how to read the other 87%. The
+        router's name is on the edge it governs now, and 되돌아가기 is on the
+        loop, which says the same three things where each applies and needs
+        nothing read first.
+
+        The refusal that used to sit here is on the run bar. It is a fact about
+        the run rather than about the drawing, and it was on both.
+      */}
       {shape.data ? (
         <StepGraph
           shape={shape.data}
@@ -129,6 +134,9 @@ export default function GraphPane({ direction = "LR" }: { direction?: "LR" | "TB
           onSelect={(next) => select(next ? { kind: "node", id: next } : null)}
           onInterrupt={toggleBreakpoint}
           direction={direction}
+          fit={fit}
+          expanded={expanded}
+          onExpand={setExpanded}
         />
       ) : (
         <p className="p-4 text-xs text-ink-faint">에이전트 구조를 불러오는 중…</p>
