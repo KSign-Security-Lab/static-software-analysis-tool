@@ -12,7 +12,7 @@ import { useForgetMissingRun } from "@/lib/run/forget-missing";
 import { RunStreamProvider } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cookieValue, layoutFor, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
-import type { PerspectiveId } from "@/lib/workbench/perspectives";
+import { perspective, type PerspectiveId } from "@/lib/workbench/perspectives";
 import type { PaneId } from "@/lib/workbench/store";
 import { useWorkbench } from "@/lib/workbench/store-provider";
 import { useBeforePaint } from "@/lib/workbench/use-before-paint";
@@ -108,7 +108,7 @@ const SIZE = {
 } as const;
 
 export default function Workbench({
-  perspective,
+  perspective: current,
   stored,
   children,
   side,
@@ -121,7 +121,7 @@ export default function Workbench({
   // is mounted exactly once -- a dozen components each deciding to drop the id
   // would be a dozen writes to the address bar.
   useForgetMissingRun();
-  const initial: PaneLayout = layoutFor(stored, perspective);
+  const initial: PaneLayout = layoutFor(stored, current);
 
   // Not state: it is only ever read when writing the cookie back, and making
   // it state would re-render the whole tree on every drag.
@@ -159,10 +159,10 @@ export default function Workbench({
       // there is nothing left to debounce.
       document.cookie = cookieValue({
         ...stored,
-        [perspective]: latest.current,
+        [current]: latest.current,
       });
     },
-    [perspective, stored],
+    [current, stored],
   );
 
   return (
@@ -186,7 +186,19 @@ export default function Workbench({
           what is actually there.
         */}
         <div className="flex h-dvh flex-col overflow-hidden bg-bg text-ink">
-          <PerspectiveHeader />
+          {/*
+            Only where a surface asked for one.
+
+            검사 does not: the bar was `SSAT │ 검사 │ 1,270px of nothing │ 사용법
+            ▣▣▣` at 1600, and the run strip beneath it held nothing that wanted
+            to be permanent. Both are gone there, and the 72px they cost is the
+            drawing's now. The rail carries what was genuinely global.
+
+            The other three keep it, so the app is briefly inconsistent -- a
+            deliberate cost, taken because 검사 is where the work happens and it
+            is the surface that could not afford the rows.
+          */}
+          {perspective(current).chrome && <PerspectiveHeader />}
           {status}
 
           {/*

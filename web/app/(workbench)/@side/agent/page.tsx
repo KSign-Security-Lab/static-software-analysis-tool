@@ -1,13 +1,13 @@
-import ExplorerPane from "@/features/agent/ExplorerPane";
+import Navigator from "@/features/agent/Navigator";
 
 /**
- * The file tree, and nothing else.
+ * The left column.
  *
- * It shared this rail with the 문제 list for a while, which meant the left side
- * had two subjects and the problems had to be folded away to see the files or
- * the other way round. 문제 is the bottom panel now -- where a problems list
- * belongs and where its rows have width -- so this is the explorer, full height.
+ * It was the file tree and nothing else, while a 36px strip across the top of
+ * the window carried which run was open, how far it had got, and the button
+ * that fills it. Those are all facts about what this column lists, so they are
+ * its header, its progress line and its footer now -- and the strip is gone.
  */
 export default function Slot() {
-  return <ExplorerPane />;
+  return <Navigator />;
 }

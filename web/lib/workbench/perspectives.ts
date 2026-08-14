@@ -44,6 +44,20 @@ export interface Perspective {
    */
   panes: readonly ("side" | "dock" | "inspector")[];
   /**
+   * Whether this surface wants the title bar above it.
+   *
+   * 검사 does not. The bar was `SSAT │ 검사 │ 1,270px of nothing │ 사용법 ▣▣▣`
+   * at 1600, with a second 36px run strip under it, and between them they cost
+   * 72px of permanent chrome for information that is transient (the phase, the
+   * coverage), post-hoc (tokens, duration) or pressed once a run (검사 실행,
+   * the run selector). Moving those pieces around never helped because none of
+   * them wanted to be permanent; they are inside the regions that use them now.
+   *
+   * The rail carries what is genuinely global, so nothing is lost -- see
+   * `ActivityBar`'s foot.
+   */
+  chrome: boolean;
+  /**
    * What this surface answers, in one sentence.
    *
    * Five tools share one shell and they look alike from the outside -- the
@@ -67,6 +81,7 @@ export const PERSPECTIVES: readonly Perspective[] = [
     icon: ScanSearch,
     carries: ["run", "file"],
     panes: ["side", "dock", "inspector"],
+    chrome: false,
     purpose:
       "이 코드에 취약점이 있는가, 그리고 에이전트는 왜 그렇게 판단했는가 — 결과와 과정을 나란히 봅니다.",
     steps: [
@@ -86,6 +101,7 @@ export const PERSPECTIVES: readonly Perspective[] = [
     icon: ShieldCheck,
     carries: ["sample", "view"],
     panes: ["side", "dock", "inspector"],
+    chrome: true,
     purpose: "이 액션을 처리하는 함수는 무엇인가 — 등록·디스패치 흔적을 모아 후보를 고르고, 고른 이유를 남깁니다.",
     steps: [
       "왼쪽 ‘소스’에서 예제를 고르거나, 편집기에 코드를 직접 붙여넣습니다.",
@@ -101,6 +117,7 @@ export const PERSPECTIVES: readonly Perspective[] = [
     icon: Network,
     carries: ["sample", "view"],
     panes: ["side", "inspector"],
+    chrome: true,
     purpose: "이 코드의 구조는 어떻게 생겼는가 — Joern이 만든 CPG와 파이프라인이 만든 그래프를 나란히 봅니다.",
     steps: [
       "왼쪽 ‘소스’에서 예제를 고르거나 소스·CPG JSON 파일을 열고 ‘분석’을 누릅니다.",
@@ -116,6 +133,7 @@ export const PERSPECTIVES: readonly Perspective[] = [
     icon: TerminalSquare,
     carries: ["sample", "stage"],
     panes: ["side"],
+    chrome: true,
     purpose: "이 단계가 실제로 무엇을 돌려주는가 — 엔드포인트 하나를 그대로 호출해 응답을 날것으로 봅니다.",
     steps: [
       "왼쪽 ‘단계’에서 호출할 엔드포인트를 고릅니다.",

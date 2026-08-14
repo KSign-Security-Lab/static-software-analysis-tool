@@ -1,21 +1,14 @@
 "use client";
 
-import { Maximize2, Play, Repeat, X } from "lucide-react";
+import { Maximize2, Repeat, X } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
-import { Phase } from "@/features/agent/RunBar";
-import { Coverage, coverageOf, n } from "@/features/agent/RunSummary";
 import GraphPane from "@/features/trace/GraphPane";
 import NodeBrief from "@/features/trace/NodeBrief";
 import RunLog from "@/features/trace/RunLog";
-import { useRunControls } from "@/lib/run/controls";
-import { useFindings, useRun } from "@/lib/run/queries";
-import { phaseFor } from "@/lib/run/reduce";
 import { useStructureOpen } from "@/lib/run/selection";
-import { useRunStream } from "@/lib/run/stream";
-import { useRunId } from "@/lib/run/use-run-id";
 
 /**
  * 에이전트 구조, at the size the drawing needs.
@@ -64,15 +57,17 @@ import { useRunId } from "@/lib/run/use-run-id";
  * canvas against everything else, and the canvas gets three quarters of the
  * window by construction.
  *
- * ## The run button
+ * ## A reader, not a control surface
  *
- * A reader, not a second control surface. `inspect` arrives as a prop from the
- * run bar, which owns it. Two triggers for one action is fine; two actions
- * wearing one label is a bug waiting for the two to disagree about whether a run
- * is in flight.
+ * It carried 검사 실행 and a phase label and a coverage meter, which is a second
+ * copy of the navigator's footer and header. Two buttons for one action is fine;
+ * two actions wearing one label is a bug waiting for the two to disagree about
+ * whether a run is in flight. This draws the pipeline and says nothing about
+ * starting one.
  *
  * Open state is in the URL, so a canvas showing one finding's trail is a link.
  */
+
 /**
  * Never changes, so `useSyncExternalStore` never re-subscribes.
  *
@@ -81,26 +76,14 @@ import { useRunId } from "@/lib/run/use-run-id";
  */
 const subscribe = () => () => {};
 
-export default function StructureOverlay({
-  inspect,
-  starting,
-}: {
-  inspect: () => Promise<void>;
-  starting: boolean;
-}) {
+export default function StructureOverlay() {
   const [open, setOpen] = useStructureOpen();
-  const [runId] = useRunId();
   // Across, now that the rail is gone. Collapsed, the graph is eight ranks by
   // two: a long shallow pipeline in a canvas that is the full width of the
   // window. Top to bottom was right when the canvas was 460 wide and it is not
   // any more. The toggle stays for anyone who disagrees.
   const [direction, setDirection] = useState<"LR" | "TB">("LR");
   const [fit, setFit] = useState(0);
-
-  const { live, phase: streamed } = useRunStream();
-  const { dirty, saving } = useRunControls();
-  const run = useRun(runId);
-  const findings = useFindings(runId);
 
   const close = () => void setOpen(null);
 
@@ -130,10 +113,6 @@ export default function StructureOverlay({
   // link that has just been followed.
   const hydrated = useSyncExternalStore(subscribe, () => true, () => false);
   if (!open || !hydrated) return null;
-
-  const phase = phaseFor(streamed, run.data?.status);
-  const running = phase === "running" || phase === "starting";
-  const { total, cached, inspected, done } = coverageOf(findings.data?.stats, live);
 
   return createPortal(
     <>
@@ -180,24 +159,7 @@ export default function StructureOverlay({
             </Button>
           </span>
 
-          <Phase phase={phase} live={live} />
-
-          {total > 0 && (
-            <span className="flex shrink-0 items-center gap-1.5 text-2xs text-ink-faint">
-              <span>
-                단위 {n(done)}/{n(total)}
-              </span>
-              <Coverage total={total} inspected={inspected} cached={cached} className="w-16" />
-            </span>
-          )}
-
           <span className="ml-auto flex shrink-0 items-center gap-1">
-            {/* The one filled button on the surface. Same action as the run
-                bar's -- it is the run bar's, passed in. */}
-            <Button size="sm" onClick={() => void inspect()} disabled={!runId || running || saving || starting}>
-              <Play />
-              {saving ? `${dirty.length}개 저장 중…` : running ? "검사 중…" : "검사 실행"}
-            </Button>
             <Button size="icon-xs" variant="ghost" aria-label="닫기" onClick={close}>
               <X className="text-ink-muted" />
             </Button>
