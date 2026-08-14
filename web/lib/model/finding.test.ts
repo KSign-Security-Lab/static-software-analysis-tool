@@ -134,3 +134,74 @@ describe("both engines in one list", () => {
     expect(counts.get("download.c")?.worst).toBe("critical");
   });
 });
+
+describe("merging duplicate claims", () => {
+  /**
+   * The chunker makes a unit of each file's top-level declarations *and* a unit
+   * of each function in it, so a problem inside a function is looked at twice
+   * and reported twice: same title, same CWE, same line, two `chunk_id`s. A real
+   * run against `main.c` produced exactly that -- two CWE-78 rows at main.c:6,
+   * identical on screen, with nothing to tell them apart.
+   */
+  const twice = (over: Partial<AgentFinding> = {}) => [
+    agentFinding({ id: "a", chunk_id: "file-chunk" }),
+    agentFinding({ id: "b", chunk_id: "fn-chunk", ...over }),
+  ];
+
+  it("collapses the same claim reported by two units into one row", () => {
+    const merged = fromAgent(twice());
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].chunkIds.sort()).toEqual(["file-chunk", "fn-chunk"]);
+  });
+
+  it("says how many units agreed, rather than repeating the row", () => {
+    // What the extra copy is worth: corroboration, not noise.
+    expect(fromAgent(twice())[0].mergedIds).toHaveLength(1);
+  });
+
+  it("keeps the copy that can actually fix the code", () => {
+    const withFix = twice({
+      remediation: {
+        summary: "quote it",
+        detail: "wrap the URL",
+        replacement: 'snprintf(cmd, sizeof(cmd), "wget \\"%s\\"", url);',
+        diff: "@@ -1 +1 @@",
+      },
+    } as Partial<AgentFinding>);
+
+    const merged = fromAgent(withFix);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe("agent:b");
+    expect(merged[0].diff).toBe("@@ -1 +1 @@");
+    // The one that lost still lends its id, so a link to it resolves.
+    expect(merged[0].mergedIds).toEqual(["agent:a"]);
+  });
+
+  it("leaves genuinely different claims alone", () => {
+    const different = [
+      agentFinding({ id: "a", chunk_id: "c1" }),
+      agentFinding({ id: "b", chunk_id: "c1", cwe: "CWE-120", title: "Buffer overflow" }),
+    ];
+    expect(fromAgent(different)).toHaveLength(2);
+  });
+
+  it("does not merge the same claim at two different lines", () => {
+    // Two calls to the same unsafe function are two problems to fix.
+    const elsewhere = [
+      agentFinding({ id: "a", chunk_id: "c1" }),
+      agentFinding({
+        id: "b",
+        chunk_id: "c1",
+        primary: { ...agentFinding().primary, start_line: 99, end_line: 99 },
+      }),
+    ];
+    expect(fromAgent(elsewhere)).toHaveLength(2);
+  });
+
+  it("keeps a lone finding untouched, with its own chunk", () => {
+    const [only] = fromAgent([agentFinding()]);
+    expect(only.chunkIds).toEqual(["c1"]);
+    expect(only.mergedIds).toEqual([]);
+  });
+});

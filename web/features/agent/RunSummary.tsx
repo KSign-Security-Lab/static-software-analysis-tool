@@ -15,8 +15,12 @@ import { cn } from "@/lib/utils";
  * agent never saw any code at all. Those are four different answers and they
  * looked identical.
  *
- * Coverage is the trust question in a tool like this, so it goes first and it
- * is the one thing drawn rather than only counted.
+ * Behind the numbers in the run bar rather than folded into the 문제 pane. It is
+ * what you ask *after* the headline, and in the pane it competed with the
+ * findings for the same column. `RunBar` is the only caller.
+ *
+ * The meter is not here. The bar draws it, this says what it is made of --
+ * otherwise opening the detail would show you the same picture you clicked on.
  */
 
 /**
@@ -24,7 +28,6 @@ import { cn } from "@/lib/utils";
  *
  * Mid-run the report has not been written yet, so the stream's own countdown is
  * the only thing that knows where we are; afterwards the report is authoritative.
- * Exported because the dock's header says the same thing in three words.
  */
 export function coverageOf(stats: RunStats | undefined, live: RunLive) {
   const total = stats?.chunks_total ?? live.chunk?.total ?? 0;
@@ -34,7 +37,7 @@ export function coverageOf(stats: RunStats | undefined, live: RunLive) {
 }
 
 /** `3분 12초`, `47초`. */
-function duration(ms: number): string {
+export function duration(ms: number): string {
   const total = Math.round(ms / 1000);
   if (total < 60) return `${total}초`;
   const minutes = Math.floor(total / 60);
@@ -42,7 +45,7 @@ function duration(ms: number): string {
   return seconds ? `${minutes}분 ${seconds}초` : `${minutes}분`;
 }
 
-const n = (value: number) => value.toLocaleString();
+export const n = (value: number) => value.toLocaleString();
 
 function Row({ term, children }: { term: string; children: React.ReactNode }) {
   return (
@@ -75,16 +78,14 @@ export default function RunSummary({
   live,
   phase,
   findings,
-  diff,
 }: {
   stats: RunStats | undefined;
   spans: SpanSummary | undefined;
-  run: RunRecord | undefined;
+  /** For the index counts, which exist before the report does. */
+  run?: RunRecord;
   live: RunLive;
   phase: RunPhase;
   findings: number;
-  /** Against another run, when one is picked. */
-  diff?: { fresh: number; fixed: number; unchanged: number; failed: string | null } | null;
 }) {
   const { total, cached, inspected, done } = coverageOf(stats, live);
 
@@ -100,7 +101,7 @@ export default function RunSummary({
 
   if (nothingYet) {
     return (
-      <p className="border-b border-line bg-surface-2 px-3 py-2.5 text-2xs text-ink-faint">
+      <p className="px-3 py-2.5 text-2xs text-ink-faint">
         {phase === "idle"
           ? "아직 검사하지 않았습니다. ‘검사 실행’을 누르면 여기에 무엇을 얼마나 살펴봤는지가 쌓입니다."
           : "검사를 시작했습니다. 첫 단위가 끝나는 대로 진행 상황이 여기 나타납니다."}
@@ -109,18 +110,21 @@ export default function RunSummary({
   }
 
   return (
-    <section className="space-y-2 border-b border-line bg-surface-2 px-3 py-2.5">
+    <section className="px-3 py-2.5">
       <dl className="space-y-1.5">
         <Row term="검사 범위">
           <Parts
             of={[
               indexed > 0 && `파일 ${n(indexed)}개 색인`,
               skipped > 0 && `${n(skipped)}개 건너뜀`,
-              total > 0 ? `단위 ${n(total)}개 중 ${n(done)}개 검사` : inspected > 0 ? `단위 ${n(inspected)}개 검사` : null,
+              total > 0
+                ? `단위 ${n(total)}개 중 ${n(done)}개 검사`
+                : inspected > 0
+                  ? `단위 ${n(inspected)}개 검사`
+                  : null,
               cached > 0 && `캐시 ${n(cached)}`,
             ]}
           />
-          {total > 0 && <Coverage total={total} inspected={inspected} cached={cached} />}
         </Row>
 
         {(triagedOut > 0 || candidates > 0) && (
@@ -162,24 +166,7 @@ export default function RunSummary({
             />
           </Row>
         )}
-        {diff && (
-          <Row term="비교">
-            {diff.failed ? (
-              <span className="text-danger">{diff.failed}</span>
-            ) : (
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <span className="text-accent-ink">새로 {n(diff.fresh)}</span>
-                <span className="text-line-3">·</span>
-                <span className="text-ok">해결됨 {n(diff.fixed)}</span>
-                <span className="text-line-3">·</span>
-                <span>그대로 {n(diff.unchanged)}</span>
-              </span>
-            )}
-          </Row>
-        )}
       </dl>
-
-      {run?.error && <p className="text-2xs text-danger">{run.error}</p>}
     </section>
   );
 }
@@ -191,23 +178,35 @@ export default function RunSummary({
  * unchanged, and not reached. The last one is the honest part -- an aborted run
  * or one still going leaves a gap, and a bare "8건" would have claimed the
  * whole codebase either way.
+ *
+ * Exported because the run bar draws it; nothing else should.
  */
-function Coverage({ total, inspected, cached }: { total: number; inspected: number; cached: number }) {
+export function Coverage({
+  total,
+  inspected,
+  cached,
+  className,
+}: {
+  total: number;
+  inspected: number;
+  cached: number;
+  className?: string;
+}) {
   const fresh = Math.max(0, Math.min(inspected, total));
   const reused = Math.max(0, Math.min(cached, total - fresh));
 
   return (
-    <div
+    <span
       role="meter"
       aria-valuenow={fresh + reused}
       aria-valuemin={0}
       aria-valuemax={total}
       aria-label="검사한 단위"
-      className="mt-1 flex h-1 w-full max-w-80 overflow-hidden rounded-full bg-surface-3"
+      className={cn("flex h-1 overflow-hidden rounded-full bg-surface-3", className ?? "w-full max-w-80")}
     >
-      <div className="bg-accent-solid" style={{ width: `${(fresh / total) * 100}%` }} />
-      <div className="bg-accent-wash" style={{ width: `${(reused / total) * 100}%` }} />
-    </div>
+      <span className="bg-accent-solid" style={{ width: `${(fresh / total) * 100}%` }} />
+      <span className="bg-accent-wash" style={{ width: `${(reused / total) * 100}%` }} />
+    </span>
   );
 }
 

@@ -10,6 +10,7 @@ import type {
   RunStartedEvent,
   WaveEvent,
 } from "@/lib/api/events";
+import type { RunStatus } from "@/lib/api/types";
 
 /**
  * Where a run is, right now.
@@ -298,4 +299,33 @@ export function phaseOf(state: RunLive): RunPhase {
   if (state.active) return "starting";
   if (state.finished) return "finished";
   return "idle";
+}
+
+/**
+ * What the stored run says it is, for a run this tab never watched.
+ *
+ * `phaseOf` only knows what came down the stream, and the stream starts when
+ * you attach to it. Open a finished run from `?run=` and it has heard nothing,
+ * so `idle` -- which is indistinguishable from a run that has never been
+ * started, and reads as "검사 전" over a full report.
+ *
+ * Only consulted while the stream is idle. Once it is saying anything at all it
+ * is the more recent of the two, and a record fetched before the run started
+ * would otherwise talk over it.
+ */
+export function phaseFor(live: RunPhase, status: RunStatus | undefined): RunPhase {
+  if (live !== "idle" || !status) return live;
+  switch (status) {
+    case "inspecting":
+      return "running";
+    case "interrupted":
+      return "paused";
+    case "done":
+      return "finished";
+    case "failed":
+      return "failed";
+    // created | indexing | indexed: files exist, nothing has inspected them.
+    default:
+      return "idle";
+  }
 }

@@ -68,8 +68,6 @@ export default function FileExplorer({
     scanned: Set<string>;
     /** Whether a run is in flight; without one, "not reached" means nothing. */
     live: boolean;
-    done: number;
-    total: number;
   };
   busy?: boolean;
   onOpen: (path: string) => void;
@@ -260,13 +258,12 @@ export default function FileExplorer({
   return (
     <PanelShell
       title="탐색기"
-      note={
-        progress?.live && progress.total > 0
-          ? `${files.length}개 파일 · 단위 ${progress.done}/${progress.total}`
-          : files.length
-            ? `${files.length}개 파일`
-            : "검사할 파일을 여기에 넣습니다"
-      }
+      // How far the run has got used to be spliced in here too. That is the run
+      // bar's, and this pane is not one of the five places that should say it.
+      //
+      // Nothing when there are no files: the body already says so at length, and
+      // the sentence that was here cost the title its own characters.
+      note={files.length ? `${files.length}개 파일` : null}
       actions={
         <>
           <Tooltip>

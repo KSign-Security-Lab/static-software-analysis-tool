@@ -9,7 +9,6 @@ import { useCreateFile, useUploadTree } from "@/lib/run/new-file";
 import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import FileExplorer from "./FileExplorer";
-import { coverageOf } from "./RunSummary";
 import { useOpenFile } from "@/lib/run/selection";
 
 /**
@@ -32,17 +31,18 @@ export default function ExplorerPane() {
   const list = useMemo(() => files.data ?? [], [files.data]);
   const ui = useMemo(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
 
+  // Which files the agent is in, not how far through the run it is. The
+  // counts that used to be here as well -- `done`, `total` -- are the run
+  // bar's; this is the one thing about a run that is genuinely per file.
   const { live, phase } = useRunStream();
-  const progress = useMemo(() => {
-    const { total, done } = coverageOf(findings.data?.stats, live);
-    return {
+  const progress = useMemo(
+    () => ({
       scanning: scanningFiles(live),
       scanned: live.scanned,
       live: phase === "running" || phase === "starting" || phase === "paused",
-      done,
-      total,
-    };
-  }, [findings.data, live, phase]);
+    }),
+    [live, phase],
+  );
 
   // Open something rather than nothing: an explorer with files and an empty
   // editor beside it looks broken.

@@ -48,7 +48,7 @@ class StateRequest(BaseModel):
 
 
 @router.get("/runs/{run_id}/spans")
-def run_spans(paths: RunDep) -> Dict[str, Any]:
+def run_spans(run: RunDep) -> Dict[str, Any]:
     """The call tree of this run's last inspection.
 
     Recorded locally, so the debug view works with no LangSmith account, no key
@@ -58,15 +58,12 @@ def run_spans(paths: RunDep) -> Dict[str, Any]:
     Readable mid-run: the store is WAL, so this returns what has landed so far
     with unfinished spans still marked ``running``.
     """
-    if not paths.trace_db.exists():
-        return {"run_id": paths.run_id, "spans": [], "summary": _span_summary([])}
-
-    spans = paths.spans()
+    spans = run.spans()
     try:
         rows = [span.as_dict() for span in spans.spans()]
     finally:
         spans.close()
-    return {"run_id": paths.run_id, "spans": rows, "summary": _span_summary(rows)}
+    return {"run_id": run.run_id, "spans": rows, "summary": _span_summary(rows)}
 
 
 def _span_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -84,7 +81,7 @@ def _span_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/checkpoints")
-def run_checkpoints(paths: RunDep, full: bool = False) -> Dict[str, Any]:
+def run_checkpoints(run: RunDep, full: bool = False) -> Dict[str, Any]:
     """This run's state after each super-step, oldest first.
 
     The trace says what was called; this says what the graph *knew* at each
@@ -94,26 +91,26 @@ def run_checkpoints(paths: RunDep, full: bool = False) -> Dict[str, Any]:
     ``?full=true`` returns the bulky fields rather than counting them, which is
     what the thread panel asks for when a step is expanded.
     """
-    steps = paths.checkpoints(full=full)
-    return {"run_id": paths.run_id, "checkpoints": steps, "count": len(steps)}
+    steps = run.checkpoints(full=full)
+    return {"run_id": run.run_id, "checkpoints": steps, "count": len(steps)}
 
 
 @router.get("/runs/{run_id}/state")
-def run_state(paths: RunDep, checkpoint_id: str | None = None) -> Dict[str, Any]:
+def run_state(run: RunDep, checkpoint_id: str | None = None) -> Dict[str, Any]:
     """One checkpoint's state in full.
 
     The history summarises the bulky fields, which is right for a timeline and
     wrong for an editor: a count cannot be edited back into a list. Defaults to
     the latest checkpoint, which is where a stopped run is sitting.
     """
-    state = paths.state(checkpoint_id)
+    state = run.state(checkpoint_id)
     if state is None:
         raise HTTPException(status_code=404, detail="this run has no state at that point")
-    return {"run_id": paths.run_id, **state}
+    return {"run_id": run.run_id, **state}
 
 
 @router.post("/runs/{run_id}/state")
-def set_run_state(paths: RunDep, request: StateRequest) -> Dict[str, Any]:
+def set_run_state(run: RunDep, request: StateRequest) -> Dict[str, Any]:
     """Write state over a checkpoint, branching the run there.
 
     Nothing is overwritten: the write lands as a child of the checkpoint it was
@@ -122,53 +119,50 @@ def set_run_state(paths: RunDep, request: StateRequest) -> Dict[str, Any]:
     """
     if request.as_node is not None and request.as_node not in NODES:
         raise HTTPException(status_code=400, detail=f"unknown node: {request.as_node}")
-    if not paths.checkpoint_db.exists():
+    if not run.checkpoints():
         raise HTTPException(status_code=409, detail="this run has no history to write over")
 
     try:
-        checkpoint_id = paths.set_state(request.values, request.checkpoint_id, request.as_node)
+        checkpoint_id = run.set_state(request.values, request.checkpoint_id, request.as_node)
     except ValueError as err:
         # LangGraph refuses a write it cannot attribute to a node.
         raise HTTPException(status_code=400, detail=str(err)) from err
-    return {"run_id": paths.run_id, "checkpoint_id": checkpoint_id}
+    return {"run_id": run.run_id, "checkpoint_id": checkpoint_id}
 
 
 @router.get("/runs/{run_id}/graph")
-def run_knowledge_graph(paths: RunDep) -> Dict[str, Any]:
+def run_knowledge_graph(run: RunDep) -> Dict[str, Any]:
     """The tree as a graph: units, what connects them, and the subsystems.
 
     A property of the code, not of any inspection, so it answers for a run that
     has never been inspected. Built at index time; derived on the spot for a run
     indexed before this existed.
     """
-    loaded = read_graph(paths.knowledge_graph)
+    loaded = read_graph(run.run_id)
     if loaded is None:
-        if not paths.index_db.exists():
-            raise HTTPException(status_code=404, detail="this run has not been indexed")
-        store = paths.store()
+        store = run.store()
         try:
-            write_graph(store, paths.source, paths.knowledge_graph)
+            if not store.order():
+                raise HTTPException(status_code=404, detail="this run has not been indexed")
+            write_graph(store)
         finally:
             store.close()
-        loaded = read_graph(paths.knowledge_graph)
+        loaded = read_graph(run.run_id)
     if loaded is None:
         raise HTTPException(status_code=500, detail="the knowledge graph could not be built")
 
     graph, communities = loaded
-    return {"run_id": paths.run_id, **knowledge_json(graph, communities)}
+    return {"run_id": run.run_id, **knowledge_json(graph, communities)}
 
 
 @router.get("/runs/{run_id}/thread")
-def run_thread(paths: RunDep) -> Dict[str, Any]:
+def run_thread(run: RunDep) -> Dict[str, Any]:
     """The run as conversations -- one per chunk, in the order they happened.
 
     A span tree shows the machinery. This shows the exchange: what the agent was
     asked, what it answered, which tools it reached for and what came back.
     """
-    if not paths.trace_db.exists():
-        return {"run_id": paths.run_id, "threads": []}
-
-    spans = paths.spans()
+    spans = run.spans()
     try:
         rows = spans.spans()
     finally:
@@ -196,7 +190,7 @@ def run_thread(paths: RunDep) -> Dict[str, Any]:
         thread["tokens"] += span.tokens or 0
         thread["turns"].append(_turn(span, by_id))
 
-    return {"run_id": paths.run_id, "threads": list(threads.values())}
+    return {"run_id": run.run_id, "threads": list(threads.values())}
 
 
 def _turn(span: Any, by_id: Dict[str, Any]) -> Dict[str, Any]:
@@ -267,7 +261,7 @@ def _recorded_messages(span: Any) -> tuple[str, str]:
 
 
 @router.post("/runs/{run_id}/spans/{span_id}/replay")
-def replay_span(paths: RunDep, span_id: str, request: ReplayRequest | None = None) -> Dict[str, Any]:
+def replay_span(run: RunDep, span_id: str, request: ReplayRequest | None = None) -> Dict[str, Any]:
     """Call the model again for one span, optionally with an edited prompt.
 
     A side experiment, deliberately: it writes nothing to the run, the trace or
@@ -278,10 +272,9 @@ def replay_span(paths: RunDep, span_id: str, request: ReplayRequest | None = Non
     """
     options = request or ReplayRequest()
 
-    if not paths.trace_db.exists():
-        raise HTTPException(status_code=404, detail="this run has no trace")
-
-    spans = paths.spans()
+    # No separate "has this run a trace at all" check: a run with no spans has
+    # no span with this id either, and that is the 404 below.
+    spans = run.spans()
     try:
         span = next((s for s in spans.spans() if s.id == span_id), None)
     finally:
@@ -320,7 +313,7 @@ def replay_span(paths: RunDep, span_id: str, request: ReplayRequest | None = Non
         result = produced.model_dump() if produced is not None else None
 
     return {
-        "run_id": paths.run_id,
+        "run_id": run.run_id,
         "span_id": span_id,
         "step": step or None,
         "schema": schema,

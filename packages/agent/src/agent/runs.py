@@ -1,40 +1,70 @@
-"""Run workspaces: create, populate, inspect, report.
+"""Runs: create, populate, inspect, report.
 
-A run is a directory under ``artifacts/agent-runs/<run_id>/`` holding the
-uploaded source, the chunk index, and the report. Everything the inspection
-needs is in there, which is what lets a run be resumed, re-read, or thrown away
-as a unit.
+A run was a directory under ``artifacts/agent-runs/<run_id>/`` holding the
+uploaded source, three SQLite databases and three JSON files -- seven artifacts
+held together by a path convention, with nothing enforcing that they belonged
+to each other and no way to ask anything across runs.
 
-Upload extraction is the security boundary. The input is an arbitrary archive
-from a browser, so it is treated as hostile: entries that escape the root, are
-symlinks, or blow past the size and count caps are rejected rather than
-sanitised. A zip bomb and a path traversal look identical to a careless
-extractor.
+A run is a row now, and everything it owns cascades off it (see ``agent/db/``).
+Two things fall out that the directory could not give: deleting one is a single
+statement rather than an ``rmtree`` that might half-succeed, and listing them is
+a query rather than 86 directory reads.
+
+``Run`` keeps ``RunPaths``' method surface deliberately -- ``store()``,
+``spans()``, ``read_meta()``, ``save_report()`` and the rest -- because eight
+call sites across the API and the CLI go through it, and a storage change should
+not be a rewrite of those.
 """
 
 from __future__ import annotations
 
-import json
-import shutil
+import time
 import uuid
-import zipfile
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from dataclasses import dataclass, field
+from pathlib import Path, PurePath
 from typing import Any, Iterator
 
+from sqlalchemy import delete, func, select
+
 from .config import AgentConfig
+from .db import File as FileRow
+from .db import Run as RunRow
+from .db import session_scope
+from .files import Upload, UploadRejected, prepare, read_zip
 from .index import ChunkStore, IndexResult, build_index
-from .knowledge import GRAPH_FILE
 from .schema import Finding, FindingDiff, Report
 from .graph.checkpoints import read_history, read_state, write_state
 from .trace import SpanStore
 
-#: Caps on what an upload may contain. A zip that exceeds any of them is
-#: rejected outright -- silently truncating an upload would mean inspecting a
-#: tree the user did not send.
-MAX_UPLOAD_FILES = 20_000
-MAX_UPLOAD_BYTES = 500 * 1024 * 1024
-MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024
+__all__ = [
+    "MAX_UPLOAD_BYTES",
+    "MAX_UPLOAD_FILES",
+    "MAX_SINGLE_FILE_BYTES",
+    "Run",
+    "STATUS_CREATED",
+    "STATUS_DONE",
+    "STATUS_FAILED",
+    "STATUS_INDEXING",
+    "STATUS_INSPECTING",
+    "STATUS_INTERRUPTED",
+    "UploadRejected",
+    "abandon_live_runs",
+    "delete_run",
+    "describe_run",
+    "diff_reports",
+    "get_run",
+    "index_run",
+    "iter_all_files",
+    "list_runs",
+    "new_run",
+    "run_label",
+    "store_zip",
+    "write_files",
+]
+
+# Re-exported: several callers import the caps and the rejection from here, and
+# they are about uploads rather than about storage. See ``agent/files.py``.
+from .files import MAX_SINGLE_FILE_BYTES, MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES  # noqa: E402
 
 STATUS_CREATED = "created"
 STATUS_INDEXING = "indexing"
@@ -46,72 +76,115 @@ STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 
 
-class UploadRejected(ValueError):
-    """The archive was malformed or hostile."""
-
-
 @dataclass(frozen=True)
-class RunPaths:
-    """Where one run's artifacts live."""
+class Run:
+    """One run, and everything it owns.
+
+    Holds an id and a config rather than a connection: a run outlives any one
+    session, and the methods below each take the session they need. The unit of
+    work stays the caller's -- ``store()`` and ``spans()`` hand back a handle
+    that commits when it is closed, which is what the existing
+    ``store = paths.store(); ...; store.close()`` shape already expected.
+    """
 
     run_id: str
-    base: Path
+    config: AgentConfig = field(default_factory=AgentConfig)
 
-    @property
-    def source(self) -> Path:
-        """The extracted tree. Every filesystem tool is confined to this."""
-        return self.base / "src"
-
-    @property
-    def index_db(self) -> Path:
-        return self.base / "index.db"
-
-    @property
-    def trace_db(self) -> Path:
-        """Spans, kept apart from the index so re-inspecting cannot disturb the
-        record of what happened last time until it is deliberately cleared."""
-        return self.base / "trace.db"
-
-    @property
-    def checkpoint_db(self) -> Path:
-        """LangGraph's state snapshots. One thread, this run."""
-        return self.base / "checkpoints.db"
-
-    @property
-    def knowledge_graph(self) -> Path:
-        """The tree as a graph: what the verify step's tools traverse.
-
-        Beside the index because it is derived from it and is invalidated by
-        exactly the same events.
-        """
-        return self.base / GRAPH_FILE
-
-    @property
-    def report_path(self) -> Path:
-        return self.base / "report.json"
-
-    @property
-    def meta_path(self) -> Path:
-        return self.base / "meta.json"
+    # -- the stores ---------------------------------------------------------
 
     def store(self) -> ChunkStore:
-        return ChunkStore(self.index_db)
+        return ChunkStore(self.run_id, self.config)
 
     def spans(self) -> SpanStore:
-        return SpanStore(self.trace_db)
+        return SpanStore(self.run_id, self.config)
+
+    # -- files --------------------------------------------------------------
+
+    def read_file(self, path: str) -> str | None:
+        """One file's text, or None. Replaces reading it off disk."""
+        with session_scope(self.config) as session:
+            return session.scalar(
+                select(FileRow.content).where(FileRow.run_id == self.run_id, FileRow.path == path)
+            )
+
+    def put_file(self, name: str, raw: bytes) -> str:
+        """Create or replace one file. Returns the stored path."""
+        upload = prepare(name, raw)
+        self.put_files([upload])
+        return upload.path
+
+    def put_files(self, uploads: list[Upload]) -> int:
+        """Write a batch in one transaction.
+
+        One transaction because a half-written upload is worse than a rejected
+        one: the indexer would run over a tree the user did not send.
+        """
+        if not uploads:
+            return 0
+        with session_scope(self.config) as session:
+            existing = {
+                row.path: row
+                for row in session.scalars(
+                    select(FileRow).where(
+                        FileRow.run_id == self.run_id,
+                        FileRow.path.in_([u.path for u in uploads]),
+                    )
+                )
+            }
+            for upload in uploads:
+                row = existing.get(upload.path)
+                if row is None:
+                    session.add(
+                        FileRow(
+                            run_id=self.run_id,
+                            path=upload.path,
+                            content=upload.content,
+                            size=upload.size,
+                            sha=upload.sha,
+                        )
+                    )
+                else:
+                    row.content, row.size, row.sha = upload.content, upload.size, upload.sha
+        return len(uploads)
+
+    def delete_file(self, path: str) -> bool:
+        with session_scope(self.config) as session:
+            result = session.execute(
+                delete(FileRow).where(FileRow.run_id == self.run_id, FileRow.path == path)
+            )
+            return bool(result.rowcount)
+
+    def files(self) -> list[str]:
+        """Every uploaded file, indexable or not -- the editor can still show them."""
+        with session_scope(self.config) as session:
+            return list(
+                session.scalars(
+                    select(FileRow.path).where(FileRow.run_id == self.run_id).order_by(FileRow.path)
+                )
+            )
+
+    def file_contents(self) -> dict[str, str]:
+        """The whole tree at once, for the indexer."""
+        with session_scope(self.config) as session:
+            rows = session.execute(
+                select(FileRow.path, FileRow.content).where(FileRow.run_id == self.run_id)
+            ).all()
+        return {path: content for path, content in rows}
+
+    # -- checkpoints --------------------------------------------------------
 
     def checkpoints(self, full: bool = False) -> list[dict[str, Any]]:
         """This run's state at each super-step, oldest first.
 
         Summarised by default: a history is read far more often than it is
-        expanded, and the bulky fields are a second copy of what is already on
-        disk. ``full`` is for when someone actually looks inside a step.
+        expanded, and the bulky fields are a second copy of what is already
+        stored. ``full`` is for when someone actually looks inside a step.
         """
-        return read_history(self.checkpoint_db, self.run_id, full=full)
+        return read_history(self.config.database_url, self.run_id, full=full)
 
     def state(self, checkpoint_id: str | None = None) -> dict[str, Any] | None:
         """One checkpoint's state in full, for reading or editing."""
-        return read_state(self.checkpoint_db, self.run_id, checkpoint_id)
+        return read_state(self.config.database_url, self.run_id, checkpoint_id)
 
     def set_state(
         self,
@@ -120,13 +193,13 @@ class RunPaths:
         as_node: str | None = None,
     ) -> str | None:
         """Write state over a checkpoint, branching the run there."""
-        return write_state(self.checkpoint_db, self.run_id, values, checkpoint_id, as_node)
+        return write_state(self.config.database_url, self.run_id, values, checkpoint_id, as_node)
 
     def reset_debug(self) -> None:
         """Clear the trace and the checkpoints before a *fresh* inspection.
 
-        Two attempts interleaved in one thread read as one incoherent run, and
-        a stale checkpoint would make LangGraph resume where the last attempt
+        Two attempts interleaved in one thread read as one incoherent run, and a
+        stale checkpoint would make LangGraph resume where the last attempt
         stopped instead of starting over.
 
         Only ever on a fresh start. Calling this when resuming or branching
@@ -136,118 +209,142 @@ class RunPaths:
         spans = self.spans()
         spans.clear()
         spans.close()
-        self.checkpoint_db.unlink(missing_ok=True)
-        for suffix in ("-wal", "-shm"):
-            self.checkpoint_db.with_name(self.checkpoint_db.name + suffix).unlink(missing_ok=True)
+        from .graph.checkpoints import clear_thread
+
+        clear_thread(self.config.database_url, self.run_id)
+
+    # -- metadata and the report --------------------------------------------
+
+    def _row(self, session: Any) -> RunRow | None:
+        return session.get(RunRow, self.run_id)
 
     def read_meta(self) -> dict[str, Any]:
-        if not self.meta_path.exists():
-            return {}
-        loaded: dict[str, Any] = json.loads(self.meta_path.read_text(encoding="utf-8"))
-        return loaded
+        with session_scope(self.config) as session:
+            row = self._row(session)
+            return dict(row.meta or {}) if row else {}
 
     def write_meta(self, **updates: Any) -> dict[str, Any]:
-        meta = self.read_meta()
-        meta.update(updates)
-        self.meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        return meta
+        with session_scope(self.config) as session:
+            row = self._row(session)
+            if row is None:
+                return {}
+            merged = {**(row.meta or {}), **updates}
+            # Reassigned rather than mutated: SQLAlchemy tracks JSONB by
+            # identity, so an in-place update is not seen and never written.
+            row.meta = merged
+            # Mirrored onto the columns the run list sorts and filters on. The
+            # meta blob stays the free-form record `write_meta(**updates)`
+            # always was; these two are the ones queries need.
+            if "status" in updates:
+                row.status = updates["status"]
+            if "error" in updates:
+                row.error = updates["error"]
+            row.updated_at = time.time()
+            return merged
 
     def set_status(self, status: str, **extra: Any) -> None:
         self.write_meta(status=status, **extra)
 
     def save_report(self, report: Report) -> None:
-        self.report_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        with session_scope(self.config) as session:
+            row = self._row(session)
+            if row is not None:
+                row.report = report.model_dump(mode="json")
 
     def load_report(self) -> Report | None:
-        if not self.report_path.exists():
-            return None
-        return Report.model_validate_json(self.report_path.read_text(encoding="utf-8"))
+        with session_scope(self.config) as session:
+            row = self._row(session)
+            payload = row.report if row else None
+        return Report.model_validate(payload) if payload else None
 
 
-def runs_root(config: AgentConfig | None = None) -> Path:
-    return (config or AgentConfig()).runs_dir
-
-
-def new_run(config: AgentConfig | None = None) -> RunPaths:
-    """Create an empty run workspace."""
-    root = runs_root(config)
+def new_run(config: AgentConfig | None = None, owner: str | None = None) -> Run:
+    """Create an empty run."""
+    cfg = config or AgentConfig()
     run_id = uuid.uuid4().hex[:12]
-    paths = RunPaths(run_id=run_id, base=root / run_id)
-    paths.source.mkdir(parents=True, exist_ok=True)
-    paths.set_status(STATUS_CREATED, run_id=run_id)
-    return paths
+    with session_scope(cfg) as session:
+        session.add(
+            RunRow(
+                id=run_id,
+                owner=owner,
+                status=STATUS_CREATED,
+                meta={"status": STATUS_CREATED, "run_id": run_id},
+            )
+        )
+    return Run(run_id=run_id, config=cfg)
 
 
-def get_run(run_id: str, config: AgentConfig | None = None) -> RunPaths | None:
+def get_run(run_id: str, config: AgentConfig | None = None) -> Run | None:
     """Look up an existing run, refusing anything that is not a plain id."""
     if not run_id or not run_id.isalnum():
         return None
-    base = runs_root(config) / run_id
-    return RunPaths(run_id=run_id, base=base) if base.is_dir() else None
+    cfg = config or AgentConfig()
+    with session_scope(cfg) as session:
+        if session.get(RunRow, run_id) is None:
+            return None
+    return Run(run_id=run_id, config=cfg)
 
 
 #: How many file names a run is labelled with before the rest become "+3".
 LABEL_FILES = 2
 
 
-def run_label(paths: RunPaths) -> tuple[list[str], int]:
+def run_label(run: Run) -> tuple[list[str], int]:
     """The first few file names in a run, and how many there are.
 
     A run id is a random hex string, which tells you nothing about which run it
     was. What people recognise is the code they put in it.
     """
-    names: list[str] = []
-    total = 0
-    root = paths.source
-    if not root.is_dir():
-        return names, total
-    for path in sorted(root.rglob("*")):
-        if path.is_file() and not path.is_symlink():
-            total += 1
-            if len(names) < LABEL_FILES:
-                names.append(path.name)
-    return names, total
+    names = run.files()
+    return [PurePath(name).name for name in names[:LABEL_FILES]], len(names)
 
 
-def describe_run(paths: RunPaths) -> dict[str, Any]:
-    """One row of the run list: what it was, when, and whether it ran.
-
-    Enough to pick a run out of a list without opening it. ``started`` is the
-    distinction that matters most: a workspace that was created and never
-    inspected has no trace to read and is almost always leftover scaffolding.
-    """
-    meta = paths.read_meta()
-    names, total = run_label(paths)
-    try:
-        updated = paths.meta_path.stat().st_mtime if paths.meta_path.exists() else paths.base.stat().st_mtime
-    except OSError:
-        updated = 0.0
-
+def describe_run(run: Run) -> dict[str, Any]:
+    """One row of the run list: what it was, when, and whether it ran."""
+    with session_scope(run.config) as session:
+        row = session.get(RunRow, run.run_id)
+        if row is None:
+            return {"run_id": run.run_id}
+        meta = dict(row.meta or {})
+        updated = row.updated_at
+        started = _has_spans(session, run.run_id)
+    names, total = run_label(run)
     return {
-        "run_id": paths.run_id,
+        "run_id": run.run_id,
         **meta,
+        "owner": row.owner,
         "files": names,
         "file_count": total,
         "updated_at": updated,
-        # A trace file is written the first time an inspection runs, so its
-        # presence is the honest answer to "did this ever do anything".
-        "started": paths.trace_db.exists(),
+        # A span is written the first time an inspection runs, so its presence
+        # is the honest answer to "did this ever do anything".
+        "started": started,
     }
 
 
-def list_runs(config: AgentConfig | None = None) -> list[dict[str, Any]]:
+def _has_spans(session: Any, run_id: str) -> bool:
+    from .db import Span
+
+    return bool(session.scalar(select(func.count()).select_from(Span).where(Span.run_id == run_id)))
+
+
+def list_runs(config: AgentConfig | None = None, owner: str | None = None) -> list[dict[str, Any]]:
     """Every run, most recently touched first.
 
     Sorted by time rather than by id: an id is a random hex string, so sorting
     on it shuffles the list into an order that means nothing to anybody.
-    """
-    root = runs_root(config)
-    if not root.is_dir():
-        return []
 
-    out = [describe_run(RunPaths(child.name, child)) for child in root.iterdir() if child.is_dir()]
-    out.sort(key=lambda run: run["updated_at"], reverse=True)
-    return out
+    ``owner`` filters to one typed name. It is not a security boundary -- see
+    the API -- it is what stops a shared list being full of runs nobody
+    recognises.
+    """
+    cfg = config or AgentConfig()
+    with session_scope(cfg) as session:
+        query = select(RunRow.id).order_by(RunRow.updated_at.desc())
+        if owner:
+            query = query.where(RunRow.owner == owner)
+        ids = list(session.scalars(query))
+    return [describe_run(Run(run_id=run_id, config=cfg)) for run_id in ids]
 
 
 def abandon_live_runs(config: AgentConfig | None = None) -> list[str]:
@@ -260,126 +357,58 @@ def abandon_live_runs(config: AgentConfig | None = None) -> list[str]:
     Left alone it reads as "실행 중" for ever, which is the one thing a status
     is for.
     """
-    abandoned: list[str] = []
-    root = runs_root(config)
-    if not root.is_dir():
-        return abandoned
-
-    for child in sorted(root.iterdir()):
-        if not child.is_dir():
-            continue
-        paths = RunPaths(child.name, child)
-        if paths.read_meta().get("status") not in (STATUS_INSPECTING, STATUS_INTERRUPTED):
-            continue
-        paths.set_status(STATUS_FAILED, error="서버가 다시 시작되어 실행이 끊겼습니다", parked=None, progress=None)
-        abandoned.append(child.name)
-
-    return abandoned
+    cfg = config or AgentConfig()
+    with session_scope(cfg) as session:
+        ids = list(
+            session.scalars(
+                select(RunRow.id).where(RunRow.status.in_((STATUS_INSPECTING, STATUS_INTERRUPTED)))
+            )
+        )
+    for run_id in ids:
+        Run(run_id=run_id, config=cfg).set_status(
+            STATUS_FAILED, error="서버가 다시 시작되어 실행이 끊겼습니다", parked=None, progress=None
+        )
+    return ids
 
 
-def delete_run(paths: RunPaths) -> None:
+def delete_run(run: Run) -> None:
     """Remove a run and everything in it.
 
-    Trying things out leaves workspaces behind, and a list full of them is
-    worse than useless. Confined to the run's own directory.
+    One statement. Every per-run table has a cascading foreign key, so there is
+    no order to get right and nothing that can be half-deleted -- which an
+    ``rmtree`` over seven artifacts could always be.
     """
-    shutil.rmtree(paths.base, ignore_errors=True)
+    with session_scope(run.config) as session:
+        row = session.get(RunRow, run.run_id)
+        if row is not None:
+            session.delete(row)
 
 
-def _safe_member(name: str) -> PurePosixPath | None:
-    """The destination for a zip entry, or None if it must not be extracted."""
-    if not name or name.endswith("/"):
-        return None
-    pure = PurePosixPath(name)
-    if pure.is_absolute() or any(part == ".." for part in pure.parts):
-        return None
-    # Windows-style absolute paths and drive letters slip past PurePosixPath.
-    if "\\" in name or (len(name) > 1 and name[1] == ":"):
-        return None
-    return pure
+def store_zip(run: Run, archive: Path) -> int:
+    """Store an uploaded zip. Returns the file count."""
+    return run.put_files(read_zip(archive))
 
 
-def extract_zip(archive: Path, destination: Path) -> int:
-    """Extract an uploaded zip into ``destination``. Returns the file count.
+def write_files(run: Run, files: dict[str, bytes]) -> int:
+    """Store an explicit set of uploaded files, with the same name rules."""
+    return run.put_files([prepare(name, content) for name, content in files.items()])
 
-    ``ZipFile.extractall`` is not used: it happily writes through ``../``
-    entries on some Python versions and has no size accounting. Each entry is
-    checked and written individually instead.
-    """
-    destination.mkdir(parents=True, exist_ok=True)
-    resolved_destination = destination.resolve()
-    written = 0
-    total_bytes = 0
 
+def index_run(run: Run) -> IndexResult:
+    """Index a populated run."""
+    run.set_status(STATUS_INDEXING)
+    store = run.store()
     try:
-        with zipfile.ZipFile(archive) as zf:
-            infos = zf.infolist()
-            if len(infos) > MAX_UPLOAD_FILES:
-                raise UploadRejected(f"archive has {len(infos)} entries; the limit is {MAX_UPLOAD_FILES}")
-
-            for info in infos:
-                if info.is_dir():
-                    continue
-                relative = _safe_member(info.filename)
-                if relative is None:
-                    raise UploadRejected(f"unsafe path in archive: {info.filename!r}")
-                if info.file_size > MAX_SINGLE_FILE_BYTES:
-                    raise UploadRejected(f"{info.filename} is {info.file_size} bytes; too large")
-
-                total_bytes += info.file_size
-                if total_bytes > MAX_UPLOAD_BYTES:
-                    raise UploadRejected(f"archive expands past {MAX_UPLOAD_BYTES} bytes")
-
-                target = (resolved_destination / relative).resolve()
-                if resolved_destination not in target.parents:
-                    raise UploadRejected(f"unsafe path in archive: {info.filename!r}")
-
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(info) as src, target.open("wb") as dst:
-                    shutil.copyfileobj(src, dst, length=1024 * 64)
-                written += 1
-    except zipfile.BadZipFile as err:
-        raise UploadRejected(f"not a readable zip archive: {err}") from err
-
-    return written
-
-
-def write_files(destination: Path, files: dict[str, bytes]) -> int:
-    """Write an explicit set of uploaded files, with the same path rules."""
-    destination.mkdir(parents=True, exist_ok=True)
-    resolved_destination = destination.resolve()
-    written = 0
-    for name, content in files.items():
-        relative = _safe_member(name)
-        if relative is None:
-            raise UploadRejected(f"unsafe path: {name!r}")
-        target = (resolved_destination / relative).resolve()
-        if resolved_destination not in target.parents:
-            raise UploadRejected(f"unsafe path: {name!r}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
-        written += 1
-    return written
-
-
-def index_run(paths: RunPaths) -> IndexResult:
-    """Index a populated run workspace."""
-    paths.set_status(STATUS_INDEXING)
-    store = paths.store()
-    try:
-        result = build_index(paths.source, store)
+        result = build_index(run.file_contents(), store)
     finally:
         store.close()
-    paths.write_meta(index=result.as_dict())
+    run.write_meta(index=result.as_dict())
     return result
 
 
-def iter_all_files(paths: RunPaths) -> Iterator[str]:
+def iter_all_files(run: Run) -> Iterator[str]:
     """Every uploaded file, indexable or not -- the editor can still show them."""
-    root = paths.source
-    for path in sorted(root.rglob("*")):
-        if path.is_file() and not path.is_symlink():
-            yield str(PurePosixPath(*path.relative_to(root).parts))
+    yield from run.files()
 
 
 def diff_reports(before: Report, after: Report) -> FindingDiff:

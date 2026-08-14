@@ -25,10 +25,11 @@ export default defineConfig({
         test: {
           name: "lib",
           environment: "node",
-          // Both extensions in both places: a component's pure helpers are
-          // worth testing without dragging in JSX, and the old pattern
-          // silently skipped any such file rather than failing.
-          include: ["lib/**/*.test.{ts,tsx}", "scripts/**/*.test.{ts,tsx}"],
+          // `.ts` only. A `.tsx` test exists to render something, and
+          // rendering wants a DOM -- `lib/run/selection.test.tsx` drives a hook
+          // through a real tree and failed twelve ways in `node` before this
+          // rule was written down. The extension is the honest signal.
+          include: ["lib/**/*.test.ts", "scripts/**/*.test.ts"],
         },
       },
       {
@@ -36,6 +37,8 @@ export default defineConfig({
         test: {
           name: "ui",
           environment: "jsdom",
+          // jsdom has no ResizeObserver and Radix assumes one. See the file.
+          setupFiles: ["./vitest.setup.dom.ts"],
           // `features/` belongs here too. Leaving a directory out does not
           // fail, it silently runs nothing -- which is how a suite ends up
           // green while covering less than it did.
@@ -43,6 +46,9 @@ export default defineConfig({
             "components/**/*.test.{ts,tsx}",
             "features/**/*.test.{ts,tsx}",
             "app/**/*.test.{ts,tsx}",
+            // A hook's own tests live beside the hook. `.tsx` because driving
+            // one means rendering a component that calls it.
+            "lib/**/*.test.tsx",
           ],
         },
       },

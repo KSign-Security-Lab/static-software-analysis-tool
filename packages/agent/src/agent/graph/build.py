@@ -22,8 +22,7 @@ recursion accounting, not for agentic routing.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import Any, Mapping, Sequence, cast
 
 from langgraph.graph import END, START, StateGraph
 
@@ -127,7 +126,7 @@ def hollow_deps() -> NodeDeps:
     node executes. That is enough to read the graph's shape, or to reopen it
     over a saver purely to replay history.
     """
-    return NodeDeps(store=cast(Any, None), config=AgentConfig(), caller=cast(Any, None), root=Path())
+    return NodeDeps(store=cast(Any, None), config=AgentConfig(), caller=cast(Any, None), files={})
 
 
 def graph_shape() -> dict[str, Any]:
@@ -151,7 +150,7 @@ def graph_shape() -> dict[str, Any]:
 def run_inspection(
     *,
     run_id: str,
-    root: Path,
+    files: Mapping[str, str],
     store: ChunkStore,
     config: AgentConfig,
     caller: StructuredCaller | None = None,
@@ -159,7 +158,8 @@ def run_inspection(
     index_stats: dict[str, int] | None = None,
     tools: ToolSession | None = None,
     spans: SpanStore | None = None,
-    checkpoints: Path | None = None,
+    #: Whether to keep state snapshots. Was the path to a per-run file.
+    checkpoints: bool = False,
 ) -> Report:
     """Inspect an already-indexed tree, start to finish, and return the report.
 
@@ -173,7 +173,7 @@ def run_inspection(
 
     with InspectionSession(
         run_id=run_id,
-        root=root,
+        files=files,
         store=store,
         config=config,
         caller=caller,

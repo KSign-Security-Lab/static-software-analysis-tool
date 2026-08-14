@@ -12,7 +12,6 @@ per question and rebuilding each time would be silly.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -32,7 +31,6 @@ log = logging.getLogger(__name__)
 CLUSTER_ON = (CALLS,)
 
 #: Beside `index.db`, so a run's map lives and dies with the run it describes.
-GRAPH_FILE = "graph.json"
 
 
 def records(store: ChunkStore) -> tuple[list[Node], list[Edge]]:
@@ -55,25 +53,36 @@ def build_graph(store: ChunkStore, root: Path | None = None) -> KnowledgeGraph:
     return build(*records(store), root=root)
 
 
-def write_graph(store: ChunkStore, root: Path, path: Path) -> dict[str, Any]:
-    """Build the graph for a run and write it down. Returns the counts."""
-    graph = build_graph(store, root)
+def write_graph(store: ChunkStore) -> dict[str, Any]:
+    """Build the graph for a run and store it on the run. Returns the counts.
+
+    Was `graph.json` beside the index. It is one JSONB column on the run row
+    now, which is what it always was: one derived document per run.
+    """
+    graph = build_graph(store)
     communities = detect(graph, CLUSTER_ON)
     payload = graph_json(graph, communities)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    from .db import Run as RunRow
+    from .db import session_scope
+
+    with session_scope() as session:
+        row = session.get(RunRow, store.run_id)
+        if row is not None:
+            row.knowledge = payload
     counts: dict[str, Any] = payload["counts"]
     return counts
 
 
-def read_graph(path: Path) -> tuple[KnowledgeGraph, list[Community]] | None:
-    """The written graph, or nothing if this run has none."""
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, ValueError:
-        log.warning("ignoring an unreadable knowledge graph at %s", path)
+def read_graph(run_id: str) -> tuple[KnowledgeGraph, list[Community]] | None:
+    """The stored graph, or nothing if this run has none."""
+    from .db import Run as RunRow
+    from .db import session_scope
+
+    with session_scope() as session:
+        row = session.get(RunRow, run_id)
+        payload = row.knowledge if row else None
+    if not payload:
         return None
     graph = KnowledgeGraph.from_json(payload)
     communities = [
@@ -88,16 +97,16 @@ def read_graph(path: Path) -> tuple[KnowledgeGraph, list[Community]] | None:
     return graph, communities
 
 
-def load_or_build(store: ChunkStore, root: Path, path: Path) -> tuple[KnowledgeGraph, list[Community]]:
-    """What the tools use: the cached graph, or one built on the spot.
+def load_or_build(store: ChunkStore) -> tuple[KnowledgeGraph, list[Community]]:
+    """What the tools use: the stored graph, or one built on the spot.
 
-    Built rather than refused when the cache is missing, because a run indexed
-    before this existed still deserves working tools.
+    Built rather than refused when it is missing, because a run indexed before
+    this existed still deserves working tools.
     """
-    cached = read_graph(path)
+    cached = read_graph(store.run_id)
     if cached is not None:
         return cached
-    graph = build_graph(store, root)
+    graph = build_graph(store)
     return graph, detect(graph, CLUSTER_ON)
 
 

@@ -22,11 +22,16 @@ import { cn } from "@/lib/utils";
 /**
  * What the agent concluded, and why, in one list.
  *
- * These were two panels: a list at the bottom of the window and the reasoning
- * behind the selected row in a pane on the far right. Reading one finding meant
- * looking at opposite corners of the screen, and the pane was empty until you
- * had clicked something -- so a third of the window was reserved for nothing.
- * Opening a row in place puts the claim and its grounds in one column.
+ * The list only. Choosing a row moves the editor to its line and fills 상세 on
+ * the right with the grounds -- so choosing and reading are different panes, and
+ * a row is a row rather than something that unfolds into a page.
+ *
+ * This has been all three arrangements. Grounds in a pane on the far right with
+ * the list at the bottom (two opposite corners, and the pane empty until you
+ * clicked); grounds opening inline (which pushed the row you had just clicked off
+ * the top); and this. The difference from the first is that the list is wide now
+ * and 상세 is one named place rather than an inspector that swapped contents
+ * depending on what you last touched.
  *
  * Worst first. The severity filter that used to sit above this is gone: both
  * engines answer the same question about the same code and there has never been
@@ -65,11 +70,12 @@ export default function FindingList({
 }) {
   const openRow = useRef<HTMLLIElement | null>(null);
 
-  // Grounds are taller than a row, so opening one pushed everything under it
-  // down -- including, often, the row you had just clicked. Bring it to the top
-  // of the dock instead and read downwards from there.
+  // Keep the chosen row on screen. It matters less than it did -- the grounds
+  // used to open *inside* this list and push everything down, including the row
+  // you had just clicked -- but a row selected from the editor's gutter or from
+  // a link can still be below the fold.
   useEffect(() => {
-    if (openId) openRow.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (openId) openRow.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [openId]);
 
   const fixed = compare?.fixed ?? [];
@@ -101,13 +107,15 @@ export default function FindingList({
             ref={open ? openRow : undefined}
             className="border-b border-line/60 last:border-b-0"
           >
-            {/* Sticky while it is open. The dock is about four hundred pixels
-                tall and an opened finding's grounds are taller than that, so
-                scrolling to read the fix took the claim it was a fix for off
-                the top of the pane. */}
+            {/* Nothing sticky any more: the grounds are in 상세 on the right, so
+                nothing expands underneath this row for it to stay above. */}
             <button
               type="button"
-              aria-expanded={open}
+              // A selection, not a disclosure. Nothing unfolds here: the row
+              // says which problem 상세 is showing, and `aria-expanded` on a
+              // control that expands nothing tells a screen reader to wait for
+              // something that never arrives.
+              aria-current={open ? "true" : undefined}
               onClick={() => {
                 onOpen(open ? null : finding);
                 // A finding is a claim about a line, so opening it shows the line.
@@ -115,11 +123,14 @@ export default function FindingList({
               }}
               className={cn(
                 "flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2",
-                open && "sticky top-0 z-10 bg-surface-2",
+                open && "bg-surface-2",
               )}
             >
+              {/* Pointing right, and it stays there: it means "opens in 상세",
+                  which is where it points. Rotating it would promise that the
+                  row itself is about to unfold. */}
               <ChevronRight
-                className={cn("mt-0.5 size-3 shrink-0 text-ink-faint transition-transform", open && "rotate-90")}
+                className={cn("mt-0.5 size-3 shrink-0 transition-colors", open ? "text-accent-ink" : "text-ink-faint")}
               />
               {/* The dot is the severity. It was also spelled out in the line
                   below, which is the same fact twice on every row; the label is
@@ -137,6 +148,15 @@ export default function FindingList({
                     {finding.primary.file}:{finding.primary.startLine}
                   </span>
                   <VerdictOf finding={finding} />
+                  {/* Two units reading the same code and reaching the same
+                      conclusion. This was two identical rows -- same title,
+                      same CWE, same line -- which reads as the tool being
+                      confused rather than as two readings agreeing. */}
+                  {finding.mergedIds.length > 0 && (
+                    <span title="여러 단위에서 같은 문제가 보고되었습니다">
+                      {finding.mergedIds.length + 1}개 단위에서 확인
+                    </span>
+                  )}
                   {compare &&
                     (compare.fresh.has(finding.id) ? (
                       <span className="text-accent-ink">새로</span>
@@ -225,14 +245,15 @@ const COLUMNS = {
 /**
  * Why the agent said it: the explanation, the trail, the neighbours, the fix.
  *
- * Three columns where there is room for them. The dock is as wide as the window
- * and this was one narrow column down the left of it, so the widest region on
- * the page held the most cramped thing on it -- an evidence trail across four
- * files, wrapped to forty characters, under a paragraph it had to be read with.
+ * Two columns where there is room for them, one where there is not, and that is
+ * the whole reason this is a container query rather than a breakpoint: the same
+ * component has to read in the right-hand 상세 pane, which is a few hundred
+ * pixels somebody dragged, and it used to live in a dock as wide as the window.
+ * `lg:` would go to two columns on a wide window with 상세 pulled in narrow,
+ * which is exactly backwards.
  *
- * A container query rather than a breakpoint. The dock's width is a panel size
- * somebody dragged, not the viewport's, and `lg:` would have gone to three
- * columns on a wide window with the dock pulled in narrow.
+ * The patch is deliberately not one of the columns -- it scrolls inside its own
+ * box, so a long diff makes this taller rather than wider.
  */
 export function Grounds({
   finding,

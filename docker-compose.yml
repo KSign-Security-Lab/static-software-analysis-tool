@@ -8,6 +8,31 @@ services:
     volumes:
       - ./artifacts/workspace:/workspace
 
+  # Where every agent run lives. `pgvector/pgvector` rather than plain postgres
+  # because `index/embed.py` stores one embedding per chunk and the semantic
+  # fallback searches them -- without the extension that search is a scan.
+  #
+  # Not behind a profile: the API does not start without it, unlike Joern's
+  # optional companions below.
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: ssat-postgres-${USER}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ssat
+      POSTGRES_PASSWORD: ssat
+      POSTGRES_DB: ssat
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ssat-postgres:/var/lib/postgresql/data
+    healthcheck:
+      # So `--wait` means the database is answering, not that the container is up.
+      test: ["CMD-SHELL", "pg_isready -U ssat -d ssat"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   # Behind a profile so a plain `docker compose up` for Joern does not pull 20 GB.
   #   docker compose --profile vllm up -d vllm
   vllm:
@@ -44,3 +69,7 @@ services:
       timeout: 5s
       retries: 90
       start_period: 30s
+
+volumes:
+  # Named, so `docker compose down` does not take the runs with it.
+  ssat-postgres:

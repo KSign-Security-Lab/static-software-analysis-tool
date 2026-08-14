@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { byFile, isWholeFile, outcomeOf, unitOutcome, worst } from "./outcome";
+import { REFUTED_LABEL, STANDING_LABEL } from "@/lib/model/finding";
+import { byFile, gloss, isWholeFile, outcomeOf, unitOutcome, worst } from "./outcome";
 import type { Exchange } from "./process";
 
 function exchange(over: Partial<Exchange> = {}): Exchange {
@@ -141,5 +142,46 @@ describe("worst", () => {
 
   it("is nothing when nothing could say anything", () => {
     expect(worst([null, null])).toBeNull();
+  });
+});
+
+describe("gloss", () => {
+  it("names the field in the product's words", () => {
+    expect(gloss("worth_analysing", "true").term).toBe("분석 대상");
+    expect(gloss("reason", "…").term).toBe("이유");
+  });
+
+  it("reads a boolean as what it means, not as `true`", () => {
+    expect(gloss("worth_analysing", "true").value).toBe("예");
+    expect(gloss("worth_analysing", "false").value).toBe("아니요");
+  });
+
+  it("un-inverts `refuted`, whose plain reading is backwards", () => {
+    // Refuted means the claim did *not* survive. `refuted false` reads as "no
+    // problem" and means the opposite, which is the single easiest mistake to
+    // make about this pipeline -- so the words are the finding list's own.
+    expect(gloss("refuted", "true").value).toBe(REFUTED_LABEL);
+    expect(gloss("refuted", "false").value).toBe(STANDING_LABEL.confirmed);
+  });
+
+  it("shows confidence the way the rest of the app does", () => {
+    expect(gloss("confidence", "0.95").value).toBe("95%");
+    expect(gloss("confidence", "0").value).toBe("0%");
+  });
+
+  it("leaves a confidence that is not a 0-1 score alone", () => {
+    // A schema change should not produce a confidently wrong percentage.
+    expect(gloss("confidence", "high").value).toBe("high");
+    expect(gloss("confidence", "42").value).toBe("42");
+  });
+
+  it("keeps a field it has no word for, rather than inventing one", () => {
+    expect(gloss("some_new_field", "x")).toEqual({ term: "some_new_field", value: "x" });
+  });
+
+  it("only rewrites booleans where the bare word says nothing", () => {
+    // `true` is not glossed everywhere -- only where the field's meaning is not
+    // in the word. An unknown boolean field keeps its value verbatim.
+    expect(gloss("enabled", "true").value).toBe("true");
   });
 });

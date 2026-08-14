@@ -32,7 +32,29 @@ export interface ToolUnit {
 export type ToolResult =
   | { kind: "units"; units: ToolUnit[] }
   | { kind: "text"; text: string }
+  /** The tool ran and refused. See `failure` for why this is not `call.error`. */
+  | { kind: "failed"; message: string }
   | { kind: "empty" };
+
+/**
+ * A tool that answered with a complaint.
+ *
+ * `call.error` is for a tool that *threw*; a tool that ran and could not do what
+ * it was asked returns a string, and the string is all the reader gets. So
+ * `search_text` with a regex the model got wrong came back as
+ * `error: invalid pattern: missing ), unterminated subpattern at position 6`,
+ * rendered as the tool's answer at the same weight as an answer -- three lines of
+ * red parser diagnostics standing where a result should be, on four calls in one
+ * run.
+ *
+ * A prefix sniff, because there is no field for this on the wire. Source that
+ * genuinely begins `error:` would be misread; it is still shown in full, one
+ * click away, so the cost of being wrong is a fold rather than a lost fact.
+ */
+function failure(text: string): string | null {
+  const match = /^(?:error|Error|ERROR)\s*:\s*(.+)/s.exec(text);
+  return match ? match[1].trim() : null;
+}
 
 function str(value: unknown): string | null {
   return typeof value === "string" ? value : null;
@@ -78,6 +100,10 @@ export function toolResult(outputs: unknown): ToolResult {
       // Truncated by the store, most likely. Still the answer it gave.
     }
   }
+
+  const failed = failure(text);
+  if (failed !== null) return { kind: "failed", message: failed };
+
   return { kind: "text", text };
 }
 

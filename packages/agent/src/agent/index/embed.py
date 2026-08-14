@@ -23,10 +23,14 @@ rather than an import error.
 from __future__ import annotations
 
 import logging
-import sqlite3
-import struct
-from typing import Iterable, Sequence
+from typing import Iterable
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+
+from ..db import Chunk as ChunkRow
+from ..db import Vector_ as VectorRow
+from ..db import session_factory
 from .store import ChunkStore
 
 log = logging.getLogger(__name__)
@@ -36,17 +40,6 @@ log = logging.getLogger(__name__)
 #: less here than the honest limits above cost.
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS vectors (
-    chunk_id TEXT PRIMARY KEY,
-    model    TEXT NOT NULL,
-    vec      BLOB NOT NULL
-);
-"""
-
-#: What a chunk is embedded as. The symbol and file earn their place: a bare
-#: body embeds the same whether it is called `is_authorized` or `f`, and the
-#: name is often the strongest signal of intent in the whole unit.
 def document_for(file: str, symbol: str, body: str) -> str:
     return f"{symbol} in {file}\n{body}"
 
@@ -65,22 +58,6 @@ def _embedder():
     return TextEmbedding(MODEL_NAME)
 
 
-def _pack(vector: Sequence[float]) -> bytes:
-    return struct.pack(f"<{len(vector)}f", *vector)
-
-
-def _unpack(blob: bytes) -> list[float]:
-    return list(struct.unpack(f"<{len(blob) // 4}f", blob))
-
-
-def _dot(a: Sequence[float], b: Sequence[float]) -> float:
-    return sum(x * y for x, y in zip(a, b))
-
-
-def _norm(a: Sequence[float]) -> float:
-    return _dot(a, a) ** 0.5
-
-
 def build(store: ChunkStore, chunks: Iterable[tuple[str, str, str, str]] | None = None) -> int:
     """Embed every chunk that has no vector yet. Returns how many were added.
 
@@ -88,23 +65,46 @@ def build(store: ChunkStore, chunks: Iterable[tuple[str, str, str, str]] | None 
     for that file, not for the tree. A chunk id is content-derived, so an edited
     function is a new id and an unedited one is already here.
     """
-    store.conn.executescript(SCHEMA)
-    rows = list(chunks) if chunks is not None else store.conn.execute(
-        "SELECT chunk_id, file, symbol, body FROM chunks WHERE chunk_id NOT IN "
-        "(SELECT chunk_id FROM vectors WHERE model = ?)",
-        (MODEL_NAME,),
-    ).fetchall()
+    sessions = session_factory()
+    if chunks is not None:
+        rows = list(chunks)
+    else:
+        with sessions() as session:
+            embedded = select(VectorRow.chunk_id).where(
+                VectorRow.run_id == store.run_id, VectorRow.model == MODEL_NAME
+            )
+            rows = list(
+                session.execute(
+                    select(ChunkRow.chunk_id, ChunkRow.file, ChunkRow.symbol, ChunkRow.body).where(
+                        ChunkRow.run_id == store.run_id, ChunkRow.chunk_id.not_in(embedded)
+                    )
+                ).all()
+            )
     if not rows:
         return 0
 
     model = _embedder()
     documents = [document_for(file, symbol, body) for _, file, symbol, body in rows]
     vectors = model.embed(documents)
-    store.conn.executemany(
-        "INSERT OR REPLACE INTO vectors (chunk_id, model, vec) VALUES (?, ?, ?)",
-        [(row[0], MODEL_NAME, _pack(list(vec))) for row, vec in zip(rows, vectors)],
-    )
-    store.conn.commit()
+
+    with sessions() as session:
+        statement = insert(VectorRow)
+        session.execute(
+            statement.on_conflict_do_update(
+                index_elements=["run_id", "chunk_id"],
+                set_={"model": statement.excluded.model, "embedding": statement.excluded.embedding},
+            ),
+            [
+                {
+                    "run_id": store.run_id,
+                    "chunk_id": row[0],
+                    "model": MODEL_NAME,
+                    "embedding": list(vec),
+                }
+                for row, vec in zip(rows, vectors)
+            ],
+        )
+        session.commit()
     return len(rows)
 
 
@@ -113,28 +113,28 @@ def search(store: ChunkStore, query: str, limit: int = 5) -> list[tuple[float, s
 
     Builds the index on first use rather than at `build_index` time, so a run
     that never asks a semantic question never downloads a model.
+
+    The ranking is the database's now. It used to load every vector, unpack it
+    and score it in Python -- a scan wearing an index's clothes -- and pgvector's
+    cosine operator does it in one statement with a `LIMIT` the planner can use.
     """
     build(store)
 
-    try:
-        rows = store.conn.execute(
-            "SELECT v.chunk_id, v.vec, c.file, c.symbol, c.start_line "
-            "FROM vectors v JOIN chunks c ON c.chunk_id = v.chunk_id WHERE v.model = ?",
-            (MODEL_NAME,),
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return []
-    if not rows:
-        return []
-
     model = _embedder()
-    q = list(next(iter(model.embed([query]))))
-    qn = _norm(q) or 1.0
+    embedded = list(next(iter(model.embed([query]))))
 
-    scored = []
-    for _chunk_id, blob, file, symbol, start_line in rows:
-        vec = _unpack(blob)
-        denominator = (_norm(vec) or 1.0) * qn
-        scored.append((_dot(vec, q) / denominator, file, symbol, start_line))
-    scored.sort(key=lambda row: row[0], reverse=True)
-    return scored[:limit]
+    # `<=>` is cosine *distance*, so the score the callers expect is 1 - it.
+    distance = VectorRow.embedding.cosine_distance(embedded)
+    with session_factory()() as session:
+        rows = session.execute(
+            select(distance, ChunkRow.file, ChunkRow.symbol, ChunkRow.start_line)
+            .join(
+                ChunkRow,
+                (ChunkRow.run_id == VectorRow.run_id) & (ChunkRow.chunk_id == VectorRow.chunk_id),
+            )
+            .where(VectorRow.run_id == store.run_id, VectorRow.model == MODEL_NAME)
+            .order_by(distance)
+            .limit(limit)
+        ).all()
+
+    return [(1.0 - float(d), file, symbol, start_line) for d, file, symbol, start_line in rows]

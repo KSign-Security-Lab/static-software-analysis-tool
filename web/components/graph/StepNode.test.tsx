@@ -74,3 +74,39 @@ describe("a node that holds none", () => {
     expect(screen.queryByText("4 tools")).toBeNull();
   });
 });
+
+describe("a node outside the argument being read", () => {
+  /**
+   * With a finding open, the drawing marks the agents that produced it and dims
+   * the rest -- which is the graph's answer to "how was each agent involved in
+   * this decision". Dimming rather than highlighting because a node already
+   * carries five states, and a sixth colour competing with those is a legend
+   * nobody can hold.
+   */
+  const opacity = (over: Partial<GraphNodeData>) => {
+    const { container } = draw(over);
+    // The card is the element carrying the box's own border and background.
+    return container.querySelector("div.rounded-md")?.className ?? "";
+  };
+
+  it("is dimmed, not hidden", () => {
+    // A node that did not run is part of the answer too: `skip` staying visible
+    // is how you see that the unit was not skipped.
+    expect(opacity({ faded: true })).toContain("opacity-30");
+  });
+
+  it("is at full strength when it is on the path", () => {
+    expect(opacity({ faded: false })).not.toContain("opacity-30");
+  });
+
+  it("is at full strength when nothing is narrowing the drawing", () => {
+    // `faded` is unset unless a finding is open, so the ordinary case is untouched.
+    expect(opacity({})).not.toContain("opacity-30");
+  });
+
+  it("still says what it is while dimmed", () => {
+    draw({ faded: true });
+    expect(screen.getByText("gather")).toBeTruthy();
+    expect(screen.getByText("4 tools")).toBeTruthy();
+  });
+});

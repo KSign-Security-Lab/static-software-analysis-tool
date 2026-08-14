@@ -67,3 +67,36 @@ describe("whereOf", () => {
     expect(whereOf({ ...unit, startLine: null })).toBe("util.c");
   });
 });
+
+describe("a tool that ran and refused", () => {
+  /**
+   * Four calls in one recorded run came back like this: the model wrote a regex
+   * with an unbalanced paren, `search_text` reported it, and the reader got three
+   * red lines of parser diagnostics standing where a result should be.
+   */
+  const BAD_REGEX = "error: invalid pattern: missing ), unterminated subpattern at position 6";
+
+  it("is a failure, not an answer", () => {
+    expect(toolResult(BAD_REGEX)).toEqual({
+      kind: "failed",
+      message: "invalid pattern: missing ), unterminated subpattern at position 6",
+    });
+  });
+
+  it("keeps the whole message, however many lines it runs to", () => {
+    const result = toolResult("Error: no such file\n  at read_source\n  path=missing.c");
+    expect(result.kind).toBe("failed");
+    expect(result).toMatchObject({ message: expect.stringContaining("path=missing.c") });
+  });
+
+  it("does not claim failure for text that merely mentions an error", () => {
+    // `read_source` returning code is the common case, and code says "error" a
+    // lot. Only a result that opens with it is treated as one.
+    const source = 'if (rc < 0) { fprintf(stderr, "error: %s\\n", msg); }';
+    expect(toolResult(source)).toEqual({ kind: "text", text: source });
+  });
+
+  it("still prefers the unit shape when the tool answered properly", () => {
+    expect(toolResult(DEFINITION).kind).toBe("units");
+  });
+});

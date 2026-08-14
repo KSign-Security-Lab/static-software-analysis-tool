@@ -96,7 +96,7 @@ agent = ".venv/bin/agent"
 index = ".venv/bin/agent index"
 # Which model servers are reachable, and LangSmith status
 endpoints = ".venv/bin/agent endpoints"
-# Serve the MCP tool surface over stdio (needs AGENT_RUN_ROOT)
+# Serve the MCP tool surface over stdio (needs AGENT_RUN_ID)
 mcp = ".venv/bin/agent-mcp"
 
 # FastAPI on :8000 with auto-reload

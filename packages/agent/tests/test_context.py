@@ -13,6 +13,9 @@ from pathlib import Path
 
 from agent.config import AgentConfig
 from agent.context import build_context, declarations_for
+from conftest import read_tree
+
+from agent.runs import new_run
 from agent.index import ChunkStore, build_index
 from agent.index.chunk import chunk_source
 
@@ -72,8 +75,8 @@ def test_the_section_only_appears_when_the_pack_is_a_region(tmp_path: Path) -> N
     root = tmp_path / "src"
     root.mkdir()
     (root / "big.c").write_text(BIG, encoding="utf-8")
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(root, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
     chunk = next(c for c in (store.chunk(i) for i in store.order()) if c.symbol == "handle")
     config = AgentConfig(model="m")
 

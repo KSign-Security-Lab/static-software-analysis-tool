@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { IDLE, phaseOf, reduceRun, scanningFiles, type RunAction, type RunLive } from "./reduce";
+import { IDLE, phaseFor, phaseOf, reduceRun, scanningFiles, type RunAction, type RunLive } from "./reduce";
 
 const node = (name: string, extra: Record<string, unknown> = {}) => ({ node: name, step: 1, ...extra });
 
@@ -227,6 +227,36 @@ describe("phaseOf", () => {
       { type: "failed", event: { error: "died" } },
     ]);
     expect(phaseOf(state)).toBe("failed");
+  });
+});
+
+describe("phaseFor", () => {
+  // The case this exists for: `?run=` on a finished run. The stream has heard
+  // nothing, so `phaseOf` says idle -- which read as 검사 전 over a full report.
+  it.each([
+    ["done", "finished"],
+    ["inspecting", "running"],
+    ["interrupted", "paused"],
+    ["failed", "failed"],
+  ] as const)("falls back to the record: %s reads as %s", (status, expected) => {
+    expect(phaseFor("idle", status)).toBe(expected);
+  });
+
+  it.each(["created", "indexing", "indexed"] as const)(
+    "leaves %s idle, because nothing has inspected the files yet",
+    (status) => {
+      expect(phaseFor("idle", status)).toBe("idle");
+    },
+  );
+
+  it("lets the stream win whenever it is saying anything", () => {
+    // A record fetched before the run started would otherwise talk over it.
+    expect(phaseFor("running", "done")).toBe("running");
+    expect(phaseFor("finished", "inspecting")).toBe("finished");
+  });
+
+  it("stays idle with no record at all", () => {
+    expect(phaseFor("idle", undefined)).toBe("idle");
   });
 });
 

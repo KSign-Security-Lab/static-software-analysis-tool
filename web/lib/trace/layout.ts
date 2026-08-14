@@ -56,6 +56,13 @@ export interface GraphNodeData extends Record<string, unknown> {
   /** The most tools any of its steps may call. `gather` is the only one with any. */
   tools: number;
   /**
+   * Outside the chain that produced the finding being read.
+   *
+   * Set by `StepGraph` rather than by the layout, because it is a property of
+   * what the reader is looking at rather than of the compiled graph.
+   */
+  faded?: boolean;
+  /**
    * Whether the step roster was available to say.
    *
    * Absent on a page that has not loaded it yet, and a node tagged `code` because

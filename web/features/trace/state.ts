@@ -55,3 +55,23 @@ export function usePaneMode() {
     parseAsStringLiteral(PANE_MODES).withDefault("log").withOptions({ history: "replace" }),
   );
 }
+
+/**
+ * Whether the transcript is narrowed to the open finding's own chain.
+ *
+ * On by default: opening a claim and being shown all forty conversations, one of
+ * which is the reason for it, is not an answer.
+ *
+ * In the URL, and that is a fix rather than a preference. It was `useState` in
+ * `InspectorPane` plus a render-phase reset whenever `?finding=` changed, so
+ * "show me the whole run" silently undid itself every time the reader opened a
+ * different problem -- and nothing outside that one pane could see the narrowing
+ * or offer a way out of it. The context strip needs to name it, which means it
+ * has to be somewhere the strip can read.
+ *
+ * It also no longer resets per finding. Turning the narrowing off is a way of
+ * reading, not a fact about one claim.
+ */
+export function useClaimScope() {
+  return useQueryState("claim", parseAsBoolean.withDefault(true).withOptions({ history: "replace" }));
+}

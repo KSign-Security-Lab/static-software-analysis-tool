@@ -1,5 +1,5 @@
-import FindingPane from "@/features/agent/FindingPane";
+import RunPanel from "@/features/agent/RunPanel";
 
 export default function Slot() {
-  return <FindingPane />;
+  return <RunPanel />;
 }

@@ -1,40 +1,48 @@
 "use client";
 
-import { FileCode, FilePlus, FolderUp, Play, Save } from "lucide-react";
+import { FileCode, FilePlus, FolderUp, Save } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import CodeEditor from "@/components/editor/CodeEditor.lazy";
 import { Button } from "@/components/ui/button";
 import { PanelShell } from "@/components/workbench/PanelShell";
 import { fromAgent, type UiFinding } from "@/lib/model/finding";
-import { useFile, useFindings, useStartRun, useWriteFile } from "@/lib/run/queries";
+import { useFile, useFindings, useOpenFinding } from "@/lib/run/queries";
 import { STARTER, useCreateFile, useUploadTree } from "@/lib/run/new-file";
-import { useRunStream } from "@/lib/run/stream";
+import { useRunControls } from "@/lib/run/controls";
+import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
-import { useCentreView, useOpenFile, useRevealLine, useSelectedFinding } from "@/lib/run/selection";
+import { useOpenFile, useRevealLine, useSelectedFinding } from "@/lib/run/selection";
 
 /**
- * The centre pane: one file, its markers, and the two buttons that act on it.
+ * The centre pane: one file, its markers, and the one button that acts on it.
  *
- * Draft text is local state, not the query cache. The cache holds what the
- * server has; typing has not been sent anywhere yet, and writing every
- * keystroke into it would make "dirty" impossible to see.
+ * 검사 실행 used to be here as well, and also on the graph, each with its own
+ * `useStartRun`. Starting a run is not an operation on the open file -- it
+ * inspects every file in the run -- so it is on the run bar with the rest of
+ * the run's state, and this is left doing one thing.
+ *
+ * Unsaved text is not local state either, and that was a bug rather than a
+ * decision: it lived in a `useState` reset whenever the run or the path changed,
+ * so opening a finding threw the reader's edit away without saying so. It is in
+ * `lib/run/controls.tsx` now, keyed by path -- nothing that changes on this
+ * screen addresses that map, so nothing that changes can empty it. Still not the
+ * query cache, which holds what the server has.
  */
-export default function EditorPane({ runId }: { runId: string | null }) {
+export default function EditorPane() {
+  // Read here rather than passed in: the centre slot is a server component now
+  // that this is the whole of it, and every other consumer of the run id gets it
+  // from the same hook anyway.
+  const [runId] = useRunId();
   const [path] = useOpenFile();
   const [line] = useRevealLine();
-  const [selectedId, setSelectedId] = useSelectedFinding();
-  const { ensureAttached, phase } = useRunStream();
-  const [, setCentre] = useCentreView();
+  const [, setSelectedId] = useSelectedFinding();
+  const { draftOf, setDraft, save, saving } = useRunControls();
 
   const file = useFile(runId, path);
   const findings = useFindings(runId);
-  const write = useWriteFile(runId);
   const newFile = useCreateFile();
   const upload = useUploadTree();
-  const start = useStartRun(runId, ensureAttached);
-
-  const [draft, setDraft] = useState<string | null>(null);
 
   /**
    * Dropping a folder here.
@@ -77,53 +85,19 @@ export default function EditorPane({ runId }: { runId: string | null }) {
     },
   };
 
-  // A new file means a new draft: keeping the old one would show one file's
-  // text under another's name. Adjusted during render rather than in an
-  // effect -- React re-runs this component immediately, before the browser
-  // sees anything, instead of painting the stale text and then correcting it.
-  const [openedAs, setOpenedAs] = useState<string | null>(`${runId}:${path}`);
-  const identity = `${runId}:${path}`;
-  if (openedAs !== identity) {
-    setOpenedAs(identity);
-    setDraft(null);
-  }
-
+  // No reset when the path changes: the store is keyed by path, so the draft
+  // for the file being left stays where it is and the one being opened is
+  // whatever that file already had. This is where the reset used to be, and
+  // where it destroyed the reader's text on every finding they clicked.
   const server = file.data?.content ?? "";
+  const draft = path ? draftOf(path) : undefined;
   const value = draft ?? server;
-  const dirty = draft !== null && draft !== server;
+  const dirty = draft !== undefined && draft !== server;
 
   const ui = useMemo<UiFinding[]>(() => fromAgent(findings.data?.findings ?? []), [findings.data]);
-  const selected = useMemo(() => ui.find((each) => each.id === selectedId) ?? null, [ui, selectedId]);
+  const selected = useOpenFinding(runId) ?? null;
 
-  const running = phase === "running" || phase === "starting";
-  const canSave = Boolean(runId && path && dirty && !write.isPending);
-
-  const save = () => {
-    if (!runId || !path || !dirty) return;
-    write.mutate({ path, content: value });
-  };
-
-  /**
-   * Start the run, then show it running.
-   *
-   * An inspection takes minutes and the code has nothing to say for the first
-   * of them: 문제 fills in only as chunks finish, so pressing the button and
-   * watching the editor looks like pressing it did nothing. The graph is where
-   * a run is legible while it happens.
-   *
-   * A tab, not a navigation -- this used to push /agent/trace, which meant
-   * leaving the page, and getting back cost a rail click and your open file.
-   * On success rather than on click, so a start that is refused leaves the
-   * centre where it was.
-   */
-  const inspect = () => {
-    if (!runId) return;
-    const watch = { onSuccess: () => void setCentre("graph") };
-    // Save first: inspecting text that is only in the editor would report on
-    // code the server has never seen.
-    if (dirty && path) write.mutate({ path, content: value }, { onSuccess: () => start.mutate({}, watch) });
-    else start.mutate({}, watch);
-  };
+  const canSave = Boolean(runId && path && dirty && !saving);
 
   return (
     <div className="relative h-full min-h-0" {...dropping}>
@@ -131,16 +105,15 @@ export default function EditorPane({ runId }: { runId: string | null }) {
       title={path ?? "편집기"}
       note={dirty ? "저장되지 않음" : undefined}
       actions={
-        <>
-          <Button variant="ghost" size="xs" onClick={save} disabled={!canSave}>
-            <Save />
-            {write.isPending ? "저장 중…" : dirty ? "저장" : "저장됨"}
-          </Button>
-          <Button size="xs" onClick={inspect} disabled={!runId || running}>
-            <Play />
-            {running ? "검사 중…" : "검사 실행"}
-          </Button>
-        </>
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() => path && void save(path)}
+          disabled={!canSave}
+        >
+          <Save />
+          {saving ? "저장 중…" : dirty ? "저장" : "저장됨"}
+        </Button>
       }
       bodyClassName={cn("overflow-hidden", !path && "grid place-items-center")}
     >
@@ -152,8 +125,10 @@ export default function EditorPane({ runId }: { runId: string | null }) {
           findings={ui}
           selected={selected}
           line={line}
-          onChange={setDraft}
-          onSave={save}
+          // `server` as the base, so typing back to what the file already holds
+          // registers as clean rather than as an edit that never goes away.
+          onChange={(text) => setDraft(path, text, server)}
+          onSave={() => void save(path)}
           onRevealFinding={(finding) => void setSelectedId(finding.id)}
         />
       ) : (

@@ -9,13 +9,14 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
+from agent.runs import new_run
 from agent.trace import SpanRecorder, SpanStore
 from agent.trace.store import MAX_PAYLOAD, clip
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> SpanStore:
-    span_store = SpanStore(tmp_path / "trace.db")
+    span_store = SpanStore(new_run().run_id)
     yield span_store
     span_store.close()
 
@@ -71,12 +72,15 @@ def test_clear_empties_and_restarts_numbering(store: SpanStore) -> None:
     assert store.spans()[0].seq == 1
 
 
-def test_reopening_continues_the_sequence(tmp_path: Path) -> None:
-    first = SpanStore(tmp_path / "trace.db")
+def test_reopening_continues_the_sequence() -> None:
+    """Two handles on one run's spans, not two runs: the sequence belongs to
+    the run, and a resumed inspection must not restart it at 1."""
+    run_id = new_run().run_id
+    first = SpanStore(run_id)
     first.start(span_id="a", parent_id=None, name="plan", kind="chain", started_at=0.0)
     first.close()
 
-    second = SpanStore(tmp_path / "trace.db")
+    second = SpanStore(run_id)
     second.start(span_id="b", parent_id=None, name="plan", kind="chain", started_at=0.0)
     assert [span.seq for span in second.spans()] == [1, 2]
     second.close()
@@ -223,7 +227,7 @@ def test_recorder_records_errors(store: SpanStore) -> None:
 
 def test_a_broken_store_does_not_break_the_run(tmp_path: Path) -> None:
     """A tracer that can abort an inspection is worse than no tracer."""
-    store = SpanStore(tmp_path / "trace.db")
+    store = SpanStore(new_run().run_id)
     store.close()
     recorder = SpanRecorder(store)
 

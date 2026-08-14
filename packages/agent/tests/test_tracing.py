@@ -127,8 +127,9 @@ def test_the_loop_tags_every_call_it_makes(tmp_path) -> None:
     """End to end: a run must produce named spans, not anonymous ones."""
     from agent.config import AgentConfig
     from agent.graph.build import run_inspection
+    from agent.runs import new_run
+    from conftest import read_tree
     from agent.index import ChunkStore, build_index
-
     from test_graph import ScriptedCaller, _finding
     from agent.schema import ChunkAnalysis
 
@@ -138,13 +139,13 @@ def test_the_loop_tags_every_call_it_makes(tmp_path) -> None:
         '#include <stdlib.h>\nvoid run(const char *a) { char c[64]; sprintf(c, "%s", a); system(c); }\n',
         encoding="utf-8",
     )
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(root, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
 
     caller = ScriptedCaller(analyses={"run": ChunkAnalysis(findings=[_finding("system(c);")])})
     run_inspection(
         run_id="r-abc",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=AgentConfig(model="fake", enable_tools=False),
         caller=caller,  # type: ignore[arg-type]

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { toast } from "sonner";
 
 import { describeError } from "@/lib/api/client";
@@ -22,7 +23,9 @@ import {
   writeFile,
 } from "@/lib/api/runs";
 import type { FileWriteResult, Report } from "@/lib/api/types";
+import { fromAgent, type UiFinding } from "@/lib/model/finding";
 import { keys } from "@/lib/query/keys";
+import { useSelectedFinding } from "@/lib/run/selection";
 
 /**
  * The queries and mutations the inspect surface runs on.
@@ -73,6 +76,30 @@ export function useFindings(runId: string | null) {
     queryFn: ({ signal }) => fetchFindings(runId!, { signal }),
     enabled: enabled(runId),
   });
+}
+
+/**
+ * The finding `?finding=` names, as the view model.
+ *
+ * Four components resolved this by hand -- the editor to mark it, the detail to
+ * render it, the transcript to scope to it, the list to open its row -- and each
+ * had to remember that the id in the address bar is the *view model's*, which
+ * `fromAgent` prefixes with the engine. Matching against the wire id matches
+ * nothing, silently, and that is exactly how it read the one time it was got
+ * wrong.
+ *
+ * The query is shared, so this costs nothing beyond the lookup.
+ */
+export function useOpenFinding(runId: string | null): UiFinding | undefined {
+  const [findingId] = useSelectedFinding();
+  const findings = useFindings(runId);
+  return useMemo(() => {
+    if (!findingId) return undefined;
+    const all = fromAgent(findings.data?.findings);
+    // Or under an id one of its merged copies had: duplicate claims collapse
+    // into one row, and a link made before that still names a real finding.
+    return all.find((each) => each.id === findingId) ?? all.find((each) => each.mergedIds.includes(findingId));
+  }, [findings.data, findingId]);
 }
 
 /**

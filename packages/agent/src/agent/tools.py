@@ -1,17 +1,21 @@
 """The tool implementations, as plain functions, so they can be tested without a
 subprocess in the way. Every filesystem entry point takes the run root and goes
-through :func:`agent.paths.resolve_within`, so confinement cannot be skipped."""
+from the run's own files, so a tool cannot reach anything the run does not
+hold. That used to be enforced by `agent.paths.resolve_within` against a run
+root; the root is gone and the files are rows, so a path that is not a key is
+simply not a file.
+
+`run_in_sandbox` was here and is not: it needed a real tree to run a command
+against, and nothing materialises one. See the note where it stood."""
 
 from __future__ import annotations
 
-import shutil
-import subprocess
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Sequence
+import re
+from pathlib import PurePosixPath
+from typing import Any, Mapping
 
 from .index.store import ChunkStore
-from .paths import PathEscape, relative_to_root, resolve_within
 
 # A tool that dumps a megabyte into the context is worse than one that refuses.
 MAX_READ_CHARS = 100_000
@@ -29,16 +33,18 @@ class ToolError(Exception):
         return self.message
 
 
-def read_file(root: Path, path: str, start_line: int | None = None, end_line: int | None = None) -> str:
-    """Read a file under the run root. Lines are 1-based and inclusive."""
-    try:
-        resolved = resolve_within(root, path)
-    except PathEscape as err:
-        raise ToolError(str(err)) from err
-    if not resolved.is_file():
+def read_file(files: Mapping[str, str], path: str, start_line: int | None = None, end_line: int | None = None) -> str:
+    """Read one of the run's files. Lines are 1-based and inclusive.
+
+    Takes the run's files as a mapping rather than a root directory. The
+    confinement that used to guard this -- `resolve_within`, and the whole of
+    `paths.py` -- is gone with the directory: a path that is a dictionary key
+    cannot escape anything, and a name that is not a key is simply not a file.
+    """
+    text = files.get(path)
+    if text is None:
         raise ToolError(f"not a file: {path}")
 
-    text = resolved.read_text(encoding="utf-8", errors="replace")
     if start_line is None and end_line is None:
         return text[:MAX_READ_CHARS]
 
@@ -48,72 +54,66 @@ def read_file(root: Path, path: str, start_line: int | None = None, end_line: in
     return "\n".join(lines[first - 1 : last])[:MAX_READ_CHARS]
 
 
-def list_dir(root: Path, path: str = ".") -> list[str]:
-    """Immediate children of a directory, directories marked with a slash."""
-    try:
-        resolved = resolve_within(root, path)
-    except PathEscape as err:
-        raise ToolError(str(err)) from err
-    if not resolved.is_dir():
+def list_dir(files: Mapping[str, str], path: str = ".") -> list[str]:
+    """Immediate children of a directory, directories marked with a slash.
+
+    There are no directories any more, only paths that share a prefix -- so this
+    derives the listing from the keys. The output is unchanged, which is what
+    matters: it is what the model reads.
+    """
+    prefix = "" if path in (".", "", "/") else path.rstrip("/") + "/"
+    entries: set[str] = set()
+    for name in files:
+        if not name.startswith(prefix):
+            continue
+        rest = name[len(prefix) :]
+        if not rest:
+            continue
+        head, _, tail = rest.partition("/")
+        entries.add(head + "/" if tail else head)
+    if not entries and prefix:
         raise ToolError(f"not a directory: {path}")
-
-    entries: list[str] = []
-    for child in sorted(resolved.iterdir()):
-        name = child.name + ("/" if child.is_dir() else "")
-        entries.append(name)
-    return entries[:MAX_LIST_ENTRIES]
+    return sorted(entries)[:MAX_LIST_ENTRIES]
 
 
-def glob_files(root: Path, pattern: str) -> list[str]:
-    """Run-relative paths matching a glob. Symlinks are never followed out."""
-    matches: list[str] = []
-    for path in sorted(root.glob(pattern)):
-        if path.is_file() and not path.is_symlink():
-            try:
-                matches.append(relative_to_root(root, path))
-            except ValueError:
-                continue
-    return matches[:MAX_LIST_ENTRIES]
+def _matches(name: str, pattern: str) -> bool:
+    """Glob a run-relative path, with `Path.glob`'s semantics rather than
+    `PurePath.match`'s.
+
+    `match` anchors at the *right*, so `*.c` matched `lib/util.c` as happily as
+    `main.c` -- while `**/*.c` matched only the nested one. That is backwards
+    from the `root.glob(...)` this replaced and from what the prompts describe.
+    `full_match` anchors the whole path, which is the old behaviour exactly.
+    """
+    return PurePosixPath(name).full_match(pattern)
 
 
-def grep(root: Path, pattern: str, glob: str | None = None) -> list[str]:
-    """ripgrep when present, else a Python scan -- the fallback keeps the tool
-    working rather than silently returning nothing."""
-    if shutil.which("rg"):
-        command = ["rg", "--line-number", "--no-heading", "--color", "never", "-e", pattern]
-        if glob:
-            command += ["--glob", glob]
-        try:
-            completed = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=60, check=False)
-        except (OSError, subprocess.SubprocessError) as err:
-            raise ToolError(f"grep failed: {err}") from err
-        # rg exits 1 for "no matches", which is not an error.
-        if completed.returncode not in (0, 1):
-            raise ToolError(f"grep failed: {completed.stderr.strip()}")
-        return completed.stdout.splitlines()[:MAX_GREP_MATCHES]
-
-    return _python_grep(root, pattern, glob)
+def glob_files(files: Mapping[str, str], pattern: str) -> list[str]:
+    """Run-relative paths matching a glob."""
+    return sorted(name for name in files if _matches(name, pattern))[:MAX_LIST_ENTRIES]
 
 
-def _python_grep(root: Path, pattern: str, glob: str | None) -> list[str]:
-    import re
+def grep(files: Mapping[str, str], pattern: str, glob: str | None = None) -> list[str]:
+    """Search the run's files for a pattern.
 
+    Always the Python scan now. It used to prefer ripgrep with the run root as
+    `cwd`, and there is no root to point a subprocess at -- so what was the
+    fallback is the whole implementation. Slower on a large tree; the output
+    format is byte-for-byte what `rg --line-number --no-heading` produced,
+    because that is what the prompts describe and what the trace renders.
+    """
     try:
         compiled = re.compile(pattern)
     except re.error as err:
         raise ToolError(f"invalid pattern: {err}") from err
 
     results: list[str] = []
-    for path in sorted(root.rglob(glob or "*")):
-        if not path.is_file() or path.is_symlink():
+    for name in sorted(files):
+        if glob and not _matches(name, glob):
             continue
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for number, line in enumerate(text.splitlines(), start=1):
+        for number, line in enumerate(files[name].splitlines(), start=1):
             if compiled.search(line):
-                results.append(f"{relative_to_root(root, path)}:{number}:{line}")
+                results.append(f"{name}:{number}:{line}")
                 if len(results) >= MAX_GREP_MATCHES:
                     return results
     return results
@@ -157,122 +157,13 @@ def definition_of(store: ChunkStore, symbol: str) -> list[dict[str, Any]]:
 # -- sandboxed execution -----------------------------------------------------
 
 
-@dataclass(frozen=True)
-class SandboxResult:
-    """Outcome of a sandboxed command."""
-
-    exit_code: int
-    stdout: str
-    stderr: str
-    backend: str
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "exit_code": self.exit_code,
-            "stdout": self.stdout[:20_000],
-            "stderr": self.stderr[:20_000],
-            "backend": self.backend,
-        }
-
-
-def bwrap_available() -> bool:
-    return shutil.which("bwrap") is not None
-
-
-def _bwrap_command(root: Path, command: Sequence[str]) -> list[str]:
-    """No network, read-only system, read-only tree. A writable upload would let
-    a compile step rewrite the source the findings point at."""
-    return [
-        "bwrap",
-        "--unshare-all",  # no network, no IPC, no PID namespace sharing
-        "--die-with-parent",
-        "--ro-bind",
-        "/usr",
-        "/usr",
-        "--ro-bind",
-        "/lib",
-        "/lib",
-        "--ro-bind-try",
-        "/lib64",
-        "/lib64",
-        "--ro-bind-try",
-        "/bin",
-        "/bin",
-        "--ro-bind-try",
-        "/sbin",
-        "/sbin",
-        "--ro-bind-try",
-        "/etc/alternatives",
-        "/etc/alternatives",
-        "--proc",
-        "/proc",
-        "--dev",
-        "/dev",
-        "--tmpfs",
-        "/tmp",
-        "--ro-bind",
-        str(root.resolve()),
-        "/work",
-        "--chdir",
-        "/work",
-        "--setenv",
-        "HOME",
-        "/tmp",
-        "--",
-        *command,
-    ]
-
-
-def run_sandboxed(
-    root: Path,
-    command: Sequence[str],
-    *,
-    backend: str = "bwrap",
-    timeout: int = 20,
-) -> SandboxResult:
-    """Network is denied in every backend: a verification step that phones out
-    is not verification."""
-    if not command:
-        raise ToolError("no command given")
-
-    if backend == "bwrap":
-        if not bwrap_available():
-            raise ToolError("bubblewrap is not installed; set AGENT_SANDBOX=docker or none")
-        argv = _bwrap_command(root, command)
-    elif backend == "docker":
-        argv = [
-            "docker",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--read-only",
-            "--memory",
-            "512m",
-            "--pids-limit",
-            "128",
-            "-v",
-            f"{root.resolve()}:/work:ro",
-            "-w",
-            "/work",
-            "gcc:13",
-            *command,
-        ]
-    elif backend == "none":
-        raise ToolError("sandboxed execution is disabled (AGENT_SANDBOX=none)")
-    else:
-        raise ToolError(f"unknown sandbox backend: {backend}")
-
-    try:
-        completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        return SandboxResult(exit_code=124, stdout="", stderr=f"timed out after {timeout}s", backend=backend)
-    except OSError as err:
-        raise ToolError(f"sandbox failed to start: {err}") from err
-
-    return SandboxResult(
-        exit_code=completed.returncode,
-        stdout=completed.stdout,
-        stderr=completed.stderr,
-        backend=backend,
-    )
+# `run_in_sandbox` lived here.
+#
+# It ran a command against the run's tree under bubblewrap or docker, and a
+# tree is exactly what a run no longer has: the files are rows, and nothing
+# materialises them. Removed rather than given a temporary directory, which was
+# a deliberate call -- a scratch tree written per invocation is a second source
+# of truth with a lifetime, and this is the only tool that wanted one.
+#
+# `GET /agent/graph` reads the roster from the step definitions, so the tool
+# stops being advertised by deleting it here rather than by editing a list.

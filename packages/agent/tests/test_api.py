@@ -20,13 +20,12 @@ pytest.importorskip("httpx", reason="fastapi.testclient needs httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from agent.config import ENV_MODEL, ENV_RUNS_DIR  # noqa: E402
+from agent.config import ENV_MODEL  # noqa: E402
 
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """A client whose runs land in a temp directory, not the real artifacts dir."""
-    monkeypatch.setenv(ENV_RUNS_DIR, str(tmp_path / "runs"))
+    """A client over the suite's throwaway database, with no model configured."""
     monkeypatch.delenv(ENV_MODEL, raising=False)
 
     from api.main import app
@@ -152,11 +151,14 @@ def test_file_endpoint_returns_content_and_a_monaco_language(client: TestClient)
     assert body["language"] == "c"
 
 
-def test_file_endpoint_refuses_to_escape_the_run(client: TestClient) -> None:
-    """This takes a path straight from a query string, so it is a real target."""
+def test_file_endpoint_does_not_serve_a_path_out_of_the_run(client: TestClient) -> None:
+    """This takes a path straight from a query string, so it is a real target.
+
+    A 404, not a 400: there is no root to escape and nothing to resolve
+    against, so a traversal is one more name the run does not have."""
     run_id = _upload(client)["run_id"]
     response = client.get(f"/agent/runs/{run_id}/file", params={"path": "../../../../etc/passwd"})
-    assert response.status_code == 400
+    assert response.status_code == 404
 
 
 def test_missing_file_is_a_404(client: TestClient) -> None:
@@ -629,11 +631,11 @@ def test_state_can_be_read_and_branched_over_a_real_history(client: TestClient) 
     try:
         run_inspection(
             run_id=run_id,
-            root=paths.source,
+            files=paths.file_contents(),
             store=store,
             config=AgentConfig(model="fake", enable_tools=False),
             caller=_SilentCaller(),
-            checkpoints=paths.checkpoint_db,
+            checkpoints=True,
         )
     finally:
         store.close()
@@ -938,18 +940,15 @@ def test_a_run_is_labelled_by_its_files_not_its_id(client: TestClient) -> None:
 
 def test_runs_are_listed_most_recently_touched_first(client: TestClient) -> None:
     """Sorted by id, a list of random hex is shuffled into a meaningless order."""
-    import os
-    import time
-
     from agent.runs import get_run
 
     first = _upload(client)["run_id"]
     second = _upload(client)["run_id"]
-    # Timestamps can land in the same tick on a fast filesystem.
-    later = time.time() + 10
-    paths = get_run(second)
-    assert paths is not None
-    os.utime(paths.meta_path, (later, later))
+    # Two uploads can land in the same tick, so the newer one is touched
+    # explicitly. `write_meta` is what bumps `updated_at`.
+    run = get_run(second)
+    assert run is not None
+    run.write_meta(touched=True)
 
     listed = [r["run_id"] for r in client.get("/agent/runs").json()["runs"]]
     assert listed.index(second) < listed.index(first)
@@ -968,12 +967,15 @@ def test_a_run_can_be_deleted(client: TestClient) -> None:
     from agent.runs import get_run
 
     run_id = _upload(client)["run_id"]
-    paths = get_run(run_id)
-    assert paths is not None
-    assert paths.base.is_dir()
+    run = get_run(run_id)
+    assert run is not None
+    assert run.files(), "the upload should have landed as rows"
 
     assert client.delete(f"/agent/runs/{run_id}").json()["deleted"] == run_id
-    assert not paths.base.exists()
+    # Gone, and gone as a unit: the row is deleted and everything hanging off
+    # it cascades, which is what the directory removal used to stand for.
+    assert get_run(run_id) is None
+    assert run.files() == []
     assert all(r["run_id"] != run_id for r in client.get("/agent/runs").json()["runs"])
 
 
@@ -1009,7 +1011,6 @@ def test_startup_fails_the_runs_no_process_is_left_to_finish(tmp_path: Path, mon
     nothing can resume it and nothing will ever finish it. Left alone it reads
     as running for ever -- which is the one thing a status is for.
     """
-    monkeypatch.setenv(ENV_RUNS_DIR, str(tmp_path / "runs"))
     monkeypatch.delenv(ENV_MODEL, raising=False)
 
     from agent.runs import get_run
@@ -1125,7 +1126,7 @@ def _paths_for(run_id: str):
 def test_a_fix_replaces_exactly_the_lines_the_finding_is_anchored_to(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
-    source = (paths.source / "src/app.c").read_text(encoding="utf-8")
+    source = paths.read_file("src/app.c")
     target = next(i for i, line in enumerate(source.splitlines(), 1) if "sprintf" in line)
     original = source.splitlines()[target - 1]
 
@@ -1140,7 +1141,7 @@ def test_a_fix_replaces_exactly_the_lines_the_finding_is_anchored_to(client: Tes
     response = client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "f1"})
     assert response.status_code == 200, response.text
 
-    after = (paths.source / "src/app.c").read_text(encoding="utf-8").splitlines()
+    after = paths.read_file("src/app.c").splitlines()
     assert "snprintf" in after[target - 1]
     assert len(after) == len(source.splitlines()), "a one-line fix must not change the line count"
     # Everything around it untouched: this splices, it does not rewrite.

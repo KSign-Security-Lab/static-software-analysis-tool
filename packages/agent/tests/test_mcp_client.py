@@ -14,31 +14,34 @@ from pathlib import Path
 
 import pytest
 
-from agent.index import ChunkStore, build_index
+from agent.index import build_index
+from agent.runs import new_run
 from agent.mcp.client import VERIFY_TOOLS, ToolSession, open_session, unwrap_tool_result
 
 
-@pytest.fixture(scope="module")
-def indexed_tree(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
-    """A tiny tree plus its index, built once for the whole module."""
-    root = tmp_path_factory.mktemp("mcp-tree")
-    (root / "app.c").write_text(
-        "#include <stdlib.h>\n"
-        'static void run(const char *u) { char c[64]; sprintf(c, "wget %s", u); system(c); }\n'
-        "void handle(const char *loc) { run(loc); }\n",
-        encoding="utf-8",
-    )
-    db = root.parent / "index.db"
-    store = ChunkStore(db)
-    build_index(root, store)
+SOURCE = (
+    "#include <stdlib.h>\n"
+    'static void run(const char *u) { char c[64]; sprintf(c, "wget %s", u); system(c); }\n'
+    "void handle(const char *loc) { run(loc); }\n"
+)
+
+
+@pytest.fixture
+def session():
+    """A subprocess serving one run's tools.
+
+    Per test rather than per module, which it used to be: the run is rows now,
+    and every test in this suite empties the tables between tests. A session
+    held across them would be pointed at a run that no longer exists. The cost
+    is one subprocess per test, which is what makes this the slowest file here.
+    """
+    run = new_run()
+    run.put_file("app.c", SOURCE.encode("utf-8"))
+    store = run.store()
+    build_index(run.file_contents(), store)
     store.close()
-    return root, db
 
-
-@pytest.fixture(scope="module")
-def session(indexed_tree: tuple[Path, Path]):
-    root, db = indexed_tree
-    opened = open_session(run_root=root, index_db=db, allowed=VERIFY_TOOLS)
+    opened = open_session(run.run_id, allowed=VERIFY_TOOLS)
     if opened is None:
         pytest.skip("the MCP tool surface would not start")
     yield opened
@@ -66,17 +69,20 @@ def test_reading_source_round_trips_through_the_subprocess(session: ToolSession)
 
 
 def test_graph_tools_answer_from_the_index(session: ToolSession) -> None:
-    """These need AGENT_INDEX_DB to have reached the subprocess."""
+    """These need AGENT_RUN_ID to have reached the subprocess."""
     out = session.call("find_callers", {"symbol": "run"})
     assert "handle" in out, out
     assert json.loads(out), "expected a JSON payload from a graph tool"
 
 
-def test_path_confinement_survives_the_hop(session: ToolSession) -> None:
-    """The boundary has to hold through MCP, not only in-process."""
+def test_a_path_out_of_the_tree_is_refused_through_the_hop(session: ToolSession) -> None:
+    """It has to be refused through MCP, not only in-process.
+
+    Refused as "not a file" rather than as an escape: the run has no root to
+    escape from, so `../../../../etc/passwd` is a key nobody stored."""
     out = session.call("read_source", {"path": "../../../../etc/passwd"})
     assert out.startswith("error:")
-    assert "escapes the run root" in out
+    assert "not a file" in out
 
 
 def test_an_unknown_tool_is_reported_not_raised(session: ToolSession) -> None:
@@ -102,4 +108,4 @@ def test_a_session_that_cannot_start_degrades_instead_of_failing(
 ) -> None:
     """Tools improve verification; they are not a precondition for it."""
     monkeypatch.setattr("sys.executable", "/nonexistent/python")
-    assert open_session(run_root=tmp_path) is None
+    assert open_session(new_run().run_id) is None

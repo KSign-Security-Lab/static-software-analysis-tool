@@ -109,8 +109,9 @@ def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyP
     """The whole point: what is saved here is what the next run is given."""
     from agent.config import ENV_PROMPTS_FILE, AgentConfig
     from agent.graph.session import InspectionSession
+    from agent.runs import new_run
+    from conftest import read_tree
     from agent.index import ChunkStore, build_index
-
     path = tmp_path / "prompts.json"
     monkeypatch.setenv(ENV_PROMPTS_FILE, str(path))
     promptstore.save(path, "lens:memory", "Report only command injection.")
@@ -118,8 +119,8 @@ def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyP
     root = tmp_path / "src"
     root.mkdir()
     (root / "a.c").write_text("void f(void) { }\n", encoding="utf-8")
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(root, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
 
     class Recording:
         def __init__(self) -> None:
@@ -135,7 +136,7 @@ def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyP
     caller = Recording()
     with InspectionSession(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         # One specialist and no screening, so every call this run makes is the
         # call under test rather than a mixture of four prompts and a screener.

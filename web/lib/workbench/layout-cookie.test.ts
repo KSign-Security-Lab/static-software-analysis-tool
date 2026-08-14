@@ -7,8 +7,12 @@ import {
   defaultLayoutFor,
   encodeLayout,
   layoutFor,
+  LAYOUT_VERSION,
   type StoredLayout,
 } from "./layout-cookie";
+
+/** The current version prefix, derived: a bump must not rewrite every case below. */
+const V = `${LAYOUT_VERSION}~`;
 
 const valid: StoredLayout = {
   agent: { h: { side: 20, main: 58, inspector: 22 }, v: { centre: 70, dock: 30 } },
@@ -25,7 +29,7 @@ describe("decodeLayout", () => {
   });
 
   it("survives a corrupt cookie rather than blanking the app", () => {
-    for (const junk of ["not a layout", "{}", "1~", "1~agent", "1~agent:", "1~:20_58_22_70_30", "~~~"]) {
+    for (const junk of ["not a layout", "{}", `${V}`, `${V}agent`, `${V}agent:`, `${V}:20_58_22_70_30`, "~~~"]) {
       expect(decodeLayout(junk)).toEqual({});
     }
   });
@@ -36,27 +40,27 @@ describe("decodeLayout", () => {
 
   it("keeps a collapsed panel collapsed", () => {
     // A collapsible panel sits at 0, so restoring the number restores the fold.
-    expect(decodeLayout("1~agent:0_78_22_70_30").agent?.h.side).toBe(0);
+    expect(decodeLayout(`${V}agent:0_78_22_70_30`).agent?.h.side).toBe(0);
   });
 
   it("drops a perspective whose sizes do not add up", () => {
-    expect(decodeLayout("1~agent:10_10_10_70_30")).toEqual({});
-    expect(decodeLayout("1~agent:20_58_22_10_10")).toEqual({});
+    expect(decodeLayout(`${V}agent:10_10_10_70_30`)).toEqual({});
+    expect(decodeLayout(`${V}agent:20_58_22_10_10`)).toEqual({});
   });
 
   it("tolerates the rounding a drag leaves behind", () => {
-    expect(decodeLayout("1~agent:20.4_57.3_22.6_70_30").agent).toBeDefined();
+    expect(decodeLayout(`${V}agent:20.4_57.3_22.6_70_30`).agent).toBeDefined();
   });
 
   it("drops an entry with the wrong number of panels rather than half-applying it", () => {
     // Sizing some panels and leaving others at their defaults looks like a bug
     // and is harder to reason about than ignoring the entry.
-    expect(decodeLayout("1~agent:20_80")).toEqual({});
-    expect(decodeLayout("1~agent:20_58_22_70_30_5")).toEqual({});
+    expect(decodeLayout(`${V}agent:20_80`)).toEqual({});
+    expect(decodeLayout(`${V}agent:20_58_22_70_30_5`)).toEqual({});
   });
 
   it("rejects an unknown perspective", () => {
-    expect(decodeLayout("1~nope:20_58_22_70_30")).toEqual({});
+    expect(decodeLayout(`${V}nope:20_58_22_70_30`)).toEqual({});
   });
 
   it.each([
@@ -67,11 +71,11 @@ describe("decodeLayout", () => {
     ["exponent", "1e2_0_0_70_30"],
     ["hex", "0x14_58_22_70_30"],
   ])("rejects a %s size", (_label, sizes) => {
-    expect(decodeLayout(`1~agent:${sizes}`)).toEqual({});
+    expect(decodeLayout(`${V}agent:${sizes}`)).toEqual({});
   });
 
   it("keeps the good perspectives when one is bad", () => {
-    const out = decodeLayout("1~agent:20_58_22_70_30~f2a:1_1_1_1_1");
+    const out = decodeLayout(`${V}agent:20_58_22_70_30~f2a:1_1_1_1_1`);
     expect(out.agent).toEqual(valid.agent);
     expect(out.f2a).toBeUndefined();
   });
@@ -81,7 +85,7 @@ describe("a perspective that no longer exists", () => {
   it("is dropped from a cookie written before it went away", () => {
     // 트레이스 was its own route until it became a tab of 검사. Cookies from
     // then are still in browsers, and must not resurrect it.
-    const out = decodeLayout("1~agent:20_58_22_70_30~trace:20_58_22_70_30");
+    const out = decodeLayout(`${V}agent:20_58_22_70_30~trace:20_58_22_70_30`);
     expect(out.agent).toEqual(valid.agent);
     expect(Object.keys(out)).toEqual(["agent"]);
   });
@@ -103,14 +107,14 @@ describe("encodeLayout", () => {
 
   it("skips a perspective carrying a non-finite size", () => {
     const broken = { agent: { h: { side: Number.NaN, main: 58, inspector: 22 }, v: { centre: 70, dock: 30 } } };
-    expect(encodeLayout(broken)).toBe("1");
+    expect(encodeLayout(broken)).toBe(String(LAYOUT_VERSION));
   });
 
   it("rounds to one decimal, which is all the panels keep anyway", () => {
     const noisy = {
       agent: { h: { side: 20.44444, main: 57.33333, inspector: 22.22223 }, v: { centre: 70, dock: 30 } },
     };
-    expect(encodeLayout(noisy)).toBe("1~agent:20.4_57.3_22.2_70_30");
+    expect(encodeLayout(noisy)).toBe(`${V}agent:20.4_57.3_22.2_70_30`);
   });
 });
 
@@ -124,10 +128,37 @@ describe("layoutFor", () => {
     expect(layoutFor({}, "agent")).toEqual(defaultLayoutFor("agent"));
   });
 
-  it("gives 검사 a taller dock than the bare default", () => {
-    // 문제, 호출 기록 and 상태 단계 all live under the centre there now, so
-    // the dock is doing considerably more work than elsewhere.
-    expect(defaultLayoutFor("agent").v.dock).toBeGreaterThan(DEFAULT_LAYOUT.v.dock);
+  it("gives 검사 all four regions, each with room to do its job", () => {
+    // Files left, code centre, 상세 right, and the bottom panel holding the
+    // agent's structure above the run's record.
+    const agent = defaultLayoutFor("agent");
+    expect(agent.h.inspector).toBeGreaterThan(0);
+    expect(agent.v.dock).toBeGreaterThan(0);
+  });
+
+  it("leaves the editor the larger share, since the rest is about the code", () => {
+    // Giving the panel the majority so the structure could be large produced
+    // three squeezed regions instead of one: eight lines of code over a squeezed
+    // drawing over a squeezed list. The handle is how you borrow height.
+    const agent = defaultLayoutFor("agent");
+    expect(agent.v.centre).toBeGreaterThan(agent.v.dock);
+  });
+
+  it("leaves 스테이지 with neither a dock nor an inspector", () => {
+    // It is a step list and one editor over a raw response, and it showed a
+    // staging placeholder in each of the other two.
+    expect(defaultLayoutFor("stages").h.inspector).toBe(0);
+    expect(defaultLayoutFor("stages").v.dock).toBe(0);
+  });
+
+  it("rejects a layout written under a different pane set", () => {
+    // Five positional numbers cannot say which pane a number belongs to, so an
+    // older cookie is not translatable: v2 zeroed the inspector and the dock,
+    // which under this arrangement hides both 문제 and 상세 on a screen whose
+    // owner never asked for that. The version is the only thing that can refuse.
+    for (const old of ["1~agent:16_60_24_58_42", "2~agent:18_82_0_100_0", "6~agent:16_61_23_60_40"]) {
+      expect(decodeLayout(old)).toEqual({});
+    }
   });
 });
 

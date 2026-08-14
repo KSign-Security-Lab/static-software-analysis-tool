@@ -100,6 +100,80 @@ export function outcomeOf(exchange: Exchange): Outcome | null {
   return null;
 }
 
+/* -- the same vocabulary, one field at a time ------------------------------- */
+
+/**
+ * What a schema field is called, in the product's words.
+ *
+ * `outcomeOf` above translates a whole reply into one line for a closed row.
+ * This is the same job for an open one, where the reader was getting the schema
+ * raw: `worth_analysing true`, `lenses injection`, `refuted false`. Those are
+ * correct and they are identifiers -- and `refuted: false` is a double negative
+ * whose plain reading is the opposite of what it means.
+ *
+ * Kept here rather than in the renderer because this file is the one place the
+ * agent's vocabulary becomes the product's, and a second copy in a component is
+ * how the dock and this pane came to show the same fact in opposite colours.
+ *
+ * A field with no entry keeps its own name. The gloss is an improvement where
+ * there is one, not a requirement to invent Korean for every key a schema might
+ * grow, and `원본` shows the identifiers whatever happens here.
+ */
+const TERM: Record<string, string> = {
+  worth_analysing: "분석 대상",
+  lenses: "살펴볼 관점",
+  reason: "이유",
+  regions: "살펴본 구간",
+  findings: "발견",
+  refuted: "반박 시도",
+  confidence: "확신도",
+  severity: "심각도",
+  title: "제목",
+  explanation: "설명",
+  remediation: "고치는 방법",
+  note: "메모",
+  notes: "메모",
+  summary: "요약",
+  detail: "자세히",
+};
+
+/** `true`/`false` for fields where the bare boolean reads wrong or reads as nothing. */
+const BOOLEAN: Record<string, { yes: string; no: string }> = {
+  worth_analysing: { yes: "예", no: "아니요" },
+  // Refuted means the claim did *not* survive, so the words are the finding
+  // list's own rather than 예/아니요 -- which would need the reader to hold the
+  // double negative in their head to get anything from it.
+  refuted: { yes: REFUTED_LABEL, no: STANDING_LABEL.confirmed },
+};
+
+export interface Glossed {
+  term: string;
+  value: string;
+}
+
+/**
+ * One field of a reply, in Korean where that is possible.
+ *
+ * Values pass through untouched except for the two shapes that genuinely do not
+ * read: a boolean whose meaning is not in the word `true`, and a 0-1 confidence
+ * which everything else in this app shows as a percentage.
+ */
+export function gloss(key: string, value: string): Glossed {
+  const term = TERM[key] ?? key;
+
+  const bool = BOOLEAN[key];
+  if (bool && (value === "true" || value === "false")) {
+    return { term, value: value === "true" ? bool.yes : bool.no };
+  }
+
+  if (key === "confidence") {
+    const sure = Number(value);
+    if (Number.isFinite(sure) && sure >= 0 && sure <= 1) return { term, value: `${Math.round(sure * 100)}%` };
+  }
+
+  return { term, value };
+}
+
 /** How a unit ended: the last thing that happened to it, for its collapsed row. */
 export function unitOutcome(exchanges: Exchange[]): Outcome | null {
   for (let at = exchanges.length - 1; at >= 0; at -= 1) {

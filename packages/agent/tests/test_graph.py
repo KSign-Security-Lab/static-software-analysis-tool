@@ -18,6 +18,9 @@ from pydantic import BaseModel
 
 from agent.config import AgentConfig
 from agent.graph.build import run_inspection
+from conftest import read_tree
+
+from agent.runs import new_run
 from agent.index import ChunkStore, build_index
 from agent.promptstore import lens_prompt
 from agent.prompts import LENS_SYSTEM
@@ -122,9 +125,16 @@ def indexed(tmp_path: Path) -> tuple[Path, ChunkStore]:
     root = tmp_path / "src"
     root.mkdir()
     (root / "app.c").write_text(VULNERABLE, encoding="utf-8")
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(root, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
     return root, store
+
+
+def _url() -> str:
+    """Where the checkpoints are. Was a path to a per-run SQLite file."""
+    from agent.config import AgentConfig
+
+    return AgentConfig().database_url
 
 
 def _run(
@@ -149,7 +159,7 @@ def _run(
     config = AgentConfig(model="fake", enable_tools=False, **config_kwargs)
     return run_inspection(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=config,
         caller=caller,  # type: ignore[arg-type]
@@ -323,7 +333,7 @@ def test_editing_one_function_reanalyses_only_that_chunk(indexed) -> None:
 
     edited = VULNERABLE.replace('sprintf(cmd, "echo %s", arg);', 'snprintf(cmd, sizeof(cmd), "echo %s", arg);')
     (root / "app.c").write_text(edited, encoding="utf-8")
-    build_index(root, store)
+    build_index(read_tree(root), store)
 
     caller = ScriptedCaller()
     _run(root, store, caller)
@@ -489,7 +499,7 @@ def test_a_specialist_is_offered_lookups_and_nothing_that_wanders() -> None:
     for lens in LENSES:
         assert STEP_TOOLS[lens_prompt(lens)] == tuple(LENS_TOOLS)
 
-    wandering = {"read_source", "search_text", "search_semantic", "run_in_sandbox"}
+    wandering = {"read_source", "search_text", "search_semantic"}
     assert not wandering & set(LENS_TOOLS), "a specialist must not be able to go looking"
     assert wandering <= set(VERIFY_TOOLS), "which is what `gather` is for"
 
@@ -520,13 +530,13 @@ def test_empty_analysis_produces_an_empty_report(indexed) -> None:
 def test_a_run_records_its_own_trace(indexed, tmp_path: Path) -> None:
     """The local trace is what the debug view reads; LangSmith is optional."""
     root, store = indexed
-    spans = SpanStore(tmp_path / "trace.db")
+    spans = SpanStore(new_run().run_id)
     caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
 
     config = AgentConfig(model="fake", enable_tools=False, lenses=("injection",))
     run_inspection(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=config,
         caller=caller,  # type: ignore[arg-type]
@@ -594,18 +604,16 @@ def test_a_run_checkpoints_every_super_step(indexed, tmp_path: Path) -> None:
 
     root, store = indexed
     caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
-    db = tmp_path / "checkpoints.db"
-
     run_inspection(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=AgentConfig(model="fake", enable_tools=False, lenses=("injection",)),
         caller=caller,  # type: ignore[arg-type]
-        checkpoints=db,
+        checkpoints=True,
     )
 
-    history = read_history(db, "test")
+    history = read_history(_url(), "test")
     assert len(history) > 1
 
     # Oldest first: reading a run as a sequence of steps is the point, and
@@ -635,7 +643,7 @@ def test_a_run_checkpoints_every_super_step(indexed, tmp_path: Path) -> None:
 def test_history_of_a_run_that_was_never_checkpointed_is_empty(tmp_path: Path) -> None:
     from agent.graph.checkpoints import read_history
 
-    assert read_history(tmp_path / "missing.db", "test") == []
+    assert read_history(_url(), "a-thread-that-never-ran") == []
 
 
 # -- the studio: watching a run, stopping it, and steering it -----------------
@@ -660,11 +668,11 @@ def _session(indexed, tmp_path: Path, **kwargs):
     )
     return InspectionSession(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=config,
         caller=caller,
-        checkpoints=tmp_path / "checkpoints.db",
+        checkpoints=True,
         **kwargs,
     )
 
@@ -751,7 +759,7 @@ def test_a_breakpoint_needs_somewhere_to_stop(indexed, tmp_path: Path) -> None:
     root, store = indexed
     session = InspectionSession(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=AgentConfig(model="fake", enable_tools=False, lenses=("injection",)),
         caller=ScriptedCaller(),
@@ -771,18 +779,17 @@ def test_state_can_be_read_in_full_and_edited(indexed, tmp_path: Path) -> None:
     """Editing needs the real values: a count cannot be edited back into a list."""
     from agent.graph.checkpoints import read_state, write_state
 
-    db = tmp_path / "checkpoints.db"
     with _session(indexed, tmp_path, breakpoints=["context"]) as session:
         session.start()
         assert session.interrupted
 
-        state = read_state(db, "test")
+        state = read_state(_url(), "test")
         assert state is not None
         assert isinstance(state["values"]["pending"], list), "summarised state cannot be edited"
         assert state["next"] == ["context"]
 
         # Drain the queue by hand: what the run does next is now our decision.
-        write_state(db, "test", {"pending": []}, state["checkpoint_id"])
+        write_state(_url(), "test", {"pending": []}, state["checkpoint_id"])
         session.resume()
 
     assert not session.interrupted
@@ -794,21 +801,20 @@ def test_writing_over_an_old_checkpoint_branches_rather_than_overwrites(indexed,
     from agent.graph.checkpoints import read_history, write_state
 
     root, store = indexed
-    db = tmp_path / "checkpoints.db"
     run_inspection(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=AgentConfig(model="fake", enable_tools=False, lenses=("injection",)),
         caller=ScriptedCaller(),  # type: ignore[arg-type]
-        checkpoints=db,
+        checkpoints=True,
     )
 
-    before = read_history(db, "test")
+    before = read_history(_url(), "test")
     target = next(h for h in before if h["node"] == "plan" and h["next"])
-    branched = write_state(db, "test", {"pending": ["nothing-real"]}, target["checkpoint_id"])
+    branched = write_state(_url(), "test", {"pending": ["nothing-real"]}, target["checkpoint_id"])
 
-    after = read_history(db, "test")
+    after = read_history(_url(), "test")
     assert branched and branched not in {h["checkpoint_id"] for h in before}
     assert len(after) == len(before) + 1, "the original line is still there"
 
@@ -823,7 +829,7 @@ def test_writing_over_an_old_checkpoint_branches_rather_than_overwrites(indexed,
 def test_state_of_a_run_that_never_ran_is_nothing(tmp_path: Path) -> None:
     from agent.graph.checkpoints import read_state
 
-    assert read_state(tmp_path / "missing.db", "test") is None
+    assert read_state(_url(), "a-thread-that-never-ran") is None
 
 
 def test_a_run_can_be_started_with_a_narrowed_queue(indexed, tmp_path: Path) -> None:
@@ -963,7 +969,7 @@ def test_a_wave_inspects_several_chunks_at_once(indexed) -> None:
     config = AgentConfig(model="fake", enable_tools=False, lenses=("injection",), wave_width=4)
     run_inspection(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=config,
         caller=caller,  # type: ignore[arg-type]
@@ -989,7 +995,7 @@ def test_a_started_chunk_says_which_file_it_is_in(indexed) -> None:
 
     run_inspection(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=AgentConfig(model="fake", enable_tools=False, lenses=("injection",), wave_width=4),
         caller=ScriptedCaller(),  # type: ignore[arg-type]
@@ -1026,8 +1032,8 @@ def test_a_run_is_the_same_however_the_endpoint_answers(indexed, tmp_path: Path)
         root = tmp_path / f"src{seed}"
         root.mkdir()
         (root / "app.c").write_text(VULNERABLE, encoding="utf-8")
-        store = ChunkStore(tmp_path / f"index{seed}.db")
-        build_index(root, store)
+        store = ChunkStore(new_run().run_id)
+        build_index(read_tree(root), store)
 
         rng = random.Random(seed)
 
@@ -1154,7 +1160,7 @@ def test_a_wave_closes_exactly_once_when_a_chunk_is_screened_out(indexed) -> Non
     config = AgentConfig(model="fake", enable_tools=False, lenses=("injection",), wave_width=4)
     report = run_inspection(
         run_id="test",
-        root=root,
+        files=read_tree(root),
         store=store,
         config=config,
         caller=caller,  # type: ignore[arg-type]
@@ -1227,8 +1233,8 @@ def _tree_at(tmp_path: Path, name: str, source: str) -> tuple[Path, ChunkStore]:
     root = tmp_path / name
     root.mkdir()
     (root / "app.c").write_text(source, encoding="utf-8")
-    store = ChunkStore(tmp_path / f"{name}.db")
-    build_index(root, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
     return root, store
 
 

@@ -9,17 +9,17 @@ Writing over an old snapshot branches the thread there rather than overwriting
 it: the new checkpoint records the old one as its parent, so the history is a
 tree and the original line survives being second-guessed.
 
-Stored beside the run's chunks and spans, in its own file. A run's history is
-its own -- nothing here is shared between runs.
+Stored beside the run's chunks and spans, in the same database. LangGraph keys
+its own tables by ``thread_id``, and the thread is the run id -- so a run's
+history is its own without a file of its own.
 """
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
 from typing import Any
 
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg import Connection
 
 from .state import RESET
 
@@ -31,17 +31,53 @@ BULKY = ("candidates", "located", "confirmed", "verdicts", "context_text")
 PREVIEW_ITEMS = 5
 
 
-def checkpoint_saver(path: Path) -> SqliteSaver:
-    """A saver on the run's own file.
+def checkpoint_saver(database_url: str) -> tuple[Connection, PostgresSaver]:
+    """A saver and the connection it owns.
 
-    ``check_same_thread=False`` because the inspection runs on a worker thread
-    while the API reads history from the request thread.
+    The connection comes back with it because the caller has to close it, and
+    LangGraph's saver does not own its own lifetime. `autocommit` because
+    `setup()` issues DDL, and psycopg would otherwise leave it in a transaction
+    that the first reader blocks on.
+
+    `setup()` on every open is deliberate and cheap: it is `CREATE TABLE IF NOT
+    EXISTS`, and it is what stops the first run of a fresh database failing on
+    tables the application schema does not own.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=10000")
-    return SqliteSaver(conn)
+    conn = Connection.connect(_dsn(database_url), autocommit=True, row_factory=_dict_row())
+    saver = PostgresSaver(conn)
+    saver.setup()
+    return conn, saver
+
+
+def _dsn(database_url: str) -> str:
+    """SQLAlchemy spells the driver into the URL; psycopg wants it left out."""
+    return database_url.replace("postgresql+psycopg://", "postgresql://")
+
+
+def _dict_row() -> Any:
+    from psycopg.rows import dict_row
+
+    return dict_row
+
+
+def clear_thread(database_url: str, thread_id: str) -> None:
+    """Forget one run's history, before a *fresh* inspection.
+
+    Was deleting the run's checkpoint file. The tables are shared between runs
+    now, so it is a delete keyed by thread -- which is also why it names every
+    table rather than dropping anything.
+    """
+    conn = Connection.connect(_dsn(database_url), autocommit=True)
+    try:
+        with conn.cursor() as cur:
+            for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+                cur.execute(f"DELETE FROM {table} WHERE thread_id = %s", (thread_id,))
+    except Exception:
+        # A database that has never had a run has no checkpoint tables yet, and
+        # "nothing to clear" is the correct outcome rather than an error.
+        pass
+    finally:
+        conn.close()
 
 
 def summarise(values: Any) -> dict[str, Any]:
@@ -71,7 +107,7 @@ def _id(config: Any) -> str | None:
     return ((config or {}).get("configurable") or {}).get("checkpoint_id")
 
 
-def _open(path: Path) -> tuple[Any, SqliteSaver]:
+def _open(database_url: str) -> tuple[Any, Connection]:
     """A graph over this run's saver, compiled purely to read or write history.
 
     The nodes only close over what they are given and nothing runs here, so
@@ -79,8 +115,8 @@ def _open(path: Path) -> tuple[Any, SqliteSaver]:
     """
     from .build import build_graph, hollow_deps
 
-    saver = checkpoint_saver(path)
-    return build_graph(hollow_deps(), checkpointer=saver), saver
+    conn, saver = checkpoint_saver(database_url)
+    return build_graph(hollow_deps(), checkpointer=saver), conn
 
 
 def _step(snapshot: Any, full: bool, wrote: list[str]) -> dict[str, Any]:
@@ -101,20 +137,17 @@ def _step(snapshot: Any, full: bool, wrote: list[str]) -> dict[str, Any]:
     }
 
 
-def read_history(path: Path, thread_id: str, limit: int = 500, full: bool = False) -> list[dict[str, Any]]:
+def read_history(database_url: str, thread_id: str, limit: int = 500, full: bool = False) -> list[dict[str, Any]]:
     """Every checkpoint of one run, oldest first.
 
     LangGraph yields newest first, which is the wrong way round for reading a
     run as a sequence of steps.
     """
-    if not path.exists():
-        return []
-
-    app, saver = _open(path)
+    app, conn = _open(database_url)
     try:
         snapshots = list(app.get_state_history({"configurable": {"thread_id": thread_id}}, limit=limit))
     finally:
-        saver.conn.close()
+        conn.close()
 
     # Which node produced a checkpoint is not recorded anywhere; ``next`` is the
     # other way round, naming what a checkpoint is *about to* run. Following each
@@ -125,21 +158,18 @@ def read_history(path: Path, thread_id: str, limit: int = 500, full: bool = Fals
     return [_step(snapshot, full, queued.get(_id(snapshot.parent_config), [])) for snapshot in reversed(snapshots)]
 
 
-def read_state(path: Path, thread_id: str, checkpoint_id: str | None = None) -> dict[str, Any] | None:
+def read_state(database_url: str, thread_id: str, checkpoint_id: str | None = None) -> dict[str, Any] | None:
     """One checkpoint's state in full.
 
     The history summarises the bulky fields, which is right for a timeline and
     wrong for an editor: you cannot edit a count back into a list.
     """
-    if not path.exists():
-        return None
-
-    app, saver = _open(path)
+    app, conn = _open(database_url)
     try:
         snapshot = app.get_state(_config(thread_id, checkpoint_id))
         wrote = _wrote(app, snapshot)
     finally:
-        saver.conn.close()
+        conn.close()
 
     if not snapshot.values and snapshot.created_at is None:
         return None
@@ -154,7 +184,7 @@ def _wrote(app: Any, snapshot: Any) -> list[str]:
 
 
 def write_state(
-    path: Path,
+    database_url: str,
     thread_id: str,
     values: dict[str, Any],
     checkpoint_id: str | None = None,
@@ -166,10 +196,7 @@ def write_state(
     that point, and running from it explores a different course without
     disturbing the one already recorded.
     """
-    if not path.exists():
-        raise FileNotFoundError(f"no checkpoints for thread {thread_id}")
-
-    app, saver = _open(path)
+    app, conn = _open(database_url)
     try:
         config = _config(thread_id, checkpoint_id)
         if as_node is None:
@@ -180,7 +207,7 @@ def write_state(
             as_node = wrote[0] if wrote else None
         written = app.update_state(config, values, as_node=as_node)
     finally:
-        saver.conn.close()
+        conn.close()
 
     return ((written or {}).get("configurable") or {}).get("checkpoint_id")
 

@@ -33,6 +33,8 @@ const FINDING: UiFinding = {
   id: "f1",
   engine: "agent",
   chunkId: "net.c::handle",
+  chunkIds: ["net.c::handle"],
+  mergedIds: [],
   severity: "high",
   title: "명령어 주입 가능",
   cwe: "CWE-78",

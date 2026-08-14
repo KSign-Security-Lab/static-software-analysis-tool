@@ -14,8 +14,7 @@ which node is running *now*, and that only comes out of the stream.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from ..cache import ResultCache, recipe_of
 from ..config import AgentConfig
@@ -54,7 +53,9 @@ class InspectionSession:
         self,
         *,
         run_id: str,
-        root: Path,
+        #: The run's tree as `{path: text}`. Was the run root; a run has rows
+        #: rather than a directory, and the tools read from this.
+        files: Mapping[str, str],
         store: ChunkStore,
         config: AgentConfig,
         caller: StructuredCaller | None = None,
@@ -62,7 +63,8 @@ class InspectionSession:
         index_stats: dict[str, int] | None = None,
         tools: ToolSession | None = None,
         spans: SpanStore | None = None,
-        checkpoints: Path | None = None,
+        #: Whether to keep state snapshots. Was the path to a per-run file.
+        checkpoints: bool = False,
         breakpoints: Sequence[str] = (),
         breakpoints_after: Sequence[str] = (),
     ) -> None:
@@ -105,8 +107,8 @@ class InspectionSession:
         self._cache: ResultCache | None = None
         if config.cache_results and config.model:
             self._cache = ResultCache(
-                config.cache_file,
                 recipe_of(model=config.model, lenses=config.lenses, prompts=self.prompts),
+                config,
             )
 
         deps = NodeDeps(
@@ -114,7 +116,7 @@ class InspectionSession:
             cache=self._cache,
             config=config,
             caller=caller if caller is not None else StructuredCaller(config),
-            root=root,
+            files=files,
             emit=self._emit,
             run_id=run_id,
             tools=tools,
@@ -129,8 +131,8 @@ class InspectionSession:
         # supported mode.
         if tools is None and config.enable_tools:
             self._owned_tools = open_session(
-                run_root=root,
-                index_db=store.path,
+                run_id=run_id,
+                database_url=config.database_url,
                 sandbox=config.sandbox,
                 allowed=ALL_TOOLS,
             )
@@ -138,14 +140,17 @@ class InspectionSession:
 
         # One thread per run, so a run's history is its own and stepping through
         # it afterwards shows that run's states and nobody else's.
-        self._saver = checkpoint_saver(checkpoints) if checkpoints is not None else None
+        # One thread per run, keyed by run id in shared tables.
+        self._conn, self._saver = (
+            checkpoint_saver(config.database_url) if checkpoints else (None, None)
+        )
 
         # Interrupts are implemented by the checkpointer -- without one there is
         # nowhere to stop, so breakpoints are dropped rather than raising.
         self.breakpoints = list(breakpoints) if self._saver is not None else []
         self.breakpoints_after = list(breakpoints_after) if self._saver is not None else []
         if (breakpoints or breakpoints_after) and self._saver is None:
-            log.warning("breakpoints ignored: this run has no checkpoint file")
+            log.warning("breakpoints ignored: this session was built without a checkpointer")
 
         self.order = store.order()
         self._invocation: dict[str, Any] = {
@@ -201,8 +206,9 @@ class InspectionSession:
         if self._owned_tools is not None:
             self._owned_tools.close()
             self._owned_tools = None
-        if self._saver is not None:
-            self._saver.conn.close()
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
             self._saver = None
 
     # -- running -------------------------------------------------------------
@@ -389,9 +395,9 @@ def _subsystems(store: ChunkStore) -> dict[str, int]:
     building on the spot here: it decides a preference, not a correctness
     property.
     """
-    from ..knowledge import GRAPH_FILE, read_graph
+    from ..knowledge import read_graph
 
-    loaded = read_graph(store.path.parent / GRAPH_FILE)
+    loaded = read_graph(store.run_id)
     if loaded is None:
         return {}
     _, communities = loaded

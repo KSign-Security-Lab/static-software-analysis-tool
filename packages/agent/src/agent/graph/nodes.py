@@ -27,8 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Mapping, Any, Protocol, Sequence
 
 from langgraph.types import Command, Send
 
@@ -57,7 +56,6 @@ from ..schema import (
     Region,
     Remediation,
     Scout,
-    Span,
     Triage,
     Verdict,
 )
@@ -90,7 +88,7 @@ class NodeDeps:
     store: ChunkStore
     config: AgentConfig
     caller: StructuredCaller
-    root: Path
+    files: Mapping[str, str]
     emit: ProgressSink = _noop
     # Tags traces, so a LangSmith run maps back to a report.
     run_id: str = ""
@@ -144,11 +142,13 @@ def _finding_subject(finding: Finding) -> str:
     return f"{finding.cwe} {where}" if finding.cwe else where
 
 
-def _file_text(root: Path, relative: str) -> str | None:
-    try:
-        return (root / relative).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
+def _file_text(files: Mapping[str, str], relative: str) -> str | None:
+    """One of the run's files, or None.
+
+    Was a read off disk under the run root. The tree is a mapping now, so a
+    missing file is a missing key -- and there is no `OSError` to swallow.
+    """
+    return files.get(relative)
 
 
 def _locate_candidate(
@@ -166,7 +166,7 @@ def _locate_candidate(
     appears twice in the unit resolves to the first one -- which may be in the
     half this specialist never read.
     """
-    text = _file_text(deps.root, chunk.file)
+    text = _file_text(deps.files, chunk.file)
     if text is None:
         return None
 
@@ -184,7 +184,7 @@ def _locate_candidate(
     evidence: list[Evidence] = []
     for item in candidate.evidence:
         # Evidence may point at another file: the cross-file trail.
-        item_text = text if item.file == chunk.file else _file_text(deps.root, item.file)
+        item_text = text if item.file == chunk.file else _file_text(deps.files, item.file)
         if item_text is None:
             continue
         window = chunk if item.file == chunk.file else None
@@ -700,7 +700,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         """
         if (finding.remediation.replacement or "").strip():
             return None
-        text = _file_text(deps.root, finding.primary.file)
+        text = _file_text(deps.files, finding.primary.file)
         if text is None:
             return None
 

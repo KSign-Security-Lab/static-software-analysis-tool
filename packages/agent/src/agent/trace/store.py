@@ -4,40 +4,25 @@ An inspection is a tree of calls -- graph node, LLM, tool -- and after it
 finishes the only record was a number in the stats. Reconstructing why a finding
 was refuted meant reading the source and guessing.
 
-Kept in the run's own SQLite next to its chunks and findings, so a trace lives
-and dies with the run it describes and nothing leaves the machine. LangSmith
-does the same job when it is configured; this works when it is not, which is the
-normal case here.
+Kept in the same database as the run's chunks and findings, scoped by `run_id`
+and cascading from the run row -- so a trace lives and dies with the run it
+describes and nothing leaves the machine. LangSmith does the same job when it is
+configured; this works when it is not, which is the normal case here.
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
 import threading
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS spans (
-    id          TEXT PRIMARY KEY,
-    parent_id   TEXT,
-    seq         INTEGER NOT NULL,
-    name        TEXT NOT NULL,
-    kind        TEXT NOT NULL,
-    started_at  REAL NOT NULL,
-    ended_at    REAL,
-    status      TEXT NOT NULL,
-    error       TEXT,
-    inputs      TEXT,
-    outputs     TEXT,
-    tokens      INTEGER,
-    meta        TEXT
-);
-CREATE INDEX IF NOT EXISTS spans_parent ON spans(parent_id);
-CREATE INDEX IF NOT EXISTS spans_seq ON spans(seq);
-"""
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert
+
+from ..config import AgentConfig
+from ..db import Span as SpanRow
+from ..db import session_factory
 
 #: Prompts and completions are long. A trace has to be readable more than it has
 #: to be complete, and the whole point is to skim it.
@@ -116,29 +101,31 @@ class SpanStore:
     """Span rows for one run.
 
     Callbacks fire from whichever thread is running the step -- the graph
-    thread, and for tools the MCP session's loop thread -- so the connection is
-    shared across threads behind a lock rather than confined to one.
+    thread, and for tools the MCP session's loop thread -- so writes are
+    serialised behind a lock. Each one is its own short transaction, which is
+    the point: a trace is written *as the run happens*, and a reader watching it
+    must see steps land rather than nothing until the run ends.
+
+    Scoped to a run by ``run_id`` rather than by having its own file. That is
+    what makes `seq` a per-run sequence and not a global one.
     """
 
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA busy_timeout=10000")
-        self.conn.executescript(SCHEMA)
-        self.conn.commit()
+    def __init__(self, run_id: str, config: AgentConfig | None = None) -> None:
+        self.run_id = run_id
+        self._sessions = session_factory(config)
         self._lock = threading.Lock()
         self._seq = self._next_seq()
 
     def _next_seq(self) -> int:
-        row = self.conn.execute("SELECT MAX(seq) AS m FROM spans").fetchone()
-        return int((row["m"] or 0)) + 1
+        with self._sessions() as session:
+            highest = session.scalar(
+                select(func.max(SpanRow.seq)).where(SpanRow.run_id == self.run_id)
+            )
+        return int(highest or 0) + 1
 
     def close(self) -> None:
-        with self._lock:
-            self.conn.close()
+        """Nothing to close. Sessions are per-operation and already returned to
+        the pool; the method stays because callers pair it with `spans()`."""
 
     def start(
         self,
@@ -154,14 +141,40 @@ class SpanStore:
         # seq preserves arrival order, which is what makes the tree render in
         # the order things actually happened rather than by id.
         with self._lock:
-            self.conn.execute(
-                """INSERT OR REPLACE INTO spans
-                   (id, parent_id, seq, name, kind, started_at, status, inputs, meta)
-                   VALUES (?,?,?,?,?,?,'running',?,?)""",
-                (span_id, parent_id, self._seq, name, kind, started_at, clip(inputs), json.dumps(meta or {})),
-            )
+            seq = self._seq
             self._seq += 1
-            self.conn.commit()
+        with self._sessions() as session:
+            # Upsert, because a retried step reuses its span id -- which is how
+            # `attempts` is counted downstream.
+            session.execute(
+                insert(SpanRow)
+                .values(
+                    run_id=self.run_id,
+                    id=span_id,
+                    parent_id=parent_id,
+                    seq=seq,
+                    name=name,
+                    kind=kind,
+                    started_at=started_at,
+                    status="running",
+                    inputs=clip(inputs),
+                    meta=json.dumps(meta or {}),
+                )
+                .on_conflict_do_update(
+                    index_elements=["run_id", "id"],
+                    set_={
+                        "parent_id": parent_id,
+                        "seq": seq,
+                        "name": name,
+                        "kind": kind,
+                        "started_at": started_at,
+                        "status": "running",
+                        "inputs": clip(inputs),
+                        "meta": json.dumps(meta or {}),
+                    },
+                )
+            )
+            session.commit()
 
     def finish(
         self,
@@ -172,38 +185,49 @@ class SpanStore:
         tokens: int | None = None,
         error: str | None = None,
     ) -> None:
-        with self._lock:
-            self.conn.execute(
-                """UPDATE spans SET ended_at = ?, status = ?, outputs = ?, tokens = ?, error = ?
-                   WHERE id = ?""",
-                (ended_at, "error" if error else "ok", clip(outputs), tokens, error, span_id),
+        with self._sessions() as session:
+            session.execute(
+                update(SpanRow)
+                .where(SpanRow.run_id == self.run_id, SpanRow.id == span_id)
+                .values(
+                    ended_at=ended_at,
+                    status="error" if error else "ok",
+                    outputs=clip(outputs),
+                    tokens=tokens,
+                    error=error,
+                )
             )
-            self.conn.commit()
+            session.commit()
 
     def spans(self) -> list[Span]:
-        with self._lock:
-            rows = self.conn.execute("SELECT * FROM spans ORDER BY seq").fetchall()
+        with self._sessions() as session:
+            rows = list(
+                session.scalars(
+                    select(SpanRow).where(SpanRow.run_id == self.run_id).order_by(SpanRow.seq)
+                )
+            )
         return [
             Span(
-                id=r["id"],
-                parent_id=r["parent_id"],
-                seq=r["seq"],
-                name=r["name"],
-                kind=r["kind"],
-                started_at=r["started_at"],
-                ended_at=r["ended_at"],
-                status=r["status"],
-                error=r["error"],
-                inputs=_load(r["inputs"]),
-                outputs=_load(r["outputs"]),
-                tokens=r["tokens"],
-                meta=_load(r["meta"]) or {},
+                id=r.id,
+                parent_id=r.parent_id,
+                seq=r.seq,
+                name=r.name,
+                kind=r.kind,
+                started_at=r.started_at,
+                ended_at=r.ended_at,
+                status=r.status,
+                error=r.error,
+                inputs=_load(r.inputs),
+                outputs=_load(r.outputs),
+                tokens=r.tokens,
+                meta=_load(r.meta) or {},
             )
             for r in rows
         ]
 
     def clear(self) -> None:
+        with self._sessions() as session:
+            session.execute(delete(SpanRow).where(SpanRow.run_id == self.run_id))
+            session.commit()
         with self._lock:
-            self.conn.execute("DELETE FROM spans")
-            self.conn.commit()
             self._seq = 1

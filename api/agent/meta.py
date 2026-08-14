@@ -21,6 +21,17 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _redact(url: str) -> str:
+    """A DSN without its password. Health is an unauthenticated endpoint, and
+    the connection string used to be a directory name."""
+    scheme, _, rest = url.partition("://")
+    credentials, at, host = rest.rpartition("@")
+    if not at:
+        return url
+    user = credentials.partition(":")[0]
+    return f"{scheme}://{user}:***@{host}"
+
+
 @router.get("/health")
 def agent_health(probe: bool = False) -> Dict[str, Any]:
     """Whether the agent is configured well enough to run.
@@ -37,7 +48,7 @@ def agent_health(probe: bool = False) -> Dict[str, Any]:
         "model": config.model or None,
         "sandbox": config.sandbox,
         "tools_enabled": config.enable_tools,
-        "runs_dir": str(config.runs_dir),
+        "database": _redact(config.database_url),
         "tracing": tracing_status(),
     }
     if probe:

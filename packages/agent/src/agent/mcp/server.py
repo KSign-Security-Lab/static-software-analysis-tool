@@ -2,22 +2,21 @@
 :mod:`agent.tools`, so there is one implementation.
 
 Configured by environment, since the server is launched as a subprocess:
-``AGENT_RUN_ROOT`` (the tree; every fs tool is confined to it) and
-``AGENT_INDEX_DB`` (optional; the graph tools need it).
+``AGENT_RUN_ID`` (which run to serve) and ``AGENT_DATABASE_URL`` (where to find
+it). Both the files and the index are rows on that run.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 from typing import Any, Callable
 
 from graphify import Direction, describe_neighbours, describe_path, describe_subsystem
 from mcp.server.fastmcp import FastMCP
 
 from .. import knowledge
-from ..config import ENV_INDEX_DB, ENV_RUN_ROOT, ENV_SANDBOX, AgentConfig
+from ..config import ENV_RUN_ID
 from ..index import embed
 from ..index.store import ChunkStore
 from ..tools import (
@@ -29,24 +28,35 @@ from ..tools import (
     grep,
     list_dir,
     read_file,
-    run_sandboxed,
 )
 
 mcp = FastMCP("agent-code-tools")
 
 
-def run_root() -> Path:
-    root = os.getenv(ENV_RUN_ROOT)
-    if not root:
-        raise ToolError(f"{ENV_RUN_ROOT} is not set; the server does not know which tree to serve")
-    return Path(root)
+def _run_id() -> str:
+    run_id = os.getenv(ENV_RUN_ID)
+    if not run_id:
+        raise ToolError(f"{ENV_RUN_ID} is not set; the server does not know which run to serve")
+    return run_id
+
+
+def run_files() -> dict[str, str]:
+    """The run's tree, as `{path: text}`.
+
+    Read per call rather than cached: the editor can write a file while a run is
+    parked at a breakpoint, and a tool answering from a snapshot taken at
+    startup would be describing code that is no longer there.
+    """
+    from ..runs import Run
+
+    return Run(_run_id()).file_contents()
 
 
 def _store() -> ChunkStore | None:
-    path = os.getenv(ENV_INDEX_DB)
-    if not path or not Path(path).exists():
+    try:
+        return ChunkStore(_run_id())
+    except ToolError:
         return None
-    return ChunkStore(Path(path))
 
 
 def _dump(value: Any) -> str:
@@ -72,7 +82,7 @@ def read_source(path: str, start_line: int = 0, end_line: int = 0) -> str:
     """
     return _guard(
         lambda: read_file(
-            run_root(),
+            run_files(),
             path,
             start_line=start_line or None,
             end_line=end_line or None,
@@ -83,19 +93,19 @@ def read_source(path: str, start_line: int = 0, end_line: int = 0) -> str:
 @mcp.tool()
 def list_directory(path: str = ".") -> str:
     """List the immediate contents of a directory in the tree under analysis."""
-    return _guard(lambda: "\n".join(list_dir(run_root(), path)))
+    return _guard(lambda: "\n".join(list_dir(run_files(), path)))
 
 
 @mcp.tool()
 def find_files(pattern: str) -> str:
     """Find files by glob pattern, e.g. '**/*.c'."""
-    return _guard(lambda: "\n".join(glob_files(run_root(), pattern)))
+    return _guard(lambda: "\n".join(glob_files(run_files(), pattern)))
 
 
 @mcp.tool()
 def search_text(pattern: str, glob: str = "") -> str:
     """Search the tree for a regular expression. Returns 'file:line:text'."""
-    return _guard(lambda: "\n".join(grep(run_root(), pattern, glob or None)))
+    return _guard(lambda: "\n".join(grep(run_files(), pattern, glob or None)))
 
 
 @mcp.tool()
@@ -184,8 +194,7 @@ def _map() -> Any:
     if store is None:
         return "error: the tree has not been indexed"
     try:
-        root = run_root()
-        return knowledge.load_or_build(store, root, store.path.parent / knowledge.GRAPH_FILE)
+        return knowledge.load_or_build(store)
     finally:
         store.close()
 
@@ -259,22 +268,15 @@ def _direction(given: str) -> Direction:
     return given if given in ("out", "in", "both") else "both"  # type: ignore[return-value]
 
 
-@mcp.tool()
-def run_in_sandbox(command: list[str]) -> str:
-    """Run a command against the tree, isolated: no network, tree read-only.
-    Use it to *test* a claim rather than argue about it."""
-    config = AgentConfig()
-
-    def run() -> str:
-        result = run_sandboxed(
-            run_root(),
-            command,
-            backend=os.getenv(ENV_SANDBOX, config.sandbox),
-            timeout=config.sandbox_timeout,
-        )
-        return _dump(result.as_dict())
-
-    return _guard(run)
+# `run_in_sandbox` was here.
+#
+# It ran a command against the run's tree, and a run has no tree: the files are
+# rows and nothing materialises them. Removed rather than handed a scratch
+# directory per call -- that would be a second source of truth with a lifetime,
+# for the one tool that wanted it.
+#
+# `describe_tools` below reads the registry, so deleting the tool is what stops
+# it being advertised. Nothing else needs editing.
 
 
 def describe_tools() -> list[dict[str, Any]]:

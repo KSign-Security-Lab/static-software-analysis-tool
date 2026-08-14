@@ -11,6 +11,9 @@ from pathlib import Path
 
 import pytest
 
+from conftest import read_tree
+
+from agent.runs import new_run
 from agent.index import ChunkStore, build_index, embed
 
 TREE = {
@@ -50,8 +53,8 @@ def indexed(tmp_path: Path) -> ChunkStore:
     root.mkdir()
     for name, body in TREE.items():
         (root / name).write_text(body, encoding="utf-8")
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(root, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
     return store
 
 

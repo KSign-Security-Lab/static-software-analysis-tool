@@ -42,7 +42,7 @@ def test_the_steps_that_read_something_new_are_the_ones_with_tools() -> None:
     assert all(step.startswith("lens:") or step == "gather" for step in holders), holders
 
     names = [tool["name"] for tool in described["gather"]["tools"]]
-    assert "read_source" in names and "run_in_sandbox" in names
+    assert "read_source" in names and "search_semantic" in names
     # Described, not just named: a list of bare identifiers does not tell anyone
     # what the verifier was able to go and check.
     assert all(tool["summary"] for tool in described["gather"]["tools"])
@@ -138,7 +138,7 @@ def test_an_agent_node_is_one_because_a_step_names_it() -> None:
         "agent": True,
         "steps": ["gather"],
         "calls": 1,
-        "tools": 10,
+        "tools": 9,
     }
     # Two steps in the one node: the ruling, and the fix that follows a claim
     # surviving it. `lens:memory` in node `memory` is the same shape.

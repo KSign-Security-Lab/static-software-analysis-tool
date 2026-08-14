@@ -23,14 +23,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.config import AgentConfig
-from agent.paths import PathEscape, resolve_within
 from agent.graph.session import InspectionSession, ParallelStep
 from agent.runs import (
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_INSPECTING,
     STATUS_INTERRUPTED,
-    RunPaths,
+    Run,
     diff_reports,
     get_run,
 )
@@ -116,7 +115,7 @@ class WorkOrder:
         return not self.resuming
 
 
-def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> None:
+def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
     """Drive one inspection on a worker thread, publishing progress.
 
     The loop exists for breakpoints: the graph returns when it stops at one, and
@@ -124,11 +123,11 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
     so the MCP subprocess and the chunk store are still there when it carries on.
     """
     config = AgentConfig()
-    store = paths.store()
+    store = run.store()
     if order.fresh:
         # Two attempts interleaved in one history read as one incoherent run.
-        paths.reset_debug()
-    spans = paths.spans()
+        run.reset_debug()
+    spans = run.spans()
 
     def emit(event: str, payload: dict[str, Any]) -> None:
         # Where the run has got to, on disk, for tabs that were not listening.
@@ -141,7 +140,7 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
         # which is what is executing during the one that follows, so recording
         # it here costs one small write per step rather than one per node.
         if event == "checkpoint":
-            paths.write_meta(progress={"next": payload.get("next") or [], "step": payload.get("step")})
+            run.write_meta(progress={"next": payload.get("next") or [], "step": payload.get("step")})
         channel.publish({"event": event, "data": payload})
 
     session: InspectionSession | None = None
@@ -150,19 +149,19 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
         if order.force:
             store.clear_results()
 
-        index_stats = paths.read_meta().get("index", {})
-        paths.set_status(STATUS_INSPECTING)
-        emit("run_started", {"run_id": paths.run_id, **index_stats})
+        index_stats = run.read_meta().get("index", {})
+        run.set_status(STATUS_INSPECTING)
+        emit("run_started", {"run_id": run.run_id, **index_stats})
 
         session = InspectionSession(
-            run_id=paths.run_id,
-            root=paths.source,
+            run_id=run.run_id,
+            files=run.file_contents(),
             store=store,
             config=config,
             emit=emit,
             index_stats=index_stats,
             spans=spans,
-            checkpoints=paths.checkpoint_db,
+            checkpoints=True,
             breakpoints=order.breakpoints,
             breakpoints_after=order.breakpoints_after,
         )
@@ -180,34 +179,34 @@ def _inspect_worker(paths: RunPaths, channel: RunChannel, order: WorkOrder) -> N
             # start the run over rather than to carry it on. This is the same
             # fact on disk, where a reload can find it.
             parked = {"next": session.next_nodes, "checkpoint_id": session.checkpoint_id}
-            paths.set_status(STATUS_INTERRUPTED, parked=parked)
-            emit("run_interrupted", {"run_id": paths.run_id, **parked})
+            run.set_status(STATUS_INTERRUPTED, parked=parked)
+            emit("run_interrupted", {"run_id": run.run_id, **parked})
             command = _await_command(channel)
             if command.get("action") == "abort":
                 aborted = True
                 break
-            paths.set_status(STATUS_INSPECTING, parked=None)
-            emit("run_resumed", {"run_id": paths.run_id})
+            run.set_status(STATUS_INSPECTING, parked=None)
+            emit("run_resumed", {"run_id": run.run_id})
             try:
                 session.resume(values=command.get("values"), checkpoint_id=command.get("checkpoint_id"))
             except ParallelStep as err:
                 # An edit that cannot be attributed to a node. Reported and the
                 # run left where it was, rather than torn down: the run is fine,
                 # the question was not, and the answer is to ask a different one.
-                emit("resume_refused", {"run_id": paths.run_id, "error": str(err)})
+                emit("resume_refused", {"run_id": run.run_id, "error": str(err)})
                 continue
 
         report = session.report()
-        paths.save_report(report)
-        paths.set_status(STATUS_DONE, findings=len(report.findings), parked=None, progress=None)
+        run.save_report(report)
+        run.set_status(STATUS_DONE, findings=len(report.findings), parked=None, progress=None)
         emit(
             "run_finished",
-            {"run_id": paths.run_id, "findings": len(report.findings), "aborted": aborted},
+            {"run_id": run.run_id, "findings": len(report.findings), "aborted": aborted},
         )
     except Exception as err:  # noqa: BLE001 - the failure is reported, not raised into the loop
-        log.exception("inspection failed for run %s", paths.run_id)
+        log.exception("inspection failed for run %s", run.run_id)
         channel.error = str(err)
-        paths.set_status(STATUS_FAILED, error=str(err), parked=None, progress=None)
+        run.set_status(STATUS_FAILED, error=str(err), parked=None, progress=None)
         channel.publish({"event": "run_failed", "data": {"error": str(err)}})
     finally:
         if session is not None:
@@ -242,28 +241,28 @@ def _validate_breakpoints(names: List[str]) -> List[str]:
     return list(dict.fromkeys(names))
 
 
-def _spawn(paths: RunPaths, order: WorkOrder) -> RunChannel:
+def _spawn(run: Run, order: WorkOrder) -> RunChannel:
     """Put a worker on the run, reusing the channel anyone is already watching."""
-    channel = _channel(paths.run_id)
+    channel = _channel(run.run_id)
     channel.reclaim()
     threading.Thread(
         target=_inspect_worker,
-        args=(paths, channel, order),
-        name=f"inspect-{paths.run_id}",
+        args=(run, channel, order),
+        name=f"inspect-{run.run_id}",
         daemon=True,
     ).start()
     return channel
 
 
 @router.post("/runs/{run_id}/inspect")
-def start_inspection(paths: RunDep, request: InspectRequest | None = None) -> Dict[str, Any]:
+def start_inspection(run: RunDep, request: InspectRequest | None = None) -> Dict[str, Any]:
     """Start an inspection. Returns immediately; watch ``/events``."""
     options = request or InspectRequest()
     breakpoints = _validate_breakpoints(options.breakpoints)
     after = _validate_breakpoints(options.breakpoints_after)
 
-    if _live_channel(paths.run_id) is not None:
-        return {"run_id": paths.run_id, "status": STATUS_INSPECTING, "already_running": True}
+    if _live_channel(run.run_id) is not None:
+        return {"run_id": run.run_id, "status": STATUS_INSPECTING, "already_running": True}
 
     # Nothing to do is not the same as doing nothing.
     #
@@ -275,15 +274,15 @@ def start_inspection(paths: RunDep, request: InspectRequest | None = None) -> Di
     #
     # So the run does not start. `force` is how you ask for the work anyway.
     if not options.force:
-        store = paths.store()
+        store = run.store()
         try:
             pending = store.uninspected()
         finally:
             store.close()
-        if not pending and paths.trace_db.exists():
+        if not pending and run.read_meta().get("status"):
             return {
-                "run_id": paths.run_id,
-                "status": paths.read_meta().get("status", STATUS_DONE),
+                "run_id": run.run_id,
+                "status": run.read_meta().get("status", STATUS_DONE),
                 "already_running": False,
                 "nothing_to_do": True,
                 "breakpoints": breakpoints,
@@ -291,7 +290,7 @@ def start_inspection(paths: RunDep, request: InspectRequest | None = None) -> Di
             }
 
     _spawn(
-        paths,
+        run,
         WorkOrder(
             breakpoints=breakpoints,
             breakpoints_after=after,
@@ -300,7 +299,7 @@ def start_inspection(paths: RunDep, request: InspectRequest | None = None) -> Di
         ),
     )
     return {
-        "run_id": paths.run_id,
+        "run_id": run.run_id,
         "status": STATUS_INSPECTING,
         "already_running": False,
         "breakpoints": breakpoints,
@@ -309,7 +308,7 @@ def start_inspection(paths: RunDep, request: InspectRequest | None = None) -> Di
 
 
 @router.post("/runs/{run_id}/resume")
-def resume_inspection(paths: RunDep, request: ResumeRequest | None = None) -> Dict[str, Any]:
+def resume_inspection(run: RunDep, request: ResumeRequest | None = None) -> Dict[str, Any]:
     """Let a stopped run carry on, optionally with the state changed.
 
     Two ways in. A run still paused at a breakpoint is steered by handing the
@@ -321,22 +320,22 @@ def resume_inspection(paths: RunDep, request: ResumeRequest | None = None) -> Di
     if options.action not in ("resume", "abort"):
         raise HTTPException(status_code=400, detail=f"unknown action: {options.action}")
 
-    channel = _live_channel(paths.run_id)
+    channel = _live_channel(run.run_id)
     if channel is not None:
         if not channel.waiting.is_set():
             raise HTTPException(status_code=409, detail="this run is not stopped at a breakpoint")
         channel.commands.put(
             {"action": options.action, "values": options.values, "checkpoint_id": options.checkpoint_id}
         )
-        return {"run_id": paths.run_id, "resumed": options.action == "resume", "worker": "existing"}
+        return {"run_id": run.run_id, "resumed": options.action == "resume", "worker": "existing"}
 
     if options.action == "abort":
         raise HTTPException(status_code=409, detail="no run is in flight")
-    if not paths.checkpoint_db.exists():
+    if not run.checkpoints():
         raise HTTPException(status_code=409, detail="this run has no history to resume from")
 
     _spawn(
-        paths,
+        run,
         WorkOrder(
             breakpoints=_validate_breakpoints(options.breakpoints),
             breakpoints_after=_validate_breakpoints(options.breakpoints_after),
@@ -348,17 +347,17 @@ def resume_inspection(paths: RunDep, request: ResumeRequest | None = None) -> Di
             resuming=True,
         ),
     )
-    return {"run_id": paths.run_id, "resumed": True, "worker": "new"}
+    return {"run_id": run.run_id, "resumed": True, "worker": "new"}
 
 
 @router.get("/runs/{run_id}/events")
-async def run_events(paths: RunDep) -> StreamingResponse:
+async def run_events(run: RunDep) -> StreamingResponse:
     """Server-sent events for an in-flight inspection.
 
     SSE rather than websockets: the traffic is one-way and this rides on the
     existing HTTP server with no extra protocol handling.
     """
-    channel = _channel(paths.run_id)
+    channel = _channel(run.run_id)
 
     async def stream() -> AsyncIterator[str]:
         # This reader's own queue. Every listener gets a copy of every event,
@@ -380,7 +379,7 @@ async def run_events(paths: RunDep) -> StreamingResponse:
                 idle = 0.0
                 yield f"event: {message['event']}\ndata: {json.dumps(message['data'])}\n\n"
 
-        yield f"event: stream_closed\ndata: {json.dumps({'run_id': paths.run_id})}\n\n"
+        yield f"event: stream_closed\ndata: {json.dumps({'run_id': run.run_id})}\n\n"
 
     return StreamingResponse(
         stream(),
@@ -390,15 +389,15 @@ async def run_events(paths: RunDep) -> StreamingResponse:
 
 
 @router.get("/runs/{run_id}/findings")
-def run_findings(paths: RunDep) -> Dict[str, Any]:
+def run_findings(run: RunDep) -> Dict[str, Any]:
     """The report. Falls back to the store while a run is still in flight."""
-    report = paths.load_report()
+    report = run.load_report()
     if report is not None:
         return report.model_dump()
 
-    store = paths.store()
+    store = run.store()
     try:
-        partial = Report(run_id=paths.run_id, findings=[])
+        partial = Report(run_id=run.run_id, findings=[])
         partial.findings = [f for f in _validated(store.findings())]
         return partial.model_dump()
     finally:
@@ -422,7 +421,7 @@ class ApplyRequest(BaseModel):
 
 
 @router.post("/runs/{run_id}/propose")
-def run_propose(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
+def run_propose(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     """Ask for code to fix a finding that arrived without any.
 
     A specialist proposes a fix while it is analysing, and only when the fix
@@ -445,7 +444,7 @@ def run_propose(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     from agent.remediate import build as build_remediation
     from agent.remediate import propose as propose_fix
 
-    report = paths.load_report()
+    report = run.load_report()
     if report is None:
         raise HTTPException(status_code=409, detail="this run has no completed report")
 
@@ -455,20 +454,16 @@ def run_propose(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     finding = report.findings[at]
 
     span = finding.primary
-    try:
-        resolved = resolve_within(paths.source, span.file)
-        text = resolved.read_text(encoding="utf-8")
-    except PathEscape as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
-    except OSError as err:
-        raise HTTPException(status_code=404, detail=f"cannot read {span.file}: {err}") from err
+    text = run.read_file(span.file)
+    if text is None:
+        raise HTTPException(status_code=404, detail=f"cannot read {span.file}")
 
     lines = text.splitlines()
     if span.end_line > len(lines) or span.start_line < 1:
         raise HTTPException(status_code=409, detail="the file no longer has the lines this finding is anchored to")
 
-    # Read from disk rather than from the report: the fix has to replace what is
-    # there now, and `/apply` refuses anyway if those two have diverged.
+    # Read from the run rather than from the report: the fix has to replace what
+    # is there now, and `/apply` refuses anyway if those two have diverged.
     excerpt = "\n".join(lines[span.start_line - 1 : span.end_line])
 
     config = AgentConfig()
@@ -500,17 +495,17 @@ def run_propose(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     # Kept, so the diff a reader approves is the one `/apply` splices, and so a
     # reload does not lose it.
     report.findings[at] = finding.model_copy(update={"remediation": built})
-    paths.save_report(report)
+    run.save_report(report)
 
     return {
-        "run_id": paths.run_id,
+        "run_id": run.run_id,
         "finding_id": finding.id,
         "remediation": built.model_dump(),
     }
 
 
 @router.post("/runs/{run_id}/apply")
-def run_apply(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
+def run_apply(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     """Splice a finding's proposed replacement over the lines it is anchored to.
 
     Server-side because the arithmetic must not be the client's: the span is
@@ -522,7 +517,7 @@ def run_apply(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     was analysed is a file edited since -- applying to that is applying to code
     nobody looked at.
     """
-    report = paths.load_report()
+    report = run.load_report()
     if report is None:
         raise HTTPException(status_code=409, detail="this run has no completed report")
 
@@ -535,34 +530,28 @@ def run_apply(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=409, detail="this finding has no fix that can be applied in place")
 
     span = finding.primary
-    try:
-        resolved = resolve_within(paths.source, span.file)
-    except PathEscape as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
-
-    try:
-        original = resolved.read_text(encoding="utf-8")
-    except OSError as err:
-        raise HTTPException(status_code=404, detail=f"cannot read {span.file}: {err}") from err
+    original = run.read_file(span.file)
+    if original is None:
+        raise HTTPException(status_code=404, detail=f"cannot read {span.file}")
 
     lines = original.splitlines(keepends=True)
     if span.end_line > len(lines) or span.start_line < 1:
         raise HTTPException(status_code=409, detail="the file no longer has the lines this finding is anchored to")
 
-    # What is there now must be what was analysed. The excerpt was read from
-    # disk when the finding was made, so a mismatch means the file changed and
-    # the span points somewhere else entirely.
+    # What is there now must be what was analysed. The excerpt was read when the
+    # finding was made, so a mismatch means the file changed and the span points
+    # somewhere else entirely.
     current = "".join(lines[span.start_line - 1 : span.end_line]).rstrip("\n")
     if finding.primary.excerpt.strip() and current.strip() != finding.primary.excerpt.strip():
         raise HTTPException(status_code=409, detail="이 파일은 검사 이후 바뀌었습니다. 다시 검사한 뒤 적용하세요.")
 
     ending = "\n" if lines[span.end_line - 1].endswith("\n") else ""
     patched = "".join(lines[: span.start_line - 1]) + replacement + ending + "".join(lines[span.end_line :])
-    resolved.write_text(patched, encoding="utf-8")
-    index = _reindex(paths)
+    run.put_file(span.file, patched.encode("utf-8"))
+    index = _reindex(run)
 
     return {
-        "run_id": paths.run_id,
+        "run_id": run.run_id,
         "finding_id": finding.id,
         "path": span.file,
         "lines": [span.start_line, span.end_line],
@@ -574,13 +563,13 @@ def run_apply(paths: RunDep, request: ApplyRequest) -> Dict[str, Any]:
 
 
 @router.post("/runs/{run_id}/diff")
-def run_diff(paths: RunDep, request: DiffRequest) -> Dict[str, Any]:
+def run_diff(run: RunDep, request: DiffRequest) -> Dict[str, Any]:
     """New / fixed / unchanged against another run.
 
     Works because finding ids are content-derived: a finding that shifted
     because a line was inserted above it counts as unchanged.
     """
-    current = paths
+    current = run
     other = get_run(request.against)
     if other is None:
         raise HTTPException(status_code=404, detail=f"unknown run: {request.against}")

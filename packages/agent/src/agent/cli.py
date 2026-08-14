@@ -23,15 +23,22 @@ import argparse
 import json
 import logging
 import os
-import shutil
 import sys
 from pathlib import Path
 
 from .config import ENV_BASE_URL, ENV_MODEL, AgentConfig
 from .endpoint import Endpoint, discover
 from .graph.build import run_inspection
-from .index import build_index
-from .runs import STATUS_DONE, STATUS_FAILED, STATUS_INSPECTING, RunPaths, list_runs, new_run
+from .runs import (
+    STATUS_DONE,
+    STATUS_FAILED,
+    STATUS_INSPECTING,
+    Run,
+    index_run,
+    list_runs,
+    new_run,
+    write_files,
+)
 from .schema import Finding
 from .tracing import status as tracing_status
 
@@ -54,14 +61,19 @@ def _info(message: str) -> None:
     print(f"\033[36m{message}\033[0m")
 
 
-def _copy_tree(source: Path, destination: Path) -> None:
-    """Copy the tree into the run workspace.
+def _load_tree(source: Path, run: Run) -> int:
+    """Read a local directory into the run. Returns the file count.
 
-    A local path is copied rather than analysed in place so a CLI run has the
-    same shape as an upload: one directory holding source, index and report,
-    removable as a unit and never writing to the user's checkout.
+    Was `shutil.copytree` into the run's workspace. There is no workspace: the
+    files become rows, which is the same bargain as before -- the user's
+    checkout is read and never written -- reached without a second copy on disk.
     """
-    shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=False, ignore_dangling_symlinks=True)
+    files: dict[str, bytes] = {}
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        files[path.relative_to(source).as_posix()] = path.read_bytes()
+    return write_files(run, files)
 
 
 def _print_finding(finding: Finding) -> None:
@@ -142,13 +154,9 @@ def _interactive(config: AgentConfig) -> int:
 
     print()
     _info("Indexing (deterministic, no model calls)")
-    paths = new_run(config)
-    _copy_tree(target.resolve(), paths.source)
-    store = paths.store()
-    try:
-        index_result = build_index(paths.source, store)
-    finally:
-        store.close()
+    run = new_run(config)
+    _load_tree(target.resolve(), run)
+    index_result = index_run(run)
 
     print(f"  {json.dumps(index_result.as_dict())}")
     print()
@@ -176,13 +184,13 @@ def _interactive(config: AgentConfig) -> int:
     print()
     _info("Inspecting -- minutes, not seconds. Ctrl-C is safe: progress is kept.")
     print()
-    return _inspect_run(paths, config, index_result.as_dict())
+    return _inspect_run(run, config, index_result.as_dict())
 
 
 # ------------------------------------------------------------------ commands
 
 
-def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, int]) -> int:
+def _inspect_run(run: Run, config: AgentConfig, index_stats: dict[str, int]) -> int:
     """Drive an already-indexed run to completion and print the report."""
 
     def emit(event: str, payload: object) -> None:
@@ -194,16 +202,16 @@ def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, in
             suffix = f"  +{found}" if found else ""
             print(f"\r  [{done}/{total}] {str(payload.get('symbol', ''))[:40]}{suffix}", end="", flush=True)
 
-    store = paths.store()
+    store = run.store()
     # Recorded here too, so a run started from the terminal is inspectable in
-    # the web trace view afterwards. They share a runs directory.
-    spans = paths.spans()
+    # the web trace view afterwards. They share a database.
+    spans = run.spans()
     spans.clear()
     try:
-        paths.set_status(STATUS_INSPECTING)
+        run.set_status(STATUS_INSPECTING)
         report = run_inspection(
-            run_id=paths.run_id,
-            root=paths.source,
+            run_id=run.run_id,
+            files=run.file_contents(),
             store=store,
             config=config,
             emit=emit,
@@ -211,15 +219,15 @@ def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, in
             spans=spans,
         )
     except Exception as err:  # noqa: BLE001 - the CLI reports rather than traces
-        paths.set_status(STATUS_FAILED, error=str(err))
+        run.set_status(STATUS_FAILED, error=str(err))
         _err(f"inspection failed: {err}")
         return 1
     finally:
         store.close()
         spans.close()
 
-    paths.save_report(report)
-    paths.set_status(STATUS_DONE)
+    run.save_report(report)
+    run.set_status(STATUS_DONE)
 
     print("\n")
     for finding in report.sorted_findings():
@@ -236,7 +244,7 @@ def _inspect_run(paths: RunPaths, config: AgentConfig, index_stats: dict[str, in
         f"{stats.candidates} candidate(s), {stats.refuted} refuted, "
         f"{stats.dropped_unlocatable} dropped as unlocatable."
     )
-    print(f"report: {paths.report_path}")
+    print(f"report: run {run.run_id} in the database")
     return 0
 
 
@@ -246,16 +254,16 @@ def cmd_index(args: argparse.Namespace) -> int:
         _err(f"not a directory: {source}")
         return 2
 
-    paths = new_run()
-    _copy_tree(source, paths.source)
-    store = paths.store()
+    run = new_run()
+    _load_tree(source, run)
+    result = index_run(run)
+    store = run.store()
     try:
-        result = build_index(paths.source, store)
         order = store.order()
     finally:
         store.close()
 
-    print(f"run {paths.run_id}: {json.dumps(result.as_dict())}")
+    print(f"run {run.run_id}: {json.dumps(result.as_dict())}")
     print(f"inspection order: {len(order)} chunks (callees before callers)")
     return 0
 
@@ -274,16 +282,12 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         print("Or run `agent` with no arguments to pick one interactively.", file=sys.stderr)
         return 2
 
-    paths = new_run(config)
-    _copy_tree(source, paths.source)
-    store = paths.store()
-    try:
-        index_result = build_index(paths.source, store)
-    finally:
-        store.close()
-    print(f"run {paths.run_id}: indexed {index_result.files_indexed} files, {index_result.chunks} chunks")
+    run = new_run(config)
+    _load_tree(source, run)
+    index_result = index_run(run)
+    print(f"run {run.run_id}: indexed {index_result.files_indexed} files, {index_result.chunks} chunks")
 
-    return _inspect_run(paths, config, index_result.as_dict())
+    return _inspect_run(run, config, index_result.as_dict())
 
 
 def cmd_runs(args: argparse.Namespace) -> int:
@@ -291,9 +295,9 @@ def cmd_runs(args: argparse.Namespace) -> int:
     if not runs:
         print("no runs")
         return 0
-    for run in runs:
-        index = run.get("index", {})
-        print(f"{run.get('run_id', '?')}  {run.get('status', '?'):<12} {index.get('chunks', '?')} chunks")
+    for summary in runs:
+        index = summary.get("index", {})
+        print(f"{summary.get('run_id', '?')}  {summary.get('status', '?'):<12} {index.get('chunks', '?')} chunks")
     return 0
 
 

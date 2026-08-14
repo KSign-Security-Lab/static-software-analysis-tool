@@ -91,7 +91,10 @@ export default function PerspectiveHeader() {
 
         <span className="mx-1 h-4 w-px bg-line" />
 
-        {PANES.map(({ id, icon: Icon }) => (
+        {/* Only the panes this surface has. 검사 has one, and offering to
+            unfold the other two revealed a pane whose entire content was a
+            sentence saying this screen does not have one. */}
+        {PANES.filter(({ id }) => current?.panes.includes(id)).map(({ id, icon: Icon }) => (
           <Tooltip key={id}>
             <TooltipTrigger asChild>
               <Button

@@ -22,11 +22,14 @@ export default async function WorkbenchLayout({
   side,
   dock,
   inspector,
+  status,
 }: {
   children: ReactNode;
   side: ReactNode;
   dock: ReactNode;
   inspector: ReactNode;
+  /** A strip under the title bar, for surfaces with run-wide state to report. */
+  status: ReactNode;
 }) {
   const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
   const stored = decodeLayout(cookieStore.get(LAYOUT_COOKIE)?.value);
@@ -45,7 +48,14 @@ export default async function WorkbenchLayout({
 
   return (
     <WorkbenchStoreProvider init={{ collapsed }}>
-      <Workbench perspective={perspective} stored={stored} side={side} dock={dock} inspector={inspector}>
+      <Workbench
+        perspective={perspective}
+        stored={stored}
+        side={side}
+        dock={dock}
+        inspector={inspector}
+        status={status}
+      >
         {children}
       </Workbench>
     </WorkbenchStoreProvider>

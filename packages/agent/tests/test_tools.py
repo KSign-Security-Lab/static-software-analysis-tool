@@ -1,22 +1,24 @@
 """Tool behaviour, especially where it refuses.
 
-The input is an arbitrary uploaded archive, so confinement is a real boundary
-rather than a formality. Most of these tests are about what the tools decline to
-do.
+The input is an arbitrary uploaded archive, so a name that tries to leave the
+tree is still a real thing to refuse -- but the refusal is different now. A tool
+reads a `{path: text}` mapping rather than a directory, so `../../etc/passwd` is
+not a path that resolves anywhere: it is a key nobody stored. What used to be
+confinement (`agent.paths.resolve_within`, resolving symlinks against a root) is
+now the absence of anything to confine.
+
+`run_in_sandbox` and its tests are gone with the directory -- it ran a command
+against a real tree and there is no tree to run against.
 """
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import pytest
 
 from agent.index import ChunkStore, build_index
-from agent.paths import PathEscape, is_within, resolve_within
+from agent.runs import new_run
 from agent.tools import (
     ToolError,
-    bwrap_available,
     callees_of,
     callers_of,
     definition_of,
@@ -24,11 +26,15 @@ from agent.tools import (
     grep,
     list_dir,
     read_file,
-    run_sandboxed,
 )
 
+TREE = {
+    "a.c": "one\ntwo\nthree\nfour\n",
+    "sub/b.c": "int x;\nsystem(cmd);\n",
+}
 
-# -- confinement -------------------------------------------------------------
+
+# -- names that are not keys -------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -41,159 +47,77 @@ from agent.tools import (
         "/tmp/x",
     ],
 )
-def test_paths_escaping_the_root_are_rejected(tmp_path: Path, candidate: str) -> None:
-    with pytest.raises(PathEscape):
-        resolve_within(tmp_path, candidate)
-
-
-def test_symlink_out_of_the_tree_is_rejected(tmp_path: Path) -> None:
-    """A lexical check would pass this; resolution is what catches it."""
-    outside = tmp_path.parent / "secret.txt"
-    outside.write_text("secret", encoding="utf-8")
-    root = tmp_path / "root"
-    root.mkdir()
-    (root / "link.txt").symlink_to(outside)
-
-    with pytest.raises(PathEscape):
-        resolve_within(root, "link.txt")
-    assert is_within(root, root / "link.txt") is False
-
-
-def test_ordinary_paths_resolve(tmp_path: Path) -> None:
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "sub" / "a.c").write_text("int main(void){return 0;}", encoding="utf-8")
-    assert resolve_within(tmp_path, "sub/a.c").is_file()
-    assert resolve_within(tmp_path, "./sub/a.c").is_file()
-
-
-def test_read_file_refuses_to_escape(tmp_path: Path) -> None:
+def test_paths_leaving_the_tree_are_refused(candidate: str) -> None:
     with pytest.raises(ToolError):
-        read_file(tmp_path, "../../etc/passwd")
+        read_file(TREE, candidate)
 
 
-def test_glob_does_not_return_symlinks_out_of_the_tree(tmp_path: Path) -> None:
-    outside = tmp_path.parent / "outside.c"
-    outside.write_text("int x;", encoding="utf-8")
-    root = tmp_path / "root"
-    root.mkdir()
-    (root / "real.c").write_text("int y;", encoding="utf-8")
-    (root / "link.c").symlink_to(outside)
-
-    assert glob_files(root, "*.c") == ["real.c"]
+def test_glob_only_ever_returns_stored_names() -> None:
+    """There is nothing else to return: a symlink out of the tree was a file on
+    disk, and the mapping holds text under names."""
+    assert glob_files(TREE, "*.c") == ["a.c"]
+    assert glob_files(TREE, "**/*.c") == ["a.c", "sub/b.c"]
 
 
 # -- reading -----------------------------------------------------------------
 
 
-def test_read_file_line_range_is_one_based_inclusive(tmp_path: Path) -> None:
-    (tmp_path / "a.c").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
-    assert read_file(tmp_path, "a.c", start_line=2, end_line=3) == "two\nthree"
-    assert read_file(tmp_path, "a.c").startswith("one\n")
+def test_read_file_line_range_is_one_based_inclusive() -> None:
+    assert read_file(TREE, "a.c", start_line=2, end_line=3) == "two\nthree"
+    assert read_file(TREE, "a.c").startswith("one\n")
 
 
-def test_list_dir_marks_directories(tmp_path: Path) -> None:
-    (tmp_path / "sub").mkdir()
-    (tmp_path / "a.c").write_text("x", encoding="utf-8")
-    assert list_dir(tmp_path) == ["a.c", "sub/"]
+def test_list_dir_marks_directories() -> None:
+    """Derived from the key prefixes rather than from a stat."""
+    assert list_dir(TREE) == ["a.c", "sub/"]
+    assert list_dir(TREE, "sub") == ["b.c"]
 
 
-def test_list_dir_on_a_file_is_an_error(tmp_path: Path) -> None:
-    (tmp_path / "a.c").write_text("x", encoding="utf-8")
+def test_list_dir_on_a_file_is_an_error() -> None:
     with pytest.raises(ToolError):
-        list_dir(tmp_path, "a.c")
+        list_dir(TREE, "a.c")
 
 
-def test_grep_finds_matches_with_line_numbers(tmp_path: Path) -> None:
-    (tmp_path / "a.c").write_text("int x;\nsystem(cmd);\n", encoding="utf-8")
-    hits = grep(tmp_path, r"system\(")
-    assert any(line.startswith("a.c:2:") for line in hits), hits
+def test_grep_finds_matches_with_line_numbers() -> None:
+    hits = grep(TREE, r"system\(")
+    assert any(line.startswith("sub/b.c:2:") for line in hits), hits
 
 
-def test_grep_with_no_matches_is_empty_not_an_error(tmp_path: Path) -> None:
-    (tmp_path / "a.c").write_text("int x;\n", encoding="utf-8")
-    assert grep(tmp_path, "nothing_matches_this") == []
+def test_grep_can_be_narrowed_by_glob() -> None:
+    assert grep(TREE, "int", glob="*.c") == []
+    assert grep(TREE, "int", glob="**/*.c") == ["sub/b.c:1:int x;"]
+
+
+def test_grep_with_no_matches_is_empty_not_an_error() -> None:
+    assert grep(TREE, "nothing_matches_this") == []
 
 
 # -- graph tools -------------------------------------------------------------
 
 
-def test_graph_tools_answer_from_the_link_graph(tree: Path, tmp_path: Path) -> None:
+@pytest.fixture
+def indexed(tree_files: dict[str, str]) -> ChunkStore:
+    run = new_run()
+    store = run.store()
+    build_index(tree_files, store)
+    return store
+
+
+def test_graph_tools_answer_from_the_link_graph(indexed: ChunkStore) -> None:
     """Exact, unlike grep: a textual mention is not a call."""
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(tree, store)
+    assert [c["symbol"] for c in callers_of(indexed, "inner")] == ["outer"]
+    assert [c["symbol"] for c in callees_of(indexed, "outer")] == ["inner"]
 
-    assert [c["symbol"] for c in callers_of(store, "inner")] == ["outer"]
-    assert [c["symbol"] for c in callees_of(store, "outer")] == ["inner"]
-
-    definitions = definition_of(store, "log_msg")
+    definitions = definition_of(indexed, "log_msg")
     assert [d["file"] for d in definitions] == ["util.c"]
     assert "printf" in definitions[0]["body"]
-    store.close()
+    indexed.close()
 
 
-def test_graph_tools_are_empty_for_unknown_symbols(tree: Path, tmp_path: Path) -> None:
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(tree, store)
-    assert callers_of(store, "no_such_function") == []
-    assert definition_of(store, "no_such_function") == []
-    store.close()
-
-
-# -- sandbox -----------------------------------------------------------------
-
-
-needs_bwrap = pytest.mark.skipif(not bwrap_available(), reason="bubblewrap is not installed")
-
-
-@needs_bwrap
-def test_sandbox_runs_a_command_and_sees_the_tree(tmp_path: Path) -> None:
-    (tmp_path / "hello.c").write_text("int main(void){return 0;}", encoding="utf-8")
-    result = run_sandboxed(tmp_path, ["cat", "hello.c"], backend="bwrap")
-    assert result.exit_code == 0, result.stderr
-    assert "int main" in result.stdout
-
-
-@needs_bwrap
-def test_sandbox_denies_network(tmp_path: Path) -> None:
-    """A verification step that can phone out is not verification."""
-    result = run_sandboxed(
-        tmp_path,
-        ["python3", "-c", "import socket; socket.create_connection(('1.1.1.1', 53), timeout=3)"],
-        backend="bwrap",
-        timeout=15,
-    )
-    assert result.exit_code != 0, "network reached the outside from inside the sandbox"
-
-
-@needs_bwrap
-def test_sandbox_mounts_the_tree_read_only(tmp_path: Path) -> None:
-    """A compile step must not be able to rewrite the source it is judging."""
-    (tmp_path / "a.c").write_text("int x;", encoding="utf-8")
-    result = run_sandboxed(tmp_path, ["sh", "-c", "echo tampered > a.c"], backend="bwrap")
-    assert result.exit_code != 0
-    assert (tmp_path / "a.c").read_text(encoding="utf-8") == "int x;"
-
-
-@needs_bwrap
-def test_sandbox_enforces_a_timeout(tmp_path: Path) -> None:
-    result = run_sandboxed(tmp_path, ["sleep", "30"], backend="bwrap", timeout=2)
-    assert result.exit_code == 124
-    assert "timed out" in result.stderr
-
-
-def test_sandbox_can_be_disabled(tmp_path: Path) -> None:
-    with pytest.raises(ToolError, match="disabled"):
-        run_sandboxed(tmp_path, ["echo", "hi"], backend="none")
-
-
-def test_unknown_sandbox_backend_is_an_error(tmp_path: Path) -> None:
-    with pytest.raises(ToolError, match="unknown sandbox backend"):
-        run_sandboxed(tmp_path, ["echo", "hi"], backend="chroot")
-
-
-def test_empty_command_is_an_error(tmp_path: Path) -> None:
-    with pytest.raises(ToolError):
-        run_sandboxed(tmp_path, [], backend="bwrap")
+def test_graph_tools_are_empty_for_unknown_symbols(indexed: ChunkStore) -> None:
+    assert callers_of(indexed, "no_such_function") == []
+    assert definition_of(indexed, "no_such_function") == []
+    indexed.close()
 
 
 # -- the agent.mcp package must not shadow the mcp library -------------------
@@ -215,6 +139,11 @@ def test_agent_mcp_does_not_shadow_the_mcp_library() -> None:
 
 
 def test_mcp_server_exposes_the_expected_tools() -> None:
+    """Pinned, because the roster is what the agent is allowed to do.
+
+    `run_in_sandbox` is deliberately absent: a run has rows, not a tree, and a
+    tool that shells out against one had nothing to shell out against.
+    """
     import asyncio
 
     from agent.mcp.server import mcp as server
@@ -232,17 +161,17 @@ def test_mcp_server_exposes_the_expected_tools() -> None:
         "graph_neighbours",
         "graph_path",
         "graph_subsystem",
-        "run_in_sandbox",
     }
 
 
-def test_mcp_tools_report_escapes_as_text_not_protocol_errors(tmp_path: Path) -> None:
+def test_mcp_tools_report_bad_paths_as_text_not_protocol_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """A raised exception looks like a dead tool; a message the model can read
     lets it correct itself."""
     from agent.mcp import server as server_module
 
-    os.environ[server_module.ENV_RUN_ROOT] = str(tmp_path)
-    try:
-        assert server_module.read_source("../../etc/passwd").startswith("error:")
-    finally:
-        del os.environ[server_module.ENV_RUN_ROOT]
+    run = new_run()
+    run.put_file("a.c", b"int x;\n")
+    monkeypatch.setenv(server_module.ENV_RUN_ID, run.run_id)
+
+    assert server_module.read_source("../../etc/passwd").startswith("error:")
+    assert server_module.read_source("a.c") == "int x;\n"

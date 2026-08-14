@@ -22,10 +22,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import sqlite3
-from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+
+from .config import AgentConfig
+from .db import CachedResult, session_factory
 from .index.store import ChunkStore
 
 log = logging.getLogger(__name__)
@@ -33,17 +36,6 @@ log = logging.getLogger(__name__)
 #: Bumped when what is stored changes shape. An old row under a new format is
 #: not a hit, which is cheaper than migrating something entirely rebuildable.
 FORMAT = "1"
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS results (
-    chunk_id TEXT NOT NULL,
-    recipe   TEXT NOT NULL,
-    findings TEXT NOT NULL,
-    note     TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (chunk_id, recipe)
-);
-"""
-
 
 def recipe_of(*, model: str, lenses: Sequence[str], prompts: Mapping[str, str]) -> str:
     """What a result depends on, besides the code.
@@ -66,20 +58,20 @@ def recipe_of(*, model: str, lenses: Sequence[str], prompts: Mapping[str, str]) 
 
 
 class ResultCache:
-    """Findings and notes for chunks already analysed under one recipe."""
+    """Findings and notes for chunks already analysed under one recipe.
 
-    def __init__(self, path: Path, recipe: str) -> None:
-        self.path = path
+    The one table with no ``run_id``. A chunk id is derived from the code, so an
+    unchanged unit in a *new* run hits what an older run concluded -- and tying
+    this to a run would defeat the only thing it exists for.
+    """
+
+    def __init__(self, recipe: str, config: AgentConfig | None = None) -> None:
         self.recipe = recipe
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(SCHEMA)
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA busy_timeout=10000")
+        self._sessions = session_factory(config)
 
     def close(self) -> None:
-        self.conn.close()
+        """Nothing to close: sessions are per-operation. Kept for the callers
+        that pair it with the constructor."""
 
     def remember(self, chunk_id: str, findings: Iterable[dict[str, Any]], note: str) -> None:
         """Write one chunk's result down. A chunk with nothing found is a result.
@@ -88,11 +80,18 @@ class ResultCache:
         and exactly as reusable, and storing only the hits would leave every
         clean unit paying full price on every run.
         """
-        self.conn.execute(
-            "INSERT OR REPLACE INTO results (chunk_id, recipe, findings, note) VALUES (?, ?, ?, ?)",
-            (chunk_id, self.recipe, json.dumps(list(findings)), note or ""),
-        )
-        self.conn.commit()
+        payload = json.dumps(list(findings))
+        with self._sessions() as session:
+            statement = insert(CachedResult).values(
+                chunk_id=chunk_id, recipe=self.recipe, findings=payload, note=note or ""
+            )
+            session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["chunk_id", "recipe"],
+                    set_={"findings": payload, "note": note or ""},
+                )
+            )
+            session.commit()
 
     def warm(self, store: ChunkStore, chunk_ids: Iterable[str]) -> int:
         """Copy what is already known into this run's store. Returns how many.
@@ -106,28 +105,27 @@ class ResultCache:
             return 0
 
         warmed = 0
-        for batch in _batched(wanted, 500):
-            placeholders = ",".join("?" * len(batch))
-            rows = self.conn.execute(
-                f"SELECT chunk_id, findings, note FROM results WHERE recipe = ? AND chunk_id IN ({placeholders})",
-                (self.recipe, *batch),
-            ).fetchall()
-            for row in rows:
-                try:
-                    findings = json.loads(row["findings"])
-                except (TypeError, ValueError):
-                    continue
-                if findings:
-                    store.add_findings(row["chunk_id"], findings)
-                if row["note"]:
-                    store.set_note(row["chunk_id"], row["note"])
-                store.mark_inspected(row["chunk_id"])
-                warmed += 1
+        # One statement. The batching that used to be here worked around
+        # SQLite's bound-parameter ceiling; `IN` over an array has no such
+        # limit, so the loop and its helper are gone.
+        with self._sessions() as session:
+            rows = session.execute(
+                select(CachedResult.chunk_id, CachedResult.findings, CachedResult.note).where(
+                    CachedResult.recipe == self.recipe, CachedResult.chunk_id.in_(wanted)
+                )
+            ).all()
+
+        for chunk_id, raw, note in rows:
+            try:
+                findings = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if findings:
+                store.add_findings(chunk_id, findings)
+            if note:
+                store.set_note(chunk_id, note)
+            store.mark_inspected(chunk_id)
+            warmed += 1
         return warmed
 
 
-def _batched(items: Sequence[str], size: int) -> Iterable[Sequence[str]]:
-    """SQLite has a limit on how many parameters one statement may bind, and a
-    large upload is well past it."""
-    for start in range(0, len(items), size):
-        yield items[start : start + size]

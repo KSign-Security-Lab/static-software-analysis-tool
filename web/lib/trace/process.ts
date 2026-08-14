@@ -293,6 +293,10 @@ export function roleOf(step: string): string {
   if (step.startsWith("lens:")) return `${step.slice(5)} 분석`;
   if (step === "gather") return "근거 수집";
   if (step === "verify") return "판정";
+  // The one that writes code rather than reading it, and the only step a reader
+  // can start by hand -- 고칠 코드 만들기 in the finding panel. It read as `fix`
+  // in the decision chain, which is the step id and not a role.
+  if (step === "fix") return "고칠 코드 만들기";
   return step;
 }
 

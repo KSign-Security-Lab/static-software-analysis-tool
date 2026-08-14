@@ -90,7 +90,7 @@ function Tags({ steps, tools, roster }: { steps: string[]; tools: number; roster
 
 export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeData>>) {
   const { name, terminal, visits, averageMs, running, queued, before, after } = data;
-  const { steps, tools, roster, across, onInterrupt } = data;
+  const { steps, tools, roster, across, onInterrupt, faded } = data;
 
   // The size is inline, from the same constants dagre laid out against.
   // Expressing it as a utility class instead is how the two drift and the
@@ -127,6 +127,8 @@ export default function StepNode({ data, selected }: NodeProps<Node<GraphNodeDat
         running > 0 && "border-accent bg-accent-wash text-ink-strong shadow-pane",
         (before || after) && "ring-1 ring-alt",
         selected && "border-accent-ink ring-2 ring-accent-ink",
+        // Not part of the argument being read. See `path` on StepGraph.
+        faded && "opacity-30",
       )}
     >
       <Ports across={across} />

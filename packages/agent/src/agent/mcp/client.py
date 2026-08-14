@@ -17,7 +17,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Sequence
 
-from ..config import ENV_INDEX_DB, ENV_RUN_ROOT, ENV_SANDBOX
+from ..config import ENV_DATABASE_URL, ENV_RUN_ID, ENV_SANDBOX
 
 log = logging.getLogger(__name__)
 
@@ -42,13 +42,13 @@ class ToolSession:
 
     def __init__(
         self,
-        run_root: Path,
-        index_db: Path | None = None,
+        run_id: str,
+        database_url: str | None = None,
         sandbox: str | None = None,
         allowed: Sequence[str] | None = None,
     ) -> None:
-        self.run_root = run_root
-        self.index_db = index_db
+        self.run_id = run_id
+        self.database_url = database_url
         self.sandbox = sandbox
         # None means the whole surface.
         self.allowed = frozenset(allowed) if allowed is not None else None
@@ -74,9 +74,9 @@ class ToolSession:
 
     def _env(self) -> dict[str, str]:
         env = dict(os.environ)
-        env[ENV_RUN_ROOT] = str(self.run_root)
-        if self.index_db is not None:
-            env[ENV_INDEX_DB] = str(self.index_db)
+        env[ENV_RUN_ID] = self.run_id
+        if self.database_url:
+            env[ENV_DATABASE_URL] = self.database_url
         if self.sandbox is not None:
             env[ENV_SANDBOX] = self.sandbox
         # `python -m agent.mcp` needs to find the package as this process did.
@@ -156,14 +156,14 @@ class ToolSession:
 
 
 def open_session(
-    run_root: Path,
-    index_db: Path | None = None,
+    run_id: str,
+    database_url: str | None = None,
     sandbox: str | None = None,
     allowed: Sequence[str] | None = None,
 ) -> ToolSession | None:
     """None if the tool surface is unavailable: tools enhance verification, they
     are not a precondition for it."""
-    session = ToolSession(run_root, index_db, sandbox, allowed)
+    session = ToolSession(run_id, database_url, sandbox, allowed)
     try:
         session.start()
     except Exception as err:  # noqa: BLE001 - any startup failure means "no tools"
@@ -180,7 +180,7 @@ def open_session(
 #: with no model behind it. Asking "what is this callee actually declared as" is
 #: a lookup, not exploration, and it is usually the fact the finding turns on.
 #:
-#: Not `read_source`, `search_text`, `search_semantic` or `run_in_sandbox`. Those
+#: Not `read_source`, `search_text` or `search_semantic`. Those
 #: are open-ended -- where a specialist goes with them differs run to run, and
 #: they are what `gather` is for, one claim at a time, after something has been
 #: found worth checking.
@@ -209,7 +209,6 @@ VERIFY_TOOLS: Sequence[str] = (
     "graph_neighbours",
     "graph_path",
     "graph_subsystem",
-    "run_in_sandbox",
 )
 
 

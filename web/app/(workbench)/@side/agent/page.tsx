@@ -1,22 +1,13 @@
 import ExplorerPane from "@/features/agent/ExplorerPane";
-import FindingRail from "@/features/agent/FindingRail";
 
 /**
- * The problems, and under them the files they were found in.
+ * The file tree, and nothing else.
  *
- * In that order, because that is the order of the work: you come back to this
- * screen to deal with what the last run found, and you touch the file list when
- * you are adding code or moving to another file.
+ * It shared this rail with the 문제 list for a while, which meant the left side
+ * had two subjects and the problems had to be folded away to see the files or
+ * the other way round. 문제 is the bottom panel now -- where a problems list
+ * belongs and where its rows have width -- so this is the explorer, full height.
  */
 export default function Slot() {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1">
-        <FindingRail />
-      </div>
-      <div className="flex max-h-[45%] min-h-0 shrink-0 flex-col border-t border-line">
-        <ExplorerPane />
-      </div>
-    </div>
-  );
+  return <ExplorerPane />;
 }

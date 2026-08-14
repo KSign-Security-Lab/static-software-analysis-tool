@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.index import ChunkStore, build_index, relative_posix
+from conftest import read_tree
+
+from agent.runs import new_run
+from agent.index import ChunkStore, build_index
 from agent.index.chunk import FILE_CHUNK_KIND, chunk_id_for, chunk_source, line_windows, normalize_body
 from agent.index.links import CALLS, FILE_DEPENDS, USES_TYPE, resolve_links
 from agent.index.order import call_levels, inspection_order, wave
@@ -19,8 +22,8 @@ from agent.languages import spec_for_path
 
 def _chunks(tree: Path) -> list:
     out = []
-    for path in sorted(tree.glob("*.c")) + sorted(tree.glob("*.h")):
-        out.extend(chunk_source(relative_posix(path, tree), path.read_text(encoding="utf-8")))
+    for name, text in sorted(read_tree(tree).items()):
+        out.extend(chunk_source(name, text))
     return out
 
 
@@ -246,8 +249,8 @@ def test_a_wave_is_bounded_and_degrades_to_one() -> None:
 
 
 def test_levels_survive_a_round_trip_through_the_store(tmp_path: Path, tree: Path) -> None:
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(tree, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(tree), store)
     stored = store.levels()
     store.close()
 
@@ -286,8 +289,8 @@ def test_unsupported_files_are_not_indexed() -> None:
 
 
 def test_build_index_round_trips_through_the_store(tree: Path, tmp_path: Path) -> None:
-    store = ChunkStore(tmp_path / "out" / "index.db")
-    result = build_index(tree, store)
+    store = ChunkStore(new_run().run_id)
+    result = build_index(read_tree(tree), store)
 
     assert result.files_indexed == 3
     assert result.chunks > 0 and result.links > 0
@@ -302,18 +305,18 @@ def test_build_index_round_trips_through_the_store(tree: Path, tmp_path: Path) -
     store.close()
 
 
-def test_notes_and_inspection_state_persist(tree: Path, tmp_path: Path) -> None:
+def test_notes_and_inspection_state_persist(tree: Path) -> None:
     """A resumed run must be able to tell 'no findings' from 'not yet analysed'."""
-    path = tmp_path / "index.db"
-    store = ChunkStore(path)
-    build_index(tree, store)
+    run_id = new_run().run_id
+    store = ChunkStore(run_id)
+    build_index(read_tree(tree), store)
     chunk_id = store.order()[0]
     assert store.is_inspected(chunk_id) is False
     store.set_note(chunk_id, "returns attacker-controlled data")
     store.mark_inspected(chunk_id)
     store.close()
 
-    reopened = ChunkStore(path)
+    reopened = ChunkStore(run_id)
     assert reopened.note(chunk_id) == "returns attacker-controlled data"
     assert reopened.is_inspected(chunk_id) is True
     reopened.close()
@@ -321,8 +324,8 @@ def test_notes_and_inspection_state_persist(tree: Path, tmp_path: Path) -> None:
 
 def test_sample_tree_indexes_without_ordering_violations(fixture_root: Path, tmp_path: Path) -> None:
     """The same invariants on the shipped sample tree rather than a built one."""
-    store = ChunkStore(tmp_path / "index.db")
-    result = build_index(fixture_root, store)
+    store = ChunkStore(new_run().run_id)
+    result = build_index(read_tree(fixture_root), store)
     assert result.files_indexed == 5
     assert result.files_skipped == 0
 
@@ -339,8 +342,8 @@ def test_sample_tree_resolves_its_cross_file_chain(fixture_root: Path, tmp_path:
     file and ``fetch_firmware`` in this one. If these edges are missing, the
     model is asked to judge a sink with no idea where its argument came from.
     """
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(fixture_root, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(fixture_root), store)
 
     handler = next(c for c in store.chunks() if c.symbol == "handle_download")
     callees = {c.symbol for c in store.callees_of(handler.chunk_id)}
@@ -370,28 +373,28 @@ def test_sample_tree_labels_both_halves_of_each_pair(fixture_root: Path) -> None
     assert "f2a" not in text.lower(), "the sample tree must not reference another package's fixtures"
 
 
-def test_the_store_survives_reads_while_a_run_is_writing(tree: Path, tmp_path: Path) -> None:
+def test_the_store_survives_reads_while_a_run_is_writing(tree: Path) -> None:
     """GET /findings reads a run's store while the inspection thread writes it.
 
-    Each thread opens its own connection -- sqlite3 forbids sharing one -- and
-    WAL is what stops them blocking each other.
+    The SQLite version of this test was about WAL: one file, and readers that
+    would otherwise block behind the writer. Postgres gives that for nothing --
+    what is worth checking here is the pool. Every thread takes its own
+    connection out of it, and a store opened per thread must neither exhaust it
+    nor hand two threads the same one.
     """
-    import sqlite3
     import threading
 
-    db = tmp_path / "index.db"
-    boot = ChunkStore(db)
-    build_index(tree, boot)
+    run_id = new_run().run_id
+    boot = ChunkStore(run_id)
+    build_index(read_tree(tree), boot)
     boot.close()
-
-    assert sqlite3.connect(db).execute("pragma journal_mode").fetchone()[0] == "wal"
 
     errors: list[str] = []
 
     def write() -> None:
         try:
-            store = ChunkStore(db)
-            for i in range(300):
+            store = ChunkStore(run_id)
+            for i in range(100):
                 store.set_note(f"chunk{i}", "x" * 400)
             store.close()
         except Exception as err:  # noqa: BLE001
@@ -399,8 +402,8 @@ def test_the_store_survives_reads_while_a_run_is_writing(tree: Path, tmp_path: P
 
     def read() -> None:
         try:
-            for _ in range(300):
-                store = ChunkStore(db)
+            for _ in range(100):
+                store = ChunkStore(run_id)
                 store.findings()
                 list(store.chunks())
                 store.close()
@@ -422,8 +425,8 @@ def test_one_store_serves_many_threads(tmp_path: Path, tree: Path) -> None:
     raise `ProgrammingError` the moment a node ran off the main thread."""
     import threading
 
-    store = ChunkStore(tmp_path / "index.db")
-    build_index(tree, store)
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(tree), store)
     ids = store.order()
     errors: list[str] = []
 

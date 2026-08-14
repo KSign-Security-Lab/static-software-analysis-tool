@@ -19,11 +19,11 @@ DEFAULT_MODEL = ""
 ENV_BASE_URL = "AGENT_BASE_URL"
 ENV_MODEL = "AGENT_MODEL"
 ENV_API_KEY = "AGENT_API_KEY"
-ENV_RUNS_DIR = "AGENT_RUNS_DIR"
+ENV_DATABASE_URL = "AGENT_DATABASE_URL"
 ENV_PROMPTS_FILE = "AGENT_PROMPTS_FILE"
 ENV_SANDBOX = "AGENT_SANDBOX"
-ENV_RUN_ROOT = "AGENT_RUN_ROOT"
-ENV_INDEX_DB = "AGENT_INDEX_DB"
+ENV_RUN_ID = "AGENT_RUN_ID"
+
 
 
 def _env_int(name: str, default: int) -> int:
@@ -61,16 +61,16 @@ def _env_lenses(name: str) -> tuple[Lens, ...]:
     return picked or LENSES
 
 
-def default_runs_dir() -> Path:
-    """Under ``artifacts/``, which is gitignored: uploads are generated data."""
-    override = os.getenv(ENV_RUNS_DIR)
-    if override:
-        return Path(override)
-    current = Path.cwd().resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate / "artifacts" / "agent-runs"
-    return current / "artifacts" / "agent-runs"
+#: Postgres, not a directory. A run used to be seven artifacts under
+#: ``artifacts/agent-runs/<id>/`` held together by a path convention; it is one
+#: row with everything cascading off it now. The default points at the
+#: `postgres` service in docker-compose, so a checkout plus `docker compose up`
+#: needs no configuration.
+DEFAULT_DATABASE_URL = "postgresql+psycopg://ssat:ssat@localhost:5432/ssat"
+
+
+def default_database_url() -> str:
+    return os.getenv(ENV_DATABASE_URL, DEFAULT_DATABASE_URL)
 
 
 def default_prompts_file() -> Path:
@@ -82,7 +82,11 @@ def default_prompts_file() -> Path:
     override = os.getenv(ENV_PROMPTS_FILE)
     if override:
         return Path(override)
-    return default_runs_dir().parent / "prompts.json"
+    current = Path.cwd().resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").exists():
+            return candidate / "artifacts" / "prompts.json"
+    return current / "artifacts" / "prompts.json"
 
 
 @dataclass
@@ -168,16 +172,15 @@ class AgentConfig:
     sandbox: str = field(default_factory=lambda: os.getenv(ENV_SANDBOX, "bwrap"))
     sandbox_timeout: int = field(default_factory=lambda: _env_int("AGENT_SANDBOX_TIMEOUT", 20))
 
-    runs_dir: Path = field(default_factory=default_runs_dir)
     # Results kept across runs, beside the runs rather than inside one -- the
     # point is that it outlives the run that filled it. Off with AGENT_CACHE=0,
     # which is what a run wanting to prove a result from scratch asks for.
     cache_results: bool = field(default_factory=lambda: os.getenv("AGENT_CACHE", "1") != "0")
 
-    @property
-    def cache_file(self) -> Path:
-        return self.runs_dir.parent / "analysis-cache.db"
     prompts_file: Path = field(default_factory=default_prompts_file)
+    #: Where every run lives. See `agent/db/` -- one row per run, everything
+    #: else cascading off it.
+    database_url: str = field(default_factory=default_database_url)
 
     def require_model(self) -> str:
         """Called before the first request, so a misconfigured deployment fails

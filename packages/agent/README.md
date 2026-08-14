@@ -305,9 +305,12 @@ MCP Inspector would — there is no second, in-process copy that could drift.
 `verify` uses it. Before ruling on a claim the model may look things up:
 `find_callers` to see whether the input really is attacker controlled,
 `read_source` or `find_definition` for what a callee actually does,
-`run_in_sandbox` to compile or run something and settle the question directly.
+`search_semantic` to ask in a sentence whether a check exists anywhere.
 Only that subset is offered; verification is about one claim, and the full
 surface invites wandering.
+
+There is no `run_in_sandbox`. It compiled or ran something against the run's
+tree, and a run has no tree — the files are rows.
 
 Three of them come from [`graphify`](../graphify/README.md), which turns the
 index into a knowledge graph at index time: `graph_path` answers whether the
@@ -335,7 +338,7 @@ The server can still be driven on its own, which is useful when a tool itself is
 misbehaving:
 
 ```bash
-AGENT_RUN_ROOT=path/to/src agent-mcp        # stdio
+AGENT_RUN_ID=<run> agent-mcp                # stdio
 ```
 
 ## Configuration
@@ -344,8 +347,7 @@ AGENT_RUN_ROOT=path/to/src agent-mcp        # stdio
 | --- | --- | --- |
 | `AGENT_BASE_URL` | `http://localhost:8001/v1` | OpenAI-compatible endpoint |
 | `AGENT_MODEL` | *(none — required)* | Model id the endpoint serves |
-| `AGENT_RUNS_DIR` | `artifacts/agent-runs` | Where run workspaces live |
-| `AGENT_SANDBOX` | `bwrap` | `bwrap`, `docker` or `none` |
+| `AGENT_DATABASE_URL` | `postgresql+psycopg://ssat:ssat@localhost:5432/ssat` | Where runs live |
 | `AGENT_CONTEXT_CHARS` | `24000` | Context-pack budget per chunk |
 | `AGENT_MAX_TOKENS` | `4096` | Ceiling on one response; bounds a model that cannot finish the schema |
 | `AGENT_MAX_VERIFY_PER_CHUNK` | `8` | Cap on refute calls per chunk |
@@ -365,7 +367,7 @@ src/agent/
     chunk.py       tree-sitter -> chunks
     links.py       symbol resolution -> edges
     order.py       topological order, call depth, waves
-    store.py       per-run SQLite: chunks, links, notes, findings
+    store.py       chunks, links, notes, findings, scoped to one run
   schema.py        the contract: model-facing and wire schemas
   schema_ts.py     generates web/lib/agent-schema.ts
   locate.py        anchor_text -> real span, or nothing
@@ -376,10 +378,29 @@ src/agent/
   graph/           LangGraph nodes, fan-out and wiring
   knowledge.py     the index as a graphify knowledge graph
   mcp/             the tool surface over MCP
-  tools.py         tool implementations (fs, grep, graph, sandbox)
-  runs.py          run workspaces, safe upload extraction
+  tools.py         tool implementations (read, grep, graph)
+  db/              the schema: one row per run, everything cascading
+  runs.py          the run handle over that schema
+  files.py         upload validation and hostile-archive caps
   cli.py           the `agent` command
 ```
+
+## Storage
+
+A run is one row in Postgres and everything that cascades off it — its files,
+its chunks and links, its spans, its checkpoints, its report. It used to be a
+directory holding an extracted source tree, three SQLite databases and three
+JSON files, held together by a path convention; there was no way to query
+across runs and no transaction spanning a run's own state.
+
+`docker compose up postgres` is the whole setup. The schema comes from
+`create_all` rather than Alembic, which is a considered trade for a
+laptop-scale tool and the first thing to revisit: a column change needs a
+manual drop and recreate.
+
+One table is deliberately not per-run. `results` is keyed by chunk id alone, so
+a second run over unchanged code reuses what the first concluded — that is what
+"지난 검사에서 가져옴" means in the UI.
 
 ## Notes
 

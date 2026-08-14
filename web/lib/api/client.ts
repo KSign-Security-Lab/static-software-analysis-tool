@@ -6,6 +6,8 @@
  * depending on which half of the app you were in.
  */
 
+import { ownerHeaders } from "@/lib/run/whoami";
+
 const API_PORT = process.env.NEXT_PUBLIC_API_PORT || "8000";
 
 /**
@@ -58,7 +60,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = apiBase();
   let res: Response;
   try {
-    res = await fetch(`${base}${path}`, init);
+    // Added here rather than at each call site so nothing can forget it. It is
+    // a name somebody typed, not a credential -- see `lib/run/whoami`.
+    const headers = { ...ownerHeaders(), ...(init.headers as Record<string, string>) };
+    res = await fetch(`${base}${path}`, { ...init, headers });
   } catch (err) {
     // An abort is the caller getting what it asked for, not a failure. Wrapping
     // it would make React Query treat a cancelled query as a dead backend.

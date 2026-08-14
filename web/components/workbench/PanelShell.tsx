@@ -27,10 +27,21 @@ export function PanelShell({
       {(title || actions) && (
         <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-2.5">
           {/* Not uppercase. Korean has no case, so it only ever shouted the
-              Latin ones -- and it cost the title the shape a reader scans by. */}
-          {title && <h2 className="shrink-0 truncate text-xs font-semibold text-ink-strong">{title}</h2>}
-          {note && <span className="truncate text-2xs text-ink-faint">{note}</span>}
-          {actions && <div className="ml-auto flex items-center gap-1">{actions}</div>}
+              Latin ones -- and it cost the title the shape a reader scans by.
+
+              `min-w-0`, not `shrink-0`: a title that refuses to shrink pushes
+              the actions off the end of the panel instead of truncating, which
+              is what a finding's title did to its own verdict badge in the
+              narrow 상세 pane. `truncate` needs to be allowed to bite.
+
+              The note yields first, and by a wide margin -- it is the aside, and
+              with both shrinking evenly a three-character title came out as
+              `탐...` next to a note nobody needed. Flex will not take an item
+              below its content width without `min-w-0`, so the note collapses to
+              nothing before the title gives up a character. */}
+          {title && <h2 className="min-w-0 truncate text-xs font-semibold text-ink-strong">{title}</h2>}
+          {note && <span className="min-w-0 shrink-[100] truncate text-2xs text-ink-faint">{note}</span>}
+          {actions && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
         </header>
       )}
       <div className={cn("min-h-0 flex-1 overflow-auto", bodyClassName)}>{children}</div>

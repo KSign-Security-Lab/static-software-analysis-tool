@@ -80,6 +80,22 @@ export interface UiFinding {
    * not a gap.
    */
   diff: string | null;
+  /**
+   * Every unit this same claim came out of, and every id it was filed under.
+   *
+   * The chunker makes a unit of each file's top-level declarations *and* a unit
+   * of each function in it, so a problem inside a function is looked at twice
+   * and reported twice -- same title, same CWE, same line, two `chunk_id`s. The
+   * list showed both, identical, with nothing to tell them apart, which reads
+   * as the tool being confused rather than as two readings agreeing.
+   *
+   * Merged into one row by `mergeFindings`. `chunkIds` is what the 과정 surface
+   * scopes by, and having more than one is why a cached unit no longer strands
+   * it; `mergedIds` keeps the ids the dropped copies had so a link to one of
+   * them still opens the row.
+   */
+  chunkIds: string[];
+  mergedIds: string[];
   /** 0-1. F2-A reports its own confidence; the agent reports the verify pass's. */
   confidence: number;
   /** Agent only: survived the refute pass. Null where the notion does not apply. */
@@ -143,6 +159,10 @@ export function fromF2A(result: F2AResult | null | undefined, file: string): UiF
         // F2-A reports advice, never code.
         replacement: null,
         diff: null,
+        // No chunks: the structural engine works over a CPG rather than over
+        // the agent's units, so it has no equivalent to scope 과정 by.
+        chunkIds: [],
+        mergedIds: [],
         confidence: d.confidence,
         verified: null,
         raw: d,
@@ -169,7 +189,19 @@ export function wireId(id: string): string {
   return at === -1 ? id : id.slice(at + 1);
 }
 
+/**
+ * The agent's findings, as the shared shape, with duplicate claims merged.
+ *
+ * Merging here rather than at each call site: the list, the editor's markers,
+ * the detail panel and both sides of a run comparison all come through this
+ * function, and a row that is one problem in the list and two markers in the
+ * gutter would be worse than either.
+ */
 export function fromAgent(findings: AgentFinding[] | null | undefined): UiFinding[] {
+  return mergeFindings(eachAgent(findings));
+}
+
+function eachAgent(findings: AgentFinding[] | null | undefined): UiFinding[] {
   return (findings ?? []).map((f) => ({
     id: `agent:${f.id}`,
     engine: "agent" as const,
@@ -201,10 +233,66 @@ export function fromAgent(findings: AgentFinding[] | null | undefined): UiFindin
     remediation: f.remediation ? `${f.remediation.summary}\n\n${f.remediation.detail}` : null,
     replacement: f.remediation?.replacement ?? null,
     diff: f.remediation?.diff ?? null,
+    chunkIds: f.chunk_id ? [f.chunk_id] : [],
+    mergedIds: [],
     confidence: f.confidence,
     verified: f.verified,
     raw: f,
   }));
+}
+
+/** Same claim, same place: the identity two readings of one problem share. */
+function claimKey(finding: UiFinding): string {
+  return [finding.title, finding.cwe ?? "", finding.primary.file, finding.primary.startLine].join(" ");
+}
+
+/**
+ * How useful a copy is, when two describe the same problem.
+ *
+ * A fix that can be applied beats one that can only be described, and a longer
+ * evidence trail beats a shorter one -- the copies are not identical inside
+ * even when their rows read the same, because each was produced by reading a
+ * different unit.
+ */
+function richness(finding: UiFinding): number {
+  return (
+    (finding.diff ? 8 : 0) +
+    (finding.remediation ? 4 : 0) +
+    Math.min(finding.evidence.length, 3) +
+    finding.confidence
+  );
+}
+
+/**
+ * One row per claim, however many units reported it.
+ *
+ * The richest copy represents the group and the rest contribute what only they
+ * have: their unit, so 과정 can scope to whichever of them this run actually
+ * recorded, and their id, so an old link still lands on the row.
+ *
+ * Order is preserved -- the first copy's position is the group's -- because
+ * `sortFindings` is what decides order and it should not be second-guessed by
+ * a merge that ran before it.
+ */
+export function mergeFindings(findings: UiFinding[]): UiFinding[] {
+  const groups = new Map<string, UiFinding[]>();
+  for (const finding of findings) {
+    const key = claimKey(finding);
+    const found = groups.get(key);
+    if (found) found.push(finding);
+    else groups.set(key, [finding]);
+  }
+
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0];
+
+    const best = group.reduce((a, b) => (richness(b) > richness(a) ? b : a));
+    return {
+      ...best,
+      chunkIds: [...new Set(group.flatMap((each) => each.chunkIds))],
+      mergedIds: group.filter((each) => each.id !== best.id).map((each) => each.id),
+    };
+  });
 }
 
 export function sortFindings(findings: UiFinding[]): UiFinding[] {

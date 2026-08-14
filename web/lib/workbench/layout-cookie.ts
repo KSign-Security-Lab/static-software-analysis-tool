@@ -25,7 +25,36 @@ import type { PerspectiveId } from "./perspectives";
  */
 
 export const LAYOUT_COOKIE = "ssat.layout";
-export const LAYOUT_VERSION = 1;
+/**
+ * 7: the structure moved to the right column.
+ *
+ * So the right pane holds two things and wants width -- a vertical pipeline is as
+ * wide as its widest rank, which is the five specialists side by side -- and the
+ * bottom panel is a list again and wants less height.
+ *
+ * 6: the editor gets its share back.
+ *
+ * 5 gave the panel 55% so the structure could be large, and the result was three
+ * regions stacked in one column with none of them big enough: eight lines of code
+ * over a squeezed drawing over a squeezed list. Three things that all want height
+ * cannot all have it, so the default favours the code -- which is what the other
+ * two are about -- and the handle is how you borrow from it.
+ *
+ * `StepGraph` refits whenever its pane resizes, so that drag actually works; it
+ * did nothing at all before this round, when `fitView` only ran on mount.
+ *
+ * 5: the bottom panel holds the agent's structure above its record.
+ *
+ * 4: the bottom panel holds the call record and the pipeline too.
+ *
+ * A stored layout is five numbers in a fixed order, so it cannot say which pane a
+ * number belongs to, nor that a pane now holds five times as much. A v3 cookie
+ * dragged small -- when the dock was a findings list -- would leave the record and
+ * the graph in a sliver, and a v2 one zeroed the dock and the inspector outright.
+ * The version is the only thing that can refuse them, and dropping everyone's
+ * dragged sizes is the cost of having moved what the panes contain.
+ */
+export const LAYOUT_VERSION = 7;
 const MAX_AGE = 60 * 60 * 24 * 365;
 
 /** Panel id -> percentage, the shape `react-resizable-panels` takes and returns. */
@@ -52,9 +81,17 @@ export const DEFAULT_LAYOUT: PaneLayout = {
   v: { centre: 68, dock: 32 },
 };
 
-/** 검사 leads with the code, but the record under it wants real room too. */
+/** Where a surface differs from the four-pane default. */
 const PER_PERSPECTIVE: Partial<Record<PerspectiveId, PaneLayout>> = {
-  agent: { h: { side: 16, main: 60, inspector: 24 }, v: { centre: 58, dock: 42 } },
+  // Four regions, one job each: files left, code in the centre, the bottom panel
+  // holding the run as one list, and a right column holding the agent's structure
+  // above 상세 -- which shows whatever is picked anywhere else.
+  //
+  // The dock's share is larger than a problems list alone would need, because it
+  // also holds the call record and the pipeline drawing -- everything that used
+  // to be a full-window overlay over the top of the editor. It is draggable from
+  // here; the point is that the editor is still there when you drag it.
+  agent: { h: { side: 15, main: 55, inspector: 30 }, v: { centre: 65, dock: 35 } },
   // 스테이지 is a side list and one editor over its raw response: it has
   // neither a bottom panel nor an inspector, and was showing a staging
   // placeholder in each of them.

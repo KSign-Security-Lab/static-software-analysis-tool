@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useCallback, useRef, type ReactNode } from "react";
 import type { Layout, PanelImperativeHandle, PanelSize } from "react-resizable-panels";
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import ActivityBar from "@/components/workbench/ActivityBar";
 import PerspectiveHeader from "@/components/workbench/PerspectiveHeader";
 import { CpgSourceProvider } from "@/features/cpg/provider";
+import { RunControlsProvider } from "@/lib/run/controls";
 import { useForgetMissingRun } from "@/lib/run/forget-missing";
 import { RunStreamProvider } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
@@ -14,6 +15,7 @@ import { cookieValue, layoutFor, type PaneLayout, type StoredLayout } from "@/li
 import type { PerspectiveId } from "@/lib/workbench/perspectives";
 import type { PaneId } from "@/lib/workbench/store";
 import { useWorkbench } from "@/lib/workbench/store-provider";
+import { useBeforePaint } from "@/lib/workbench/use-before-paint";
 
 /**
  * The workbench: activity bar, explorer, centre, dock, inspector.
@@ -35,11 +37,17 @@ export interface WorkbenchProps {
   side: ReactNode;
   dock: ReactNode;
   inspector: ReactNode;
+  /**
+   * A strip between the title bar and the panels, for state that belongs to
+   * the whole surface rather than to any one pane.
+   *
+   * A slot rather than a branch on `perspective`: 검사 has a run to report on
+   * and the other three do not, and the shell should not be the place that
+   * knows which. Renders `null` for them, which is why the container below is
+   * a flex column rather than a grid -- see the note on it.
+   */
+  status: ReactNode;
 }
-
-// useLayoutEffect warns when React renders a client component on the server.
-// The work below has to happen before paint, so it cannot just become useEffect.
-const useBeforePaint = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /** Registers the handle with the store and mirrors folds back out of it. */
 function usePane(id: PaneId) {
@@ -99,7 +107,15 @@ const SIZE = {
   collapsed: "0",
 } as const;
 
-export default function Workbench({ perspective, stored, children, side, dock, inspector }: WorkbenchProps) {
+export default function Workbench({
+  perspective,
+  stored,
+  children,
+  side,
+  dock,
+  inspector,
+  status,
+}: WorkbenchProps) {
   const [runId] = useRunId();
   // Here because the shell is what owns which run the tab is on, and because it
   // is mounted exactly once -- a dozen components each deciding to drop the id
@@ -155,8 +171,23 @@ export default function Workbench({ perspective, stored, children, side, dock, i
     // perspectives. See lib/run/stream.tsx for why that is load-bearing.
     <RunStreamProvider runId={runId}>
       <CpgSourceProvider>
-        <div className="grid h-dvh grid-rows-[auto_1fr] overflow-hidden bg-bg text-ink">
+        <RunControlsProvider>
+        {/*
+          A flex column, not a grid, and the status slot is why.
+
+          It was `grid-rows-[auto_1fr]` with two children. Adding a third row
+          for the slot broke every surface that does not fill it: a slot
+          rendering `null` puts no element in the grid, so the panel row
+          dropped into the `auto` track and sized itself to its content --
+          F2-A's four panels came out 350px tall in an 800px window, with the
+          rest of the page bare background.
+
+          Rows a child may decline to render cannot be positional. Flex places
+          what is actually there.
+        */}
+        <div className="flex h-dvh flex-col overflow-hidden bg-bg text-ink">
           <PerspectiveHeader />
+          {status}
 
           {/*
             `min-w-0` is load-bearing, and its absence was visible as the right
@@ -174,7 +205,7 @@ export default function Workbench({ perspective, stored, children, side, dock, i
             Which panel misbehaved depended on what was on screen, which is why it
             read as an intermittent layout glitch rather than as a rule.
           */}
-          <div className="flex min-h-0 min-w-0">
+          <div className="flex min-h-0 min-w-0 flex-1">
             <ActivityBar />
 
             <ResizablePanelGroup
@@ -237,6 +268,7 @@ export default function Workbench({ perspective, stored, children, side, dock, i
             </ResizablePanelGroup>
           </div>
         </div>
+        </RunControlsProvider>
       </CpgSourceProvider>
     </RunStreamProvider>
   );
