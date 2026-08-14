@@ -72,6 +72,21 @@ export function useOpenedByRun() {
   return useQueryState("auto", parseAsBoolean.withDefault(false).withOptions({ history: "replace" }));
 }
 
+/**
+ * Whether the structure canvas is open over the page.
+ *
+ * Not part of `Selection` below: that union is the one *thing* being read, and
+ * this is where it is being read. They compose rather than compete -- opening
+ * the canvas from a finding keeps `?finding=` set, so the drawing lights that
+ * finding's trail while the rail still shows its grounds.
+ *
+ * In the URL because it changes what is on screen, and `replace` because
+ * opening and closing a drawing is not somewhere to go back to.
+ */
+export function useStructureOpen() {
+  return useQueryState("graph", parseAsBoolean.withDefault(false).withOptions({ history: "replace" }));
+}
+
 /* -- the one selection ------------------------------------------------------- */
 
 /**

@@ -65,6 +65,27 @@ interface Controls {
   save: (path: string) => Promise<void>;
   saveAll: () => Promise<void>;
   saving: boolean;
+  /**
+   * When each path was last written, in epoch seconds.
+   *
+   * Client-side because the server does not send one: `GET .../file` returns
+   * content and a language and nothing about when it landed. Which is fine for
+   * what this answers -- "did I save that" is a question about this session, and
+   * a file that was written before this tab existed reads correctly as having no
+   * answer rather than a wrong one.
+   */
+  savedAt: ReadonlyMap<string, number>;
+
+  // 검사 실행 is deliberately *not* here, even though two components offer it.
+  //
+  // It was, briefly. Starting a run needs the stream (to attach before the
+  // server can close it) and the URL (to widen the filter), so this provider
+  // grew a `useRunStream()` and two `useQueryState()`s -- and it wraps the whole
+  // workbench. The stream's context value changes on every SSE event, so every
+  // node_started and chunk_finished re-rendered the explorer, the editor, the
+  // dock and the inspector: the surface got heavier the harder the run worked,
+  // which is the worst possible moment for it. See lib/run/inspect.tsx, which
+  // owns the action for the two components that actually offer it.
 
   // "Why is the 과정 surface open" lived here and is a URL param now
   // (`useOpenedByRun` in selection.ts): it changes what is on screen, so it must
@@ -135,6 +156,8 @@ export function RunControlsProvider({ children }: { children: ReactNode }) {
 
   const dirty = useMemo(() => dirtyOf(drafts), [drafts]);
 
+  const [savedAt, setSavedAt] = useState<Map<string, number>>(() => new Map());
+
   const save = useCallback(
     async (path: string) => {
       const draft = latest.current.get(path);
@@ -145,6 +168,9 @@ export function RunControlsProvider({ children }: { children: ReactNode }) {
         next.delete(path);
         return next;
       });
+      // After the server has it, not before. A time stamped on the click would
+      // say "saved" about a write that could still fail.
+      setSavedAt((current) => new Map(current).set(path, Date.now() / 1000));
     },
     [runId, write],
   );
@@ -171,8 +197,9 @@ export function RunControlsProvider({ children }: { children: ReactNode }) {
       save,
       saveAll,
       saving: write.isPending,
+      savedAt,
     }),
-    [breakpoints, drafts, setDraft, dirty, save, saveAll, write.isPending],
+    [breakpoints, drafts, setDraft, dirty, save, saveAll, write.isPending, savedAt],
   );
 
   return <ControlsContext.Provider value={value}>{children}</ControlsContext.Provider>;

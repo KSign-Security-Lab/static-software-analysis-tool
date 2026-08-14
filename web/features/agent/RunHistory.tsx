@@ -1,6 +1,6 @@
 "use client";
 
-import { History, Trash2 } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -20,6 +20,8 @@ import type { RunSummary as RunRecord } from "@/lib/api/types";
 import { useDeleteRun, useRuns } from "@/lib/run/queries";
 import { useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
 import { useRunState } from "@/lib/run/use-run-id";
+import { ago } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
  * The scans this server still has, and how to be rid of them.
@@ -34,6 +36,14 @@ import { useRunState } from "@/lib/run/use-run-id";
  * In the run bar because the bar owns which run this tab is on, and opening an old
  * one is exactly that: changing the run. Deleting is here for the same reason --
  * it is the same list.
+ *
+ * The trigger names the run it is on. `?run=` is the object this whole surface
+ * is keyed to -- the report, the trace, the checkpoints and every finding hang
+ * off it -- and until now no pixel on screen said which one it was. Somebody
+ * reading a report had no way to tell it apart from the last one but the file
+ * open in the editor, and a reopened tab said nothing at all. So the trigger is
+ * the run's name and its state, on the left of the strip, first thing: what you
+ * are looking at, before anything about what it found.
  *
  * The server deletes one run per request and there is no bulk endpoint, so
  * `전체 지우기` is a loop rather than a call. Sequential: these are directory
@@ -56,6 +66,7 @@ export default function RunHistory() {
   // Everything else is fair game; the run on screen is not, because deleting what
   // you are looking at is a different act and wants its own confirmation.
   const others = all.filter((each) => each.run_id !== runId);
+  const current = all.find((each) => each.run_id === runId);
 
   const openRun = (id: string) => {
     setRunId(id);
@@ -79,15 +90,20 @@ export default function RunHistory() {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button size="xs" variant="ghost" className="text-ink-muted">
-            <History />
-            지난 검사
-            {all.length > 0 && <span className="text-ink-faint">{all.length}</span>}
+          <Button size="xs" variant="ghost" className="min-w-0 max-w-72 text-ink-muted">
+            <span className={cn("size-1.5 shrink-0 rounded-full", DOT[current?.status ?? "created"])} aria-hidden />
+            <span className="min-w-0 truncate font-mono text-2xs text-ink">{current ? nameOf(current) : "검사 없음"}</span>
+            {current && <span className="shrink-0 text-2xs text-ink-faint">{ago(current.updated_at)}</span>}
+            <ChevronDown className="shrink-0 text-ink-faint" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-96 p-0">
+        <PopoverContent align="start" className="w-96 p-0">
           <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-            <p className="text-xs font-semibold text-ink-strong">지난 검사</p>
+            {/* The count was on the trigger, which now has to name the run it is
+                on instead -- a more useful thing for a permanently visible
+                control to say than a number you only need once you have decided
+                to go looking. It is still the first thing in the list it counts. */}
+            <p className="text-xs font-semibold text-ink-strong">지난 검사 {all.length}</p>
             <p className="min-w-0 flex-1 truncate text-2xs text-ink-faint">이 컴퓨터에 남아 있는 것들입니다</p>
             {others.length > 0 && (
               <Button
@@ -150,6 +166,36 @@ export default function RunHistory() {
   );
 }
 
+/**
+ * What a run is called: its first file, and how many more.
+ *
+ * The id is a hex string nobody recognises and the server sends at most two
+ * names, so this is as close to a name as a run has. Shared by the trigger and
+ * the rows so the thing you picked is spelled the same way afterwards.
+ */
+export function nameOf(run: RunRecord): string {
+  const first = run.files[0] ?? run.run_id;
+  return run.file_count > 1 ? `${first} 외 ${run.file_count - 1}` : first;
+}
+
+/**
+ * The run's state as one dot.
+ *
+ * The strip already says the phase in words, next to this. The dot is for the
+ * rows in the list, where seven words of status per row would be a wall -- and
+ * for the trigger, where it is the difference between "this finished" and "this
+ * is still going" without reading anything.
+ */
+const DOT: Record<string, string> = {
+  created: "bg-line-3",
+  indexing: "bg-line-3",
+  indexed: "bg-line-3",
+  inspecting: "bg-accent animate-pulse",
+  interrupted: "bg-warn",
+  done: "bg-ok",
+  failed: "bg-danger",
+};
+
 /** `main.c 외 1 · 8/13 16:37 · 3건`, and whether it is the one on screen. */
 function Entry({
   run,
@@ -162,8 +208,7 @@ function Entry({
   onOpen: () => void;
   onDelete: () => void;
 }) {
-  const name = run.files[0] ?? run.run_id;
-  const more = run.file_count > 1 ? ` 외 ${run.file_count - 1}` : "";
+  const name = nameOf(run);
   const when = new Date(run.updated_at * 1000).toLocaleString("ko-KR", {
     month: "numeric",
     day: "numeric",
@@ -180,10 +225,8 @@ function Entry({
         className="flex min-w-0 flex-1 flex-col items-start gap-0.5 px-2 py-1.5 text-left disabled:cursor-default"
       >
         <span className="flex w-full min-w-0 items-baseline gap-1.5">
-          <span className="min-w-0 truncate font-mono text-2xs text-ink">
-            {name}
-            {more}
-          </span>
+          <span className={cn("size-1.5 shrink-0 self-center rounded-full", DOT[run.status])} aria-hidden />
+          <span className="min-w-0 truncate font-mono text-2xs text-ink">{name}</span>
           {current && <span className="shrink-0 text-2xs text-accent-ink">보는 중</span>}
         </span>
         <span className="flex items-baseline gap-1.5 text-2xs text-ink-faint">

@@ -65,12 +65,34 @@ function show(runs = RUNS) {
   );
 }
 
-const open = () => userEvent.click(screen.getByRole("button", { name: /지난 검사/ }));
+/**
+ * The trigger names the run it is on, so that is what it is found by.
+ *
+ * It used to read `지난 검사 3` -- a count, on the one permanently visible
+ * control that could have been saying which run the whole surface was showing.
+ */
+const trigger = () => screen.getByRole("button", { name: /main\.c/ });
+const open = () => userEvent.click(trigger());
+
+describe("the run it is on", () => {
+  it("names it, because nothing else on the surface does", () => {
+    // `?run=` is what the report, the trace and every finding hang off, and no
+    // pixel said which one it was.
+    show();
+    expect(trigger().textContent).toContain("main.c");
+  });
+
+  it("says so when there is no run at all", () => {
+    show([]);
+    expect(screen.getByRole("button", { name: /검사 없음/ })).toBeTruthy();
+  });
+});
 
 describe("the list", () => {
-  it("counts what the server has on the button, before it is opened", () => {
+  it("counts what the server has, at the head of the list it counts", async () => {
     show();
-    expect(screen.getByRole("button", { name: /지난 검사/ }).textContent).toContain("3");
+    await open();
+    expect(screen.getByText("지난 검사 3")).toBeTruthy();
   });
 
   it("marks the run on screen, and gives it no way to be deleted", async () => {
@@ -100,7 +122,7 @@ describe("the list", () => {
 
   it("says so when there is nothing kept", async () => {
     show([]);
-    await open();
+    await userEvent.click(screen.getByRole("button", { name: /검사 없음/ }));
     expect(screen.getByText("아직 검사한 기록이 없습니다.")).toBeTruthy();
   });
 });
