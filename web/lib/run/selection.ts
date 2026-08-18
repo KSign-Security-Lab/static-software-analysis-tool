@@ -87,6 +87,23 @@ export function useStructureOpen() {
   return useQueryState("graph", parseAsBoolean.withDefault(false).withOptions({ history: "replace" }));
 }
 
+/**
+ * The earlier run this one is being read against, if any.
+ *
+ * `비교` answers "what changed since last time" -- which findings are new, which
+ * are gone, which are unchanged. It is not the 수정 tab's diff: that one is the
+ * agent's patch for a single claim, and this one is one scan against another.
+ *
+ * In the URL because two components need it -- the selector sets it and the
+ * 문제 list badges its rows with it -- and because a comparison is a reading of
+ * this run worth linking someone to. Cleared when the run changes: it is a
+ * question asked *of* a run, and it stops being a sensible question the moment
+ * you leave that run.
+ */
+export function useCompareAgainst() {
+  return useQueryState("against", parseAsString.withOptions({ history: "replace" }));
+}
+
 /* -- the one selection ------------------------------------------------------- */
 
 /**

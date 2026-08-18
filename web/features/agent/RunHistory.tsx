@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Trash2 } from "lucide-react";
+import { ChevronDown, GitCompareArrows, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -17,8 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { RunSummary as RunRecord } from "@/lib/api/types";
-import { useDeleteRun, useRuns } from "@/lib/run/queries";
-import { useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
+import { useDeleteRun, useDiff, useRuns } from "@/lib/run/queries";
+import { useCompareAgainst, useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
 import { useRunState } from "@/lib/run/use-run-id";
 import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -62,6 +62,20 @@ export default function RunHistory() {
   const [clearing, setClearing] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * The run this one is being read against.
+   *
+   * Cleared when the run changes, during render rather than in an effect: a
+   * comparison is an answer about one run, so a different run has to ask again.
+   */
+  const [against, setAgainst] = useCompareAgainst();
+  const [asked, setAsked] = useState(runId);
+  if (asked !== runId) {
+    setAsked(runId);
+    if (against) void setAgainst(null);
+  }
+  const diff = useDiff(runId, against);
+
   const all = runs.data ?? [];
   // Everything else is fair game; the run on screen is not, because deleting what
   // you are looking at is a different act and wants its own confirmation.
@@ -94,6 +108,11 @@ export default function RunHistory() {
             <span className={cn("size-1.5 shrink-0 rounded-full", DOT[current?.status ?? "created"])} aria-hidden />
             <span className="min-w-0 truncate font-mono text-2xs text-ink">{current ? nameOf(current) : "검사 없음"}</span>
             {current && <span className="shrink-0 text-2xs text-ink-faint">{ago(current.updated_at)}</span>}
+            {against && (
+              <span className="shrink-0 rounded-sm bg-alt-wash px-1 text-2xs text-alt" title="다른 검사와 비교 중">
+                비교
+              </span>
+            )}
             <ChevronDown className="shrink-0 text-ink-faint" />
           </Button>
         </PopoverTrigger>
@@ -117,6 +136,27 @@ export default function RunHistory() {
             )}
           </div>
 
+          {/* What the comparison found, and the way out of it. Above the list
+              because it is a fact about the run named at the top, not about any
+              row below. */}
+          {against && (
+            <div className="flex items-center gap-2 border-b border-line bg-alt-wash/40 px-3 py-1.5">
+              <span className="shrink-0 text-2xs text-alt">비교 중</span>
+              {diff.data ? (
+                <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-2xs">
+                  <span className="text-accent-ink">새로 {diff.data.new?.length ?? 0}</span>
+                  <span className="text-ok">해결됨 {diff.data.fixed?.length ?? 0}</span>
+                  <span className="text-ink-faint">그대로 {diff.data.unchanged?.length ?? 0}</span>
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1 text-2xs text-ink-faint">비교하는 중…</span>
+              )}
+              <Button size="xs" variant="ghost" className="shrink-0 text-2xs" onClick={() => void setAgainst(null)}>
+                그만
+              </Button>
+            </div>
+          )}
+
           {all.length === 0 ? (
             <p className="px-3 py-3 text-2xs text-ink-faint">아직 검사한 기록이 없습니다.</p>
           ) : (
@@ -127,7 +167,16 @@ export default function RunHistory() {
                     key={each.run_id}
                     run={each}
                     current={each.run_id === runId}
+                    comparing={each.run_id === against}
                     onOpen={() => openRun(each.run_id)}
+                    onCompare={
+                      // Only against a run that was actually inspected: an
+                      // uninspected one has no report, so every finding here
+                      // would come back "new" and mean nothing.
+                      each.run_id !== runId && each.started
+                        ? () => void setAgainst(each.run_id === against ? null : each.run_id)
+                        : undefined
+                    }
                     onDelete={() => remove.mutate(each.run_id)}
                   />
                 ))}
@@ -200,12 +249,17 @@ const DOT: Record<string, string> = {
 function Entry({
   run,
   current,
+  comparing,
   onOpen,
+  onCompare,
   onDelete,
 }: {
   run: RunRecord;
   current: boolean;
+  comparing: boolean;
   onOpen: () => void;
+  /** Absent on the run you are on, and on one that was never inspected. */
+  onCompare?: () => void;
   onDelete: () => void;
 }) {
   const name = nameOf(run);
@@ -236,6 +290,22 @@ function Entry({
           <span>{run.started ? `${run.findings ?? 0}건` : "검사 안 함"}</span>
         </span>
       </button>
+      {onCompare && (
+        <button
+          type="button"
+          aria-label={comparing ? `${name} 와 비교 그만두기` : `${name} 와 비교하기`}
+          title={comparing ? "비교 그만두기" : "이 검사와 비교"}
+          onClick={onCompare}
+          className={cn(
+            "shrink-0 rounded-xs p-1",
+            comparing
+              ? "bg-alt-wash text-alt"
+              : "hidden text-ink-faint hover:bg-surface-3 hover:text-ink group-hover:block",
+          )}
+        >
+          <GitCompareArrows className="size-3" />
+        </button>
+      )}
       {!current && (
         <button
           type="button"

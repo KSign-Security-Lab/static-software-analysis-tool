@@ -6,8 +6,8 @@ import { useMemo } from "react";
 import { Verdict } from "@/components/panel/verdict";
 import { EmptyState } from "@/components/workbench/PanelShell";
 import { SEVERITY_DOT, fromAgent, sortFindings, standingOf, type UiFinding } from "@/lib/model/finding";
-import { useFindings } from "@/lib/run/queries";
-import { useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
+import { useDiff, useFindings } from "@/lib/run/queries";
+import { useCompareAgainst, useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +33,27 @@ export default function Problems() {
   const { selection, select } = useSelection();
   const [, setPath] = useOpenFile();
   const [, setLine] = useRevealLine();
+
+  /**
+   * What changed since the run being compared against, if one is.
+   *
+   * Set in the run selector -- comparing is picking a second run, so it belongs
+   * where you pick the first. `fresh` is the ids this run raised that the other
+   * did not; anything else in the report was already there.
+   */
+  const [against] = useCompareAgainst();
+  const diff = useDiff(runId, against);
+  const fresh = useMemo(
+    () => (against && diff.data ? new Set(fromAgent(diff.data.new).map((each) => each.id)) : null),
+    [against, diff.data],
+  );
+  // Gone. They are not in this run's report at all, so they cannot be rows in
+  // the list above -- they get their own group, greyed, and are not selectable:
+  // there is no code here to open and no argument to read.
+  const gone = useMemo(
+    () => (against && diff.data ? fromAgent(diff.data.fixed) : []),
+    [against, diff.data],
+  );
 
   const byFile = useMemo(() => {
     const all = sortFindings(fromAgent(findings.data?.findings ?? []));
@@ -101,6 +122,11 @@ export default function Problems() {
                         {standing && (
                           <Verdict standing={standing} confidence={finding.confidence ?? undefined} />
                         )}
+                        {fresh && (
+                          <span className={cn("text-2xs", fresh.has(finding.id) ? "text-accent-ink" : "text-ink-faint")}>
+                            {fresh.has(finding.id) ? "새로" : "그대로"}
+                          </span>
+                        )}
                       </span>
                     </span>
                   </button>
@@ -110,6 +136,29 @@ export default function Problems() {
           </ul>
         </li>
       ))}
+
+      {gone.length > 0 && (
+        <li>
+          <p className="sticky top-0 z-10 bg-ok-wash/40 px-2.5 py-1 text-2xs text-ok">해결됨 {gone.length}</p>
+          <ul>
+            {gone.map((finding) => (
+              <li
+                key={finding.id}
+                className="flex items-start gap-2 px-2 py-1.5 opacity-60"
+                title="이 검사에는 없습니다. 비교 대상 검사에만 있었습니다."
+              >
+                <span className="mt-1 size-1.5 shrink-0 rounded-full bg-line-3" aria-hidden />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs text-ink-muted line-through">{finding.title}</span>
+                  <span className="font-mono text-2xs text-ink-faint">
+                    {finding.cwe} · {finding.primary.file}:{finding.primary.startLine}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </li>
+      )}
     </ul>
   );
 }
