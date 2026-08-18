@@ -16,6 +16,17 @@ Control flow is deterministic: the model decides what a chunk *contains* and
 which specialists it deserves, never which chunk comes next or where the graph
 goes. That is what makes two runs over the same tree comparable.
 
+``AGENT_PLANNING=advisory`` adds one node without giving that up::
+
+    ... -> reduce -> replan -> plan
+
+``replan`` returns no state. It may only append events to the run's plan log --
+defer, skip, raise_priority, split -- and ``plan`` rebuilds its queue by folding
+that log over the computed order. So an advisory run is a function of two
+recorded inputs rather than one, and two of them still diff against each other.
+Letting ``replan`` return the next chunk id would have been half the code and
+would have ended the property above; see ``graph/plan.py``.
+
 LangGraph earns its place here for the state machine, the fan-out and its
 recursion accounting, not for agentic routing.
 """

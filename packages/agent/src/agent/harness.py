@@ -37,7 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
 from .config import AgentConfig
-from .db import HarnessConfig, session_factory
+from .db import HarnessConfig, ensure, session_factory
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +108,9 @@ def record(config: AgentConfig, label: str = "") -> str:
     Idempotent by construction -- the hash *is* the key -- so a thousand runs
     under one configuration write one row and a thousand references to it.
     """
+    # The first write of a run, and the first that touches a table added after
+    # this database was built. See `db/schema.ensure`.
+    ensure()
     digest = fingerprint(config)
     with session_factory(config)() as session:
         session.execute(

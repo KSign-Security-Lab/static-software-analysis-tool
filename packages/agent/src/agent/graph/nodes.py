@@ -23,6 +23,14 @@ A *missing* ruling still counts as refuted, because it means the verifier was
 never reached. A ruling that says its call *failed* does not: that claim was put
 to a verifier and the verifier broke, which is not a judgement about the claim.
 
+`plan` and `reduce` also write the run's plan -- what is queued, what is running,
+what is done -- and in the default `computed` mode nothing reads it back. That is
+deliberate: the plan is visible without being load-bearing, so the traversal is
+the index's and provably unchanged. `replan` is the one node that exists only
+under `AGENT_PLANNING=advisory`, and it is the one node that returns no state at
+all: it appends to the plan's event log, and `plan` folds that log over the
+computed order. Neither of them is allowed to name the next chunk.
+
 Built by :func:`make_nodes` so they close over the store, the model client and
 the run root instead of carrying them in graph state.
 """
@@ -694,6 +702,12 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             # silently blessed.
             count = per_chunk.get(chunk.chunk_id, 0)
             per_chunk[chunk.chunk_id] = count + 1
+            # Onto the finding as well as the envelope. The envelope is graph
+            # state and does not outlive the wave; the finding is what reaches
+            # the report, and the report is what the tuner reads.
+            raised_by = item.get("lens")
+            if raised_by in LENSES:
+                finding.lens = raised_by
             located.append(
                 {
                     "chunk_id": chunk.chunk_id,

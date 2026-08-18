@@ -50,6 +50,7 @@ from sqlalchemy import select
 from .config import AgentConfig
 from .db import ConfigProposal, Run as RunRow, session_factory
 from .harness import TUNABLE, apply_to, load, record
+from .mcp.client import LENS_TOOLS
 from .schema import LENSES
 
 log = logging.getLogger(__name__)
@@ -130,7 +131,6 @@ def observe(config_hash: str, config: AgentConfig | None = None) -> dict[str, An
     concluded, and the question here is which settings changed a conclusion.
     """
     runs = _completed(config_hash, config)
-    per_lens: dict[str, dict[str, int]] = {lens: {"confirmed": 0, "unverified": 0} for lens in LENSES}
     totals = {"runs": len(runs), "findings": 0, "confirmed": 0, "chunks": 0, "budget_hits": 0}
 
     for row in runs:
@@ -150,34 +150,75 @@ def observe(config_hash: str, config: AgentConfig | None = None) -> dict[str, An
         "config_hash": config_hash,
         "runs": [row.id for row in runs],
         "totals": totals,
-        "per_lens": per_lens,
     }
 
 
-def _lens_contribution(config_hash: str, config: AgentConfig | None) -> dict[str, dict[str, int]]:
-    """Per lens: how many claims it raised, and how many survived.
+def _lens_record(config_hash: str, config: AgentConfig | None) -> dict[str, dict[str, int]]:
+    """Per specialist: how often it was called, what it raised, what survived.
 
-    Attributed through the trace, because a finding does not record which
-    specialist raised it -- the span does, in its name. A lens with claims and
-    no survivors is the one signal here that is worth acting on.
+    Calls come from the span names, because a call that produced nothing leaves
+    no finding to count. Raised and confirmed come from the reports, because
+    `Finding.lens` records which specialist raised each claim -- which is the
+    only reason the question worth asking can be asked at all. Matching findings
+    back to spans by title would have been a guess dressed as a measurement.
+
+    A lens with calls, claims, and no survivors is the signal: it is working,
+    and everything it produces is being refuted.
     """
     from .db import Span as SpanRow
 
-    runs = {row.id for row in _completed(config_hash, config)}
-    counts: dict[str, dict[str, int]] = {lens: {"raised": 0, "confirmed": 0} for lens in LENSES}
-    if not runs:
+    runs = _completed(config_hash, config)
+    ids = {row.id for row in runs}
+    counts: dict[str, dict[str, int]] = {
+        lens: {"calls": 0, "raised": 0, "confirmed": 0} for lens in LENSES
+    }
+    if not ids:
         return counts
 
     with session_factory(config)() as session:
-        spans = session.scalars(select(SpanRow).where(SpanRow.run_id.in_(runs))).all()
-
+        spans = session.scalars(select(SpanRow).where(SpanRow.run_id.in_(ids))).all()
     for span in spans:
         name = span.name or ""
         if not name.startswith("lens:"):
             continue
         lens = name.split(":")[1] if ":" in name else ""
         if lens in counts:
+            counts[lens]["calls"] += 1
+
+    for row in runs:
+        for finding in (row.report or {}).get("findings") or []:
+            lens = finding.get("lens")
+            if lens not in counts:
+                # A finding from before `Finding.lens` existed. Skipped rather
+                # than attributed to anything: an unattributed claim counted
+                # against a lens is worse than one not counted at all.
+                continue
             counts[lens]["raised"] += 1
+            if finding.get("verified"):
+                counts[lens]["confirmed"] += 1
+    return counts
+
+
+def _tool_record(config_hash: str, config: AgentConfig | None) -> dict[str, int]:
+    """How often each tool was called across these runs.
+
+    Which tool contributed to a *confirmed* finding is not recorded anywhere and
+    is not inferred here. What is measurable is a retrieval path that was
+    offered and never taken, across runs that did produce confirmed findings --
+    which is the honest form of "this path never contributed".
+    """
+    from .db import Span as SpanRow
+
+    ids = {row.id for row in _completed(config_hash, config)}
+    counts: dict[str, int] = {}
+    if not ids:
+        return counts
+    with session_factory(config)() as session:
+        spans = session.scalars(
+            select(SpanRow).where(SpanRow.run_id.in_(ids), SpanRow.kind == "tool")
+        ).all()
+    for span in spans:
+        counts[span.name or "?"] = counts.get(span.name or "?", 0) + 1
     return counts
 
 
@@ -207,7 +248,7 @@ def propose(config_hash: str, config: AgentConfig | None = None) -> list[Proposa
         return []
 
     proposals: list[Proposal] = []
-    for build in (_propose_idle_lens, _propose_visit_budget):
+    for build in (_propose_idle_lens, _propose_visit_budget, _propose_tool_budget):
         made = build(recorded.knobs, seen, config_hash, config)
         if made is not None:
             proposals.append(made)
@@ -220,39 +261,108 @@ def _propose_idle_lens(
     config_hash: str,
     config: AgentConfig | None,
 ) -> Proposal | None:
-    """Drop a specialist that has raised nothing across enough runs.
+    """Drop a specialist whose every claim was refuted, or which never fired.
 
-    The weakest of the two, and the reason the replay gate exists. A lens that
-    raised nothing may be a lens with nothing to find in *this* corpus, which is
-    a fact about the corpus and not about the lens -- so this proposes, and the
-    A/B decides.
+    Two ways to be dead weight and they are not the same thing, so the evidence
+    says which. A lens that ran and had everything refuted is producing noise
+    somebody has to read; a lens that never ran at all is one triage never
+    routed to. The first is about the lens, the second is about the corpus --
+    and neither settles whether removing it is safe, which is what the replay
+    downstream is for.
     """
     active = list(current.get("lenses") or [])
     if len(active) <= 1:
         return None
 
-    raised = _lens_contribution(config_hash, config)
-    total = sum(counts["raised"] for counts in raised.values())
-    if total < MIN_OBSERVATIONS:
+    record_by_lens = _lens_record(config_hash, config)
+    total_calls = sum(counts["calls"] for counts in record_by_lens.values())
+    if total_calls < MIN_OBSERVATIONS:
         return None
 
-    idle = sorted(lens for lens in active if raised.get(lens, {}).get("raised", 0) == 0)
-    if not idle:
+    refuted, silent = [], []
+    for lens in active:
+        counts = record_by_lens.get(lens, {"calls": 0, "raised": 0, "confirmed": 0})
+        if counts["calls"] == 0:
+            silent.append(lens)
+        elif counts["raised"] >= MIN_OBSERVATIONS and counts["confirmed"] == 0:
+            refuted.append(lens)
+
+    idle = sorted(refuted + silent)
+    if not idle or len(idle) >= len(active):
+        # Never propose emptying the set. A config with no specialists finds
+        # nothing, which would score perfectly on any per-call metric.
         return None
 
     keep = tuple(lens for lens in active if lens not in idle)
     changes = {"lenses": list(keep)}
+    reasons = []
+    if refuted:
+        reasons.append(
+            ", ".join(
+                f"{lens} raised {record_by_lens[lens]['raised']} and had none confirmed" for lens in sorted(refuted)
+            )
+        )
+    if silent:
+        reasons.append(f"{', '.join(sorted(silent))} was never called -- triage routed nothing to it")
+
     return Proposal(
         id=_proposal_id(config_hash, changes),
         base_hash=config_hash,
         changes=changes,
         evidence=Evidence(
             runs=list(seen["runs"]),
-            observations={"raised_per_lens": raised, "idle": idle},
+            observations={"per_lens": record_by_lens, "refuted_throughout": refuted, "never_called": silent},
             note=(
-                f"{', '.join(idle)} raised nothing across {seen['totals']['runs']} runs "
-                f"and {total} specialist calls. It may have nothing to find in this corpus "
-                f"rather than nothing to find at all, which the replay is for."
+                f"Across {seen['totals']['runs']} runs and {total_calls} specialist calls: "
+                f"{'; '.join(reasons)}."
+            ),
+        ),
+        metric="confirmed_per_call",
+        direction="up",
+    )
+
+
+def _propose_tool_budget(
+    current: Mapping[str, Any],
+    seen: Mapping[str, Any],
+    config_hash: str,
+    config: AgentConfig | None,
+) -> Proposal | None:
+    """Trim the lens tool budget when the specialists never spend it.
+
+    The retrieval-path signal, in the only form the record supports. Which tool
+    contributed to a confirmed finding is not written down anywhere -- but a
+    budget that is never drawn on across runs that *did* produce confirmed
+    findings is a budget paying for nothing, and that is measurable.
+
+    Only the lens budget. `gather`'s tools are the ones a claim is checked
+    against, and cutting those trades a false positive somebody reads for a real
+    one nobody does.
+    """
+    budget = int(current.get("max_lens_tool_calls") or 0)
+    if budget <= 1 or not current.get("lens_tools"):
+        return None
+    if seen["totals"]["confirmed"] < 1:
+        # Nothing was confirmed, so "never contributed to a confirmed finding"
+        # is true of every path and says nothing about any of them.
+        return None
+
+    tools = _tool_record(config_hash, config)
+    lens_tools = {name: n for name, n in tools.items() if name in set(LENS_TOOLS)}
+    if sum(lens_tools.values()) > 0:
+        return None
+
+    changes = {"max_lens_tool_calls": 0, "lens_tools": False}
+    return Proposal(
+        id=_proposal_id(config_hash, changes),
+        base_hash=config_hash,
+        changes=changes,
+        evidence=Evidence(
+            runs=list(seen["runs"]),
+            observations={"tool_calls": tools, "lens_tool_calls": lens_tools, "budget": budget},
+            note=(
+                f"The specialists were offered {budget} lookups each across {seen['totals']['runs']} runs "
+                f"and took none, while {seen['totals']['confirmed']} findings were confirmed without them."
             ),
         ),
         metric="confirmed_per_call",

@@ -26,6 +26,7 @@ export interface Finding {
   remediation: Remediation;
   /** Survived the adversarial refute pass. */
   verified: boolean;
+  lens?: "memory" | "injection" | "access" | "crypto" | "logic" | null;
 }
 
 export interface Remediation {

@@ -32,7 +32,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
 from ..config import AgentConfig
-from ..db import CorpusSample, create_all, engine, session_factory
+from ..db import CorpusSample, ensure, session_factory
 from ..ids import normalize_cwe
 from ..index.chunk import FUNCTION_CHUNK_KIND, chunk_source
 from ..index.embed import Unavailable, document_for
@@ -211,10 +211,9 @@ def ingest(root: Path | None = None, config: AgentConfig | None = None) -> dict[
     config = config or AgentConfig()
     root = Path(root) if root is not None else config.corpus_dir
 
-    # First run against a real database: `create_all` has only ever been called
-    # from the test fixtures, so nothing has created this table outside them.
-    # Idempotent -- it creates what is missing and alters nothing.
-    create_all(engine())
+    # Nothing else creates this table outside the test fixtures. See
+    # `db/schema.ensure`.
+    ensure()
 
     samples, skipped = read(root)
     stored = _stored_ids()

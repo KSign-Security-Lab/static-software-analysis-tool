@@ -221,6 +221,17 @@ class Finding(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     remediation: Remediation
     verified: bool = Field(description="Survived the adversarial refute pass.")
+    #: Which specialist raised it.
+    #:
+    #: Recorded because the tuner cannot otherwise ask the one question worth
+    #: asking about a lens: not whether it ran, but whether anything it raised
+    #: survived verification. That was previously answerable only by matching
+    #: findings back to `lens:` spans by title, which is a guess dressed as a
+    #: measurement.
+    #:
+    #: Optional because a finding from a run recorded before this existed has no
+    #: honest answer, and `null` says so where a default lens would lie.
+    lens: Lens | None = None
 
     def sort_key(self) -> tuple[int, str, int, str]:
         """Most severe first, then position. Stable report order."""

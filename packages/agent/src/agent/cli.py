@@ -39,7 +39,7 @@ from .runs import (
     new_run,
     write_files,
 )
-from .schema import Finding
+from .schema import Finding, Report
 from .tracing import status as tracing_status
 
 SEVERITY_MARK = {"critical": "!!", "high": " !", "medium": " ~", "low": " -", "info": " ."}
@@ -341,6 +341,103 @@ def cmd_corpus(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tune(args: argparse.Namespace) -> int:
+    """Read finished runs, propose, and replay. Never inside a request.
+
+    `propose` and `list` only read. `replay` is the expensive one and the only
+    one that changes what a proposal is allowed to become: it indexes a pinned
+    corpus, inspects it twice -- once under each config -- and attaches the
+    result. `apply` refuses without that.
+    """
+    from . import harness, replay as replay_module, tuner
+
+    if args.action == "configs":
+        for recorded in harness.all_configs():
+            pin = " (pinned)" if recorded.pinned else ""
+            print(f"{recorded.config_hash}{pin}  {recorded.label}")
+        return 0
+
+    if args.action == "list":
+        found = tuner.proposals(status=args.status or "")
+        if not found:
+            print("no proposals")
+            return 0
+        for item in found:
+            print(f"{item['id']}  {item['status']:<9} {item['base_hash']} -> {item['proposed_hash']}")
+            print(f"    {item['evidence'].get('note', '')}")
+        return 0
+
+    if args.action == "propose":
+        made = tuner.propose(args.config_hash)
+        if not made:
+            print("nothing to propose -- too few runs, a pinned config, or nothing worth changing")
+            return 0
+        for proposal in made:
+            tuner.save(proposal)
+            print(f"{proposal.id}  {proposal.changes}")
+            print(f"    {proposal.evidence.note}")
+        return 0
+
+    if args.action == "replay":
+        stored = [p for p in tuner.proposals() if p["id"] == args.proposal]
+        if not stored:
+            print(f"no such proposal: {args.proposal}")
+            return 1
+        proposal = stored[0]
+        report = replay_module.compare(
+            base_hash=proposal["base_hash"],
+            proposed_hash=proposal["proposed_hash"],
+            metric=proposal["metric"],
+            direction=proposal["direction"],
+            run_arm=_replay_arm,
+            corpus=str(Path(args.corpus).resolve()),
+        )
+        tuner.attach_replay(args.proposal, report)
+        moved = "improved" if report["improved"] else "did not improve"
+        print(f"{report['metric']}: {report['before']:.4f} -> {report['after']:.4f} ({moved})")
+        return 0 if report["improved"] else 1
+
+    if args.action == "apply":
+        try:
+            applied = tuner.apply(args.proposal)
+        except tuner.NotReplayed as err:
+            print(f"refused: {err}")
+            return 1
+        print(f"applied {applied['id']}; config is now {applied['config_hash']}")
+        return 0
+
+    return 1
+
+
+def _replay_arm(config: AgentConfig, corpus: str) -> Report:
+    """One arm of an A/B: a whole inspection of the pinned corpus.
+
+    Its own run each time. The replay exists because the change has not been
+    observed yet, so anything reused from an earlier run is evidence about the
+    config that produced it -- which is the config being replaced.
+
+    ``warm=False`` for the sharper version of the same problem: the result cache
+    is keyed by content and both arms read identical files, so the second arm
+    would otherwise be served the first arm's answers and the comparison would
+    be of a config against itself.
+    """
+    run = new_run()
+    _load_tree(Path(corpus), run)
+    index_run(run)
+
+    store = run.store()
+    try:
+        return run_inspection(
+            run_id=run.run_id,
+            files=run.file_contents(),
+            store=store,
+            config=config,
+            warm=False,
+        )
+    finally:
+        store.close()
+
+
 def cmd_endpoints(args: argparse.Namespace) -> int:
     """What is reachable, and what it serves. Answers 'why does nothing work'.
 
@@ -387,6 +484,14 @@ def build_parser() -> argparse.ArgumentParser:
     corpus_parser.add_argument("action", choices=("ingest", "stats"), nargs="?", default="ingest")
     corpus_parser.add_argument("path", nargs="?", help="Corpus directory (default: <root>/corpus)")
     corpus_parser.set_defaults(func=cmd_corpus)
+
+    tune_parser = subparsers.add_parser("tune", help="Read finished runs and propose harness changes")
+    tune_parser.add_argument("action", choices=("propose", "list", "configs", "replay", "apply"))
+    tune_parser.add_argument("--config-hash", default="", help="Which harness to read runs of")
+    tune_parser.add_argument("--proposal", default="", help="Which proposal to replay or apply")
+    tune_parser.add_argument("--corpus", default="", help="Pinned corpus for the A/B replay")
+    tune_parser.add_argument("--status", default="", help="Filter the list by status")
+    tune_parser.set_defaults(func=cmd_tune)
 
     subparsers.add_parser("runs", help="List previous runs").set_defaults(func=cmd_runs)
     subparsers.add_parser("endpoints", help="Show reachable servers and their models").set_defaults(func=cmd_endpoints)

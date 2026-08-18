@@ -326,3 +326,156 @@ def test_a_replay_that_finds_less_does_not_pass() -> None:
         corpus="fixtures/sample",
     )
     assert out["improved"] is False
+
+
+# -- the signals the record can actually support -----------------------------
+
+
+def test_a_lens_whose_every_claim_was_refuted_is_the_signal() -> None:
+    """The question worth asking about a lens, now that it can be asked.
+
+    Not whether it ran -- whether anything it raised survived. That needs
+    `Finding.lens`, which is why the field exists; matching findings back to
+    `lens:` spans by title would have been a guess dressed as a measurement.
+    """
+    per_lens = {
+        "memory": {"calls": 20, "raised": 12, "confirmed": 0},
+        "injection": {"calls": 20, "raised": 6, "confirmed": 4},
+        "access": {"calls": 0, "raised": 0, "confirmed": 0},
+        "crypto": {"calls": 0, "raised": 0, "confirmed": 0},
+        "logic": {"calls": 0, "raised": 0, "confirmed": 0},
+    }
+    made = _propose_with_lenses(("memory", "injection"), per_lens)
+
+    assert made is not None
+    assert made.changes == {"lenses": ["injection"]}
+    assert made.evidence.observations["refuted_throughout"] == ["memory"]
+    assert "raised 12 and had none confirmed" in made.evidence.note
+
+
+def test_a_lens_that_is_working_is_left_alone() -> None:
+    per_lens = {
+        "memory": {"calls": 20, "raised": 12, "confirmed": 5},
+        "injection": {"calls": 20, "raised": 6, "confirmed": 4},
+        "access": {"calls": 0, "raised": 0, "confirmed": 0},
+        "crypto": {"calls": 0, "raised": 0, "confirmed": 0},
+        "logic": {"calls": 0, "raised": 0, "confirmed": 0},
+    }
+    assert _propose_with_lenses(("memory", "injection"), per_lens) is None
+
+
+def test_the_lens_set_is_never_emptied() -> None:
+    """A config with no specialists finds nothing, which scores perfectly on
+    any per-call metric. The replay would approve it."""
+    per_lens = {lens: {"calls": 20, "raised": 0, "confirmed": 0} for lens in ("memory", "injection")}
+    per_lens.update({lens: {"calls": 0, "raised": 0, "confirmed": 0} for lens in ("access", "crypto", "logic")})
+    assert _propose_with_lenses(("memory", "injection"), per_lens) is None
+
+
+def _propose_with_lenses(active: tuple[str, ...], per_lens: dict[str, dict[str, int]]):
+    """Drive `_propose_idle_lens` against a fixed record, without a database."""
+    import agent.tuner as module
+
+    original = module._lens_record
+    module._lens_record = lambda *_a, **_k: per_lens  # type: ignore[assignment]
+    try:
+        return module._propose_idle_lens(
+            {"lenses": list(active)},
+            {"runs": ["r1", "r2", "r3"], "totals": {"runs": 3, "confirmed": 4}},
+            "cfg",
+            None,
+        )
+    finally:
+        module._lens_record = original  # type: ignore[assignment]
+
+
+def test_a_retrieval_budget_nobody_spends_is_proposed_away() -> None:
+    """The retrieval signal, in the only honest form the record supports.
+
+    Which tool contributed to a confirmed finding is written down nowhere. That
+    a budget was offered and never drawn on, across runs that did confirm
+    findings, is measurable -- and is what this proposes on.
+    """
+    import agent.tuner as module
+
+    original = module._tool_record
+    module._tool_record = lambda *_a, **_k: {"read_source": 4}  # no lens tools at all
+    try:
+        made = module._propose_tool_budget(
+            {"max_lens_tool_calls": 2, "lens_tools": True},
+            {"runs": ["r1", "r2", "r3"], "totals": {"runs": 3, "confirmed": 5}},
+            "cfg",
+            None,
+        )
+    finally:
+        module._tool_record = original
+
+    assert made is not None
+    assert made.changes == {"max_lens_tool_calls": 0, "lens_tools": False}
+    assert "took none" in made.evidence.note
+
+
+def test_no_confirmed_findings_means_the_retrieval_signal_says_nothing() -> None:
+    """"Never contributed to a confirmed finding" is true of every path when
+    there are no confirmed findings, and says nothing about any of them."""
+    import agent.tuner as module
+
+    original = module._tool_record
+    module._tool_record = lambda *_a, **_k: {}
+    try:
+        made = module._propose_tool_budget(
+            {"max_lens_tool_calls": 2, "lens_tools": True},
+            {"runs": ["r1"], "totals": {"runs": 3, "confirmed": 0}},
+            "cfg",
+            None,
+        )
+    finally:
+        module._tool_record = original
+    assert made is None
+
+
+def test_a_finding_records_the_specialist_that_raised_it(tmp_path) -> None:
+    """Everything above rests on this being written down at all."""
+    from agent.graph.build import run_inspection
+    from agent.index import ChunkStore, build_index
+    from agent.runs import new_run
+    from conftest import read_tree
+    from test_graph import ScriptedCaller, _finding
+    from agent.schema import ChunkAnalysis
+
+    root = tmp_path / "src"
+    root.mkdir()
+    (root / "app.c").write_text(
+        '#include <stdlib.h>\nvoid run(const char *a) { char c[64]; sprintf(c, "%s", a); system(c); }\n',
+        encoding="utf-8",
+    )
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
+
+    report = run_inspection(
+        run_id=store.run_id,
+        files=read_tree(root),
+        store=store,
+        config=_config(lenses=("injection",)),
+        caller=ScriptedCaller(analyses={"run": ChunkAnalysis(findings=[_finding("system(c);")])}),  # type: ignore[arg-type]
+    )
+
+    assert report.findings, "the fixture should have produced a finding"
+    assert report.findings[0].lens == "injection"
+
+
+def test_the_schema_is_built_by_the_run_rather_than_by_the_tests() -> None:
+    """`create_all` was called from the fixtures and nowhere else.
+
+    Every table this package has added since arrived in a database the tests had
+    built and production had not -- so adding one broke a real run and no test,
+    which is the worst shape a gap can have.
+    """
+    from sqlalchemy import inspect as sqla_inspect
+
+    from agent.db import ensure
+    from agent.db.session import engine
+
+    ensure()
+    tables = set(sqla_inspect(engine()).get_table_names())
+    assert {"harness_configs", "config_proposals", "plan_items", "plan_events"} <= tables
