@@ -113,15 +113,24 @@ def _proposal_id(base_hash: str, changes: Mapping[str, Any]) -> str:
 
 
 def _completed(config_hash: str, config: AgentConfig | None) -> list[RunRow]:
-    """Finished runs under one configuration.
+    """Finished runs under one configuration, excluding replay arms.
 
     Only finished ones. A run that died halfway has a lens with no verdicts
     through no fault of the lens, and counting it would make every crash look
     like evidence against whatever was running when it happened.
+
+    And never an A/B arm. An arm exists to test a configuration, not to be an
+    observation of one -- counting them would feed the tuner's own experiments
+    back as evidence, so a rejected proposal would still have moved the numbers
+    that produce the next one.
     """
     with session_factory(config)() as session:
         rows = session.scalars(select(RunRow).where(RunRow.status == "done")).all()
-    return [row for row in rows if (row.meta or {}).get("config_hash") == config_hash]
+    return [
+        row
+        for row in rows
+        if (row.meta or {}).get("config_hash") == config_hash and not (row.meta or {}).get("replay")
+    ]
 
 
 def observe(config_hash: str, config: AgentConfig | None = None) -> dict[str, Any]:

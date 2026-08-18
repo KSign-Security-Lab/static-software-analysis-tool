@@ -427,7 +427,7 @@ def _replay_arm(config: AgentConfig, corpus: str) -> Report:
 
     store = run.store()
     try:
-        return run_inspection(
+        report = run_inspection(
             run_id=run.run_id,
             files=run.file_contents(),
             store=store,
@@ -436,6 +436,18 @@ def _replay_arm(config: AgentConfig, corpus: str) -> Report:
         )
     finally:
         store.close()
+
+    # Marked finished, and marked an experiment.
+    #
+    # The status because it *is* finished, and a run left reading `indexing`
+    # after it completed is a lie the run list repeats. The flag because
+    # `tuner._completed` must not read these back as observations: an arm exists
+    # to test a config, not to be evidence about one, and a tuner that counted
+    # its own experiments would be feeding its conclusions to itself. That was
+    # true by accident before -- these runs happened never to reach `done` --
+    # and an accident is not a guardrail.
+    run.set_status(STATUS_DONE, replay=True)
+    return report
 
 
 def cmd_endpoints(args: argparse.Namespace) -> int:

@@ -479,3 +479,27 @@ def test_the_schema_is_built_by_the_run_rather_than_by_the_tests() -> None:
     ensure()
     tables = set(sqla_inspect(engine()).get_table_names())
     assert {"harness_configs", "config_proposals", "plan_items", "plan_events"} <= tables
+
+
+def test_a_replay_arm_is_not_evidence_about_the_config_it_tested() -> None:
+    """The feedback loop this closes.
+
+    An A/B arm runs *under* a config to test it. Counted as an observation *of*
+    it, a rejected proposal would still have moved the numbers that produce the
+    next proposal -- the tuner feeding its own experiments back to itself. It
+    was already excluded, but only because these runs happened never to reach
+    `done`, and an accident is not a guardrail.
+    """
+    from agent.runs import Run, new_run
+
+    digest = harness.record(_config(max_callee_notes=7))
+
+    ordinary = new_run()
+    ordinary.write_meta(status="done", config_hash=digest, report={"findings": [], "stats": {}})
+    arm = new_run()
+    arm.write_meta(status="done", config_hash=digest, replay=True, report={"findings": [], "stats": {}})
+
+    counted = {row.id for row in tuner._completed(digest, None)}
+    assert ordinary.run_id in counted
+    assert arm.run_id not in counted, "an A/B arm must not be evidence about the config it tested"
+    assert Run(arm.run_id).read_meta()["status"] == "done", "and it should still say it finished"
