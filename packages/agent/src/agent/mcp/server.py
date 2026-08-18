@@ -110,6 +110,43 @@ def search_text(pattern: str, glob: str = "") -> str:
 
 
 @mcp.tool()
+def plan_status() -> str:
+    """What this run still intends to read, and what it has finished.
+
+    Read-only, and that is the whole design rather than a limitation. Seeing
+    what is left is useful -- it is the difference between judging a unit on its
+    own and judging it knowing its callers are still coming. Being able to
+    *reorder* it would put the model in charge of traversal, which is what makes
+    two runs over one tree comparable, so there is no tool that does that.
+
+    Returns a count per status and the next units in plan order.
+    """
+
+    def run() -> str:
+        from ..graph.plan import PlanStore
+
+        plan = PlanStore(_run_id())
+        items = plan.items()
+        if not items:
+            return "no plan recorded for this run"
+
+        counts = ", ".join(f"{status} {n}" for status, n in sorted(plan.summary().items()))
+        upcoming = [item for item in items if item.status == "pending"][:20]
+        lines = [counts]
+        if upcoming:
+            lines.append("")
+            lines.append("next:")
+            store = _store()
+            for item in upcoming:
+                chunk = store.chunk(item.chunk_id) if store is not None else None
+                where = f"{chunk.file} :: {chunk.symbol}" if chunk is not None else item.chunk_id
+                lines.append(f"  {where}")
+        return "\n".join(lines)
+
+    return _guard(run)
+
+
+@mcp.tool()
 def search_corpus(code: str, cwe: str = "", limit: int = 5) -> str:
     """Find recorded weaknesses that this *code* resembles. Pass code, not a description.
 

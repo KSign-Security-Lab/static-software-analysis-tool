@@ -227,6 +227,38 @@ class Finding(BaseModel):
         return (SEVERITY_ORDER.get(self.severity, 99), self.primary.file, self.primary.start_line, self.id)
 
 
+PlanEventKind = Literal["defer", "skip", "raise_priority", "split"]
+
+
+class PlanChange(BaseModel):
+    """One change the model would like made to the plan.
+
+    Deliberately not a chunk id and a new position. The four kinds are the whole
+    vocabulary, and each is a nudge the reducer knows how to apply -- so the plan
+    stays a fold over the computed order and this log, and two runs given the
+    same log land in the same place.
+
+    A field naming the next unit to inspect would be simpler and would end the
+    property `graph/build.py` rests on: the model would be choosing the
+    traversal, and no two runs over a tree could be compared again.
+    """
+
+    kind: PlanEventKind = Field(
+        description="defer: 나중으로. skip: 보지 않음. raise_priority: 먼저. split: 나누고 싶다는 표시만."
+    )
+    target: str = Field(description="The chunk id this is about, exactly as it appeared in the plan.")
+    reason: str = Field(description="한국어 한 문장. 왜 이 단위에 이 변경이 필요한지.")
+
+
+class PlanRevision(BaseModel):
+    """What the advisory planner proposes after a wave. Empty is the good answer."""
+
+    changes: list[PlanChange] = Field(
+        default_factory=list,
+        description="Leave empty unless something learned in this wave changes what is worth reading next.",
+    )
+
+
 class RunStats(BaseModel):
     """Counts kept separate rather than merged into one score."""
 

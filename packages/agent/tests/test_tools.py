@@ -154,6 +154,7 @@ def test_mcp_server_exposes_the_expected_tools() -> None:
         "list_directory",
         "find_files",
         "search_text",
+        "plan_status",
         "search_corpus",
         "search_semantic",
         "find_callers",

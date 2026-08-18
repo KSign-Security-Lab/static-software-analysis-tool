@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from .config import AgentConfig
 from .mcp.client import LENS_TOOLS, VERIFY_TOOLS
 from .promptstore import lens_prompt
-from .schema import CandidateRemediation, LENSES, ChunkAnalysis, Scout, Triage, Verdict
+from .schema import CandidateRemediation, LENSES, ChunkAnalysis, PlanRevision, Scout, Triage, Verdict
 
 #: Which graph node makes each kind of call.
 #:
@@ -30,6 +30,11 @@ from .schema import CandidateRemediation, LENSES, ChunkAnalysis, Scout, Triage, 
 #: say what a call was for -- and that is now a node of its own, because the
 #: step that reaches for tools is the step worth being able to stop at.
 STEP_NODE: dict[str, str] = {
+    # Only reached when `AGENT_PLANNING=advisory`. Registered regardless, so the
+    # studio can read its prompt and its answer shape without the run having to
+    # be in that mode -- the same reason every lens is registered whether or not
+    # this run uses it.
+    "replan": "replan",
     "triage": "triage",
     "scout": "scout",
     **{lens_prompt(lens): lens for lens in LENSES},
@@ -43,6 +48,7 @@ STEP_NODE: dict[str, str] = {
 #: one out and the reason this is not derived from the prompt list: it is a
 #: tool-calling loop that returns prose, so there is nothing to constrain.
 STEP_SCHEMA: dict[str, type[BaseModel] | None] = {
+    "replan": PlanRevision,
     "triage": Triage,
     "scout": Scout,
     # Every specialist answers in the same shape -- the lens is in the prompt,
@@ -67,8 +73,10 @@ STEP_TOOLS: dict[str, tuple[str, ...]] = {
     **{lens_prompt(lens): tuple(LENS_TOOLS) for lens in LENSES},
 }
 
-#: In the order a chunk passes through them, which is the order to read them in.
-STEP_ORDER: tuple[str, ...] = ("triage", "scout", *(lens_prompt(lens) for lens in LENSES), "gather", "verify", "fix")
+#: In the order a chunk passes through them, which is the order to read them
+#: in. `replan` is last because it is the one step that is not about a chunk:
+#: it runs once a whole wave has finished, and only in advisory mode.
+STEP_ORDER: tuple[str, ...] = ("triage", "scout", *(lens_prompt(lens) for lens in LENSES), "gather", "verify", "fix", "replan")
 
 
 def _fields(schema: type[BaseModel] | None) -> list[str]:

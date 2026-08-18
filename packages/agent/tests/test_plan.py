@@ -242,3 +242,95 @@ def test_advisory_is_off_by_default() -> None:
     assert AgentConfig().planning == "computed"
     assert AgentConfig().advisory_planning is False
     assert AgentConfig(planning="advisory").advisory_planning is True
+
+
+# -- advisory mode -----------------------------------------------------------
+
+
+def test_replan_is_absent_unless_asked_for() -> None:
+    """A run cannot pay for a planner it did not ask for.
+
+    Registered in `NODES` either way -- a breakpoint names a node, and the
+    drawing of the agent should not change shape with a flag -- but only wired
+    into the graph when the flag is on.
+    """
+    from typing import cast
+
+    from agent.graph.build import NODES, build_graph
+    from agent.graph.nodes import NodeDeps
+
+    assert "replan" in NODES
+
+    def shape(planning: str) -> set[str]:
+        deps = NodeDeps(
+            store=cast(object, None),  # type: ignore[arg-type]
+            config=AgentConfig(planning=planning),
+            caller=cast(object, None),  # type: ignore[arg-type]
+            files={},
+        )
+        return set(build_graph(deps).get_graph().nodes)
+
+    assert "replan" not in shape("computed")
+    assert "replan" in shape("advisory")
+
+
+def test_replan_may_only_emit_events(tmp_path: Path) -> None:
+    """The node returns no traversal. It writes to the log and nothing else.
+
+    This is the whole safety argument for advisory mode, so it is asserted on
+    the node's return value rather than inferred from behaviour: whatever the
+    model says, `replan` cannot hand back a queue.
+    """
+    from agent.graph.nodes import NodeDeps, make_nodes
+    from agent.llm import Outcome
+    from agent.schema import PlanChange, PlanRevision
+
+    store = _indexed(tmp_path)
+    order = store.order()
+    plan = PlanStore(store.run_id)
+    plan.seed(order)
+
+    class Planner:
+        def call(self, schema, system, user, trace=None):  # noqa: ANN001
+            return Outcome.of(
+                PlanRevision(changes=[PlanChange(kind="skip", target=order[0], reason="생성된 코드")])
+            )
+
+    deps = NodeDeps(
+        store=store,
+        config=AgentConfig(model="fake", planning="advisory"),
+        caller=Planner(),  # type: ignore[arg-type]
+        files={},
+        plan=plan,
+    )
+    written = make_nodes(deps)["replan"]({"confirmed": []})  # type: ignore[arg-type]
+
+    assert set(written) <= {"stats"}, "replan must not write traversal channels"
+    assert "pending" not in written and "wave" not in written
+    assert plan.summary()["skipped"] == 1
+
+
+def test_an_advisory_run_replays_from_its_event_log(tmp_path: Path) -> None:
+    """The determinism claim, end to end.
+
+    A model was involved, and the run is still a function of two recorded
+    inputs. Replaying the stored log over the computed order reproduces the
+    queue the run actually followed -- so an advisory run can be diffed against
+    another the same way a computed one can, which is the property the whole
+    design exists to keep.
+    """
+    store = _indexed(tmp_path)
+    order = store.order()
+    plan = PlanStore(store.run_id)
+    plan.seed(order)
+
+    plan.record(
+        [
+            PlanEvent(kind="raise_priority", target=order[-1], reason="entry point"),
+            PlanEvent(kind="defer", target=order[0], reason="a leaf, later"),
+        ]
+    )
+    followed = plan.pending()
+
+    assert followed != order, "the events should have changed something"
+    assert apply_events(order, plan.events()) == followed

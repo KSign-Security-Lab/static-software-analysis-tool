@@ -44,7 +44,15 @@ from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..locate import locate_anchor
 from ..mcp.client import LENS_TOOLS
-from ..prompts import analyse_user, gather_user, lookup_user, scout_user, triage_user, verify_user
+from ..prompts import (
+    analyse_user,
+    gather_user,
+    lookup_user,
+    replan_user,
+    scout_user,
+    triage_user,
+    verify_user,
+)
 from ..promptstore import DEFAULTS as DEFAULT_PROMPTS
 from ..promptstore import lens_prompt
 from ..remediate import build as build_remediation
@@ -57,12 +65,14 @@ from ..schema import (
     Evidence,
     Finding,
     Lens,
+    PlanRevision,
     Region,
     Remediation,
     Scout,
     Triage,
     Verdict,
 )
+from .plan import PlanEvent
 from .state import InspectionState, clear_wave
 
 log = logging.getLogger(__name__)
@@ -273,6 +283,26 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         which is the only reason it is safe to inspect them together.
         """
         pending = list(state.get("pending", []))
+
+        # Advisory only. In `computed` mode the plan is written and never read,
+        # so this is the one line that decides whether the run follows the index
+        # or the index-plus-events -- and it is a fold either way, which is what
+        # keeps an advisory run replayable from (corpus, event log).
+        #
+        # Intersected with the queue rather than replacing it: the plan holds
+        # every unit of the run and `pending` holds what is left of it, and a
+        # plan read whole would re-queue work the graph had already done.
+        if deps.config.advisory_planning and deps.plan is not None:
+            still_queued = set(pending)
+            revised = [chunk_id for chunk_id in deps.plan.pending() if chunk_id in still_queued]
+            # A skip removes a unit from the plan's queue and therefore from
+            # this one; anything the plan does not mention stays where it was.
+            unplanned = [chunk_id for chunk_id in pending if chunk_id not in set(deps.plan.pending())]
+            skipped = [c for c in unplanned if c not in revised]
+            pending = revised
+            if skipped:
+                _plan_mark(deps, skipped, "skipped")
+
         cached = 0
 
         while pending and deps.store.is_inspected(pending[0]):
@@ -310,6 +340,56 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         _plan_mark(deps, chosen, "running")
         return {**fresh, "pending": remaining, "wave": chosen, "current": chosen[0]}
+
+    def replan(state: InspectionState) -> dict[str, Any]:
+        """Ask what the wave changed about the plan. Apply nothing directly.
+
+        The node returns no state. That is the design, not an omission: it may
+        only put events into the plan's log, and the plan is a fold over
+        (computed order, that log). Returning a `pending` list here would make
+        the model the router, which `graph/build.py` names as the thing that
+        would stop two runs being comparable.
+
+        The queue is rebuilt from the plan in `plan`, so the effect of an event
+        arrives through the same reducer whether it came from a model or from a
+        person editing state at a breakpoint.
+
+        Failures are silent by design. A planner that cannot answer leaves the
+        computed order exactly as it was, which is the mode this run would have
+        been in anyway -- so there is nothing to fail *to*.
+        """
+        if deps.plan is None:
+            return {}
+
+        remaining = [
+            (item.chunk_id, chunk.file, chunk.symbol)
+            for item in deps.plan.items()
+            if item.status == "pending"
+            for chunk in [deps.store.chunk(item.chunk_id)]
+            if chunk is not None
+        ]
+        if not remaining:
+            return {}
+
+        trace = call_config(step="replan", run_id=deps.run_id, subject=f"{len(remaining)} left")
+        outcome = deps.caller.call(
+            PlanRevision,
+            deps.prompts["replan"],
+            replan_user(remaining, state.get("confirmed", [])),
+            trace=trace,
+        )
+        if not outcome.ok or outcome.value is None:
+            log.info("replan produced nothing (%s); the computed order stands", outcome.reason)
+            return {"stats": {"failed": 1}}
+
+        events = [
+            PlanEvent(kind=change.kind, target=change.target, reason=change.reason)
+            for change in outcome.value.changes
+        ]
+        applied = deps.plan.record(events)
+        if applied:
+            deps.emit("plan_revised", {"events": [{"kind": e.kind, "target": e.target} for e in applied]})
+        return {"stats": {"replanned": len(applied)} if applied else {}}
 
     def context(state: InspectionState) -> dict[str, Any]:
         """Assemble each chunk's context once, for everyone who will read it."""
@@ -892,6 +972,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
     nodes: dict[str, InspectionNode] = {
         "plan": plan,
+        "replan": replan,
         "context": context,
         "triage": triage,
         "scout": scout,

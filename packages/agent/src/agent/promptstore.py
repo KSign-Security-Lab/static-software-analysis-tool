@@ -17,7 +17,14 @@ import logging
 from pathlib import Path
 from typing import Any, Mapping
 
-from .prompts import GATHER_SYSTEM, LENS_SYSTEM, SCOUT_SYSTEM, TRIAGE_SYSTEM, VERIFY_SYSTEM
+from .prompts import (
+    GATHER_SYSTEM,
+    LENS_SYSTEM,
+    REPLAN_SYSTEM,
+    SCOUT_SYSTEM,
+    TRIAGE_SYSTEM,
+    VERIFY_SYSTEM,
+)
 from .remediate import FIX_SYSTEM
 from .schema import Lens
 
@@ -38,6 +45,9 @@ DEFAULTS: dict[str, str] = {
     **{lens_prompt(lens): text for lens, text in LENS_SYSTEM.items()},
     "gather": GATHER_SYSTEM,
     "verify": VERIFY_SYSTEM,
+    # Only sent when `AGENT_PLANNING=advisory`. Registered regardless, so the
+    # studio can read and tune it without the run having to be in that mode.
+    "replan": REPLAN_SYSTEM,
     "fix": FIX_SYSTEM,
 }
 

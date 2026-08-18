@@ -204,6 +204,10 @@ VERIFY_TOOLS: Sequence[str] = (
     # most what this tree says about itself; a claim that this is CWE-121 was
     # checked against nothing until this existed.
     "search_corpus",
+    # Read-only by construction. Knowing a unit's callers have not been read yet
+    # changes how much weight its own evidence deserves; being able to reorder
+    # them would end the property that two runs over one tree are comparable.
+    "plan_status",
     "find_definition",
     "find_callers",
     "find_callees",

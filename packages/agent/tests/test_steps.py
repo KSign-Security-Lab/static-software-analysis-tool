@@ -28,9 +28,14 @@ def test_every_lens_appears_without_the_roster_being_edited() -> None:
 def test_the_order_is_the_order_a_chunk_passes_through() -> None:
     assert [entry["step"] for entry in describe_steps()] == list(STEP_ORDER)
     assert STEP_ORDER[0] == "triage"
-    # `fix` last: it is the only step that runs *after* a claim is known to have
-    # survived, which is what stops it spending calls on findings nobody reads.
-    assert STEP_ORDER[-3:] == ("gather", "verify", "fix")
+    # `fix` last of the per-chunk steps: it is the only one that runs *after* a
+    # claim is known to have survived, which is what stops it spending calls on
+    # findings nobody reads.
+    #
+    # `replan` sits behind all of them because it is not a step a chunk passes
+    # through at all -- it runs once a whole wave is finished, and only when
+    # planning is advisory.
+    assert STEP_ORDER[-4:] == ("gather", "verify", "fix", "replan")
 
 
 def test_the_steps_that_read_something_new_are_the_ones_with_tools() -> None:
@@ -138,7 +143,7 @@ def test_an_agent_node_is_one_because_a_step_names_it() -> None:
         "agent": True,
         "steps": ["gather"],
         "calls": 1,
-        "tools": 10,
+        "tools": 11,
     }
     # Two steps in the one node: the ruling, and the fix that follows a claim
     # surviving it. `lens:memory` in node `memory` is the same shape.

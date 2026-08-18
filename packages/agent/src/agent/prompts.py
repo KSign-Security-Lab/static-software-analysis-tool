@@ -36,6 +36,8 @@ repository. They are for whoever maintains the prompt, not for the model.
 
 from __future__ import annotations
 
+from typing import Any, Sequence
+
 from .context import ContextPack, truncate
 from .index.chunk import Chunk
 from .schema import Finding, Lens
@@ -337,6 +339,53 @@ def triage_user(chunk: Chunk, max_chars: int) -> str:
     if cut:
         parts.append("참고: 단위가 잘렸습니다. 보이는 것으로 판단하되, 분석하는 쪽으로 기울이십시오.")
     parts.append("이것은 보안 전문가의 시간을 들일 만합니까? 그렇다면 어느 전문가입니까?")
+    return "\n\n".join(parts)
+
+
+REPLAN_SYSTEM = """\
+당신은 방금 끝난 한 묶음의 결과를 보고, 남은 검사 계획에 손댈 곳이 있는지만 말합니다.
+
+계획의 순서는 호출 관계에서 계산된 것입니다 -- 불리는 쪽을 부르는 쪽보다 먼저 봅니다. 그
+순서 자체는 당신이 정하지 않습니다. 당신이 할 수 있는 것은 네 가지 요청뿐입니다:
+
+- defer: 지금 볼 값어치가 낮으니 뒤로
+- skip: 볼 필요가 없음 (생성된 코드, 시험용 보조 함수처럼 명백할 때만)
+- raise_priority: 이번 묶음에서 알아낸 것 때문에 먼저 볼 값어치가 생김
+- split: 한 단위에 관심사가 둘 이상 섞여 있다는 표시. 실제로 쪼개지지는 않습니다
+
+아무것도 바꾸지 않는 것이 대부분의 옳은 답입니다. 계산된 순서는 이미 타당하고, 근거 없는
+요청은 두 검사를 서로 견줄 수 없게 만들 뿐입니다. 이번 묶음에서 *새로 알게 된 것* 이 근거일
+때만 요청하십시오 -- 코드를 보고 짐작한 것은 근거가 아닙니다.
+
+`target` 은 계획에 나온 chunk id 를 그대로 적으십시오. 목록에 없는 id 는 무시됩니다.
+
+한국어로 쓰십시오.
+"""
+
+
+def replan_user(items: Sequence[tuple[str, str, str]], confirmed: Sequence[dict[str, Any]]) -> str:
+    """What the wave learned, and what is left.
+
+    The plan is shown as ids with their file and symbol, because a chunk id is
+    unreadable and the model has to return one exactly. What was *confirmed* is
+    shown rather than every candidate: a claim that survived verification is a
+    fact about the tree, and a claim that did not is the noise this pass exists
+    to avoid acting on.
+    """
+    parts: list[str] = []
+    if confirmed:
+        found = "\n".join(
+            f"- {f.get('primary', {}).get('file', '?')}:{f.get('primary', {}).get('start_line', '?')} "
+            f"{f.get('cwe') or ''} {f.get('title', '')}".strip()
+            for f in confirmed
+        )
+        parts.append(f"=== 이번 묶음에서 확인된 것 ===\n{found}")
+    else:
+        parts.append("=== 이번 묶음에서 확인된 것 ===\n없음")
+
+    remaining = "\n".join(f"- {chunk_id}  {file} :: {symbol}" for chunk_id, file, symbol in items)
+    parts.append(f"=== 아직 남은 단위 ===\n{remaining or '없음'}")
+    parts.append("남은 계획에 손댈 곳이 있습니까? 없으면 changes 를 비워 두십시오.")
     return "\n\n".join(parts)
 
 

@@ -46,7 +46,10 @@ RECURSION_HEADROOM = 20
 #: API answers with it, so neither has to compile a graph to find out. Every
 #: lens is registered whether or not this run uses it, so the drawing of the
 #: agent is the same drawing however the run is configured.
-NODES = ("plan", "context", "triage", "scout", *LENSES, "skip", "locate", "gather", "verify", "reduce")
+#: `replan` is here whether or not this run uses it, for the same reason every
+#: lens is: a breakpoint names a node, and the drawing of the agent should not
+#: change shape with a flag.
+NODES = ("plan", "replan", "context", "triage", "scout", *LENSES, "skip", "locate", "gather", "verify", "reduce")
 
 
 def build_graph(
@@ -111,7 +114,16 @@ def build_graph(
         graph.add_edge(source, "locate")
     graph.add_conditional_edges("locate", claims, ["gather", "reduce"])
     graph.add_edge("verify", "reduce")
-    graph.add_edge("reduce", "plan")
+    # Advisory planning puts one node between the end of a wave and the start
+    # of the next. It writes events and returns no state, so `computed` mode
+    # is this edge and nothing else -- the node is not registered at all, and
+    # a run cannot pay for a planner it did not ask for.
+    if deps.config.advisory_planning:
+        graph.add_node("replan", nodes["replan"])
+        graph.add_edge("reduce", "replan")
+        graph.add_edge("replan", "plan")
+    else:
+        graph.add_edge("reduce", "plan")
     return graph.compile(
         checkpointer=checkpointer,
         interrupt_before=list(breakpoints),
