@@ -7,7 +7,13 @@ requires-python = ">=3.14"
 dependencies = [
     "ssat",
     "gnn",
-    "agent",
+    # With `rag`, because the semantic lookup is not optional to the agent that
+    # has the tool: without the extra, `search_semantic` answers every question
+    # with an error string, and the agent -- which cannot tell a missing
+    # capability from an unhelpful one -- quietly falls back to `search_text`
+    # and looks like it chose to. Nobody installs an extra to fix a tool they
+    # were never told was broken.
+    "agent[rag]",
     "graphify",
     "pytest>=8.0.0",
     "ruff>=0.9.0",

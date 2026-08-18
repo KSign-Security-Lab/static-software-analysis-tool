@@ -2514,7 +2514,7 @@ name = "static-software-analysis-tool"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "agent" },
+    { name = "agent", extra = ["rag"] },
     { name = "fastapi" },
     { name = "gnn" },
     { name = "graphify" },
@@ -2528,7 +2528,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent", editable = "packages/agent" },
+    { name = "agent", extras = ["rag"], editable = "packages/agent" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "gnn", editable = "packages/gnn" },
     { name = "graphify", editable = "packages/graphify" },
