@@ -6,6 +6,7 @@ import { parseAsStringLiteral, useQueryState } from "nuqs";
 import ExplorerPane from "@/features/agent/ExplorerPane";
 import RunHistory from "@/features/agent/RunHistory";
 import Problems from "@/features/agent/nav/Problems";
+import Units from "@/features/agent/nav/Units";
 import { useFindings, useRun } from "@/lib/run/queries";
 import { phaseFor, type RunLive, type RunPhase } from "@/lib/run/reduce";
 import { useRunStream } from "@/lib/run/stream";
@@ -27,7 +28,7 @@ import { cn } from "@/lib/utils";
  * The buttons that act on the run are not here. They are in the centre's tab
  * strip -- see `RunControls`.
  */
-const MODES = ["problems", "files"] as const;
+const MODES = ["problems", "units", "files"] as const;
 
 export default function Navigator() {
   const [runId] = useRunId();
@@ -39,6 +40,7 @@ export default function Navigator() {
   const live_ = phase === "running" || phase === "starting" || phase === "paused";
   const count = findings.data?.findings?.length ?? 0;
   const files = run.data?.file_count ?? 0;
+  const units = findings.data?.stats?.chunks_total ?? 0;
 
   /**
    * Which list, and it follows the run rather than sitting where it was left.
@@ -73,6 +75,10 @@ export default function Navigator() {
           문제
           {count > 0 && <span className="ml-1 text-ink-faint">{count}</span>}
         </Mode>
+        <Mode active={mode === "units"} onClick={() => void setMode("units")}>
+          단위
+          {units > 0 && <span className="ml-1 text-ink-faint">{units}</span>}
+        </Mode>
         <Mode active={mode === "files"} onClick={() => void setMode("files")}>
           파일
           {files > 0 && <span className="ml-1 text-ink-faint">{files}</span>}
@@ -82,6 +88,11 @@ export default function Navigator() {
       <div className={cn("min-h-0 min-w-0 flex-1", mode !== "problems" && "hidden")}>
         <div className="h-full overflow-auto">
           <Problems />
+        </div>
+      </div>
+      <div className={cn("min-h-0 min-w-0 flex-1", mode !== "units" && "hidden")}>
+        <div className="h-full overflow-auto">
+          <Units />
         </div>
       </div>
       <div className={cn("min-h-0 min-w-0 flex-1", mode !== "files" && "hidden")}>
