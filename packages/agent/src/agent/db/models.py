@@ -247,6 +247,74 @@ class CachedResult(Base):
     note: Mapped[str] = mapped_column(Text, default="")
 
 
+class PlanItem(Base):
+    """One unit of work the run intends to do, and what became of it.
+
+    The traversal was already decided -- `index/order.py` computes it, `plan`
+    pops from it -- but it existed only as a list of ids in the run's metadata
+    and a position implied by what had been marked inspected. Nothing recorded
+    *why* a unit was in the queue, and nothing could record that a unit had been
+    deferred rather than merely not reached yet.
+
+    So it becomes a row. The order key is kept alongside the status because the
+    two answer different questions: the key is where the index put this unit and
+    never changes, the status is where the run has got to. A plan that stored
+    only its current sequence could not say whether it had departed from the
+    computed one, which is the only interesting thing about an advisory plan.
+
+    Rows, not a JSON blob on the run, because a status is written per unit as
+    the run moves and a blob would be read-modify-written by every wave.
+    """
+
+    __tablename__ = "plan_items"
+    __table_args__ = (Index("plan_items_run_order", "run_id", "order_key"),)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    #: The chunk this item is about. One item per chunk, so the chunk id is the
+    #: identity -- a second item for the same unit would be a second opinion
+    #: about the same work, which the plan has no way to mean.
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    #: `pending` | `running` | `done` | `skipped` | `blocked`.
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    #: Why this item exists, in the reader's language.
+    reason: Mapped[str] = mapped_column(Text, default="")
+    #: Position in the order `index/order.py` computed. Stable: an advisory
+    #: event changes the status or the priority, never this.
+    order_key: Mapped[int] = mapped_column(Integer)
+    #: Above zero, an advisory event has raised this item. Sorting by
+    #: (-priority, order_key) is what makes an event's effect visible without
+    #: rewriting the order it departed from.
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PlanEventRow(Base):
+    """One advisory event, in the order it was applied.
+
+    The plan is a fold over this log, which is the reason it is a log: replaying
+    a run means replaying its events, and a plan stored only as its current
+    state could not be replayed at all -- you would have the answer with no way
+    to check it.
+
+    `seq` is assigned on write and is what "a fixed order" means. Events arrive
+    from a model, and a model's order is not reproducible; the sequence number
+    is, so applying the log twice gives the same plan twice.
+    """
+
+    __tablename__ = "plan_events"
+    __table_args__ = (Index("plan_events_run_seq", "run_id", "seq"),)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: `defer` | `skip` | `raise_priority` | `split`.
+    kind: Mapped[str] = mapped_column(String(24))
+    target: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    #: The span whose model output justified this, so an event is answerable
+    #: rather than merely recorded.
+    span_id: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[float] = mapped_column(Float, default=_now)
+
+
 class CorpusSample(Base):
     """A known weakness, kept beside the runs rather than inside one.
 

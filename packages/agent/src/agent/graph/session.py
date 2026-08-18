@@ -28,6 +28,7 @@ from ..tracing import apply_default_project
 from .build import NODE_VISITS_PER_CHUNK, RECURSION_HEADROOM, build_graph
 from .checkpoints import checkpoint_saver, summarise
 from .nodes import NodeDeps, ProgressSink
+from .plan import PlanStore
 from .state import initial_state
 
 log = logging.getLogger(__name__)
@@ -111,6 +112,16 @@ class InspectionSession:
                 config,
             )
 
+        # Constructed before the nodes, seeded after the order is known: it
+        # needs a run id to exist and the traversal only to be filled in.
+        #
+        # Keyed by the *store's* run, not this session's `run_id`. The two are
+        # the same in the API, and the one passed here is a trace label that
+        # need not name a run at all -- the CLI and the tests pass a bare
+        # string. A plan is a statement about a set of chunks, and the chunks
+        # are the store's, so this follows them.
+        self.plan = PlanStore(store.run_id, config)
+
         deps = NodeDeps(
             store=store,
             cache=self._cache,
@@ -122,6 +133,7 @@ class InspectionSession:
             tools=tools,
             prompts=self.prompts,
             subsystems=_subsystems(store),
+            plan=self.plan,
         )
 
         # The agent consumes its own MCP server. Opened for the whole session so
@@ -153,6 +165,16 @@ class InspectionSession:
             log.warning("breakpoints ignored: this session was built without a checkpointer")
 
         self.order = store.order()
+
+        # The computed traversal, written down as the run's plan.
+        #
+        # Written, not read: in `computed` mode nothing consults these rows to
+        # decide anything, so seeding cannot move the run. That is the point --
+        # the plan becomes visible before it becomes usable, and the test that
+        # the traversal is unchanged is testing a claim about *this* line as
+        # much as about `replan`.
+        self.plan.seed(self.order)
+
         self._invocation: dict[str, Any] = {
             #: One chunk costs a handful of node visits. Generous, so a large
             #: upload is bounded by the queue rather than by LangGraph.

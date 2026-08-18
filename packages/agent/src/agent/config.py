@@ -188,6 +188,26 @@ class AgentConfig:
     # every lens, which is thorough, slow, and occasionally what you want.
     triage: bool = field(default_factory=lambda: os.getenv("AGENT_TRIAGE", "1") != "0")
 
+    # -- who decides what gets looked at next ---------------------------------
+    #
+    # `computed` is the traversal `index/order.py` derives and `plan` pops from,
+    # and it is the default because it is the only one that makes two runs over
+    # one tree comparable -- which `graph/build.py` names as the property the
+    # whole design rests on.
+    #
+    # `advisory` adds a `replan` node that may ask for changes and cannot make
+    # them: it emits events, a reducer folds them in a fixed order, and the plan
+    # stays a function of (computed order, event log). The run is still
+    # reproducible; it is reproducible from two inputs instead of one.
+    #
+    # There is deliberately no third setting where the model returns the next
+    # chunk. That would be less code and it would end the property above.
+    planning: str = field(default_factory=lambda: os.getenv("AGENT_PLANNING", "computed"))
+
+    @property
+    def advisory_planning(self) -> bool:
+        return self.planning == "advisory"
+
     sandbox: str = field(default_factory=lambda: os.getenv(ENV_SANDBOX, "bwrap"))
     sandbox_timeout: int = field(default_factory=lambda: _env_int("AGENT_SANDBOX_TIMEOUT", 20))
 

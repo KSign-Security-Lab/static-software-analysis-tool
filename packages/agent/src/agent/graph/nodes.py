@@ -85,6 +85,23 @@ def _noop(event: str, payload: dict[str, Any]) -> None:
     return None
 
 
+def _plan_mark(deps: "NodeDeps", chunk_ids: Sequence[str], status: str) -> None:
+    """Record where the run has got to, without letting that decide anything.
+
+    The plan is written here and read nowhere the traversal can see, which is
+    what keeps `computed` mode byte-identical rather than merely equivalent.
+    Swallowed on failure for the same reason the tracer is: a run that dies
+    because it could not write down what it was doing is worse than one whose
+    plan has a gap.
+    """
+    if deps.plan is None:
+        return
+    try:
+        deps.plan.mark(chunk_ids, status)  # type: ignore[arg-type]
+    except Exception:  # pragma: no cover - bookkeeping must not break a run
+        log.debug("plan: could not mark %s as %s", list(chunk_ids), status, exc_info=True)
+
+
 @dataclass
 class NodeDeps:
     """Everything the nodes need that does not belong in graph state."""
@@ -110,6 +127,10 @@ class NodeDeps:
     # Results from earlier runs over the same code, when one is open. None means
     # every unit is analysed afresh, which is what `force` asks for.
     cache: Any = None
+    # The run's plan. Written to as the run moves and never read by anything
+    # that decides traversal -- see `_plan_mark`. None outside a session, which
+    # is what the one-shot tests build.
+    plan: Any = None
     # One assembled pack per chunk, for this run. Four specialists and a
     # verifier all want the same one; building it is deterministic and cheap,
     # but not free, and doing it five times says something untrue about the
@@ -255,8 +276,11 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         cached = 0
 
         while pending and deps.store.is_inspected(pending[0]):
-            pending.pop(0)
+            popped = pending.pop(0)
             cached += 1
+            # Already answered by an earlier run. `done` rather than `skipped`:
+            # the work exists, it was simply not done here.
+            _plan_mark(deps, [popped], "done")
 
         fresh: dict[str, Any] = {**clear_wave(), "stats": {"chunks_cached": cached} if cached else {}}
 
@@ -284,6 +308,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                 },
             )
 
+        _plan_mark(deps, chosen, "running")
         return {**fresh, "pending": remaining, "wave": chosen, "current": chosen[0]}
 
     def context(state: InspectionState) -> dict[str, Any]:
@@ -815,6 +840,12 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                 if fixed:
                     finding.remediation = Remediation.model_validate(fixed)
             by_chunk.setdefault(str(item["chunk_id"]), []).append(finding.model_dump())
+
+        # The wave is finished, so the plan says so. Here rather than at the top
+        # of the next `plan`, because this is the barrier where a wave is
+        # actually recorded -- an item marked done before its findings were
+        # written would be claiming work that had not landed.
+        _plan_mark(deps, state.get("wave", []), "done")
 
         confirmed: list[dict[str, Any]] = []
         inspected = 0
