@@ -254,7 +254,12 @@ export AGENT_MODEL
 export AGENT_BASE_URL="http://localhost:${VLLM_PORT}/v1"
 export NEXT_PUBLIC_API_PORT="$API_PORT"
 
-start api 35 ".venv/bin/uvicorn api.main:app --host 0.0.0.0 --port $API_PORT --reload"
+# --timeout-graceful-shutdown, or `--reload` is a trap. A reload waits for open
+# requests to finish, and the progress stream does not finish: it ends when its
+# run ends, and a tab left open on a finished run never delivers that. So every
+# edit to a watched file hung the server with the port still listening and every
+# request timing out, and the only way out was killing the worker by hand.
+start api 35 ".venv/bin/uvicorn api.main:app --host 0.0.0.0 --port $API_PORT --reload --timeout-graceful-shutdown 2"
 start web 34 "cd web && npm run dev -- --port $WEB_PORT"
 
 printf '\n  \033[1mready\033[0m  web http://localhost:%s/inspect   api :%s   model %s\n\n' \
