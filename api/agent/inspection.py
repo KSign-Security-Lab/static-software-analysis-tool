@@ -167,7 +167,7 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
         )
 
         if order.fresh:
-            session.start(values=order.values)
+            session.start(values=order.values, warm=not order.force)
         else:
             session.resume(values=order.resume_values, checkpoint_id=order.resume_from)
 

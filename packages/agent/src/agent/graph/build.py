@@ -160,6 +160,8 @@ def run_inspection(
     spans: SpanStore | None = None,
     #: Whether to keep state snapshots. Was the path to a per-run file.
     checkpoints: bool = False,
+    #: Whether earlier runs' results may answer for a chunk. Off is `force`.
+    warm: bool = True,
 ) -> Report:
     """Inspect an already-indexed tree, start to finish, and return the report.
 
@@ -183,5 +185,5 @@ def run_inspection(
         spans=spans,
         checkpoints=checkpoints,
     ) as session:
-        session.start()
+        session.start(warm=warm)
         return session.report()

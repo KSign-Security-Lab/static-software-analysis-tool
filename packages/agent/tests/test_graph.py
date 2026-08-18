@@ -158,6 +158,9 @@ def _run(
     # second `gather` in the way of every count in this file, and the tests that
     # are about tools turn it on themselves.
     config_kwargs.setdefault("lens_tools", False)
+    # Belongs to the run, not to the configuration: `force` is a decision about
+    # one inspection, not a setting the next one inherits.
+    warm = config_kwargs.pop("warm", True)
     config = AgentConfig(model="fake", enable_tools=False, **config_kwargs)
     return run_inspection(
         run_id="test",
@@ -166,6 +169,7 @@ def _run(
         config=config,
         caller=caller,  # type: ignore[arg-type]
         tools=tools,
+        warm=warm,
     )
 
 
@@ -1307,6 +1311,53 @@ def test_a_second_run_over_unchanged_code_costs_nothing(tmp_path: Path) -> None:
     assert second.stats.chunks_cached == second.stats.chunks_total
     assert [f.id for f in second.findings] == [f.id for f in first.findings], "reuse must be faithful"
     second_store.close()
+
+
+def test_a_forced_run_does_the_work_again(tmp_path: Path) -> None:
+    """`force` had no way to reach the cache, so it forced nothing.
+
+    Clearing the run's own results left the shared table untouched -- and it is
+    keyed by content, so the chunks came straight back and the run finished
+    having called no model. Measured: a forced re-inspection of three files
+    returned its report in under a second with two spans in the trace.
+    """
+    first_root, first_store = _tree_at(tmp_path, "first", VULNERABLE)
+    _run(first_root, first_store, ScriptedCaller())
+    first_store.close()
+
+    second_root, second_store = _tree_at(tmp_path, "second", VULNERABLE)
+    caller = ScriptedCaller()
+    report = _run(second_root, second_store, caller, warm=False)
+
+    assert caller.prompts, "a forced run must ask the model again"
+    assert report.stats.chunks_cached == 0
+    second_store.close()
+
+
+def test_a_forced_run_replaces_what_it_would_not_read(tmp_path: Path) -> None:
+    """Declining to read the cache must not leave the stale answer in it.
+
+    This is what makes `force` a repair: the run that ignores a wrong cached
+    result is also the run that overwrites it, so the next run is right too.
+    """
+    first_root, first_store = _tree_at(tmp_path, "first", VULNERABLE)
+    stale = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[])})
+    _run(first_root, first_store, stale)
+    first_store.close()
+
+    second_root, second_store = _tree_at(tmp_path, "second", VULNERABLE)
+    found = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    forced = _run(second_root, second_store, found, warm=False)
+    assert forced.findings, "the forced run must find what the cached answer missed"
+    second_store.close()
+
+    # A third run, reading the cache normally, gets the corrected answer.
+    third_root, third_store = _tree_at(tmp_path, "third", VULNERABLE)
+    quiet = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[])})
+    third = _run(third_root, third_store, quiet)
+    assert quiet.prompts == [], "the third run should be served from the cache"
+    assert [f.id for f in third.findings] == [f.id for f in forced.findings]
+    third_store.close()
 
 
 def test_changed_code_is_analysed_again(tmp_path: Path) -> None:

@@ -222,17 +222,24 @@ class InspectionSession:
         """
         return dict(initial_state(self.order, len(self.order), self._index_stats))
 
-    def start(self, values: dict[str, Any] | None = None) -> None:
+    def start(self, values: dict[str, Any] | None = None, warm: bool = True) -> None:
         """Run from the beginning, stopping at the first breakpoint.
 
         ``values`` overrides fields of the starting state -- a shorter queue to
         try one chunk, say. Merged rather than replacing it, so naming one field
         does not silently drop the tallies the rest of the graph reads.
+
+        ``warm`` is what 검사 실행 with `force` turns off. Clearing the run's own
+        results was not enough to make it re-inspect anything: the cache is keyed
+        by content and shared across runs, so the chunks were handed straight
+        back and the run finished having called no model. Analysis still writes
+        its results, so a forced run replaces what it declined to read.
         """
         # Before `initial()`, which reads what is already inspected to build the
         # queue: warming after it would compute a queue holding chunks that were
         # about to become free.
-        self.warm_from_cache()
+        if warm:
+            self.warm_from_cache()
         state = self.initial()
         if values:
             state.update(values)
