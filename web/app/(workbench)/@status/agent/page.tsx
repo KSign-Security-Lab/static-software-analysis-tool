@@ -1,15 +1,12 @@
-import StructureOverlay from "@/features/trace/StructureOverlay";
-
 /**
- * No strip. Only the overlay, which portals to the body and so is drawn nowhere
- * near here -- it is mounted in this slot because the slot renders once for
- * 검사 and only for 검사, which is exactly the lifetime it wants.
+ * Nothing.
  *
- * The strip that used to be here is dissected across the surface: which run and
- * 검사 실행 are the navigator's header and footer, progress is the list moving,
- * and the cost is the right column's. Nothing about a run wanted to be a
- * permanent row.
+ * This slot held a 36px strip across the top of the window, and then briefly the
+ * structure overlay. The strip is dissected across the surface -- which run is
+ * the navigator's header, the run's controls are the centre's tab strip -- and
+ * the overlay is a centre tab, which is where a drawing that needs width
+ * belongs. The slot stays declared because the shell expects one.
  */
 export default function Slot() {
-  return <StructureOverlay />;
+  return null;
 }

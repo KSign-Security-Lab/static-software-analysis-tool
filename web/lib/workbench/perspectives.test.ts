@@ -64,8 +64,8 @@ describe("declared panes", () => {
   it("names only panes the surface actually fills", () => {
     // The title bar offers a fold per entry, so an entry for a pane that is not
     // there is a button revealing a pane whose content explains it does not
-    // exist. 검사 fills all three: 탐색기, 문제, 상세.
-    expect(perspective("agent").panes).toEqual(["side", "dock", "inspector"]);
+    // exist. 검사 fills two: the navigator and 상세. Its dock is gone.
+    expect(perspective("agent").panes).toEqual(["side", "inspector"]);
     // 스테이지 is a step list and one editor, and nothing else.
     expect(perspective("stages").panes).toEqual(["side"]);
     // 추출 has a node inspector but no bottom panel.

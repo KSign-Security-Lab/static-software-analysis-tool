@@ -92,7 +92,7 @@ export function useStructureOpen() {
 /**
  * The one thing the inspector is showing.
  *
- * Four params could be set at once -- `finding`, `span`, `node`, `cp` -- each
+ * Three params could be set at once -- `finding`, `span`, `node` -- each
  * written by whichever pane owned it. So nothing on screen could state what the
  * right-hand pane was showing without knowing the precedence its renderer
  * happened to use, and clearing one left the others behind. That is the bug this
@@ -106,7 +106,6 @@ export type Selection =
   | { kind: "finding"; id: string }
   | { kind: "call"; id: string }
   | { kind: "node"; id: string }
-  | { kind: "state"; id: string }
   | null;
 
 export type SelectionKind = NonNullable<Selection>["kind"];
@@ -121,7 +120,6 @@ export function useSelection(): SelectionState {
   const [finding, setFinding] = useSelectedFinding();
   const [call, setCall] = useQueryState("span", parseAsString.withOptions({ history: "replace" }));
   const [node, setNode] = useQueryState("node", parseAsString.withOptions({ history: "replace" }));
-  const [state, setState] = useQueryState("cp", parseAsString.withOptions({ history: "replace" }));
 
   // Precedence exists only for a hand-written URL that sets two of them.
   // Everything the app writes goes through `select`, which cannot produce that.
@@ -129,9 +127,8 @@ export function useSelection(): SelectionState {
     if (finding) return { kind: "finding", id: finding };
     if (call) return { kind: "call", id: call };
     if (node) return { kind: "node", id: node };
-    if (state) return { kind: "state", id: state };
     return null;
-  }, [finding, call, node, state]);
+  }, [finding, call, node]);
 
   const select = useCallback(
     (next: Selection) => {
@@ -141,9 +138,8 @@ export function useSelection(): SelectionState {
       void setFinding(next?.kind === "finding" ? next.id : null);
       void setCall(next?.kind === "call" ? next.id : null);
       void setNode(next?.kind === "node" ? next.id : null);
-      void setState(next?.kind === "state" ? next.id : null);
     },
-    [setFinding, setCall, setNode, setState],
+    [setFinding, setCall, setNode],
   );
 
   const clear = useCallback(() => select(null), [select]);

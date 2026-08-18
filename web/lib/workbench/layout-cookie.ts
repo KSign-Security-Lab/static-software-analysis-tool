@@ -54,7 +54,15 @@ export const LAYOUT_COOKIE = "ssat.layout";
  * The version is the only thing that can refuse them, and dropping everyone's
  * dragged sizes is the cost of having moved what the panes contain.
  */
-export const LAYOUT_VERSION = 7;
+/**
+ * Bumped to 8 when 검사 lost its dock.
+ *
+ * The wire format is positional and cannot describe a pane that is no longer
+ * there, so a stored 7 would restore the dock at 35% -- a third of the editor
+ * given to a panel with nothing in it. Everyone's pane sizes reset once; there
+ * is no version of this that resets only the surface that changed.
+ */
+export const LAYOUT_VERSION = 8;
 const MAX_AGE = 60 * 60 * 24 * 365;
 
 /** Panel id -> percentage, the shape `react-resizable-panels` takes and returns. */
@@ -91,7 +99,9 @@ const PER_PERSPECTIVE: Partial<Record<PerspectiveId, PaneLayout>> = {
   // also holds the call record and the pipeline drawing -- everything that used
   // to be a full-window overlay over the top of the editor. It is draggable from
   // here; the point is that the editor is still there when you drag it.
-  agent: { h: { side: 15, main: 55, inspector: 30 }, v: { centre: 65, dock: 35 } },
+  // No dock, and the side column is wider than it was: it lists the findings
+  // now as well as the files, and a finding's title needs more than 15%.
+  agent: { h: { side: 20, main: 55, inspector: 25 }, v: { centre: 100, dock: 0 } },
   // 스테이지 is a side list and one editor over its raw response: it has
   // neither a bottom panel nor an inspector, and was showing a staging
   // placeholder in each of them.

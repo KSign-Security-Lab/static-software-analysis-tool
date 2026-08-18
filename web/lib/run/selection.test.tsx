@@ -53,7 +53,6 @@ describe("reading the selection", () => {
     ["finding", { finding: "agent:f1" }, "agent:f1"],
     ["call", { span: "span-gather" }, "span-gather"],
     ["node", { node: "verify" }, "verify"],
-    ["state", { cp: "cp-3" }, "cp-3"],
   ])("reads a %s", (kind, search, id) => {
     show(search);
     expect(screen.getByTestId("kind").textContent).toBe(kind);
@@ -78,8 +77,7 @@ describe("selecting", () => {
     expect(params(onUrlUpdate).get("span")).toBe("span-gather");
     expect(params(onUrlUpdate).get("finding")).toBeNull();
     expect(params(onUrlUpdate).get("node")).toBeNull();
-    expect(params(onUrlUpdate).get("cp")).toBeNull();
-  });
+      });
 
   it("leaves everything else in the URL alone", async () => {
     // The run, the open file and the line are not the selection.
@@ -93,13 +91,13 @@ describe("selecting", () => {
     expect(params(onUrlUpdate).get("line")).toBe("6");
   });
 
-  it("clears all four on clear", async () => {
+  it("clears all three on clear", async () => {
     const onUrlUpdate = vi.fn();
     show({ finding: "agent:f1" }, null, onUrlUpdate);
 
     await userEvent.click(screen.getByText("clear"));
 
-    for (const key of ["finding", "span", "node", "cp"]) {
+    for (const key of ["finding", "span", "node"]) {
       expect(params(onUrlUpdate).get(key)).toBeNull();
     }
   });

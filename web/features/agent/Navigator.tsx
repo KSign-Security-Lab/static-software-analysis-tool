@@ -1,147 +1,118 @@
 "use client";
 
-import { CircleStop, Loader2, Play } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { parseAsStringLiteral, useQueryState } from "nuqs";
 
-import { Button } from "@/components/ui/button";
 import ExplorerPane from "@/features/agent/ExplorerPane";
 import RunHistory from "@/features/agent/RunHistory";
-import RunMenu from "@/features/agent/RunMenu";
-import { useRunControls } from "@/lib/run/controls";
-import { useRun, useStartRun } from "@/lib/run/queries";
+import Problems from "@/features/agent/nav/Problems";
+import { useFindings, useRun } from "@/lib/run/queries";
 import { phaseFor, type RunLive, type RunPhase } from "@/lib/run/reduce";
-import { useFilter, useOpenedByRun, useSelection } from "@/lib/run/selection";
 import { useRunStream } from "@/lib/run/stream";
-import { useResume } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
 
 /**
- * The left column: which run, what is in it, and the one button that fills it.
+ * The left column: which run, and what is in it.
  *
- * This replaces a 36px strip that ran the width of the window. Everything on
- * that strip was either transient (the phase, the coverage), post-hoc (tokens,
- * duration) or pressed once per run (검사 실행, the run selector) -- permanent
- * chrome for information that is never permanently wanted, which is why moving
- * it around never helped. Taken apart, each piece has an obvious home:
+ * The run's name is here because this column lists that run's files and nothing
+ * else on screen said which run they belonged to -- a reopened tab could not be
+ * told from a fresh one except by the file in the editor.
  *
- * - the run selector titles this column, because this column lists what is in
- *   that run and nothing else on screen names it
- * - 검사 실행 is pinned at the foot, full width, the way a sidebar's primary
- *   action is everywhere else -- and it is next to the files it will read
- * - progress is the list itself, units and files changing state as the run
- *   moves, which is how a test runner shows it and needs no reserved row
- * - the cost and the funnel are in the right column, which is where the
- *   question "how much of this do I believe" is already being answered
+ * The progress line is here for the same reason and appears only while a run is
+ * live. It is not a status bar: a finished run says so with its cost in the
+ * right column, and an idle one says nothing at all rather than reserving a row
+ * to say it.
+ *
+ * The buttons that act on the run are not here. They are in the centre's tab
+ * strip -- see `RunControls`.
  */
+const MODES = ["problems", "files"] as const;
+
 export default function Navigator() {
   const [runId] = useRunId();
-  const { live, phase: streamed, ensureAttached } = useRunStream();
-  const { breakpoints, dirty, saving, saveAll } = useRunControls();
-  const { select } = useSelection();
-  const [, setFilter] = useFilter();
-  const [, setOpenedByRun] = useOpenedByRun();
+  const { live, phase: streamed } = useRunStream();
   const run = useRun(runId);
-  const resume = useResume(runId, ensureAttached);
-  const start = useStartRun(runId, ensureAttached);
+  const findings = useFindings(runId);
 
   const phase = phaseFor(streamed, run.data?.status);
-  const running = phase === "running" || phase === "starting";
-  const paused = phase === "paused";
+  const live_ = phase === "running" || phase === "starting" || phase === "paused";
+  const count = findings.data?.findings?.length ?? 0;
   const files = run.data?.file_count ?? 0;
 
   /**
-   * Save every changed file, start, then show it running.
+   * Which list, and it follows the run rather than sitting where it was left.
    *
-   * Owned here because this is the component with the button, and it is now the
-   * only one -- the structure overlay is a reader and gave its copy up. Two
-   * buttons for one action is fine; two actions wearing one label is a bug
-   * waiting for the two to disagree about whether a run is in flight.
-   *
-   * `saveAll`, not "save the open one": an inspection reads the whole run, so a
-   * file edited and navigated away from was being scanned in its old state.
-   * The list widens to 전체 on success because a run in flight is only legible
-   * as it moves, and on success rather than on click so a refused start leaves
-   * you where you were.
+   * 파일 before a run, because there is nothing to find yet and putting code in
+   * is the only move. 문제 once one has finished, because that is the answer you
+   * came back for. Picking a mode by hand pins it -- the param stops being
+   * absent, and the default stops applying.
    */
-  const inspect = async () => {
-    if (!runId) return;
-    await saveAll();
-    start.mutate(
-      { breakpoints },
-      {
-        onSuccess: () => {
-          void setOpenedByRun(true);
-          void setFilter("all");
-        },
-      },
-    );
-  };
+  const [pinned, setMode] = useQueryState("nav", parseAsStringLiteral(MODES).withOptions({ history: "replace" }));
+  const mode = pinned ?? (count > 0 ? "problems" : "files");
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-surface">
-      {/* Which run. One line, and the only place on the surface that says it. */}
-      <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
+      <header className="flex h-9 shrink-0 items-center border-b border-line px-1.5">
         <RunHistory />
-        <RunMenu className="ml-auto" />
       </header>
 
-      {/* How far along, and only while that is a live question. A run that
-          finished says so in the right column, with the cost. */}
-      {(running || paused) && <Progress phase={phase} live={live} />}
+      {live_ && <Progress phase={phase} live={live} />}
 
-      <div className="min-h-0 min-w-0 flex-1">
+      {/*
+        One list, two subjects, switched.
+
+        The findings were a shelf along the bottom of the window and the files
+        were this column, so "what did it find" and "what did it read" were two
+        places with no relationship on screen -- and the shelf cost the editor a
+        third of its height to hold a list two rows long. They are the same
+        column now, because you are never asking both at once.
+      */}
+      <div className="flex h-8 shrink-0 items-center gap-0.5 border-b border-line px-1.5">
+        <Mode active={mode === "problems"} onClick={() => void setMode("problems")}>
+          문제
+          {count > 0 && <span className="ml-1 text-ink-faint">{count}</span>}
+        </Mode>
+        <Mode active={mode === "files"} onClick={() => void setMode("files")}>
+          파일
+          {files > 0 && <span className="ml-1 text-ink-faint">{files}</span>}
+        </Mode>
+      </div>
+
+      <div className={cn("min-h-0 min-w-0 flex-1", mode !== "problems" && "hidden")}>
+        <div className="h-full overflow-auto">
+          <Problems />
+        </div>
+      </div>
+      <div className={cn("min-h-0 min-w-0 flex-1", mode !== "files" && "hidden")}>
         <ExplorerPane />
       </div>
-
-      {/* The action, against the floor and full width. It was 81x28 in the far
-          corner of the window, indistinguishable from five ghost buttons. */}
-      <div className="shrink-0 border-t border-line p-2">
-        {paused ? (
-          <Button
-            className="w-full"
-            size="sm"
-            onClick={() => resume.mutate({ breakpoints })}
-            disabled={resume.isPending}
-          >
-            <Play />
-            이어서
-          </Button>
-        ) : running ? (
-          <Button
-            className="w-full"
-            size="sm"
-            variant="outline"
-            onClick={() => resume.mutate({ action: "abort" })}
-          >
-            <CircleStop />
-            중단
-          </Button>
-        ) : (
-          <Button
-            className="w-full"
-            size="sm"
-            onClick={() => void inspect()}
-            disabled={!runId || saving || start.isPending}
-          >
-            <Play />
-            {saving ? `${dirty.length}개 저장 중…` : files > 0 ? `검사 실행 · ${files}개 파일` : "검사 실행"}
-          </Button>
-        )}
-
-        {/* Stopped at a breakpoint is a thing you can look at, and this is the
-            only way to reach the checkpoint panel. */}
-        {paused && live.checkpointId && (
-          <Button
-            size="xs"
-            variant="ghost"
-            className="mt-1 w-full text-warn"
-            onClick={() => select({ kind: "state", id: live.checkpointId! })}
-          >
-            멈춘 지점 보기
-          </Button>
-        )}
-      </div>
     </section>
+  );
+}
+
+function Mode({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "rounded-md px-2 py-0.5 text-xs transition-colors",
+        active ? "bg-surface-2 text-ink-strong" : "text-ink-muted hover:bg-surface-2 hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { describeError } from "@/lib/api/client";
 import { fetchGraph, resumeRun, type ResumeOptions } from "@/lib/api/control";
 import { fetchPrompts, resetPrompt, savePrompt } from "@/lib/api/prompts";
-import { fetchCheckpoints, fetchSpans, fetchThreads, replaySpan } from "@/lib/api/trace";
+import { fetchSpans, fetchThreads, replaySpan } from "@/lib/api/trace";
 import { keys } from "@/lib/query/keys";
 
 const enabled = (runId: string | null): runId is string => Boolean(runId);
@@ -50,20 +50,6 @@ export function useThreads(runId: string | null) {
   });
 }
 
-export function useCheckpoints(runId: string | null, full: boolean) {
-  return useQuery({
-    queryKey: keys.checkpoints(runId ?? "", full),
-    queryFn: ({ signal }) => fetchCheckpoints(runId!, full, { signal }),
-    enabled: enabled(runId),
-    // Keyed by `full`, so toggling back to the summary does not throw away the
-    // copy already in hand.
-    // Held across a refetch, dropped when there is no run: keeping the last
-    // run's data as a placeholder is the point while one is in flight, and a
-    // lie once it has been deleted -- the pane went on showing a conversation
-    // that no longer existed, beside an empty workbench.
-    placeholderData: (previous) => (runId ? previous : undefined),
-  });
-}
 
 export function usePrompts() {
   return useQuery({

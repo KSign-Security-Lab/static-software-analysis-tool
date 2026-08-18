@@ -80,7 +80,9 @@ export const PERSPECTIVES: readonly Perspective[] = [
     note: "코드를 올려 취약점을 찾고, 그 판단 과정을 그대로 열어 봅니다",
     icon: ScanSearch,
     carries: ["run", "file"],
-    panes: ["side", "dock", "inspector"],
+    // No dock. The findings it held are the navigator's 문제 list, and the tool
+    // calls it interleaved with them are steps in a finding's 판단 과정.
+    panes: ["side", "inspector"],
     chrome: false,
     purpose:
       "이 코드에 취약점이 있는가, 그리고 에이전트는 왜 그렇게 판단했는가 — 결과와 과정을 나란히 봅니다.",

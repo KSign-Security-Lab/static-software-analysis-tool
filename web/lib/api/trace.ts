@@ -1,6 +1,5 @@
 import { get, post, seg, type RequestOptions } from "./client";
 import type {
-  CheckpointsResponse,
   InputResponse,
   Replay,
   SpansResponse,
@@ -23,9 +22,6 @@ export function fetchThreads(runId: string, options?: RequestOptions): Promise<T
  * to a count, which is all a timeline needs and a fraction of the bytes. Only
  * a state editor wants the whole thing.
  */
-export function fetchCheckpoints(runId: string, full = false, options?: RequestOptions): Promise<CheckpointsResponse> {
-  return get<CheckpointsResponse>(`/agent/runs/${seg(runId)}/checkpoints${full ? "?full=true" : ""}`, options);
-}
 
 export function fetchState(runId: string, checkpointId?: string, options?: RequestOptions): Promise<StateResponse> {
   const query = checkpointId ? `?checkpoint_id=${encodeURIComponent(checkpointId)}` : "";

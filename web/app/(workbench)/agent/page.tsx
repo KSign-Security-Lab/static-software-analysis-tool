@@ -1,17 +1,13 @@
-import EditorPane from "@/features/agent/EditorPane";
+import CentrePane from "@/features/agent/CentrePane";
 
 /**
- * The centre: the code, and only the code.
+ * The centre: the code, or the pipeline that read it.
  *
- * It has been a tab strip over four views, an editor split with the finding
- * detail underneath, and an editor with a full-window overlay dropped over it.
- * The overlay was the worst of the three, because it covered the thing every
- * other pane is talking about.
- *
- * Everything else is a pane now -- files left, 상세 right, and the problems, the
- * pipeline, the call record and the state as tabs across the bottom. The reader
- * never leaves the editor to look at any of them.
+ * The drawing used to be an overlay, because no pane on a four-pane workbench
+ * was big enough for it and there was nowhere else to put it. A tab is where it
+ * belongs -- the centre is the widest region on the surface, and a tab needs no
+ * portal, no focus trap and no Escape handler.
  */
-export default function AgentPage() {
-  return <EditorPane />;
+export default function Page() {
+  return <CentrePane />;
 }

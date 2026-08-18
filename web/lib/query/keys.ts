@@ -24,8 +24,6 @@ export const keys = {
   diff: (id: string, against: string) => ["agent", "run", id, "diff", against] as const,
   spans: (id: string) => ["agent", "run", id, "spans"] as const,
   threads: (id: string) => ["agent", "run", id, "threads"] as const,
-  checkpoints: (id: string, full: boolean) => ["agent", "run", id, "checkpoints", { full }] as const,
-  state: (id: string, checkpointId: string | null) => ["agent", "run", id, "state", checkpointId ?? "head"] as const,
   input: (id: string) => ["agent", "run", id, "input"] as const,
   knowledge: (id: string) => ["agent", "run", id, "knowledge"] as const,
 
@@ -35,5 +33,5 @@ export const keys = {
 
 /** Everything the trace view reads off disk; what a new checkpoint invalidates. */
 export function recordedKeys(id: string) {
-  return [keys.spans(id), keys.threads(id), ["agent", "run", id, "checkpoints"], ["agent", "run", id, "state"]];
+  return [keys.spans(id), keys.threads(id)];
 }

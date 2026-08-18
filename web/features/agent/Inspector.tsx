@@ -7,14 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Verdict } from "@/components/panel/verdict";
 import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 import SpanInspector from "@/features/trace/SpanInspector";
-import StatePanel from "@/features/trace/StatePanel";
-import { useFullState } from "@/features/trace/state";
 import { fromAgent, standingOf, wireId } from "@/lib/model/finding";
 import { useKnowledge } from "@/lib/run/knowledge-queries";
 import { useApplyFix, useFindings, useProposeFix } from "@/lib/run/queries";
 import { useFilter, useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
 import { useRunStream } from "@/lib/run/stream";
-import { useCheckpoints, useGraphShape, usePrompts, useResume, useSpans } from "@/lib/run/trace-queries";
+import { useGraphShape, usePrompts, useSpans } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import DecisionChain from "./DecisionChain";
 import { Grounds } from "./FindingList";
@@ -33,9 +31,10 @@ import NodeCard from "./NodeCard";
  * of rows down there and their contents are up here, which is what stops either
  * pane being the densest thing on screen.
  *
- * Four kinds, and 상태 is the interesting one: checkpoints are a debug tool that
- * means nothing except at a breakpoint, so rather than a tab that is dead most of
- * the time it is what you get by selecting the stopped run itself.
+ * Three kinds. There was a fourth -- a paused run's checkpoint, with lanes to
+ * fork and re-run from -- and it went with the feature: it was a debug tool that
+ * meant nothing except at a breakpoint, reachable only through a button that
+ * only existed then.
  */
 export default function Inspector() {
   const [runId] = useRunId();
@@ -56,8 +55,7 @@ export default function Inspector() {
 
   if (selection.kind === "finding") return <FindingBody runId={runId} id={selection.id} onClose={clear} />;
   if (selection.kind === "call") return <CallBody runId={runId} id={selection.id} onClose={clear} />;
-  if (selection.kind === "node") return <NodeBody id={selection.id} onClose={clear} />;
-  return <StateBody runId={runId} id={selection.id} onClose={clear} />;
+  return <NodeBody id={selection.id} onClose={clear} />;
 }
 
 /** The header every kind shares: what kind, what one, and a way out. */
@@ -216,27 +214,3 @@ function NodeBody({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
-function StateBody({ runId, id, onClose }: { runId: string | null; id: string; onClose: () => void }) {
-  const [full, setFull] = useFullState();
-  const { phase, ensureAttached } = useRunStream();
-  const checkpoints = useCheckpoints(runId, full);
-  const resume = useResume(runId, ensureAttached);
-  const { select } = useSelection();
-
-  return (
-    <Shell kind="정지 상태" onClose={onClose}>
-      <StatePanel
-        checkpoints={checkpoints.data?.checkpoints ?? []}
-        selected={id}
-        full={full}
-        busy={resume.isPending}
-        interrupted={phase === "paused"}
-        waiting={phase === "running" || phase === "starting"}
-        onSelect={(next) => next && select({ kind: "state", id: next })}
-        onFull={(next) => void setFull(next)}
-        onFork={(cp, values) => resume.mutate({ checkpointId: cp, values })}
-        onRerun={(cp) => resume.mutate({ checkpointId: cp })}
-      />
-    </Shell>
-  );
-}
