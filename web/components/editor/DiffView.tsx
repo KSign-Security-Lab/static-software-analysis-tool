@@ -58,9 +58,15 @@ export default function DiffView({
         fontFamily: "var(--font-mono)",
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
-        // Off: laid out from the wrapper's own observer, on the next frame. See
-        // use-deferred-layout.ts.
-        automaticLayout: false,
+        // On, unlike the editor's. This mounts when a tab is switched to, so
+        // its first measurement happens while the tab is still being laid out
+        // and comes back 5px -- a diff collapsed to one red line, which is what
+        // shipped. The wrapper's observer fires once, before Monaco exists, and
+        // nothing measures again. Monaco's own observer does.
+        //
+        // The reason this was off is gone: it was fighting the nested panel
+        // groups 검사 used to have, and there is one flat group now.
+        automaticLayout: true,
         renderOverviewRuler: false,
       }}
     />
