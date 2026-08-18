@@ -301,6 +301,46 @@ def cmd_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_corpus(args: argparse.Namespace) -> int:
+    """Ingest or describe the corpus of known weaknesses. See `agent/rag/`.
+
+    `ingest` runs from `scripts/up.sh` on every start, so it has to be cheap
+    when nothing has changed: sample ids are content-derived, and an unchanged
+    tree never constructs the embedder at all.
+    """
+    from .rag import corpus
+
+    if args.action == "stats":
+        rows = corpus.counts()
+        if not rows:
+            print("corpus is empty -- run 'agent corpus ingest'")
+            return 0
+        for cwe, variant, count in rows:
+            print(f"{cwe:<10} {variant:<11} {count}")
+        print(f"\n{sum(n for _, _, n in rows)} samples")
+        return 0
+
+    try:
+        result = corpus.ingest(Path(args.path).resolve() if args.path else None)
+    except corpus.Unavailable as err:
+        # Not a failure to ingest: a failure to have the extra installed, which
+        # is a different thing to tell somebody.
+        print(f"corpus: {err}")
+        return 1
+    if result["embedded"] == 0 and result["removed"] == 0:
+        print(f"corpus: {result['total']} samples, nothing new")
+    else:
+        print(
+            f"corpus: {result['embedded']} embedded, {result['removed']} removed, "
+            f"{result['total']} total"
+        )
+    if result["skipped"]:
+        # Said out loud rather than swallowed: a file in a folder with no CWE in
+        # its name is silently not in the corpus, and that is worth knowing.
+        print(f"corpus: skipped {result['skipped']} file(s) with no CWE folder or no functions")
+    return 0
+
+
 def cmd_endpoints(args: argparse.Namespace) -> int:
     """What is reachable, and what it serves. Answers 'why does nothing work'.
 
@@ -342,6 +382,11 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser = subparsers.add_parser("inspect", help="Index and inspect a tree")
     inspect_parser.add_argument("path", help="Directory to inspect")
     inspect_parser.set_defaults(func=cmd_inspect)
+
+    corpus_parser = subparsers.add_parser("corpus", help="The corpus of known weaknesses")
+    corpus_parser.add_argument("action", choices=("ingest", "stats"), nargs="?", default="ingest")
+    corpus_parser.add_argument("path", nargs="?", help="Corpus directory (default: <root>/corpus)")
+    corpus_parser.set_defaults(func=cmd_corpus)
 
     subparsers.add_parser("runs", help="List previous runs").set_defaults(func=cmd_runs)
     subparsers.add_parser("endpoints", help="Show reachable servers and their models").set_defaults(func=cmd_endpoints)

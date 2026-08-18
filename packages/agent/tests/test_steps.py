@@ -138,7 +138,7 @@ def test_an_agent_node_is_one_because_a_step_names_it() -> None:
         "agent": True,
         "steps": ["gather"],
         "calls": 1,
-        "tools": 9,
+        "tools": 10,
     }
     # Two steps in the one node: the ruling, and the fix that follows a claim
     # surviving it. `lens:memory` in node `memory` is the same shape.

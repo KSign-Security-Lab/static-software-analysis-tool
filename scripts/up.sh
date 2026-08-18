@@ -254,6 +254,19 @@ export AGENT_MODEL
 export AGENT_BASE_URL="http://localhost:${VLLM_PORT}/v1"
 export NEXT_PUBLIC_API_PORT="$API_PORT"
 
+# Postgres, which this script never started even though the API does not run
+# without it -- it relied on somebody having run `docker compose up` by hand.
+# `--wait` blocks on the healthcheck, and `-d` makes it a no-op when it is
+# already up.
+docker compose up -d --wait postgres
+
+# The corpus of known weaknesses (agent/rag/), in before the API serves its
+# first request. Sample ids are derived from content, so an unchanged corpus
+# costs one query and never loads the embedding model. Not fatal: a failure
+# here means `search_corpus` has nothing to answer with, not that the tool
+# cannot run.
+.venv/bin/agent corpus ingest || echo "  corpus ingest failed; search_corpus will find nothing"
+
 # --timeout-graceful-shutdown, or `--reload` is a trap. A reload waits for open
 # requests to finish, and the progress stream does not finish: it ends when its
 # run ends, and a tab left open on a finished run never delivers that. So every

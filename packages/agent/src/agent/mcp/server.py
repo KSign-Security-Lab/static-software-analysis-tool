@@ -19,6 +19,7 @@ from .. import knowledge
 from ..config import ENV_RUN_ID
 from ..index import embed
 from ..index.store import ChunkStore
+from ..rag import corpus
 from ..tools import (
     ToolError,
     callees_of,
@@ -106,6 +107,47 @@ def find_files(pattern: str) -> str:
 def search_text(pattern: str, glob: str = "") -> str:
     """Search the tree for a regular expression. Returns 'file:line:text'."""
     return _guard(lambda: "\n".join(grep(run_files(), pattern, glob or None)))
+
+
+@mcp.tool()
+def search_corpus(code: str, cwe: str = "", limit: int = 5) -> str:
+    """Find recorded weaknesses that this *code* resembles. Pass code, not a description.
+
+    The one question with nothing to look up by. Every other tool here takes a
+    name and answers exactly; this takes a function body and answers with the
+    weaknesses it is nearest to, out of a corpus that has nothing to do with the
+    run and was recorded long before it.
+
+    Measured on ten held-out functions: the right CWE came back first eight
+    times. So it is a strong hint about *which class* of weakness this is, and
+    no evidence at all that this code is exploitable -- resemblance is not
+    reachability, and the corpus cannot see the path into this function.
+
+    Each hit is labelled `vulnerable` or `fixed`. Read that as provenance, not
+    as a judgement: the two are far too close in score to tell apart, so a
+    `fixed` neighbour does **not** mean this code is patched.
+
+    Returns 'score CWE variant file:symbol' with an excerpt, closest first.
+    """
+
+    def run() -> str:
+        # Deliberately not `_store()`. Every other tool is scoped to the current
+        # run because it describes one inspection; these describe weaknesses,
+        # and are the same for every run there has ever been.
+        try:
+            hits = corpus.search(code, cwe=cwe, limit=limit)
+        except corpus.Unavailable as err:
+            return f"error: {err}"
+        if not hits:
+            return "no matches"
+        out = []
+        for score, sample in hits:
+            excerpt = "\n".join(sample.body.splitlines()[:15])
+            where = f"{sample.file}:{sample.symbol}"
+            out.append(f"{score:.3f} {sample.cwe} {sample.variant} {where}\n{excerpt}")
+        return "\n\n".join(out)
+
+    return _guard(run)
 
 
 @mcp.tool()

@@ -39,6 +39,14 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 #: column is fixed-width, so this and `MODEL_NAME` have to move together.
 EMBED_DIMS = 384
 
+#: `jinaai/jina-embeddings-v2-base-code`, for the corpus in `agent/rag/`. A
+#: different model from the one above, and measured rather than assumed: asked
+#: to name the weakness in ten held-out functions, the general-purpose English
+#: model got 4 of 10 and the code-trained one 8 of 10. The English model was
+#: matching shared vocabulary -- a `system()` injection and a heap overflow that
+#: both call `snprintf` came back as neighbours.
+CORPUS_EMBED_DIMS = 768
+
 
 class Base(DeclarativeBase):
     pass
@@ -237,3 +245,52 @@ class CachedResult(Base):
     recipe: Mapped[str] = mapped_column(String(64), primary_key=True)
     findings: Mapped[str] = mapped_column(Text)
     note: Mapped[str] = mapped_column(Text, default="")
+
+
+class CorpusSample(Base):
+    """A known weakness, kept beside the runs rather than inside one.
+
+    The second table with no `run_id`, for the same kind of reason as `results`
+    and a different purpose. A run's own vectors answer "where in *this* code";
+    these answer "what is this code *like*", and the examples they answer with
+    were recorded long before the run existed and outlive it.
+
+    The verifier had nothing outside the file it was reading to check a claim
+    against: `cwe` is a free string the model emits and nothing in the tool knew
+    what any of them meant. These are what it can be checked against.
+
+    Paired: a weakness and its fix are stored as separate samples under the same
+    CWE, because which one a piece of code resembles more is the useful question.
+    """
+
+    __tablename__ = "corpus"
+
+    #: `chunk_id_for(file, symbol, body)` -- content-derived, so re-ingesting an
+    #: unchanged corpus is a no-op without anything having to track state.
+    sample_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    cwe: Mapped[str] = mapped_column(String(16))
+    #: `vulnerable` or `fixed`.
+    variant: Mapped[str] = mapped_column(String(16))
+    file: Mapped[str] = mapped_column(Text)
+    symbol: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(32))
+    body: Mapped[str] = mapped_column(Text)
+    #: Where it came from -- a CVE id, a repository, a URL. Empty for the
+    #: hand-written seed, which is its own provenance.
+    source: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(128))
+    embedding: Mapped[Any] = mapped_column(Vector(CORPUS_EMBED_DIMS))
+
+    # An ANN index from the start, unlike `vectors`. That one has none, which is
+    # right for the handful of chunks in one run and wrong here: this table is
+    # meant to be filled by a CVE scrape and a sequential scan over thousands of
+    # rows on every verification is a cost that arrives quietly.
+    __table_args__ = (
+        Index("corpus_cwe", "cwe"),
+        Index(
+            "corpus_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )

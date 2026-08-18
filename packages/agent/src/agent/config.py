@@ -21,6 +21,7 @@ ENV_MODEL = "AGENT_MODEL"
 ENV_API_KEY = "AGENT_API_KEY"
 ENV_DATABASE_URL = "AGENT_DATABASE_URL"
 ENV_PROMPTS_FILE = "AGENT_PROMPTS_FILE"
+ENV_CORPUS_DIR = "AGENT_CORPUS_DIR"
 ENV_SANDBOX = "AGENT_SANDBOX"
 ENV_RUN_ID = "AGENT_RUN_ID"
 
@@ -87,6 +88,24 @@ def default_prompts_file() -> Path:
         if (candidate / "pyproject.toml").exists():
             return candidate / "artifacts" / "prompts.json"
     return current / "artifacts" / "prompts.json"
+
+
+def default_corpus_dir() -> Path:
+    """Not beside the runs, unlike the prompts: this is checked in.
+
+    ``artifacts/`` is output and scan targets -- runs, the Joern workspace, the
+    codebases being read. The corpus is the opposite: reviewed ground truth the
+    tool is measured against, closer to a fixture than an artifact, and it
+    should not sit where a cleanup would sweep it.
+    """
+    override = os.getenv(ENV_CORPUS_DIR)
+    if override:
+        return Path(override)
+    current = Path.cwd().resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").exists():
+            return candidate / "corpus"
+    return current / "corpus"
 
 
 @dataclass
@@ -178,6 +197,8 @@ class AgentConfig:
     cache_results: bool = field(default_factory=lambda: os.getenv("AGENT_CACHE", "1") != "0")
 
     prompts_file: Path = field(default_factory=default_prompts_file)
+    #: Known weaknesses to check a claim against. See `agent/rag/`.
+    corpus_dir: Path = field(default_factory=default_corpus_dir)
     #: Where every run lives. See `agent/db/` -- one row per run, everything
     #: else cascading off it.
     database_url: str = field(default_factory=default_database_url)

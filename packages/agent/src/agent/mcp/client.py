@@ -200,6 +200,10 @@ VERIFY_TOOLS: Sequence[str] = (
     # answer badly -- whether a check exists somewhere -- needs the identifier
     # guessed, and the identifier is the thing you do not have.
     "search_semantic",
+    # The only tool that looks outside this run. Everything else can answer at
+    # most what this tree says about itself; a claim that this is CWE-121 was
+    # checked against nothing until this existed.
+    "search_corpus",
     "find_definition",
     "find_callers",
     "find_callees",
