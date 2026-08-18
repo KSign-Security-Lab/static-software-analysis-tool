@@ -247,6 +247,68 @@ class CachedResult(Base):
     note: Mapped[str] = mapped_column(Text, default="")
 
 
+class HarnessConfig(Base):
+    """One configuration of the harness, kept because a result points at it.
+
+    The hash is the key, so writing the same configuration twice writes one row
+    -- and a thousand runs configured alike are recognisably one experiment
+    without anyone having remembered to label them.
+
+    Never deleted. A superseded config stays because the runs it produced still
+    reference it, and a hash that resolves to nothing is a result with no
+    provenance, which is the failure the whole feature exists to prevent.
+    """
+
+    __tablename__ = "harness_configs"
+
+    config_hash: Mapped[str] = mapped_column(String(32), primary_key=True)
+    #: The tunable knobs, as `harness.knobs` shapes them.
+    knobs: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: Exempt from automatic proposals. A baseline someone is measuring against,
+    #: or a setting chosen for a reason the tuner cannot see.
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    label: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[float] = mapped_column(Float, default=_now)
+
+
+class ConfigProposal(Base):
+    """A change the tuner would like made, and everything needed to judge it.
+
+    Stored rather than applied. The evidence is here because a proposal without
+    it is an opinion, and the replay is here because evidence that a lens never
+    fired is not evidence that removing it is safe -- only a run with it removed
+    is that.
+
+    `status` moves proposed -> approved -> applied, or proposed -> rejected.
+    Nothing moves it to applied without a replay row, which `tuner.apply`
+    enforces and `test_tuner.py` checks.
+    """
+
+    __tablename__ = "config_proposals"
+    __table_args__ = (Index("config_proposals_base", "base_hash"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    #: What this proposal is a change *to*.
+    base_hash: Mapped[str] = mapped_column(String(32))
+    #: What it would become. Recorded in `harness_configs` before this is
+    #: written, so a proposal always names two configs that exist.
+    proposed_hash: Mapped[str] = mapped_column(String(32))
+    #: `{knob: [before, after]}`.
+    changes: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: What motivated it: which runs, which lens, which counts. Free-form
+    #: because the tuner's reasons are not a fixed set and pretending they were
+    #: would mean the next reason has nowhere to go.
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: The metric it claims will move, and which way.
+    metric: Mapped[str] = mapped_column(String(64), default="")
+    direction: Mapped[str] = mapped_column(String(8), default="up")
+    status: Mapped[str] = mapped_column(String(16), default="proposed")
+    #: The A/B replay that approved or refused it. Null until one has run, and
+    #: `applied` is unreachable while it is null.
+    replay: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[float] = mapped_column(Float, default=_now)
+
+
 class PlanItem(Base):
     """One unit of work the run intends to do, and what became of it.
 

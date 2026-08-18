@@ -18,6 +18,7 @@ from typing import Any, Mapping, Sequence
 
 from ..cache import ResultCache, recipe_of
 from ..config import AgentConfig
+from ..harness import record as record_config
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..mcp.client import ALL_TOOLS, ToolSession, open_session
@@ -111,6 +112,22 @@ class InspectionSession:
                 recipe_of(model=config.model, lenses=config.lenses, prompts=self.prompts),
                 config,
             )
+
+        # Which harness produced whatever this run concludes.
+        #
+        # Recorded before any of it happens, and on the run rather than in the
+        # report, because a run that failed halfway is still evidence about the
+        # configuration that failed it. Without this a measurement can be
+        # attributed to nothing, and a change nobody can attribute is a change
+        # nobody can defend -- which is why `tuner.py` is not allowed to exist
+        # until this line does.
+        self.config_hash = record_config(config)
+        try:
+            from ..runs import Run
+
+            Run(store.run_id).write_meta(config_hash=self.config_hash)
+        except Exception:  # pragma: no cover - provenance must not break a run
+            log.debug("could not record the config hash on run %s", store.run_id, exc_info=True)
 
         # Constructed before the nodes, seeded after the order is known: it
         # needs a run id to exist and the traversal only to be filled in.
