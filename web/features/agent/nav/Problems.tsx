@@ -1,6 +1,6 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 
 import { Verdict } from "@/components/panel/verdict";
@@ -8,6 +8,9 @@ import { EmptyState } from "@/components/workbench/PanelShell";
 import { SEVERITY_DOT, fromAgent, sortFindings, standingOf, type UiFinding } from "@/lib/model/finding";
 import { useDiff, useFindings } from "@/lib/run/queries";
 import { useCompareAgainst, useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
+import { useSpans } from "@/lib/run/trace-queries";
+import { failuresByClaim } from "@/lib/trace/failures";
+import { claimOf } from "@/lib/trace/process";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +57,12 @@ export default function Problems() {
     () => (against && diff.data ? fromAgent(diff.data.fixed) : []),
     [against, diff.data],
   );
+
+  // Which claims lost their verdict or their patch. `claimOf` rebuilds the
+  // same `CWE file:line` subject the agent names its spans with, so the report
+  // and the trace join without either side knowing about the other.
+  const spans = useSpans(runId);
+  const broken = useMemo(() => failuresByClaim(spans.data?.spans ?? []), [spans.data]);
 
   const byFile = useMemo(() => {
     const all = sortFindings(fromAgent(findings.data?.findings ?? []));
@@ -122,6 +131,16 @@ export default function Problems() {
                         {standing && (
                           <Verdict standing={standing} confidence={finding.confidence ?? undefined} />
                         )}
+                        {(broken.get(claimOf(finding)) ?? []).map((f) => (
+                          <span
+                            key={f.step}
+                            className="flex items-center gap-1 text-2xs text-warn"
+                            title={f.message}
+                          >
+                            <TriangleAlert className="size-3 shrink-0" />
+                            {f.role} 실패
+                          </span>
+                        ))}
                         {fresh && (
                           <span className={cn("text-2xs", fresh.has(finding.id) ? "text-accent-ink" : "text-ink-faint")}>
                             {fresh.has(finding.id) ? "새로" : "그대로"}

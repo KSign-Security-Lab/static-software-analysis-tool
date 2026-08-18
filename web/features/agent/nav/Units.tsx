@@ -1,13 +1,14 @@
 "use client";
 
-import { Boxes } from "lucide-react";
+import { Boxes, TriangleAlert } from "lucide-react";
 import { useMemo } from "react";
 
 import { EmptyState } from "@/components/workbench/PanelShell";
 import { fromAgent } from "@/lib/model/finding";
 import { useFindings } from "@/lib/run/queries";
 import { useOpenFile, useRevealLine, useSelection } from "@/lib/run/selection";
-import { useGraphShape, useThreads } from "@/lib/run/trace-queries";
+import { useGraphShape, useSpans, useThreads } from "@/lib/run/trace-queries";
+import { failuresByUnit } from "@/lib/trace/failures";
 import { useRunId } from "@/lib/run/use-run-id";
 import { labelOf } from "@/lib/trace/process";
 import { unitsOf } from "@/lib/trace/process";
@@ -48,6 +49,12 @@ export default function Units() {
 
   // Which units produced a claim. `chunkIds` is on the finding because one
   // claim can be raised from several units after merging.
+  // Which units lost an analysis. Read off the trace: `on_llm_error` puts the
+  // exception on the span and the span's name carries the symbol, so this is a
+  // join between two things the surface already has.
+  const spans = useSpans(runId);
+  const broken = useMemo(() => failuresByUnit(spans.data?.spans ?? []), [spans.data]);
+
   const raised = useMemo(() => {
     const map = new Map<string, number>();
     for (const finding of fromAgent(findings.data?.findings ?? [])) {
@@ -68,6 +75,7 @@ export default function Units() {
     <ul className="py-1">
       {units.map((unit) => {
         const found = raised.get(unit.id) ?? 0;
+        const lost = (unit.symbol && broken.get(unit.symbol)) || [];
         // What the unit's last step concluded, in the reader's language. The
         // step ids are the agent's own everywhere they identify something; this
         // is one of the two places they are narrated.
@@ -104,7 +112,18 @@ export default function Units() {
                     {unit.tokens > 0 ? ` · ${unit.tokens.toLocaleString()} tok` : ""}
                   </span>
                 </span>
-                {last && <span className="block truncate text-2xs text-ink-faint">{labelOf(last)}까지</span>}
+                {/* The line that would have said this unit was not fully read.
+                    `handle` had two lenses on it; `injection` raised a finding
+                    and `memory` died on the token limit, so the unit looked
+                    complete and the overflow it was carrying went unreported. */}
+                {lost.length > 0 ? (
+                  <span className="flex items-center gap-1 truncate text-2xs text-warn">
+                    <TriangleAlert className="size-3 shrink-0" />
+                    {lost.map((f) => f.role).join(", ")} 실패
+                  </span>
+                ) : (
+                  last && <span className="block truncate text-2xs text-ink-faint">{labelOf(last)}까지</span>
+                )}
               </span>
             </button>
           </li>

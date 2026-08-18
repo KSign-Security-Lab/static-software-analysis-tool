@@ -1,11 +1,14 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
+
 import { PanelShell } from "@/components/workbench/PanelShell";
 import { Coverage, coverageOf, duration, n } from "@/features/agent/RunSummary";
 import { useFindings } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useSpans } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
+import { cn } from "@/lib/utils";
 
 /**
  * What this run did, when you are not looking at anything in particular.
@@ -71,6 +74,10 @@ export default function RunShape() {
               <Row term="단위" value={stats.chunks_total} />
               <Row term="걸러냄" value={stats.triaged_out} />
               <Row term="후보" value={stats.candidates} />
+              {/* Between 후보 and 반박됨 because that is where it happened: a
+                  call that died is not a judgement, and every number below this
+                  line is smaller than it should be by an unknown amount. */}
+              {(stats.failed ?? 0) > 0 && <Row term="실패" value={stats.failed} warn />}
               {(stats.refuted ?? 0) > 0 && <Row term="반박됨" value={stats.refuted} />}
               {(stats.dropped_unlocatable ?? 0) > 0 && <Row term="위치 못 찾음" value={stats.dropped_unlocatable} />}
               <Row term="문제" value={count} strong />
@@ -94,11 +101,31 @@ export default function RunShape() {
   );
 }
 
-function Row({ term, value, text, strong }: { term: string; value?: number; text?: string; strong?: boolean }) {
+function Row({
+  term,
+  value,
+  text,
+  strong,
+  warn,
+}: {
+  term: string;
+  value?: number;
+  text?: string;
+  strong?: boolean;
+  warn?: boolean;
+}) {
   return (
     <div className="flex items-baseline gap-2">
-      <dt className="w-20 shrink-0 text-2xs text-ink-faint">{term}</dt>
-      <dd className={strong ? "font-mono text-2xs font-semibold text-ink-strong" : "font-mono text-2xs text-ink-muted"}>
+      <dt className={cn("w-20 shrink-0 text-2xs", warn ? "text-warn" : "text-ink-faint")}>
+        {warn && <TriangleAlert className="mr-1 inline size-3 align-[-1px]" aria-hidden />}
+        {term}
+      </dt>
+      <dd
+        className={cn(
+          "font-mono text-2xs",
+          warn ? "text-warn" : strong ? "font-semibold text-ink-strong" : "text-ink-muted",
+        )}
+      >
         {text ?? n(value ?? 0)}
       </dd>
     </div>

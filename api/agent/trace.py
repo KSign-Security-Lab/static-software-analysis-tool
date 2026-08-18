@@ -306,11 +306,17 @@ def replay_span(run: RunDep, span_id: str, request: ReplayRequest | None = None)
         # No schema for this step, so the reply is taken as text. Tools are not
         # offered: a replay must not touch the filesystem or the sandbox.
         result: Any = caller.llm.invoke([("system", system), ("human", user)]).content
+        failure = None
     else:
         from agent import schema as wire
 
         produced = caller.call(getattr(wire, schema), system, user)
-        result = produced.model_dump() if produced is not None else None
+        # `None` output and a reason beside it, rather than `None` alone: a
+        # replay that died on the token limit and a replay the model refused
+        # look identical otherwise, and this screen exists to compare a call
+        # against its recording.
+        result = produced.value.model_dump() if produced.ok else None
+        failure = produced.reason
 
     return {
         "run_id": run.run_id,
@@ -318,6 +324,7 @@ def replay_span(run: RunDep, span_id: str, request: ReplayRequest | None = None)
         "step": step or None,
         "schema": schema,
         "output": result,
+        "failed": None if schema is None else failure,
         "latency_ms": int((time.monotonic() - started) * 1000),
         # So the UI can say what it is comparing against without a second read.
         "recorded": {"system": recorded_system, "user": recorded_user, "output": span.outputs},

@@ -17,7 +17,7 @@ from __future__ import annotations
 import difflib
 import logging
 
-from .llm import StructuredCaller
+from .llm import Outcome, StructuredCaller
 from .schema import CandidateRemediation, Remediation, Span
 
 log = logging.getLogger(__name__)
@@ -137,12 +137,16 @@ def propose(
     context: str,
     prompt: str | None = None,
     trace: dict | None = None,
-) -> CandidateRemediation | None:
-    """Ask for a fix. None when the model would not give one.
+) -> Outcome[CandidateRemediation]:
+    """Ask for a fix, as a value or a reason.
 
     Never raises. This is reached from a button on a page, and a model that
     times out or answers in the wrong shape should leave the reader where they
     were rather than showing them a stack trace.
+
+    The reason travels with it because "there is no patch" and "the patch call
+    died" look the same on screen otherwise -- and the surface was offering
+    고칠 코드 만들기 for a call that had already failed on the token limit.
     """
     try:
         return caller.call(
@@ -155,4 +159,4 @@ def propose(
         )
     except Exception as err:  # noqa: BLE001 - reported to the reader as "no fix", not raised
         log.warning("fix proposal failed for %s: %s", span.file, err)
-        return None
+        return Outcome.failed("transport")

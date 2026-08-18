@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from agent.llm import Outcome
+
 from agent import promptstore
 from agent.promptstore import DEFAULTS, NAMES, UnknownPrompt
 
@@ -128,7 +130,7 @@ def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
         def call(self, schema, system, user, trace=None):  # noqa: ANN001
             self.systems.append(system)
-            return None
+            return Outcome.failed("refused")
 
         def gather(self, system, user, session, budget, trace=None):  # noqa: ANN001
             return ""

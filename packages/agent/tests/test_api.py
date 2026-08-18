@@ -15,6 +15,8 @@ from typing import Any, Iterator
 
 import pytest
 
+from agent.llm import Outcome
+
 pytest.importorskip("fastapi", reason="the API extras are not installed")
 pytest.importorskip("httpx", reason="fastapi.testclient needs httpx")
 
@@ -666,10 +668,10 @@ class _SilentCaller:
         from agent.schema import ChunkAnalysis, Verdict
 
         if schema is ChunkAnalysis:
-            return ChunkAnalysis()
+            return Outcome.of(ChunkAnalysis())
         if schema is Verdict:
-            return Verdict(refuted=False, reason="holds", confidence=0.9)
-        return None
+            return Outcome.of(Verdict(refuted=False, reason="holds", confidence=0.9))
+        return Outcome.failed("refused")
 
     def gather(self, system: str, user: str, session: Any, budget: int, trace: Any = None) -> str:
         return ""
@@ -873,7 +875,7 @@ def test_a_replay_leaves_the_recorded_run_alone(client: TestClient, monkeypatch)
             self.llm = self
 
         def call(self, schema, system, user, trace=None):  # noqa: ANN001
-            return schema(findings=[], note=f"saw: {system[:12]}")
+            return Outcome.of(schema(findings=[], note=f"saw: {system[:12]}"))
 
     monkeypatch.setattr(routes, "StructuredCaller", FakeCaller)
 
@@ -915,7 +917,7 @@ def test_an_unedited_replay_reuses_what_the_span_recorded(client: TestClient, mo
 
         def call(self, schema, system, user, trace=None):  # noqa: ANN001
             seen.update(system=system, user=user)
-            return schema(findings=[], note="")
+            return Outcome.of(schema(findings=[], note=""))
 
     monkeypatch.setattr(routes, "StructuredCaller", FakeCaller)
 

@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from agent.llm import Outcome
 from pydantic import BaseModel
 
 from agent.config import AgentConfig
@@ -96,13 +98,13 @@ class ScriptedCaller:
         if schema is ChunkAnalysis:
             for symbol, analysis in self.analyses.items():
                 if f":: {symbol} " in user:
-                    return analysis
-            return self.default_analysis
+                    return Outcome.of(analysis)
+            return Outcome.of(self.default_analysis)
         if schema is Verdict:
-            return self.verdict
+            return Outcome.of(self.verdict)
         if schema is Triage:
-            return self.triage
-        return None
+            return Outcome.of(self.triage)
+        return Outcome.failed("refused")
 
     def prompts_for(self, schema_name: str) -> list[str]:
         return [text for name, text in self.prompts if name == schema_name]
@@ -243,17 +245,61 @@ def test_refuted_findings_do_not_reach_the_report(indexed) -> None:
     store.close()
 
 
-def test_a_missing_verdict_counts_against_the_finding(indexed) -> None:
-    """No answer is not a pass. Uncertainty must not become a marker."""
+def test_a_verifier_that_breaks_does_not_refute_the_finding(indexed) -> None:
+    """A dead call is not a considered negative judgement.
+
+    This used to read `verdict is None or verdict.refuted`, so a timeout or a
+    token-limit failure deleted the claim from the report and counted it as
+    refuted. That is not a missing answer, it is a wrong one -- and it is the
+    only place in the pipeline that could lose a real bug to a transport error.
+
+    A run of three files lost the memory analysis of two units this way and
+    reported itself complete.
+
+    The claim survives, unverified, at a confidence that reads as uncertain --
+    the same standing `over_cap` gets, and one the web renders as 취약 후보
+    rather than 취약 확인.
+    """
     root, store = indexed
 
-    class NoVerdict(ScriptedCaller):
+    class BrokenVerifier(ScriptedCaller):
         def call(self, schema: type[BaseModel], system: str, user: str, trace: Any = None) -> Any:
             if schema is Verdict:
-                return None
+                return Outcome.failed("length")
             return super().call(schema, system, user, trace)
 
-    caller = NoVerdict(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    caller = BrokenVerifier(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    report = _run(root, store, caller)
+
+    assert len(report.findings) == 1
+    assert report.findings[0].verified is False
+    assert report.findings[0].confidence < 0.5
+    # Not refuted: nothing ruled on it.
+    assert report.stats.refuted == 0
+    # And the failure is counted rather than silently absorbed, which is what
+    # the caller's docstring promised for years and nothing implemented.
+    assert report.stats.failed >= 1
+    store.close()
+
+
+def test_a_verdict_that_never_arrives_still_counts_as_refuted(indexed) -> None:
+    """The distinction the test above depends on.
+
+    A *missing* ruling means the verifier was never reached -- the fan-out
+    broke, or the claim never got there -- and that still counts against the
+    finding. Only a ruling that says its own call failed is exempt.
+    """
+    root, store = indexed
+
+    class NoVerdictAtAll(ScriptedCaller):
+        """Answers verify with a refusal the graph never sees as a ruling."""
+
+        def call(self, schema: type[BaseModel], system: str, user: str, trace: Any = None) -> Any:
+            if schema is Verdict:
+                return Outcome.of(Verdict(refuted=True, reason="not a real finding", confidence=0.1))
+            return super().call(schema, system, user, trace)
+
+    caller = NoVerdictAtAll(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
     report = _run(root, store, caller)
 
     assert report.findings == []
@@ -947,7 +993,7 @@ def test_screening_that_fails_analyses_anyway(indexed) -> None:
         def call(self, schema: type[BaseModel], system: str, user: str, trace: Any = None) -> Any:
             if schema is Triage:
                 self.prompts.append((schema.__name__, user))
-                return None
+                return Outcome.failed("refused")
             return super().call(schema, system, user, trace)
 
     root, store = indexed
@@ -1151,7 +1197,7 @@ def test_a_wave_closes_exactly_once_when_a_chunk_is_screened_out(indexed) -> Non
             if schema is Triage:
                 self.prompts.append((schema.__name__, user))
                 worth = any(f":: {name} " in user for name in only_run_command)
-                return Triage(worth_analysing=worth, lenses=[], reason="")
+                return Outcome.of(Triage(worth_analysing=worth, lenses=[], reason=""))
             return super().call(schema, system, user, trace)
 
     caller = Selective(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
@@ -1322,7 +1368,7 @@ def test_a_surviving_finding_gets_its_fix_during_the_run(indexed) -> None:
         def call(self, schema, system, user, trace=None):
             if schema is CandidateRemediation:
                 self.traces.append(trace)
-                return CandidateRemediation(summary="셸을 거치지 마십시오", detail="배열로 넘기기", replacement="  execv(cmd);")
+                return Outcome.of(CandidateRemediation(summary="셸을 거치지 마십시오", detail="배열로 넘기기", replacement="  execv(cmd);"))
             return super().call(schema, system, user, trace)
 
     caller = Fixer(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})

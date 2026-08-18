@@ -1,7 +1,8 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
+import { Loader2, TriangleAlert } from "lucide-react";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
+import { useMemo } from "react";
 
 import ExplorerPane from "@/features/agent/ExplorerPane";
 import RunHistory from "@/features/agent/RunHistory";
@@ -10,6 +11,8 @@ import Units from "@/features/agent/nav/Units";
 import { useFindings, useRun } from "@/lib/run/queries";
 import { phaseFor, type RunLive, type RunPhase } from "@/lib/run/reduce";
 import { useRunStream } from "@/lib/run/stream";
+import { useSpans } from "@/lib/run/trace-queries";
+import { failuresOf } from "@/lib/trace/failures";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
 
@@ -36,8 +39,15 @@ export default function Navigator() {
   const run = useRun(runId);
   const findings = useFindings(runId);
 
+  const spans = useSpans(runId);
+  const failed = useMemo(() => failuresOf(spans.data?.spans ?? []).length, [spans.data]);
+
   const phase = phaseFor(streamed, run.data?.status);
   const live_ = phase === "running" || phase === "starting" || phase === "paused";
+  // Shown after a run as well as during one, when it has something to say. A
+  // finished run that lost three calls is not the same as a finished run, and
+  // green with no qualifier is the only thing this used to be able to say.
+  const speaks = live_ || failed > 0;
   const count = findings.data?.findings?.length ?? 0;
   const files = run.data?.file_count ?? 0;
   const units = findings.data?.stats?.chunks_total ?? 0;
@@ -59,7 +69,7 @@ export default function Navigator() {
         <RunHistory />
       </header>
 
-      {live_ && <Progress phase={phase} live={live} />}
+      {speaks && <Progress phase={phase} live={live} failed={failed} />}
 
       {/*
         One list, two subjects, switched.
@@ -136,8 +146,8 @@ const PHASE_LABEL: Record<RunPhase, string> = {
   failed: "검사 실패",
 };
 
-/** Where the run is, while it is anywhere. */
-function Progress({ phase, live }: { phase: RunPhase; live: RunLive }) {
+/** Where the run is, and what it did not manage on the way. */
+function Progress({ phase, live, failed }: { phase: RunPhase; live: RunLive; failed: number }) {
   const busy = phase === "running" || phase === "starting";
   // The node names as the graph and the stream spell them. Deduplicated,
   // because four verifiers in flight is one activity.
@@ -146,9 +156,20 @@ function Progress({ phase, live }: { phase: RunPhase; live: RunLive }) {
   return (
     <div className="flex shrink-0 items-center gap-1.5 border-b border-line px-2.5 py-1.5">
       {busy && <Loader2 className="size-3 shrink-0 animate-spin text-accent-ink" />}
-      <span className={cn("shrink-0 text-2xs font-medium", busy ? "text-accent-ink" : "text-warn")}>
-        {PHASE_LABEL[phase]}
+      <span
+        className={cn(
+          "shrink-0 text-2xs font-medium",
+          busy ? "text-accent-ink" : failed > 0 ? "text-warn" : "text-ok",
+        )}
+      >
+        {PHASE_LABEL[phase] || "검사 완료"}
       </span>
+      {failed > 0 && (
+        <span className="flex shrink-0 items-center gap-1 text-2xs text-warn" title="모델 호출이 실패했습니다">
+          <TriangleAlert className="size-3" />
+          실패 {failed}
+        </span>
+      )}
       {doing && <span className="min-w-0 truncate font-mono text-2xs text-ink-faint">{doing}</span>}
     </div>
   );

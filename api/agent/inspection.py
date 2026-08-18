@@ -483,10 +483,19 @@ def run_propose(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
         excerpt=excerpt,
         context=text,
     )
-    if candidate is None or not (candidate.replacement or "").strip():
+    if not candidate.ok:
+        # Said rather than swallowed. A model that ran out of completion tokens
+        # mid-object is a different thing from one that judged the line
+        # unfixable, and the reader was being told the second when it was the
+        # first.
+        raise HTTPException(
+            status_code=503 if candidate.reason == "transport" else 409,
+            detail=f"고칠 코드를 만들지 못했습니다 ({candidate.reason}).",
+        )
+    if not (candidate.value.replacement or "").strip():
         raise HTTPException(status_code=409, detail="이 문제는 해당 줄만 바꿔서는 고칠 수 없습니다.")
 
-    built = build_remediation(candidate, span, text)
+    built = build_remediation(candidate.value, span, text)
     if not built.replacement:
         # Re-indented to exactly what is already there: a fix that changes
         # nothing, which is not a fix.

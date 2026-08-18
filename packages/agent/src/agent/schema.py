@@ -243,6 +243,12 @@ class RunStats(BaseModel):
     candidates: int = 0
     dropped_unlocatable: int = 0
     refuted: int = 0
+    #: Model calls that produced nothing -- a token limit hit mid-object, a
+    #: timeout, a reply of the wrong shape. Counted because the alternative is
+    #: what this used to be: a run that lost two analyses and a patch, and
+    #: reported itself complete. A partial result is still useful; a partial
+    #: result presented as a whole one is not.
+    failed: int = 0
 
 
 class Report(BaseModel):

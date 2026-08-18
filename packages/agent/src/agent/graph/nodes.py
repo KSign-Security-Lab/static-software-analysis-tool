@@ -19,6 +19,10 @@ payload, not in graph state -- `finding`, `lens` and `chunk_id` are not channels
 super-step with no claim in front of it, return nothing, and let `reduce` count
 every finding as refuted. Silently.
 
+A *missing* ruling still counts as refuted, because it means the verifier was
+never reached. A ruling that says its call *failed* does not: that claim was put
+to a verifier and the verifier broke, which is not a judgement about the claim.
+
 Built by :func:`make_nodes` so they close over the store, the model client and
 the run root instead of carrying them in graph state.
 """
@@ -302,7 +306,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         if chunk is None:
             return {}
 
-        result = deps.caller.call(
+        outcome = deps.caller.call(
             Triage,
             deps.prompts["triage"],
             triage_user(chunk, deps.config.max_chunk_chars),
@@ -316,10 +320,17 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             ),
         )
 
-        if result is None:
-            log.info("triage produced nothing for %s; analysing it anyway", chunk.symbol)
-            verdict = {"worth": True, "lenses": list(deps.config.lenses), "reason": "screening failed"}
-            return {"triaged": {chunk.chunk_id: verdict}}
+        if not outcome.ok:
+            log.info("triage produced nothing for %s (%s); analysing it anyway", chunk.symbol, outcome.reason)
+            verdict = {
+                "worth": True,
+                "lenses": list(deps.config.lenses),
+                "reason": f"선별 실패 ({outcome.reason})",
+            }
+            # Fail-open and counted. Analysing a unit the screen could not judge
+            # is the safe direction, but it is still a call that did not happen.
+            return {"triaged": {chunk.chunk_id: verdict}, "stats": {"failed": 1}}
+        result = outcome.value
 
         # An empty list means "all of them", per the prompt, and the config is
         # still the ceiling: a lens that is switched off is switched off.
@@ -401,12 +412,13 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             return {"scouted": {chunk.chunk_id: whole}, "stats": {"regions": 1}}
 
         found: list[Region] = []
+        failed = 0
         # Half the budget, because a window is only the code: the pack built
         # around each region still has to fit its callee notes, type definitions
         # and callers into the same window afterwards.
         windows = line_windows(chunk, max(2_000, budget // 2))
         for first, last in windows:
-            result = deps.caller.call(
+            outcome = deps.caller.call(
                 Scout,
                 deps.prompts["scout"],
                 scout_user(chunk, first, last, whole=len(windows) == 1),
@@ -419,13 +431,20 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     subject=f"{chunk.symbol} {first}-{last}",
                 ),
             )
-            if result is not None:
-                found.extend(result.regions)
+            if outcome.ok:
+                found.extend(outcome.value.regions)
+            else:
+                # Reading the whole unit instead of a narrowed window is safe --
+                # it costs tokens, not coverage -- but it is still a lost call.
+                failed += 1
 
         regions = _tidy(found, chunk) or whole
         if regions == whole:
             log.info("scout found nothing to narrow in %s; reading it whole", chunk.symbol)
-        return {"scouted": {chunk.chunk_id: regions}, "stats": {"regions": len(regions)}}
+        stats: dict[str, int] = {"regions": len(regions)}
+        if failed:
+            stats["failed"] = failed
+        return {"scouted": {chunk.chunk_id: regions}, "stats": stats}
 
     def analyst(lens: Lens) -> InspectionNode:
         """One specialist, as a node. Four of these run at once."""
@@ -462,7 +481,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     ),
                 )
 
-            result = deps.caller.call(
+            outcome = deps.caller.call(
                 ChunkAnalysis,
                 deps.prompts[lens_prompt(lens)],
                 analyse_user(pack, looked_up),
@@ -475,9 +494,15 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     subject=chunk.symbol if region is None else f"{chunk.symbol} {region[0]}-{region[1]}",
                 ),
             )
-            if result is None:
-                log.warning("%s produced nothing usable for %s", lens, chunk.symbol)
-                return {}
+            if not outcome.ok:
+                # The unit was NOT analysed by this lens. It used to return an
+                # empty dict here, which is indistinguishable from "looked and
+                # found nothing" -- and that is how a real buffer overflow was
+                # lost: `memory` died on the token limit while `injection`
+                # succeeded, so the unit looked fully read and was not.
+                log.warning("%s produced nothing usable for %s (%s)", lens, chunk.symbol, outcome.reason)
+                return {"stats": {"failed": 1}}
+            result = outcome.value
 
             # Written even with no findings: "this sanitises its input" is as
             # useful to a caller as a warning. Whichever lens has something to
@@ -653,7 +678,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         # copy of it in every checkpoint from here to the end of the run.
         gathered = state.get("gathered") or ""
 
-        verdict = deps.caller.call(
+        outcome = deps.caller.call(
             Verdict,
             deps.prompts["verify"],
             verify_user(finding, pack, gathered),
@@ -668,17 +693,31 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             ),
         )
 
-        # No verdict is not a pass.
-        refuted = verdict is None or verdict.refuted
+        verdict = outcome.value
+        # A call that died is not a refutation.
+        #
+        # This used to read `verdict is None or verdict.refuted`, so a timeout or
+        # a token-limit failure was recorded as a considered negative judgement
+        # and the finding was dropped from the report. That is not a missing
+        # answer, it is a wrong one -- and it is the only place in the pipeline
+        # that could delete a real bug on a transport error.
+        #
+        # Unverified now, which `standingOf` on the web already renders as
+        # 취약 후보 rather than 취약 확인: a candidate the run could not rule on.
+        refuted = verdict.refuted if verdict is not None else False
         return {
             "verdicts": [
                 {
                     "finding_id": finding.id,
                     "refuted": refuted,
+                    "verified": verdict is not None,
                     "confidence": verdict.confidence if verdict is not None else 0.0,
-                    **({"remediation": _fix(finding, chunk, raised_by)} if not refuted else {}),
+                    # Not for a claim nobody ruled on: a fix for an unverified
+                    # candidate is model time spent on a maybe.
+                    **({"remediation": _fix(finding, chunk, raised_by)} if verdict is not None and not refuted else {}),
                 }
-            ]
+            ],
+            **({} if verdict is not None else {"stats": {"failed": 1}}),
         }
 
     def _fix(finding: Finding, chunk: Chunk, raised_by: str | None) -> dict[str, Any] | None:
@@ -727,9 +766,12 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                 lens=raised_by,
             ),
         )
-        if candidate is None:
+        if not candidate.ok:
+            # Silence in the report, but the trace has the span with its error
+            # on it -- which is what lets the surface say `고칠 코드 생성 실패`
+            # rather than offering to generate a fix that has already failed.
             return None
-        built = build_remediation(candidate, span, text)
+        built = build_remediation(candidate.value, span, text)
         return built.model_dump() if built.replacement else None
 
     def reduce(state: InspectionState) -> dict[str, Any]:
@@ -754,6 +796,16 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                 ruling = rulings.get(finding.id)
                 if ruling is None or ruling.get("refuted"):
                     refuted += 1
+                    continue
+                if not ruling.get("verified", True):
+                    # The verifier was reached and its call died. Same standing
+                    # as `over_cap` above -- never actually ruled on, so neither
+                    # confirmed nor refuted, at a confidence that reads as one.
+                    # It survives into the report as a candidate rather than
+                    # being deleted, which is what a failed call used to do.
+                    finding.verified = False
+                    finding.confidence = 0.3
+                    by_chunk.setdefault(str(item["chunk_id"]), []).append(finding.model_dump())
                     continue
                 finding.verified = True
                 finding.confidence = float(ruling.get("confidence", 0.0))

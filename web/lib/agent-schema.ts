@@ -46,6 +46,7 @@ export interface RunStats {
   candidates?: number;
   dropped_unlocatable?: number;
   refuted?: number;
+  failed?: number;
 }
 
 export interface Span {
