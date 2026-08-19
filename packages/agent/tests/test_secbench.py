@@ -318,3 +318,46 @@ def test_the_sweep_is_never_imported_by_the_request_path() -> None:
     for name in ("graph/build.py", "graph/nodes.py", "graph/session.py", "llm.py", "mcp/server.py"):
         source = (package / name).read_text(encoding="utf-8")
         assert "bench" not in source.replace("benchmark", ""), f"{name} reaches the sweep"
+
+
+def test_a_sweep_resumes_rather_than_starting_over(tmp_path: Path, monkeypatch) -> None:
+    """What makes it safe to leave running.
+
+    A sweep is measured in days on a shared machine. A crash at the hundred and
+    ninetieth instance should cost one instance, not the week -- so an instance
+    with a result already on disk is carried forward and never re-run.
+    """
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    from agent.bench import runner as bench_runner
+    from agent.bench.runner import Attempt, sweep
+
+    config = BenchConfig()
+    bench_runner._write_attempt(Attempt(instance_id="p.cve-0", patch="diff --git a/x b/x\n"), config)
+
+    ran: list[str] = []
+    monkeypatch.setattr(bench_runner, "prepare", lambda instance, _c: ran.append(instance.instance_id) or True)
+    monkeypatch.setattr(bench_runner, "run_one", lambda instance, _c: Attempt(instance_id=instance.instance_id))
+
+    instances = [ds.Instance.from_record({**RECORD, "instance_id": f"p.cve-{n}"}) for n in range(3)]
+    attempts = sweep(instances, config)
+
+    assert ran == ["p.cve-1", "p.cve-2"], "the finished instance must not be touched again"
+    assert len(attempts) == 3, "and it must still be in the result"
+    assert attempts[0].patch, "carried forward with what it produced"
+
+
+def test_asking_for_the_work_again_is_possible(tmp_path: Path, monkeypatch) -> None:
+    """A new model makes every previous answer about a different system."""
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    from agent.bench import runner as bench_runner
+    from agent.bench.runner import Attempt, sweep
+
+    config = BenchConfig()
+    bench_runner._write_attempt(Attempt(instance_id="p.cve-0"), config)
+
+    ran: list[str] = []
+    monkeypatch.setattr(bench_runner, "prepare", lambda instance, _c: ran.append(instance.instance_id) or True)
+    monkeypatch.setattr(bench_runner, "run_one", lambda instance, _c: Attempt(instance_id=instance.instance_id))
+
+    sweep([ds.Instance.from_record({**RECORD, "instance_id": "p.cve-0"})], config, resume=False)
+    assert ran == ["p.cve-0"]

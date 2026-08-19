@@ -233,16 +233,33 @@ def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig |
     return attempt
 
 
-def sweep(instances: Sequence[Instance], config: BenchConfig) -> list[Attempt]:
+def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = True) -> list[Attempt]:
     """Every instance, in order, writing as it goes.
 
-    Written after each rather than at the end: a sweep is hours, and a crash at
-    the two-hundredth should not lose the first hundred and ninety-nine.
+    Written after each rather than at the end, and **resumable by default**: a
+    sweep is measured in days, the machine it runs on is shared, and a crash at
+    the hundred and ninetieth should cost one instance rather than the week. An
+    instance with an `attempt.json` already on disk is skipped and its result
+    carried forward, so re-running the same command continues rather than
+    starting over.
+
+    `resume=False` is how you ask for the work again -- a new model, say, where
+    every previous answer is about a different system.
     """
     config.runs_dir.mkdir(parents=True, exist_ok=True)
+
+    done = {attempt.instance_id: attempt for attempt in load_attempts(config)} if resume else {}
     attempts: list[Attempt] = []
+    todo = [instance for instance in instances if instance.instance_id not in done]
+    if done:
+        log.info("bench: %d already done, %d to go", len(done), len(todo))
 
     for position, instance in enumerate(instances, start=1):
+        carried = done.get(instance.instance_id)
+        if carried is not None:
+            attempts.append(carried)
+            continue
+
         log.info("bench: [%d/%d] %s", position, len(instances), instance.instance_id)
         if not prepare(instance, config):
             attempts.append(
@@ -256,6 +273,8 @@ def sweep(instances: Sequence[Instance], config: BenchConfig) -> list[Attempt]:
             attempts.append(run_one(instance, config))
 
         _write_attempt(attempts[-1], config)
+        # Rewritten every instance so an interrupted sweep still has a
+        # `preds.json` covering everything that finished.
         write_predictions(attempts, config)
 
         if config.prune_after:
