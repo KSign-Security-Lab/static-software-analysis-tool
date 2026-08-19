@@ -3,6 +3,7 @@
 import { CircleSlash, Info } from "lucide-react";
 
 import { useDataset, useDatasetId } from "@/lib/bench/queries";
+import Sweep from "@/features/bench/Sweep";
 import {
   OUTCOME_DOT,
   OUTCOME_LABEL,
@@ -54,6 +55,8 @@ export default function Scoreboard() {
       </header>
 
       <Progress view={view.data} />
+      {/* Only the held-out set has a sweep to run; the corpus is a directory. */}
+      {dataset.kind === "held_out" && <Sweep />}
       <Breakdown view={view.data} />
 
       {dataset.excluded_tracks.length > 0 && (

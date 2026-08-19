@@ -174,3 +174,23 @@ export function groupByOutcome(
     .filter((outcome) => (groups.get(outcome) ?? []).length > 0)
     .map((outcome) => ({ outcome, label: OUTCOME_LABEL[outcome], items: groups.get(outcome) ?? [] }));
 }
+
+/**
+ * What the sweep is doing, read off disk rather than held in the API.
+ *
+ * A run started here outlives the page that started it -- its own session, its
+ * own process group, its own log -- so this is the same answer in every browser
+ * and after every restart. Coming back two days later and finding the panel
+ * still tracking the run is the whole point of it being a file.
+ */
+export interface SweepStatus {
+  running: boolean;
+  pid: number | null;
+  started_at: number | null;
+  /** The instance it is on, when it is on one. */
+  instance: string | null;
+  position: number | null;
+  of: number | null;
+  log: string[];
+  log_path: string;
+}

@@ -1,23 +1,31 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryState } from "nuqs";
 
-import { get } from "@/lib/api/client";
-import type { DatasetList, DatasetView } from "@/lib/bench/types";
+import { del, get, post } from "@/lib/api/client";
+import type { DatasetList, DatasetView, SweepStatus } from "@/lib/bench/types";
 
 /**
- * Reading the benchmark. Reads only -- there is no mutation here on purpose.
+ * Reading the benchmark, and running it.
  *
- * The sweep runs offline and this shows what it recorded. A start button would
- * put iterating against a held-out benchmark one click away, and the moment we
- * tune against it, it stops measuring us.
+ * The results are still read-only: nothing here edits an outcome, and the
+ * score is whatever the sweep left on disk. What the start button does is
+ * spawn the same script you would run in tmux, detached, so a two-day job does
+ * not require a terminal.
+ *
+ * The original argument against a button was that a held-out benchmark you can
+ * re-run at a click is one you will end up tuning against. What makes it safe
+ * is the other half of that rule, which is enforced by a test: the agent's own
+ * graph cannot import the benchmark at all, so re-running it never feeds back
+ * into the thing being measured.
  */
 
 const keys = {
   all: ["bench"] as const,
   datasets: () => ["bench", "datasets"] as const,
   dataset: (id: string) => ["bench", "dataset", id] as const,
+  sweep: () => ["bench", "sweep"] as const,
 };
 
 export function useDatasets() {
@@ -29,10 +37,14 @@ export function useDatasets() {
 }
 
 export function useDataset(id: string | null) {
+  // While a sweep is writing, this list is a live view of it: results appear as
+  // instances finish rather than when the run does.
+  const sweep = useSweep();
   return useQuery({
     queryKey: keys.dataset(id ?? ""),
     queryFn: () => get<DatasetView>(`/bench/${id}`),
     enabled: Boolean(id),
+    refetchInterval: sweep.data?.running ? 15_000 : false,
   });
 }
 
@@ -49,4 +61,44 @@ export function useDatasetId() {
 
 export function useInstanceId() {
   return useQueryState("instance", parseAsString.withOptions({ history: "replace" }));
+}
+
+/**
+ * The running sweep, polled.
+ *
+ * Fast while it is running because the log is the only sign of life, slow
+ * otherwise because a stopped sweep will not start itself. `refetchInterval`
+ * takes the previous result, so the rate follows the state without a effect.
+ */
+export function useSweep() {
+  return useQuery({
+    queryKey: keys.sweep(),
+    queryFn: () => get<SweepStatus>("/bench/sweep"),
+    refetchInterval: (query) => (query.state.data?.running ? 5_000 : 30_000),
+    // It keeps running when the tab is in the background, which is where a
+    // two-day job spends its life.
+    refetchIntervalInBackground: true,
+  });
+}
+
+export function useStartSweep() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => post<SweepStatus>("/bench/sweep"),
+    onSuccess: (status) => {
+      client.setQueryData(keys.sweep(), status);
+      client.invalidateQueries({ queryKey: keys.all });
+    },
+  });
+}
+
+export function useStopSweep() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => del<SweepStatus>("/bench/sweep"),
+    onSuccess: (status) => {
+      client.setQueryData(keys.sweep(), status);
+      client.invalidateQueries({ queryKey: keys.all });
+    },
+  });
 }

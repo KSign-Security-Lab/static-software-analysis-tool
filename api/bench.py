@@ -266,10 +266,10 @@ SEC_BENCH = Dataset(
         }
     ],
     how_to_run=(
-        "터미널에서: docker compose --profile secbench up -d 로 전용 도커를 띄우고, "
-        "agent bench fetch → prepare → run → score 순서로 돌립니다. "
-        "SECB_LIMIT=10 으로 일부만 먼저 돌려 보는 편이 낫습니다 — 200건은 하루로 끝나지 않습니다. "
-        "이 화면에는 실행 단추가 없습니다: 고정 대상을 한 번 누르면 돌아가게 해 두면, 결국 그것에 맞춰 조정하게 됩니다."
+        "위 시작 단추를 누르면 서버에서 따로 떨어져 돌아갑니다. "
+        "브라우저를 닫아도, 이 창을 떠나도, API가 다시 떠도 계속됩니다 — 며칠 뒤에 다시 열면 그동안의 진행이 그대로 보입니다. "
+        "끝난 건은 건너뛰므로 중지했다가 다시 시작해도 이어서 진행됩니다. "
+        "다만 서버가 재부팅되면 멈춥니다. 그때는 다시 시작을 누르면 됩니다."
     ),
 )
 
@@ -606,6 +606,53 @@ def _model_for(config_hash: str) -> str | None:
 def list_datasets() -> Dict[str, Any]:
     """Every dataset this page can show, with its kind and its words."""
     return {"datasets": [d.model_dump() for d in DATASETS], "stages": [{"id": s, "label": label} for s, label in STAGES]}
+
+
+# The three below are declared before `/{dataset_id}` because FastAPI matches in
+# declaration order and `sweep` is a perfectly good dataset id as far as the
+# path converter is concerned.
+
+
+@router.get("/sweep")
+def read_sweep() -> Dict[str, Any]:
+    """Whether a sweep is running, and what it is on.
+
+    Read off disk, so the answer is the same in every browser and survives the
+    API restarting under it. A run started here outlives the page that started
+    it -- that is the only shape a two-hundred-instance job can have.
+    """
+    from api import sweep
+
+    return sweep.status()
+
+
+@router.post("/sweep")
+def start_sweep() -> Dict[str, Any]:
+    """Start it, detached.
+
+    The page this sits behind was specified read-only, and the reason still
+    holds for the *results*: a held-out benchmark you can re-run at a click is
+    one you will end up tuning against. What makes the button safe is that the
+    agent's own graph cannot see the benchmark at all -- there is a test on it --
+    so no amount of re-running feeds back into what is being measured.
+    """
+    from api import sweep
+
+    try:
+        return sweep.start()
+    except RuntimeError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
+
+
+@router.delete("/sweep")
+def stop_sweep() -> Dict[str, Any]:
+    """Stop it. Resumable, so this costs the instance in flight and nothing else."""
+    from api import sweep
+
+    try:
+        return sweep.stop()
+    except RuntimeError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
 
 
 @router.get("/{dataset_id}")

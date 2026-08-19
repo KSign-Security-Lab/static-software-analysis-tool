@@ -285,3 +285,104 @@ def test_exact_and_family_are_reported_apart(monkeypatch) -> None:
     )
     assert score.solved == 2
     assert score.exact == 1
+
+
+# -- the sweep, started from the surface -------------------------------------
+#
+# A two-day job behind a button is only honest if the run outlives the page, so
+# these are about detachment and about the log the page reads back.
+
+
+def test_the_run_is_detached_from_the_api_that_started_it(tmp_path, monkeypatch) -> None:
+    """The load-bearing argument.
+
+    Without its own session the sweep is a child of a uvicorn worker, and
+    uvicorn's reloader kills its children on every file save. A two-day run that
+    ended because somebody fixed a typo would be worse than no button.
+    """
+    from api import sweep
+
+    monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", tmp_path / "l", tmp_path / "b"))
+    seen: dict = {}
+
+    class Fake:
+        pid = 4242
+
+    def fake_popen(argv, **kwargs):
+        seen.update(kwargs)
+        return Fake()
+
+    monkeypatch.setattr(sweep.subprocess, "Popen", fake_popen)
+    sweep.start()
+
+    assert seen["start_new_session"] is True
+
+
+def test_the_log_is_not_written_twice(tmp_path, monkeypatch) -> None:
+    """The script's own `tee` writes the log *and* passes through to whatever it
+    inherited, so pointing the child's stdout at the same file doubled every
+    line -- which read as a stutter in the panel and as a corrupted log on disk.
+    """
+    import subprocess as sp
+
+    from api import sweep
+
+    monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", tmp_path / "l", tmp_path / "b"))
+    seen: dict = {}
+
+    class Fake:
+        pid = 4243
+
+    monkeypatch.setattr(sweep.subprocess, "Popen", lambda argv, **kw: (seen.update(kw), Fake())[1])
+    sweep.start()
+
+    assert seen["stdout"] is sp.DEVNULL
+    # stderr still goes somewhere: it is the only place a failure before the
+    # script starts logging could be reported.
+    assert seen["stderr"] is not sp.DEVNULL
+
+
+def test_a_stale_pidfile_does_not_report_a_running_sweep(tmp_path, monkeypatch) -> None:
+    """Pidfiles outlive their processes and pids get reused. Signal 0 says
+    something is there; only the cmdline says it is ours."""
+    from api import sweep
+
+    monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", tmp_path / "l", tmp_path / "b"))
+    # This process is certainly alive and is certainly not the sweep.
+    (tmp_path / "p").write_text('{"pid": %d, "started_at": 1}' % __import__("os").getpid())
+
+    assert sweep.status()["running"] is False
+
+
+def test_the_panel_shows_the_sweep_and_not_the_agent_talking_to_itself(tmp_path, monkeypatch) -> None:
+    """The MCP server logs a request per tool call. At three thousand tool calls
+    an hour that is the entire tail, and the progress line -- the one thing
+    somebody checking on a long run wants -- is never on screen."""
+    from api import sweep
+
+    log = tmp_path / "l"
+    log.write_text(
+        "INFO Processing request of type            server.py:733\n"
+        "                             CallToolRequest\n"
+        "\x1b[36mbench: [7/200] njs.cve-2022-32414\x1b[0m\n"
+        f"WARNING agent.llm: content='' additional_kwargs={{'x': '{'y' * 500}'}}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", log, tmp_path / "b"))
+
+    found = sweep.status()
+
+    assert found["log"] == ["bench: [7/200] njs.cve-2022-32414"], "escape codes and noise both gone"
+    assert (found["position"], found["of"]) == (7, 200)
+
+
+def test_a_failure_before_logging_starts_is_still_reported(tmp_path, monkeypatch) -> None:
+    """The script takes over its own logging a few lines in. Anything that goes
+    wrong before then -- an unreadable `.env`, a missing bash -- would otherwise
+    leave the panel showing the previous run and no reason at all."""
+    from api import sweep
+
+    (tmp_path / "b").write_text("bash: .env: Permission denied\n", encoding="utf-8")
+    monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", tmp_path / "l", tmp_path / "b"))
+
+    assert any("Permission denied" in line for line in sweep.status()["log"])
