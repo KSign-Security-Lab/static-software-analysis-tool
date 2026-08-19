@@ -494,7 +494,7 @@ def cmd_bench(args: argparse.Namespace) -> int:
 
     if args.action == "run":
         print(f"  {len(chosen)} instance(s); each is a pull, an inspection and a patch")
-        attempts = bench_runner.sweep(chosen, config)
+        attempts = bench_runner.sweep(chosen, config, resume=config.resume)
         produced = sum(1 for a in attempts if a.patch)
         print(f"  {produced}/{len(attempts)} produced a patch -> {config.predictions_file}")
         return 0

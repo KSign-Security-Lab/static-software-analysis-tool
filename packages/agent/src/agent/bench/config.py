@@ -30,6 +30,7 @@ ENV_DOCKER_HOST = "SECB_DOCKER_HOST"
 ENV_IMAGE_PREFIX = "SECB_IMAGE_PREFIX"
 ENV_IMAGE_TAG = "SECB_IMAGE_TAG"
 ENV_PRUNE = "SECB_PRUNE"
+ENV_RESUME = "SECB_RESUME"
 ENV_CONTEXT = "SECB_CONTEXT"
 ENV_CALLER_DEPTH = "SECB_CALLER_DEPTH"
 ENV_AGENT_TIMEOUT = "SECB_AGENT_TIMEOUT"
@@ -161,6 +162,11 @@ class BenchConfig:
     #: accounts, so keeping every image would take most of the headroom
     #: everyone on it depends on. Off trades that space for not re-downloading.
     prune_after: bool = field(default_factory=lambda: os.getenv(ENV_PRUNE, "1") != "0")
+    #: Carry forward an instance that already has a result rather than redoing
+    #: it. On by default -- it is what makes a multi-day sweep safe to
+    #: interrupt. Turned off to re-run a chosen few, which is the only case
+    #: where spending the pull again is the point.
+    resume: bool = field(default_factory=lambda: os.getenv(ENV_RESUME, "1") != "0")
 
     #: What the agent sees. See :data:`CONTEXTS`.
     context: str = field(default_factory=lambda: _env_choice(ENV_CONTEXT, CONTEXTS, "sanitizer"))
@@ -235,6 +241,7 @@ class BenchConfig:
             "image_prefix": self.image_prefix,
             "image_tag": self.image_tag,
             "prune_after": self.prune_after,
+            "resume": self.resume,
             "context": self.context,
             "caller_depth": self.caller_depth,
             "agent_timeout": self.agent_timeout,

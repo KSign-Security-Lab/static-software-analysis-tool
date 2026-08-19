@@ -3,9 +3,11 @@
 import { FlaskConical } from "lucide-react";
 import { useMemo } from "react";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/workbench/PanelShell";
 import { useDataset, useDatasetId, useInstanceId } from "@/lib/bench/queries";
 import { useDatasets } from "@/lib/bench/queries";
+import { setMany, toggle, useSelection } from "@/lib/bench/selection";
 import { OUTCOME_DOT, groupByOutcome } from "@/lib/bench/types";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +34,11 @@ export default function Instances() {
   );
 
   const datasets = catalogue.data?.datasets ?? [];
+  const chosen = useSelection(datasetId);
+  const ticked = useMemo(() => new Set(chosen), [chosen]);
+  // Only the sets that have a sweep to run. Ticking a corpus file would offer
+  // to run something there is no runner for.
+  const selectable = Boolean(view.data?.dataset.split);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -62,9 +69,11 @@ export default function Instances() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {/* Nothing attempted, not no rows: the whole split is listed from the
-            start, so "empty" means every row is 안 돌림 rather than absent. */}
-        {view.data && view.data.instances.every((i) => i.outcome === "not_run") ? (
+        {/* Genuinely no rows -- the dataset has not been fetched. A split that
+            has been fetched but not run is a list of 안 돌림, and that list is
+            the thing you tick to choose what to run, so it must not be replaced
+            by a paragraph. */}
+        {view.data && view.data.instances.length === 0 ? (
           <EmptyState icon={FlaskConical} title="아직 결과가 없습니다">
             {view.data.dataset.how_to_run}
           </EmptyState>
@@ -72,7 +81,21 @@ export default function Instances() {
           <ul className="py-1">
             {grouped.map((group) => (
               <li key={group.outcome}>
-                <p className="sticky top-0 z-10 flex items-baseline gap-1.5 bg-surface-2 px-2.5 py-1 text-2xs text-ink-muted">
+                <p className="sticky top-0 z-10 flex items-center gap-1.5 bg-surface-2 px-2.5 py-1 text-2xs text-ink-muted">
+                  {/* 196 rows is not a thing anyone ticks one at a time. */}
+                  {selectable && (
+                    <Checkbox
+                      checked={group.items.every((i) => ticked.has(i.id))}
+                      onCheckedChange={(value) =>
+                        setMany(
+                          datasetId,
+                          group.items.map((i) => i.id),
+                          value === true,
+                        )
+                      }
+                      aria-label={`${group.label} 전체 선택`}
+                    />
+                  )}
                   <span className={cn("size-1.5 rounded-full", OUTCOME_DOT[group.outcome])} aria-hidden />
                   {group.label}
                   <span className="font-mono text-ink-faint">{group.items.length}</span>
@@ -81,14 +104,29 @@ export default function Instances() {
                   {group.items.map((instance) => {
                     const current = instance.id === instanceId;
                     return (
-                      <li key={instance.id}>
+                      <li
+                        key={instance.id}
+                        className={cn(
+                          "flex items-start border-l-2 transition-colors",
+                          current ? "border-l-accent bg-surface-2" : "border-l-transparent hover:bg-surface-2",
+                        )}
+                      >
+                        {/* Beside the row rather than inside it: a checkbox
+                            nested in a button is not a thing a browser can
+                            resolve a click on. */}
+                        {selectable && (
+                          <span className="flex shrink-0 items-center py-1.5 pl-2">
+                            <Checkbox
+                              checked={ticked.has(instance.id)}
+                              onCheckedChange={() => toggle(datasetId, instance.id)}
+                              aria-label={`${instance.id} 선택`}
+                            />
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => void setInstanceId(instance.id)}
-                          className={cn(
-                            "flex w-full items-start gap-2 border-l-2 px-2 py-1.5 text-left transition-colors",
-                            current ? "border-l-accent bg-surface-2" : "border-l-transparent hover:bg-surface-2",
-                          )}
+                          className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
                         >
                           <span className="min-w-0 flex-1">
                             <span className="flex items-baseline gap-1.5">

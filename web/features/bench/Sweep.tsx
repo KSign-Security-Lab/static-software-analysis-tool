@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Play, Square } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Play, Square, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useStartSweep, useStopSweep, useSweep } from "@/lib/bench/queries";
+import { clear, useSelection } from "@/lib/bench/selection";
+import type { Dataset, Instance } from "@/lib/bench/types";
 import { describeError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
 /**
- * Starting a two-day job from a web page, and coming back to it.
+ * Starting a long job from a web page, and coming back to it.
  *
  * The run is a detached process on the server with its own session and its own
  * log, so closing the tab, restarting the API and losing the network all leave
@@ -20,15 +23,25 @@ import { cn } from "@/lib/utils";
  * It does not survive the machine rebooting, and the panel says so rather than
  * implying a durability it does not have.
  */
-export default function Sweep() {
+export default function Sweep({ dataset, instances }: { dataset: Dataset; instances: Instance[] }) {
   const status = useSweep();
   const start = useStartSweep();
   const stop = useStopSweep();
+  const chosen = useSelection(dataset.id);
+  const [force, setForce] = useState(false);
 
   if (!status.data) return null;
-  const { running, position, of, instance, started_at, log } = status.data;
+  const { running, position, of, instance, started_at, log, chose, split } = status.data;
+  // One log, one machine: what it holds is the last run of either split. Saying
+  // so beats a panel on the OSS page quietly showing two hundred CVE instances.
+  const elsewhere = !running && split && split !== dataset.split;
   const busy = start.isPending || stop.isPending;
   const failed = start.error || stop.error;
+
+  // Ticking instances that are already done is how you ask for them again, so
+  // the offer to redo them only appears when there are some.
+  const done = new Set(instances.filter((i) => i.outcome !== "not_run").map((i) => i.id));
+  const redoing = chosen.filter((id) => done.has(id)).length;
 
   return (
     <section className="rounded-md border border-line bg-surface-2">
@@ -47,6 +60,7 @@ export default function Sweep() {
                   </span>
                 )}
                 <span className="pl-2 font-mono text-ink-muted">{instance ?? "준비 중"}</span>
+                {chose.length > 0 && <span className="pl-2 text-ink-faint">· 고른 {chose.length}건</span>}
                 {started_at && <span className="pl-2 text-ink-faint">· {elapsed(started_at)} 경과</span>}
               </>
             ) : (
@@ -61,13 +75,42 @@ export default function Sweep() {
             <Square /> 중지
           </Button>
         ) : (
-          <Button size="xs" disabled={busy} onClick={() => start.mutate()}>
-            <Play /> 시작
+          <Button
+            size="xs"
+            disabled={busy}
+            onClick={() => start.mutate({ instances: chosen, split: dataset.split, force })}
+          >
+            <Play />
+            {chosen.length > 0 ? `고른 ${chosen.length}건 실행` : `${dataset.total}건 전부 실행`}
           </Button>
         )}
       </header>
 
+      {!running && chosen.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-3 py-2">
+          <button
+            type="button"
+            className="flex items-center gap-1 text-2xs text-ink-faint hover:text-ink"
+            onClick={() => clear(dataset.id)}
+          >
+            <X className="size-3" /> 선택 해제
+          </button>
+          {redoing > 0 && (
+            <label className="flex items-center gap-1.5 text-2xs text-ink-muted">
+              <Checkbox checked={force} onCheckedChange={(value) => setForce(value === true)} />
+              이미 끝난 {redoing}건도 다시 돌리기
+              <span className="text-ink-faint">— 이미지를 다시 받습니다</span>
+            </label>
+          )}
+        </div>
+      )}
+
       {failed && <p className="px-3 pb-2 text-2xs text-warn">{describeError(failed)}</p>}
+      {elsewhere && (
+        <p className="border-t border-line px-3 py-1.5 text-2xs text-ink-faint">
+          아래 기록은 다른 쪽({split}) 실행입니다 — 로그는 둘이 함께 씁니다.
+        </p>
+      )}
       {log.length > 0 && <Log lines={log} running={running} />}
     </section>
   );

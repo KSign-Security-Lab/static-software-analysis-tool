@@ -229,6 +229,26 @@ class Dataset(BaseModel):
     #: When the sweep last ran. Held-out results carry it; a number with no date
     #: cannot be checked against the code that produced it.
     ran_at: float | None = None
+    #: Which SEC-bench split this reads, for the datasets that have one. The
+    #: page hands it back when starting a sweep, so the run and the list it
+    #: appears in cannot disagree.
+    split: str = ""
+
+
+class SweepOrder(BaseModel):
+    """What to run. Empty means the whole split.
+
+    A selection is the difference between trying the benchmark and committing
+    two days to it, and it costs nothing to support: the runner has read
+    `SECB_INSTANCES` all along.
+    """
+
+    instances: List[str] = Field(default_factory=list)
+    split: str = "cve"
+    #: Redo instances that already have a result. Off by default, because that
+    #: is what makes a long sweep safe to interrupt; on when a selection is
+    #: deliberate.
+    force: bool = False
 
 
 class DatasetView(BaseModel):
@@ -244,8 +264,12 @@ SEC_BENCH = Dataset(
     label="SEC-bench",
     kind="held_out",
     score_label="공개 벤치마크",
-    note="C/C++ 실제 CVE 200건. Docker로 재현되며, 고친 패치가 빌드되고 테스트를 깨지 않는지로 채점합니다.",
+    note=(
+        "C/C++ 실제 CVE 200건. Docker로 재현되며, 고친 패치가 빌드되고 테스트를 깨지 않는지로 채점합니다. "
+        "SEC-bench 전체는 이 200건과 OSS-Fuzz 100건을 합친 300건입니다."
+    ),
     total=200,
+    split="cve",
     stages=list(PATCHING_STAGES),
     # Named, unnumbered, and deliberately so. What is known is that these three
     # reach at most ~34% on this track; what is not known here is each one's
@@ -286,7 +310,28 @@ PINNED = Dataset(
     how_to_run="agent inspect corpus/ 를 돌리면 인스턴스별 결과가 여기에 쌓입니다.",
 )
 
-DATASETS: tuple[Dataset, ...] = (SEC_BENCH, PINNED)
+#: The other half of SEC-bench.
+#:
+#: Same records, same harness, different provenance: these come from OSS-Fuzz
+#: reports rather than from CVEs, so they have no CVE id and there are a hundred
+#: of them over nine projects instead of two hundred over twenty-nine. Its own
+#: entry rather than folded into the one above, because a number over a mixed
+#: denominator would describe neither -- and because "200" was being read as the
+#: whole benchmark when it is two thirds of it.
+SEC_BENCH_OSS = SEC_BENCH.model_copy(
+    update={
+        "id": "sec-bench-oss",
+        "label": "SEC-bench (OSS-Fuzz)",
+        "split": "oss",
+        "total": 100,
+        "note": (
+            "OSS-Fuzz 리포트에서 만든 100건. CVE 번호가 없는 대신 크래시 재현 환경은 같습니다. "
+            "위 200건과 겹치지 않으며, 두 쪽을 합친 300건이 SEC-bench 전체입니다."
+        ),
+    }
+)
+
+DATASETS: tuple[Dataset, ...] = (SEC_BENCH, SEC_BENCH_OSS, PINNED)
 _BY_ID = {d.id: d for d in DATASETS}
 
 
@@ -444,7 +489,7 @@ def _corpus_instances(config: AgentConfig | None = None) -> list[Instance]:
     return out
 
 
-def _secbench_sources() -> tuple[list[Any], list[Any], dict[str, Any]]:
+def _secbench_sources(split: str = "cve") -> tuple[list[Any], list[Any], dict[str, Any]]:
     """`(dataset records, attempts, verdicts)`, all three off disk.
 
     Read off disk rather than out of the database, because a sweep is a thing
@@ -465,7 +510,10 @@ def _secbench_sources() -> tuple[list[Any], list[Any], dict[str, Any]]:
     except ImportError:  # pragma: no cover - the sweep is optional
         return [], [], {}
 
-    config = BenchConfig()
+    # The split decides which file is read; everything else -- attempts, results,
+    # the run directory -- is shared, and instance ids do not collide across the
+    # two, so one sweep's output is readable from either page.
+    config = BenchConfig(split=split)
     try:
         records = list(load_dataset(config))
     except FileNotFoundError:
@@ -475,7 +523,7 @@ def _secbench_sources() -> tuple[list[Any], list[Any], dict[str, Any]]:
     return records, list(load_attempts(config)), read_results(config)
 
 
-def _secbench_instances() -> list[Instance]:
+def _secbench_instances(split: str = "cve") -> list[Instance]:
     """Every instance in the split, with what the sweep concluded about it.
 
     The whole split, in the order the sweep walks it, so an unattempted instance
@@ -489,7 +537,7 @@ def _secbench_instances() -> list[Instance]:
     except ImportError:  # pragma: no cover - the sweep is optional
         return []
 
-    known, recorded, verdicts = _secbench_sources()
+    known, recorded, verdicts = _secbench_sources(split)
     attempts = {attempt.instance_id: attempt for attempt in recorded}
     records = {record.instance_id: record for record in known}
     ids = [record.instance_id for record in known] or list(attempts)
@@ -657,8 +705,8 @@ def read_sweep() -> Dict[str, Any]:
 
 
 @router.post("/sweep")
-def start_sweep() -> Dict[str, Any]:
-    """Start it, detached.
+def start_sweep(order: SweepOrder | None = None) -> Dict[str, Any]:
+    """Start it, detached, over the whole split or a chosen few.
 
     The page this sits behind was specified read-only, and the reason still
     holds for the *results*: a held-out benchmark you can re-run at a click is
@@ -668,8 +716,22 @@ def start_sweep() -> Dict[str, Any]:
     """
     from api import sweep
 
+    order = order or SweepOrder()
+    if order.split not in {d.split for d in DATASETS if d.split}:
+        raise HTTPException(status_code=400, detail=f"unknown split: {order.split}")
+
+    # Checked here rather than left to the runner: it raises KeyError on an
+    # unknown id, which would show up as a sweep that started and died, and
+    # "started and died" is the hardest state to read on a page like this.
+    known = {record.instance_id for record in _secbench_sources(order.split)[0]}
+    unknown = [i for i in order.instances if known and i not in known]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"{order.split} 에 없는 인스턴스: {', '.join(unknown[:5])}")
+
     try:
-        return sweep.start()
+        # A deliberate selection re-runs; the whole split resumes. Choosing an
+        # instance and watching it be skipped is not what choosing means.
+        return sweep.start(order.instances, order.split, resume=not (order.instances and order.force))
     except RuntimeError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
 
@@ -691,8 +753,8 @@ def read_dataset(dataset_id: str) -> Dict[str, Any]:
     if dataset is None:
         raise HTTPException(status_code=404, detail=f"unknown dataset: {dataset_id}")
 
-    instances = _corpus_instances() if dataset.id == "corpus" else _secbench_instances()
-    if dataset.id == "sec-bench" and instances:
+    instances = _corpus_instances() if dataset.id == "corpus" else _secbench_instances(dataset.split)
+    if dataset.split and instances:
         # A held-out number with no date cannot be checked against the code that
         # produced it, so the dataset carries when the sweep last wrote.
         dataset = dataset.model_copy(update={"ran_at": _last_sweep_at()})

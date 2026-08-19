@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryState } from "nuqs";
 
 import { del, get, post } from "@/lib/api/client";
-import type { DatasetList, DatasetView, SweepStatus } from "@/lib/bench/types";
+import type { DatasetList, DatasetView, SweepOrder, SweepStatus } from "@/lib/bench/types";
 
 /**
  * Reading the benchmark, and running it.
@@ -84,7 +84,7 @@ export function useSweep() {
 export function useStartSweep() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: () => post<SweepStatus>("/bench/sweep"),
+    mutationFn: (order: SweepOrder) => post<SweepStatus>("/bench/sweep", order),
     onSuccess: (status) => {
       client.setQueryData(keys.sweep(), status);
       client.invalidateQueries({ queryKey: keys.all });

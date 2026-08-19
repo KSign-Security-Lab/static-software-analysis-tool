@@ -161,6 +161,8 @@ def status() -> dict[str, Any]:
         "running": running,
         "pid": record.get("pid") if record else None,
         "started_at": record.get("started_at") if record else None,
+        "split": record.get("split") if record else None,
+        "chose": record.get("instances") or [] if record else [],
         "instance": instance if running else None,
         "position": position,
         "of": total,
@@ -169,8 +171,14 @@ def status() -> dict[str, Any]:
     }
 
 
-def start() -> dict[str, Any]:
+def start(instances: list[str] | None = None, split: str = "cve", resume: bool = True) -> dict[str, Any]:
     """Launch the sweep detached, and record where it went.
+
+    `instances` narrows it to a chosen few, which is how a two-day job becomes
+    a twenty-minute one: the runner already reads `SECB_INSTANCES`, it simply
+    had no way to be told. `resume=False` goes with an explicit selection --
+    picking an instance that already has a result and watching it be skipped
+    is not what anyone means by choosing it.
 
     `start_new_session` is the load-bearing argument: it puts the script in its
     own session and process group, so it does not die with the API worker that
@@ -196,6 +204,12 @@ def start() -> dict[str, Any]:
     # for first. Adding rather than replacing, so a configured PATH still wins.
     env["PATH"] = env.get("PATH", "") + ":/usr/local/bin:/usr/bin:/bin"
 
+    # The sweep's knobs are all environment variables by design, so an order
+    # from the page is three of them rather than a second way to configure it.
+    env["SECB_SPLIT"] = split
+    env["SECB_INSTANCES"] = ",".join(instances or ())
+    env["SECB_RESUME"] = "1" if resume else "0"
+
     # Discarded, not written to the log. The script's own `tee` writes the log
     # *and* passes everything through to whatever it inherited, so pointing this
     # at the same file wrote every line twice.
@@ -219,7 +233,14 @@ def start() -> dict[str, Any]:
         boot.close()
         handle.close()
 
-    written = {"pid": process.pid, "started_at": time.time()}
+    written = {
+        "pid": process.pid,
+        "started_at": time.time(),
+        # Recorded so the panel can say what this run is, in a browser that did
+        # not start it.
+        "split": split,
+        "instances": list(instances or ()),
+    }
     pidfile.write_text(json.dumps(written), encoding="utf-8")
     log.info("bench: sweep started as pid %d, logging to %s", process.pid, logfile)
     return status()

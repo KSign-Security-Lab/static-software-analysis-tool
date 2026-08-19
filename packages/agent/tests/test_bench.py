@@ -418,9 +418,67 @@ def test_the_list_is_the_whole_split_not_only_what_ran(tmp_path, monkeypatch) ->
     monkeypatch.setattr(
         bench,
         "_secbench_sources",
-        lambda: ([Record("a.cve-1"), Record("b.cve-2"), Record("c.cve-3")], [Attempt()], {}),
+        lambda split="cve": ([Record("a.cve-1"), Record("b.cve-2"), Record("c.cve-3")], [Attempt()], {}),
     )
     found = bench._secbench_instances()
 
     assert [i.id for i in found] == ["a.cve-1", "b.cve-2", "c.cve-3"], "dataset order, so it matches [n/200]"
     assert [i.outcome for i in found] == ["not_run", "awaiting_score", "not_run"]
+
+
+def test_a_chosen_few_reach_the_runner(tmp_path, monkeypatch) -> None:
+    """Selection is what turns a two-day job into a twenty-minute one.
+
+    The runner has read `SECB_INSTANCES` all along; it had no way to be told.
+    Everything the page can order is an environment variable, so an order is
+    three of them rather than a second way to configure the sweep.
+    """
+    from api import sweep
+
+    monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", tmp_path / "l", tmp_path / "b"))
+    seen: dict = {}
+
+    class Fake:
+        pid = 4244
+
+    monkeypatch.setattr(sweep.subprocess, "Popen", lambda argv, **kw: (seen.update(kw), Fake())[1])
+    sweep.start(["a.cve-1", "b.cve-2"], "oss", resume=False)
+
+    env = seen["env"]
+    assert env["SECB_INSTANCES"] == "a.cve-1,b.cve-2"
+    assert env["SECB_SPLIT"] == "oss"
+    assert env["SECB_RESUME"] == "0"
+
+
+def test_running_the_whole_split_resumes(tmp_path, monkeypatch) -> None:
+    """The default has to stay the safe one: a sweep of two hundred that started
+    over after every interruption would never finish."""
+    from api import sweep
+
+    monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", tmp_path / "l", tmp_path / "b"))
+    seen: dict = {}
+
+    class Fake:
+        pid = 4245
+
+    monkeypatch.setattr(sweep.subprocess, "Popen", lambda argv, **kw: (seen.update(kw), Fake())[1])
+    sweep.start()
+
+    assert seen["env"]["SECB_RESUME"] == "1"
+    assert seen["env"]["SECB_INSTANCES"] == ""
+
+
+def test_the_two_splits_are_separate_datasets_that_add_up() -> None:
+    """SEC-bench is three hundred instances in two files, and showing one of
+    them was being read as showing all of it.
+
+    Separate entries rather than one merged list: the two have different
+    provenance -- CVEs against OSS-Fuzz reports -- and a rate over a mixed
+    denominator would describe neither.
+    """
+    from api import bench
+
+    splits = {d.id: d.split for d in bench.DATASETS if d.split}
+
+    assert splits == {"sec-bench": "cve", "sec-bench-oss": "oss"}
+    assert sum(d.total for d in bench.DATASETS if d.split) == 300

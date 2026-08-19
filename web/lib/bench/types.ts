@@ -98,6 +98,8 @@ export interface Dataset {
   how_to_run: string;
   baseline_note: string;
   ran_at: number | null;
+  /** Which SEC-bench split this reads; empty for the corpus, which has none. */
+  split: string;
 }
 
 export interface DatasetView {
@@ -193,4 +195,16 @@ export interface SweepStatus {
   of: number | null;
   log: string[];
   log_path: string;
+  /** What the running sweep was told to do, so a browser that did not start it
+      can still say what it is. */
+  split: string | null;
+  chose: string[];
+}
+
+/** What to run: a selection, or the whole split when empty. */
+export interface SweepOrder {
+  instances: string[];
+  split: string;
+  /** Redo instances that already have a result. */
+  force: boolean;
 }
