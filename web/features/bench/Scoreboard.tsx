@@ -151,6 +151,15 @@ function ScoreCard({ dataset, score }: { dataset: Dataset; score: Score }) {
         <dd className="font-mono text-ink-muted">
           {score.solved} / {score.scored}
         </dd>
+        {/* Right family and right id are different claims. Folding them into
+            one number would hide the looser half behind the stricter word. */}
+        <dt className="text-ink-faint">정확</dt>
+        <dd className="font-mono text-ink-muted">
+          {score.exact}
+          {score.solved > score.exact && (
+            <span className="pl-1 text-ink-faint">· 계열 {score.solved - score.exact}</span>
+          )}
+        </dd>
         <dt className="text-ink-faint">모델</dt>
         <dd className="truncate font-mono text-ink-muted">{score.model}</dd>
         <dt className="text-ink-faint">설정</dt>

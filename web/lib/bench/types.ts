@@ -46,6 +46,8 @@ export interface Instance {
   config_hash: string | null;
   contaminated: boolean;
   contamination_reason: string;
+  /** `exact` or `family` -- see CWE_FAMILIES in api/bench.py. */
+  matched: "exact" | "family";
   note: string;
 }
 
@@ -62,6 +64,8 @@ export type Score =
       available: true;
       value: number;
       solved: number;
+      /** Of `solved`, how many named the exact CWE rather than a sibling. */
+      exact: number;
       scored: number;
       excluded: number;
       config_hash: string;

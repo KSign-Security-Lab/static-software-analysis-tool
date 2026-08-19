@@ -12,6 +12,7 @@ const instance = (over: Partial<Instance> = {}): Instance => ({
   config_hash: "cfg",
   contaminated: false,
   contamination_reason: "",
+  matched: "exact",
   note: "",
   ...over,
 });

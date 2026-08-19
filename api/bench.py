@@ -63,6 +63,47 @@ STAGES: tuple[tuple[str, str], ...] = (
 #: that builds and a test suite that passes or does not.
 DETECTION_STAGES = ("not_located", "misread", "false_flagged")
 
+#: CWEs that mean the same weakness at different resolutions.
+#:
+#: String equality was the first scorer and it was wrong in the direction that
+#: matters. `strcpy(label, in)` into `char label[16]` is labelled CWE-121 here
+#: and the agent reported CWE-120 -- which is the textbook definition of Classic
+#: Buffer Overflow, and every bit as correct. Under equality that counted as
+#: 찾고 오독, so a benchmark built to say what to fix next was pointing at a
+#: CWE-discrimination problem that did not exist.
+#:
+#: Hand-written from the ten families this corpus actually covers rather than
+#: pulled from MITRE. The real hierarchy is a data file and a dependency this
+#: repo does not have, and a wrong hand-written table is at least a readable
+#: one -- these are cousins under CWE-119 and CWE-664, not a taxonomy anybody
+#: has to look up to check.
+CWE_FAMILIES: tuple[frozenset[str], ...] = (
+    # Reading or writing outside a buffer, at every resolution MITRE gives it.
+    frozenset({"CWE-119", "CWE-120", "CWE-121", "CWE-122", "CWE-124", "CWE-125", "CWE-787", "CWE-788", "CWE-805"}),
+    # Untrusted input reaching an interpreter.
+    frozenset({"CWE-77", "CWE-78", "CWE-88"}),
+    frozenset({"CWE-22", "CWE-23", "CWE-36"}),
+    frozenset({"CWE-134"}),
+    frozenset({"CWE-476", "CWE-690"}),
+    # Arithmetic that wraps, and the allocation it then undersizes.
+    frozenset({"CWE-190", "CWE-191", "CWE-680"}),
+    # Lifetime.
+    frozenset({"CWE-415", "CWE-416", "CWE-825"}),
+    frozenset({"CWE-401", "CWE-772", "CWE-404"}),
+)
+
+
+def same_family(label: str, reported: str) -> bool:
+    """Whether two CWEs name the same weakness.
+
+    Exact first, then family. The caller keeps the distinction -- a page that
+    showed 정확 and 계열 as one number would be hiding the thing this table was
+    written to make visible.
+    """
+    if label == reported:
+        return True
+    return any(label in family and reported in family for family in CWE_FAMILIES)
+
 #: What a dataset with no known-clean half can reach. SEC-bench instances are
 #: all vulnerable, so there is nothing there to raise a false alarm *about*.
 PATCHING_STAGES = ("not_located", "misread", "patch_build_failed", "built_not_fixed", "fixed_tests_broke")
@@ -109,6 +150,10 @@ class Instance(BaseModel):
     #: of the result, so this is a mark rather than a filter.
     contaminated: bool = False
     contamination_reason: str = ""
+    #: `exact` when the reported CWE was the label, `family` when it was the
+    #: same weakness at a different resolution. Kept apart because collapsing
+    #: them into one number would hide what `CWE_FAMILIES` exists to show.
+    matched: str = "exact"
     note: str = ""
 
 
@@ -127,6 +172,11 @@ class Score(BaseModel):
     solved: int = 0
     scored: int = 0
     excluded: int = 0
+    #: Of `solved`, how many named the exact CWE rather than a sibling. Shown
+    #: beside the score rather than folded into it: "right family" and "right
+    #: id" are different claims, and a page that reported one number would be
+    #: hiding the looser half behind the stricter word.
+    exact: int = 0
     config_hash: str | None = None
     model: str | None = None
     #: Why there is no number, when there is not.
@@ -345,6 +395,14 @@ def _corpus_instances(config: AgentConfig | None = None) -> list[Instance]:
         if variant == "vulnerable":
             if cwe in found:
                 instance.outcome = "solved"
+            elif any(same_family(cwe, other) for other in found):
+                # The same weakness at a different resolution. Solved, and said
+                # so -- the note keeps what was actually reported, because
+                # "right family, different id" is worth being able to see
+                # without it counting against the run.
+                instance.outcome = "solved"
+                instance.matched = "family"
+                instance.note += f" · 보고된 CWE {', '.join(sorted(found))} (같은 계열)"
             elif found:
                 instance.outcome = "misread"
                 instance.note += f" · 보고된 CWE {', '.join(sorted(found))}"
@@ -410,11 +468,12 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
             unavailable_reason="이 설정에 모델이 기록되어 있지 않습니다",
         )
 
-    solved = sum(1 for i in scored if i.outcome == "solved")
+    solved = [i for i in scored if i.outcome == "solved"]
     return Score(
         available=True,
-        value=solved / len(scored),
-        solved=solved,
+        value=len(solved) / len(scored),
+        solved=len(solved),
+        exact=sum(1 for i in solved if i.matched == "exact"),
         scored=len(scored),
         excluded=len(excluded),
         config_hash=config_hash,

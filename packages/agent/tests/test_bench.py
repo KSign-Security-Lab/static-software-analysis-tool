@@ -238,3 +238,50 @@ def test_no_baseline_ships_as_a_number_without_its_model_and_source() -> None:
         for baseline in dataset.baselines:
             if baseline.resolved is not None:
                 assert baseline.model and baseline.source, f"{baseline.name} has a figure but no provenance"
+
+
+# -- what counts as the right answer -----------------------------------------
+
+
+def test_a_sibling_cwe_is_the_same_weakness() -> None:
+    """The scorer's first version was wrong in the direction that matters.
+
+    `strcpy(label, in)` into `char label[16]` is labelled CWE-121 here, and the
+    agent reported CWE-120 -- the textbook definition of Classic Buffer
+    Overflow, and every bit as correct. String equality called that 찾고 오독,
+    so a page built to say what to fix next was pointing at a CWE-discrimination
+    problem that did not exist.
+    """
+    assert bench.same_family("CWE-121", "CWE-120")
+    assert bench.same_family("CWE-121", "CWE-119")
+    assert bench.same_family("CWE-787", "CWE-125")
+
+
+def test_a_different_weakness_is_still_wrong() -> None:
+    """The table is for resolutions of one weakness, not for charity."""
+    assert not bench.same_family("CWE-121", "CWE-78")
+    assert not bench.same_family("CWE-78", "CWE-22")
+    assert not bench.same_family("CWE-416", "CWE-401")
+
+
+def test_every_corpus_cwe_is_in_a_family() -> None:
+    """A label with no family silently degrades to exact matching, which is the
+    bug this table was written to fix -- so a new CWE folder must not be able to
+    reintroduce it unnoticed."""
+    covered = {cwe for family in bench.CWE_FAMILIES for cwe in family}
+    root = _corpus_root()
+    labels = {p.name.split("_")[0] for p in root.iterdir() if p.is_dir() and p.name.startswith("CWE-")}
+    assert labels <= covered, f"no family for {sorted(labels - covered)}"
+
+
+def test_exact_and_family_are_reported_apart(monkeypatch) -> None:
+    """Right family and right id are different claims. One number would hide
+    the looser half behind the stricter word."""
+    monkeypatch.setattr(bench, "_model_for", lambda _hash: "a-model")
+    corpus = bench._BY_ID["corpus"]
+    score = bench._score(
+        corpus,
+        [_instance(matched="exact"), _instance(id="y.c", matched="family")],
+    )
+    assert score.solved == 2
+    assert score.exact == 1
