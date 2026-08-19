@@ -1,7 +1,7 @@
-import { Network, ScanSearch, ShieldCheck, TerminalSquare, type LucideIcon } from "lucide-react";
+import { Network, ScanSearch, ShieldCheck, TerminalSquare, Trophy, type LucideIcon } from "lucide-react";
 
 /**
- * The four surfaces, declared once.
+ * The five surfaces, declared once.
  *
  * The activity bar and the title bar both read this, so a route cannot be
  * added in one place and forgotten in another -- and `carries` names the
@@ -21,7 +21,7 @@ import { Network, ScanSearch, ShieldCheck, TerminalSquare, type LucideIcon } fro
  * whatever the destination does not carry.
  */
 
-export type PerspectiveId = "agent" | "f2a" | "extract" | "stages";
+export type PerspectiveId = "agent" | "f2a" | "extract" | "stages" | "bench";
 
 export interface Perspective {
   id: PerspectiveId;
@@ -125,6 +125,31 @@ export const PERSPECTIVES: readonly Perspective[] = [
       "왼쪽 ‘소스’에서 예제를 고르거나 소스·CPG JSON 파일을 열고 ‘분석’을 누릅니다.",
       "가운데 위 선택기로 볼 그래프를 고릅니다. CPG 계열과 파이프라인 계열은 이름이 같아도 다른 산출물입니다.",
       "노드를 누르면 오른쪽에 그 노드의 속성이 그대로 표시됩니다.",
+    ],
+  },
+  {
+    id: "bench",
+    href: "/bench",
+    label: "벤치마크",
+    note: "공개 벤치마크에서 어디까지 하고 어디서 깨지는지 봅니다",
+    icon: Trophy,
+    // This surface's own state, and only that. `carries` is the *rail's*
+    // mechanism -- `hrefFor` copies these off the current URL when you switch
+    // *into* bench -- so it has nothing to do with opening an instance's run.
+    // That link is built by hand in `InstanceDetail` from `instance.run_id`,
+    // because this surface's URL never holds a `run=` to carry.
+    carries: ["dataset", "instance"],
+    panes: ["side", "inspector"],
+    chrome: false,
+    purpose:
+      "우리 에이전트가 공개 벤치마크에서 어디까지 하는가, 그리고 어디서 깨지는가 — 실패한 지점부터 보고, 점수는 그 다음입니다.",
+    steps: [
+      "왼쪽 위 선택기에서 볼 데이터셋과 트랙을 고릅니다. 아직 돌린 것이 없으면 무엇을 돌려야 하는지 그 자리에 나옵니다.",
+      "왼쪽 목록은 기본이 ‘깨진 지점별’ 묶음입니다 — 위치 못 찾음 · 찾고 오독 · 패치 빌드 실패 · 빌드됐으나 미수정 · 고쳤으나 테스트 깨짐. 어느 칸이 두꺼운지가 지금 무엇을 고쳐야 하는지입니다.",
+      "한 인스턴스를 고르면 오른쪽 ‘상세’ 에 그 인스턴스가 어디서 어떻게 끊겼는지가 나옵니다. ‘검사에서 열기’ 를 누르면 그때 기록된 검사가 그대로 열립니다 — 판단 과정도, 부른 도구도 그대로입니다.",
+      "오른쪽 위 점수는 설정 해시·모델·제외된 인스턴스 수와 함께만 나옵니다. 셋 중 하나라도 없으면 숫자 대신 ‘점수 없음’ 입니다. 어떤 설정으로 낸 숫자인지 모르면 그 숫자는 쓸 데가 없기 때문입니다.",
+      "‘오염됨’ 으로 표시된 인스턴스는 목록에 그대로 남고 점수에서만 빠집니다. 무엇을 왜 뺐는지도 결과의 일부입니다.",
+      "아래 ‘공개 수치’ 는 같은 트랙의 발표된 성적입니다. 각자 쓴 모델이 함께 적혀 있고, 우리가 재현한 것이 아니라 보고된 값입니다.",
     ],
   },
   {

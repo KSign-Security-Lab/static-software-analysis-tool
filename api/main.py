@@ -42,6 +42,7 @@ from ssat.types.cpg import CPGRoot
 from agent.runs import abandon_live_runs
 
 from .agent import router as agent_router
+from .bench import router as bench_router
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ app.add_middleware(
 )
 
 app.include_router(agent_router)
+app.include_router(bench_router)
 
 # Map a UI language choice to a source filename Joern understands.
 _LANG_EXT = {"c": "main.c", "cpp": "main.cpp", "java": "Main.java"}

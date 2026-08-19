@@ -1,4 +1,4 @@
-import type { PerspectiveId } from "./perspectives";
+import { PERSPECTIVES, type PerspectiveId } from "./perspectives";
 
 /**
  * Pane sizes, in a cookie, read on the server.
@@ -111,13 +111,23 @@ const PER_PERSPECTIVE: Partial<Record<PerspectiveId, PaneLayout>> = {
   // is what it showed before -- a "문제" tab reading 준비 중, on a screen that
   // does not look for problems.
   extract: { h: { side: 18, main: 60, inspector: 22 }, v: { centre: 100, dock: 0 } },
+  // Same shape as 검사, and for the same reason: a list on the left whose rows
+  // are prose -- an instance id and why it broke -- above nothing, beside a
+  // detail column. No dock; there is no second list to put in one.
+  bench: { h: { side: 24, main: 51, inspector: 25 }, v: { centre: 100, dock: 0 } },
 };
 
 export function defaultLayoutFor(id: PerspectiveId): PaneLayout {
   return PER_PERSPECTIVE[id] ?? DEFAULT_LAYOUT;
 }
 
-const VALID_ID = new Set<string>(["agent", "f2a", "extract", "stages"]);
+// Derived, not listed. This was a hand-written copy of the four ids, which is
+// the second place that had to know the set -- and `perspectives.ts` says in
+// its own docstring that a route added in one place and forgotten in another is
+// the failure this design is trying to avoid. A fifth surface found it: a
+// layout for `bench` would have been silently discarded on read, and the pane
+// sizes would have reset on every load with nothing to say why.
+const VALID_ID = new Set<string>(PERSPECTIVES.map((p) => p.id));
 
 function sums(values: number[], from: number, to: number): boolean {
   let total = 0;
