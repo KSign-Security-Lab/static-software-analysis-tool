@@ -16,7 +16,7 @@ export type Stage =
   | "built_not_fixed"
   | "fixed_tests_broke";
 
-export type Outcome = Stage | "solved" | "not_run";
+export type Outcome = Stage | "solved" | "awaiting_score" | "harness_error" | "not_run";
 
 /**
  * `held_out` is a public benchmark we do not touch; `pinned` is the corpus the
@@ -66,6 +66,8 @@ export type Score =
       solved: number;
       /** Of `solved`, how many named the exact CWE rather than a sibling. */
       exact: number;
+      /** Never scored: the harness failed before the agent had an opinion. */
+      harness: number;
       scored: number;
       excluded: number;
       config_hash: string;
@@ -76,6 +78,7 @@ export type Score =
       solved?: number;
       scored?: number;
       excluded?: number;
+      harness: number;
       config_hash?: string | null;
       model?: string | null;
       unavailable_reason: string;
@@ -126,6 +129,8 @@ export const STAGE_LABEL: Record<Stage, string> = {
 export const OUTCOME_LABEL: Record<Outcome, string> = {
   ...STAGE_LABEL,
   solved: "통과",
+  awaiting_score: "채점 대기",
+  harness_error: "실행 실패",
   not_run: "안 돌림",
 };
 
@@ -141,6 +146,10 @@ export const OUTCOME_DOT: Record<Outcome, string> = {
   patch_build_failed: "bg-danger",
   built_not_fixed: "bg-danger",
   fixed_tests_broke: "bg-warn",
+  // Work in flight, not a verdict: the same neutral as not-run.
+  awaiting_score: "bg-accent",
+  // Ours, not the agent's. Never scored, always shown.
+  harness_error: "bg-line-3",
   not_run: "bg-line-3",
 };
 
@@ -156,7 +165,7 @@ export function groupByOutcome(
   instances: Instance[],
   stages: Stage[],
 ): { outcome: Outcome; label: string; items: Instance[] }[] {
-  const order: Outcome[] = [...stages, "solved", "not_run"];
+  const order: Outcome[] = [...stages, "solved", "awaiting_score", "harness_error", "not_run"];
   const groups = new Map<Outcome, Instance[]>();
   for (const instance of instances) {
     groups.set(instance.outcome, [...(groups.get(instance.outcome) ?? []), instance]);

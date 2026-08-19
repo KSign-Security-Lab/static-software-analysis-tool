@@ -53,6 +53,7 @@ export default function Scoreboard() {
         <ScoreCard dataset={dataset} score={score} />
       </header>
 
+      <Progress view={view.data} />
       <Breakdown view={view.data} />
 
       {dataset.excluded_tracks.length > 0 && (
@@ -72,6 +73,34 @@ export default function Scoreboard() {
 }
 
 /**
+ * How much of the set has been attempted at all.
+ *
+ * The list shows what the sweep recorded, which on a set of two hundred is four
+ * rows for two days. Without this the page reads as a complete result over four
+ * instances instead of the opening of a long run, and the 200 in the blurb has
+ * nothing to connect to.
+ */
+function Progress({ view }: { view: DatasetView }) {
+  const { total } = view.dataset;
+  const attempted = view.instances.length;
+  if (!total || attempted >= total) return null;
+
+  return (
+    <section>
+      <h2 className="text-2xs font-medium text-ink-muted">
+        진행
+        <span className="pl-1.5 font-normal text-ink-faint">
+          — {total}건 중 {attempted}건 시도 · 남은 {total - attempted}건은 아직 돌리지 않았습니다
+        </span>
+      </h2>
+      <span className="mt-2 block h-1 overflow-hidden rounded-sm bg-surface-2">
+        <span className="block h-full rounded-sm bg-accent" style={{ width: `${(attempted / total) * 100}%` }} />
+      </span>
+    </section>
+  );
+}
+
+/**
  * Where it broke, and how much of it broke that way.
  *
  * The page's actual subject, given the width. The list on the left says which
@@ -85,7 +114,7 @@ export default function Scoreboard() {
  */
 function Breakdown({ view }: { view: DatasetView }) {
   const stages: Outcome[] = [...view.dataset.stages, "solved"];
-  const counted = view.instances.filter((i) => i.outcome !== "not_run");
+  const counted = view.instances.filter((i) => !["not_run", "awaiting_score", "harness_error"].includes(i.outcome));
   if (counted.length === 0) return null;
 
   const rows = stages
@@ -97,7 +126,7 @@ function Breakdown({ view }: { view: DatasetView }) {
       <h2 className="text-2xs font-medium text-ink-muted">
         어디서 깨졌는가
         <span className="pl-1.5 font-normal text-ink-faint">
-          — {counted.length}건 중 · 남은 {view.instances.length - counted.length}건은 아직 안 돌렸습니다
+          — {counted.length}건 중 · 나머지 {view.instances.length - counted.length}건은 채점 전입니다
         </span>
       </h2>
       <ul className="flex flex-col gap-1.5 pt-2">
@@ -137,6 +166,7 @@ function ScoreCard({ dataset, score }: { dataset: Dataset; score: Score }) {
         {typeof score.excluded === "number" && score.excluded > 0 && (
           <p className="pt-1 text-2xs text-warn">오염 제외 {score.excluded}건</p>
         )}
+        {score.harness > 0 && <p className="pt-1 text-2xs text-ink-faint">실행 실패 {score.harness}건 (채점 대상 아님)</p>}
       </div>
     );
   }
@@ -166,6 +196,11 @@ function ScoreCard({ dataset, score }: { dataset: Dataset; score: Score }) {
         <dd className="truncate font-mono text-ink-muted">{score.config_hash}</dd>
         <dt className="text-ink-faint">제외</dt>
         <dd className="font-mono text-ink-muted">{score.excluded}</dd>
+        {/* Not a failure of the agent, so not in the denominator — and said
+            out loud, because a denominator that shrank quietly is the thing
+            this page exists to make impossible. */}
+        <dt className="text-ink-faint">실행 실패</dt>
+        <dd className="font-mono text-ink-muted">{score.harness}</dd>
       </dl>
       {dataset.ran_at && (
         <p className="pt-1.5 text-2xs text-ink-faint">

@@ -131,7 +131,9 @@ def outcome_for(attempt: Attempt, verdict: dict[str, Any] | None) -> tuple[str, 
     if not attempt.patch:
         return "not_located", attempt.note or "패치를 내놓지 않았습니다"
     if verdict is None:
-        return "not_run", "아직 채점하지 않았습니다"
+        # Attempted and patched, waiting on the evaluator. Not the same as
+        # never having been tried, and the page groups them apart.
+        return "awaiting_score", "패치는 나왔고 아직 채점되지 않았습니다"
 
     if verdict.get("resolved") is True:
         return "solved", ""

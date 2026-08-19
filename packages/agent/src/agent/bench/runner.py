@@ -103,18 +103,25 @@ def read_sources(instance: Instance, config: BenchConfig) -> dict[str, str]:
 
     A path the report names but the image does not have is skipped. Reports come
     from a machine that laid the tree out differently, so a miss is ordinary --
-    `candidate_paths` proposes and this is what disposes.
+    `crash_candidates` proposes and this is what disposes. The image is the only
+    authority on the layout, so every reading of a frame is offered and the
+    first that exists wins; an `elif` chain rather than a list, so a frame
+    contributes one file and not two.
     """
-    wanted = instance.crash_paths(depth=config.caller_depth)
+    wanted = instance.crash_candidates(depth=config.caller_depth)
     if not wanted:
         return {}
 
     # Each file delimited by a marker, so one exec returns all of them and a
-    # missing file simply contributes nothing between two markers.
+    # frame no reading resolved simply contributes nothing between two markers.
     script = "; ".join(
-        f'if [ -f "{instance.work_dir}/{path}" ]; then '
-        f'echo "===SECB:{path}==="; cat "{instance.work_dir}/{path}"; fi'
-        for path in wanted
+        " ".join(
+            f'{"if" if position == 0 else "elif"} [ -f "{instance.work_dir}/{path}" ]; then '
+            f'echo "===SECB:{path}==="; cat "{instance.work_dir}/{path}";'
+            for position, path in enumerate(readings)
+        )
+        + " fi"
+        for readings in wanted
     )
     result = _docker(
         config,
@@ -189,7 +196,9 @@ def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig |
 
     sources = read_sources(instance, config)
     if not sources:
-        attempt.stage = "not_located"
+        # Ours, not the agent's. We failed to map the report's paths onto the
+        # image, so the agent was never shown anything to be wrong about.
+        attempt.stage = "harness_error"
         attempt.note = "크래시가 가리키는 파일을 이미지에서 찾지 못했습니다"
         return attempt
     attempt.shown = sorted(sources)
@@ -212,7 +221,9 @@ def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig |
         )
     except Exception as err:  # noqa: BLE001 - one instance failing is a result
         log.warning("bench: inspection failed for %s: %s", instance.instance_id, err)
-        attempt.stage = "not_located"
+        # A crash, an unreachable model, a full disk. The agent produced no
+        # opinion, so there is no opinion to score.
+        attempt.stage = "harness_error"
         attempt.note = f"검사가 실패했습니다: {err}"
         return attempt
     finally:
@@ -229,6 +240,7 @@ def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig |
         attempt.finding_id = finding.id
         attempt.cwe = finding.cwe
     elif not report.findings:
+        # The real one. The agent read the crash file and reported nothing.
         attempt.stage = "not_located"
         attempt.note = "크래시가 가리키는 파일에서 아무것도 보고하지 않았습니다"
     else:
@@ -268,7 +280,7 @@ def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = Tru
             attempts.append(
                 Attempt(
                     instance_id=instance.instance_id,
-                    stage="not_located",
+                    stage="harness_error",
                     note="평가 이미지를 받지 못했습니다",
                 )
             )

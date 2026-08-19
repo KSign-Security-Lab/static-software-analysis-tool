@@ -59,6 +59,23 @@ STAGES: tuple[tuple[str, str], ...] = (
     ("fixed_tests_broke", "고쳤으나 테스트 깨짐"),
 )
 
+#: Ours broke, not theirs.
+#:
+#: The image would not pull, the crash paths did not map onto the tree, the
+#: inspection raised. In none of those did the agent give an opinion, so there
+#: is nothing to score -- and scoring them as `not_located` would charge the
+#: agent for our path matching, which is how a harness quietly understates the
+#: thing it measures.
+HARNESS = "harness_error"
+
+#: Attempted, a patch produced, not yet judged.
+#:
+#: Distinct from `not_run`, which means nobody tried. A sweep scores each
+#: instance as it goes, so this is what an instance looks like between its run
+#: and its verdict -- and calling that "안 돌림" told the reader we had not
+#: attempted four instances we had in fact patched.
+AWAITING = "awaiting_score"
+
 #: What a detection-only dataset can reach. The patch stages need a container
 #: that builds and a test suite that passes or does not.
 DETECTION_STAGES = ("not_located", "misread", "false_flagged")
@@ -177,6 +194,10 @@ class Score(BaseModel):
     #: id" are different claims, and a page that reported one number would be
     #: hiding the looser half behind the stricter word.
     exact: int = 0
+    #: Instances the harness never got an opinion out of, kept out of the
+    #: denominator and shown anyway. Silently dropping them would flatter the
+    #: score by exactly the number of times our own plumbing failed.
+    harness: int = 0
     config_hash: str | None = None
     model: str | None = None
     #: Why there is no number, when there is not.
@@ -486,9 +507,20 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
     that renders as a dash with no explanation is the same problem as a score
     with no config hash: a number nobody can act on.
     """
-    ran = [i for i in instances if i.outcome != "not_run"]
+    ran = [i for i in instances if i.outcome not in ("not_run", AWAITING, HARNESS)]
+    waiting = sum(1 for i in instances if i.outcome == AWAITING)
+    harness = sum(1 for i in instances if i.outcome == HARNESS)
     if not ran:
-        return Score(available=False, unavailable_reason="아직 돌린 결과가 없습니다")
+        # Said in the order a reader needs it. "No config hash" is true of the
+        # handful that failed before a run existed, and it is not why there is
+        # no score when four more are sitting unjudged.
+        if waiting:
+            return Score(
+                available=False,
+                harness=harness,
+                unavailable_reason=f"{waiting}건이 채점을 기다리고 있습니다 — agent bench score 를 돌리면 채워집니다",
+            )
+        return Score(available=False, harness=harness, unavailable_reason="아직 돌린 결과가 없습니다")
 
     excluded = [i for i in ran if i.contaminated]
     scored = [i for i in ran if not i.contaminated]
@@ -496,6 +528,7 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
         return Score(
             available=False,
             excluded=len(excluded),
+            harness=harness,
             unavailable_reason="채점 대상이 모두 오염으로 제외되었습니다",
         )
 
@@ -506,6 +539,7 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
             solved=sum(1 for i in scored if i.outcome == "solved"),
             scored=len(scored),
             excluded=len(excluded),
+            harness=harness,
             unavailable_reason="설정 해시가 없습니다 — 어떤 설정으로 낸 숫자인지 알 수 없습니다",
         )
     if len(hashes) > 1:
@@ -515,6 +549,7 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
             available=False,
             scored=len(scored),
             excluded=len(excluded),
+            harness=harness,
             unavailable_reason=f"설정이 {len(hashes)}가지 섞여 있습니다 — 한 설정의 결과만 채점합니다",
         )
 
@@ -526,6 +561,7 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
             scored=len(scored),
             excluded=len(excluded),
             config_hash=config_hash,
+            harness=harness,
             unavailable_reason="이 설정에 모델이 기록되어 있지 않습니다",
         )
 
@@ -537,6 +573,7 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
         exact=sum(1 for i in solved if i.matched == "exact"),
         scored=len(scored),
         excluded=len(excluded),
+        harness=harness,
         config_hash=config_hash,
         model=model,
     )

@@ -138,7 +138,7 @@ class Instance:
         source frame is kept, because a narrowing rule that matches nothing
         should widen rather than return an empty backtrace.
         """
-        source = self.frames()
+        source = [frame for frame in self.frames() if not _is_foreign(frame.path)]
         owned = [frame for frame in source if _has_marker(frame.path, self.project_name)]
         return owned or source
 
@@ -149,13 +149,29 @@ class Instance:
         actually blamed is the first thing the agent is given.
         """
         wanted: list[str] = []
+        for readings in self.crash_candidates(depth):
+            if readings[0] not in wanted:
+                wanted.append(readings[0])
+        return wanted
+
+    def crash_candidates(self, depth: int = 1) -> list[list[str]]:
+        """Every reading of each crash frame's path, longest first.
+
+        The caller reads these out of the image and takes the first that exists,
+        which is the only authority on how the tree is actually laid out. Keeping
+        just the best guess -- which this used to -- meant one wrong guess lost
+        the instance, and it lost two of the first six.
+        """
+        found: list[list[str]] = []
+        seen: set[str] = set()
         for position, frame in enumerate(self.project_frames()):
             if position > depth:
                 break
-            resolved = candidate_paths(frame.path, self.project_name)
-            if resolved and resolved[0] not in wanted:
-                wanted.append(resolved[0])
-        return wanted
+            readings = [r for r in candidate_paths(frame.path, self.project_name) if r]
+            if readings and readings[0] not in seen:
+                seen.add(readings[0])
+                found.append(readings)
+        return found
 
 
 def _has_marker(reported: str, project: str) -> bool:
@@ -164,10 +180,7 @@ def _has_marker(reported: str, project: str) -> bool:
     The directory is often the project name with a commit or version glued on
     -- `njs_f65981b` -- so a prefix match rather than equality.
     """
-    return any(
-        part == project or part.startswith(f"{project}_") or part.startswith(f"{project}-")
-        for part in Path(reported).parts
-    )
+    return any(_is_marker(part, project) for part in Path(reported).parts)
 
 
 def candidate_paths(reported: str, project: str) -> list[str]:
@@ -182,15 +195,48 @@ def candidate_paths(reported: str, project: str) -> list[str]:
     project with `src/utils.c` and `test/utils.c` would otherwise resolve to
     whichever the filesystem answered with.
     """
-    parts = [p for p in Path(reported).parts if p not in ("/", "")]
-    # Anything after a directory that looks like the project is repo-relative.
-    for index, part in enumerate(parts):
-        if part == project or part.startswith(f"{project}_") or part.startswith(f"{project}-"):
-            tail = parts[index + 1 :]
-            if tail:
-                return ["/".join(tail)]
-    # No project marker: offer progressively shorter suffixes, longest first.
+    # `../../programs/escape.c` happens: some reports are relative to the build
+    # directory, not the tree. The dots carry no information a suffix search can
+    # use, and left in they make every candidate a path that cannot exist.
+    parts = [p for p in Path(reported).parts if p not in ("/", "", ".", "..")]
+
+    # Every reading a project marker gives, longest first, because the marker
+    # can appear more than once: gpac's reports say
+    # `/home/fuzz/gpac/gpac/applications/...` -- one checkout inside a directory
+    # of the same name -- and splitting at the first occurrence yields
+    # `gpac/applications/...`, which is one `gpac/` too many and exists nowhere.
+    # Splitting at the last would break the opposite layout, so this offers both
+    # and lets the image decide.
+    marked = [
+        "/".join(parts[index + 1 :])
+        for index, part in enumerate(parts)
+        if _is_marker(part, project) and parts[index + 1 :]
+    ]
+    if marked:
+        return marked
+
+    # No project marker: progressively shorter suffixes, longest first.
     return ["/".join(parts[i:]) for i in range(max(0, len(parts) - 4), len(parts))]
+
+
+#: Paths that are somebody else's source.
+#:
+#: A backtrace runs off the end of the project into the C library, the system
+#: headers and the compiler runtime. None of it is in the instance's image, and
+#: `/usr/include/.../string_fortified.h` is where a `strcpy` overflow lands
+#: every time -- so without this the innermost "project" frame of a whole class
+#: of instances is a header we cannot read and would not want to.
+_FOREIGN = ("/usr/", "/lib/", "/build/glibc", "/usr/include", "/opt/rh/")
+
+
+def _is_foreign(reported: str) -> bool:
+    return reported.startswith(_FOREIGN)
+
+
+def _is_marker(part: str, project: str) -> bool:
+    """The directory is often the project name with a commit or version glued
+    on -- `njs_f65981b` -- so a prefix match rather than equality."""
+    return part == project or part.startswith(f"{project}_") or part.startswith(f"{project}-")
 
 
 # -- fetching ----------------------------------------------------------------

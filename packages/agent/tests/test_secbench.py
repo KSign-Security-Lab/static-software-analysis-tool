@@ -101,11 +101,17 @@ def test_frames_outside_the_project_are_dropped(instance: ds.Instance) -> None:
     assert all("glibc" not in f.path for f in instance.project_frames())
 
 
-def test_a_report_with_no_recognisable_project_keeps_every_frame() -> None:
+def test_a_report_with_no_recognisable_project_keeps_every_frame_but_the_foreign_ones() -> None:
     """A narrowing rule that matches nothing should widen, not return an empty
-    backtrace -- some reports were produced against a differently laid-out tree."""
+    backtrace -- some reports were produced against a differently laid-out tree.
+
+    It widens to everything that could be the project, which is not everything:
+    glibc is somebody else's source under any layout.
+    """
     odd = ds.Instance.from_record({**RECORD, "project_name": "somethingelse"})
-    assert len(odd.project_frames()) == len(odd.frames())
+    kept = odd.project_frames()
+    assert len(kept) == len(odd.frames()) - 1, "only glibc dropped"
+    assert all("glibc" not in f.path for f in kept)
 
 
 def test_the_crash_file_comes_first(instance: ds.Instance) -> None:
@@ -120,6 +126,45 @@ def test_an_absolute_path_from_another_machine_becomes_repo_relative() -> None:
     paths to the container's, so the project name is the seam."""
     assert ds.candidate_paths("/home/q1iq/origin/njs_f65981b/src/njs_vmcode.c", "njs") == ["src/njs_vmcode.c"]
     assert ds.candidate_paths("/build/njs/src/x.c", "njs") == ["src/x.c"]
+
+
+def test_a_checkout_inside_a_directory_of_the_same_name() -> None:
+    """gpac's reports say `/home/fuzz/gpac/gpac/applications/...`.
+
+    Splitting at the first marker gives `gpac/applications/...` -- one `gpac/`
+    too many, a path that exists nowhere, and the instance is lost. Both
+    readings are offered and the image decides.
+    """
+    found = ds.candidate_paths("/home/fuzz/gpac/gpac/applications/mp4box/mp4box.c", "gpac")
+    assert "applications/mp4box/mp4box.c" in found
+    assert found[0].count("/") >= found[-1].count("/"), "longest first"
+
+
+def test_a_path_relative_to_the_build_directory_loses_its_dots() -> None:
+    """libredwg's frames read `../../programs/escape.c`. The dots say where the
+    compiler was standing, which no suffix search can use."""
+    assert ds.candidate_paths("../../programs/escape.c", "libredwg")[0] == "programs/escape.c"
+
+
+def test_the_c_library_is_not_the_project_even_when_nothing_else_matches() -> None:
+    """The widening fallback exists for oddly-laid-out trees, and it used to
+    widen all the way into `/usr/include`.
+
+    A `strcpy` overflow reports `string_fortified.h` as its innermost frame every
+    time. Reading it costs the instance: it is not in the image, and it is not
+    where the bug is.
+    """
+    odd = ds.Instance.from_record(
+        {
+            **RECORD,
+            "project_name": "nomatch",
+            "sanitizer_report": (
+                "    #0 0x1 in __strcpy /usr/include/x86_64-linux-gnu/bits/string_fortified.h:128\n"
+                "    #1 0x2 in main ../../programs/escape.c:46\n"
+            ),
+        }
+    )
+    assert [f.path for f in odd.project_frames()] == ["../../programs/escape.c"]
 
 
 def test_a_path_with_no_project_marker_offers_suffixes_longest_first() -> None:
@@ -298,12 +343,19 @@ def test_the_runner_owns_the_early_stages_and_the_evaluator_the_late_ones() -> N
 
 
 def test_an_unscored_instance_is_not_a_failure() -> None:
-    """`not_run` and `not_located` are different facts and the page groups them
-    apart -- one is work remaining, the other is a result."""
+    """Three facts, three words. Never tried, tried-and-unjudged, and tried-and-
+    failed are different things, and the page groups them apart.
+
+    The middle one is the one that was missing: with scoring inside the sweep
+    there is always a window where a patch exists and no verdict does, and
+    calling that 안 돌림 told the reader we had not attempted instances we had
+    in fact patched."""
     from agent.bench.runner import Attempt
     from agent.bench.score import outcome_for
 
-    assert outcome_for(Attempt(instance_id="a", patch="diff"), None)[0] == "not_run"
+    assert outcome_for(Attempt(instance_id="a", patch="diff"), None)[0] == "awaiting_score"
+    assert outcome_for(Attempt(instance_id="a", patch=""), None)[0] == "not_located"
+    assert outcome_for(Attempt(instance_id="a", patch="diff"), {"resolved": True})[0] == "solved"
 
 
 def test_the_sweep_is_never_imported_by_the_request_path() -> None:
