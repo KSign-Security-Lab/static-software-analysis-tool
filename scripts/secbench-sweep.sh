@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # A SEC-bench sweep you can start and walk away from.
 #
-#   scripts/secbench-sweep.sh --detach          # start it and go home
-#   scripts/secbench-sweep.sh                   # watch it
+#   scripts/secbench-sweep.sh                   # in tmux, and go home
 #   SECB_LIMIT=10 scripts/secbench-sweep.sh     # a sample first
+#
+# Runs in the foreground and logs as it goes, so tmux -- or screen, or nohup --
+# owns the detaching. There was a `--detach` flag doing that with setsid; it was
+# one more path to get wrong in the thing you are least able to watch, and tmux
+# already does it better.
 #
 # Checks everything cheap before it spends anything expensive, because the
 # failure worth preventing is discovering at hour six that the model was down
@@ -37,24 +41,9 @@ red()  { printf '\033[31m%s\033[0m\n' "$*"; }
 info() { printf '\033[36m%s\033[0m\n' "$*"; }
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 
-# -- detach ------------------------------------------------------------------
-#
-# Re-exec under setsid so the sweep outlives the terminal. Explicit rather than
-# automatic: a script that silently backgrounds itself is one you cannot watch.
-if [[ "${1:-}" == "--detach" ]]; then
-  mkdir -p "${SECB_ROOT}"
-  # The child tees to the log itself, so this discards rather than
-  # duplicating every line into it.
-  setsid nohup "$0" >/dev/null 2>&1 < /dev/null &
-  info "sweep started in the background (pid $!)"
-  info "  log:    tail -f ${LOG}"
-  info "  stop:   pkill -f secbench-sweep.sh"
-  exit 0
-fi
-
 mkdir -p "${SECB_ROOT}"
-# Always, whether or not there is a terminal. A sweep run from cron, or with its
-# output piped, is exactly the one whose log you will want afterwards.
+# Logged as well as printed. tmux scrollback is finite and this runs for days;
+# the log is what you read afterwards to find the instance that went wrong.
 exec > >(tee -a "${LOG}") 2>&1
 info "SEC-bench sweep — $(date '+%Y-%m-%d %H:%M:%S')"
 
@@ -114,7 +103,7 @@ step "dataset"
 
 step "sweeping"
 info "each instance is a ~1-3GB pull, an inspection and a patch — allow ~30 minutes each"
-info "safe to interrupt: a re-run skips what already finished"
+info "safe to interrupt: a re-run of this script skips what already finished"
 started=$(date +%s)
 "${VENV}/agent" bench run
 ran=$?
