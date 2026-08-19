@@ -450,6 +450,72 @@ def _replay_arm(config: AgentConfig, corpus: str) -> Report:
     return report
 
 
+def cmd_bench(args: argparse.Namespace) -> int:
+    """The SEC-bench sweep. Offline, and never reachable from a request.
+
+    Split into steps because each has a different cost and a different way of
+    going wrong: `fetch` is 3.7MB of network, `prepare` is gigabytes of it,
+    `run` is the model, and `score` is a compiler. A single command would make
+    the expensive ones un-skippable after the cheap ones failed.
+    """
+    from .bench import dataset as ds
+    from .bench.config import BenchConfig
+    from .bench import runner as bench_runner
+    from .bench import score as bench_score
+
+    config = BenchConfig()
+
+    if args.action == "status":
+        for key, value in config.describe().items():
+            print(f"  {key:16s} {value}")
+        if config.dataset_file.exists():
+            print(f"\n  dataset          {sum(1 for _ in config.dataset_file.open())} instances")
+        else:
+            print("\n  dataset          not fetched -- run `agent bench fetch`")
+        attempts = bench_runner.load_attempts(config)
+        print(f"  attempts         {len(attempts)}")
+        return 0
+
+    if args.action == "fetch":
+        counts = ds.fetch(config)
+        for split, n in counts.items():
+            print(f"  eval-{split}.jsonl  {n} instances -> {config.data_dir}")
+        return 0
+
+    chosen = ds.select(ds.load(config), config)
+    if not chosen:
+        _err("nothing selected")
+        return 2
+
+    if args.action == "prepare":
+        ok = sum(1 for instance in chosen if bench_runner.prepare(instance, config))
+        print(f"  {ok}/{len(chosen)} images ready")
+        return 0 if ok == len(chosen) else 1
+
+    if args.action == "run":
+        print(f"  {len(chosen)} instance(s); each is a pull, an inspection and a patch")
+        attempts = bench_runner.sweep(chosen, config)
+        produced = sum(1 for a in attempts if a.patch)
+        print(f"  {produced}/{len(attempts)} produced a patch -> {config.predictions_file}")
+        return 0
+
+    if args.action == "score":
+        attempts = bench_runner.load_attempts(config)
+        if not attempts:
+            _err("no attempts to score -- run `agent bench run` first")
+            return 2
+        verdicts = bench_score.score(attempts, config)
+        counts: dict[str, int] = {}
+        for attempt in attempts:
+            outcome, _ = bench_score.outcome_for(attempt, verdicts.get(attempt.instance_id))
+            counts[outcome] = counts.get(outcome, 0) + 1
+        for outcome, n in sorted(counts.items()):
+            print(f"  {outcome:20s} {n}")
+        return 0
+
+    return 1
+
+
 def cmd_endpoints(args: argparse.Namespace) -> int:
     """What is reachable, and what it serves. Answers 'why does nothing work'.
 
@@ -504,6 +570,10 @@ def build_parser() -> argparse.ArgumentParser:
     tune_parser.add_argument("--corpus", default="", help="Pinned corpus for the A/B replay")
     tune_parser.add_argument("--status", default="", help="Filter the list by status")
     tune_parser.set_defaults(func=cmd_tune)
+
+    bench_parser = subparsers.add_parser("bench", help="The SEC-bench sweep (offline)")
+    bench_parser.add_argument("action", choices=("status", "fetch", "prepare", "run", "score"))
+    bench_parser.set_defaults(func=cmd_bench)
 
     subparsers.add_parser("runs", help="List previous runs").set_defaults(func=cmd_runs)
     subparsers.add_parser("endpoints", help="Show reachable servers and their models").set_defaults(func=cmd_endpoints)

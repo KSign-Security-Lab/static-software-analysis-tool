@@ -160,3 +160,63 @@ def propose(
     except Exception as err:  # noqa: BLE001 - reported to the reader as "no fix", not raised
         log.warning("fix proposal failed for %s: %s", span.file, err)
         return Outcome.failed("transport")
+
+
+class Stale(ValueError):
+    """The file is not what was analysed.
+
+    Its own type because the two callers do different things with it: the API
+    turns it into a 409 telling the reader to re-inspect, and the sweep counts
+    the instance as unpatched rather than aborting the whole run.
+    """
+
+
+def splice(original: str, span: Span, replacement: str) -> str:
+    """Put a finding's replacement over the lines it is anchored to.
+
+    Here rather than in the route, because two things now apply a patch -- a
+    person pressing 이대로 고치기, and the SEC-bench sweep taking what the agent
+    produced -- and an off-by-one in one of two copies would corrupt source
+    while the other stayed correct. The span is 1-based and inclusive, which is
+    exactly the arithmetic worth having in one place.
+
+    Refuses rather than guesses. A span past the end of the file, or an excerpt
+    that no longer matches, means the file moved since it was analysed; applying
+    to that is applying to code nobody looked at.
+    """
+    body = replacement.strip("\n")
+    if not body.strip():
+        raise Stale("this finding has no fix that can be applied in place")
+
+    lines = original.splitlines(keepends=True)
+    if span.start_line < 1 or span.end_line > len(lines):
+        raise Stale("the file no longer has the lines this finding is anchored to")
+
+    current = "".join(lines[span.start_line - 1 : span.end_line]).rstrip("\n")
+    if span.excerpt.strip() and current.strip() != span.excerpt.strip():
+        raise Stale("the file changed after it was analysed")
+
+    ending = "\n" if lines[span.end_line - 1].endswith("\n") else ""
+    return "".join(lines[: span.start_line - 1]) + body + ending + "".join(lines[span.end_line :])
+
+
+def unified_diff(path: str, before: str, after: str) -> str:
+    """A `git apply`-able patch for one file.
+
+    What SEC-bench's evaluator consumes. Our agent works in replacements for a
+    line range -- which is what an editor wants -- and every benchmark in this
+    space speaks diffs, so the translation happens here and once.
+
+    `a/`/`b/` prefixes because that is what `git apply` expects by default; the
+    evaluator applies these inside the instance's work directory.
+    """
+    if before == after:
+        return ""
+    patch = difflib.unified_diff(
+        before.splitlines(keepends=True),
+        after.splitlines(keepends=True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
+        n=3,
+    )
+    return "".join(patch)

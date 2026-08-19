@@ -418,6 +418,59 @@ def _corpus_instances(config: AgentConfig | None = None) -> list[Instance]:
     return out
 
 
+def _secbench_instances() -> list[Instance]:
+    """What the sweep recorded, if it has run.
+
+    Read off disk rather than out of the database, because a sweep is a thing
+    that happens beside the app -- offline, over hours, possibly on another
+    machine -- and the surface's job is to show what it left behind. An empty
+    list is the ordinary state and the dataset's `how_to_run` says what to do
+    about it.
+
+    Imported inside the function so the API does not pull the sweep's module
+    graph on startup: `agent.bench` is deliberately not part of the request
+    path, and importing it here would make that untrue in the import graph even
+    if nothing called it.
+    """
+    try:
+        from agent.bench.config import BenchConfig
+        from agent.bench.dataset import load as load_dataset
+        from agent.bench.runner import load_attempts
+        from agent.bench.score import outcome_for, read_results
+    except ImportError:  # pragma: no cover - the sweep is optional
+        return []
+
+    config = BenchConfig()
+    attempts = load_attempts(config)
+    if not attempts:
+        return []
+
+    verdicts = read_results(config)
+    try:
+        known = {record.instance_id: record for record in load_dataset(config)}
+    except FileNotFoundError:
+        known = {}
+
+    out: list[Instance] = []
+    for attempt in attempts:
+        record = known.get(attempt.instance_id)
+        outcome, note = outcome_for(attempt, verdicts.get(attempt.instance_id))
+        out.append(
+            Instance(
+                id=attempt.instance_id,
+                project=record.project_name if record else "",
+                cwe=attempt.cwe or "",
+                # The instance id carries the CVE: `njs.cve-2022-32414`.
+                cve=attempt.instance_id.split(".", 1)[-1].upper() if "." in attempt.instance_id else "",
+                outcome=outcome,
+                run_id=attempt.run_id,
+                config_hash=attempt.config_hash,
+                note=note or (record.bug_description[:120] if record else ""),
+            )
+        )
+    return out
+
+
 def _score(dataset: Dataset, instances: list[Instance]) -> Score:
     """Solved over scored, or a stated reason there is no number.
 
@@ -481,6 +534,16 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
     )
 
 
+def _last_sweep_at() -> float | None:
+    """When the sweep last wrote an attempt."""
+    try:
+        from agent.bench.config import BenchConfig
+    except ImportError:  # pragma: no cover
+        return None
+    found = sorted(BenchConfig().runs_dir.glob("*/attempt.json"))
+    return max((path.stat().st_mtime for path in found), default=None)
+
+
 def _model_for(config_hash: str) -> str | None:
     from agent.harness import load
 
@@ -506,6 +569,10 @@ def read_dataset(dataset_id: str) -> Dict[str, Any]:
     if dataset is None:
         raise HTTPException(status_code=404, detail=f"unknown dataset: {dataset_id}")
 
-    instances = _corpus_instances() if dataset.id == "corpus" else []
+    instances = _corpus_instances() if dataset.id == "corpus" else _secbench_instances()
+    if dataset.id == "sec-bench" and instances:
+        # A held-out number with no date cannot be checked against the code that
+        # produced it, so the dataset carries when the sweep last wrote.
+        dataset = dataset.model_copy(update={"ran_at": _last_sweep_at()})
     view = DatasetView(dataset=dataset, score=_score(dataset, instances), instances=instances)
     return view.model_dump()

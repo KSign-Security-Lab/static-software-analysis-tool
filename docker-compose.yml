@@ -92,14 +92,23 @@ services:
     # trust boundary is at their containers either way.
     privileged: true
     environment:
-      # Plain TCP on an internal compose network. Not published to the host.
       DOCKER_TLS_CERTDIR: ""
-    command: ["--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+    # The socket's group. Defaults to the conventional docker gid; a host that
+    # uses another sets SECB_DOCKER_GID. This grants nothing new -- anyone who
+    # can already run docker here can run the sweep's daemon, and nobody else.
+    command: ["--group", "${SECB_DOCKER_GID:-999}"]
     volumes:
       # Where the 200 GB goes. Repo-relative by default so a checkout works
       # unconfigured; `.env` points it at a disk with room.
       - ${SECB_DOCKER_ROOT:-./artifacts/secbench/docker}:/var/lib/docker
       - ${SECB_ROOT:-./artifacts/secbench}:/secbench
+      # The daemon's socket, on the host, so the sweep can reach it.
+      #
+      # A socket rather than a published TCP port: an unauthenticated daemon on
+      # 127.0.0.1:2375 is reachable by every process on the machine with no
+      # credential at all, where a socket carries file permissions. The sweep
+      # sets DOCKER_HOST to this path.
+      - ${SECB_ROOT:-./artifacts/secbench}/run:/var/run
     healthcheck:
       test: ["CMD", "docker", "info"]
       interval: 5s
@@ -120,10 +129,12 @@ services:
       secbench-docker:
         condition: service_healthy
     environment:
-      DOCKER_HOST: tcp://secbench-docker:2375
+      # The sibling daemon, over the socket it shares through ${SECB_ROOT}/run.
+      DOCKER_HOST: unix:///var/run/docker.sock
       SECB_ROOT: /secbench
     volumes:
       - ${SECB_ROOT:-./artifacts/secbench}:/secbench
+      - ${SECB_ROOT:-./artifacts/secbench}/run:/var/run
     # Long-lived, so `docker compose exec secbench ...` can drive it.
     command: ["sleep", "infinity"]
 

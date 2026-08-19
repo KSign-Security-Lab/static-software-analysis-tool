@@ -33,6 +33,7 @@ from agent.runs import (
     diff_reports,
     get_run,
 )
+from agent.remediate import Stale, splice
 from agent.schema import Report
 
 from .channels import (
@@ -534,28 +535,22 @@ def run_apply(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     if finding is None:
         raise HTTPException(status_code=404, detail=f"unknown finding: {request.finding_id}")
 
-    replacement = (finding.remediation.replacement or "").strip("\n")
-    if not replacement.strip():
-        raise HTTPException(status_code=409, detail="this finding has no fix that can be applied in place")
-
     span = finding.primary
     original = run.read_file(span.file)
     if original is None:
         raise HTTPException(status_code=404, detail=f"cannot read {span.file}")
 
-    lines = original.splitlines(keepends=True)
-    if span.end_line > len(lines) or span.start_line < 1:
-        raise HTTPException(status_code=409, detail="the file no longer has the lines this finding is anchored to")
+    # The arithmetic lives in `remediate.splice`, not here. Two things apply a
+    # patch now -- this button and the SEC-bench sweep -- and an off-by-one in
+    # one of two copies would corrupt source while the other stayed correct.
+    try:
+        patched = splice(original, span, finding.remediation.replacement or "")
+    except Stale as err:
+        detail = str(err)
+        if "changed" in detail:
+            detail = "이 파일은 검사 이후 바뀌었습니다. 다시 검사한 뒤 적용하세요."
+        raise HTTPException(status_code=409, detail=detail) from err
 
-    # What is there now must be what was analysed. The excerpt was read when the
-    # finding was made, so a mismatch means the file changed and the span points
-    # somewhere else entirely.
-    current = "".join(lines[span.start_line - 1 : span.end_line]).rstrip("\n")
-    if finding.primary.excerpt.strip() and current.strip() != finding.primary.excerpt.strip():
-        raise HTTPException(status_code=409, detail="이 파일은 검사 이후 바뀌었습니다. 다시 검사한 뒤 적용하세요.")
-
-    ending = "\n" if lines[span.end_line - 1].endswith("\n") else ""
-    patched = "".join(lines[: span.start_line - 1]) + replacement + ending + "".join(lines[span.end_line :])
     run.put_file(span.file, patched.encode("utf-8"))
     index = _reindex(run)
 

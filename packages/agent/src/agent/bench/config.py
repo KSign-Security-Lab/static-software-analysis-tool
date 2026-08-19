@@ -51,11 +51,17 @@ CONTEXTS = ("sanitizer", "repo")
 #: Where the pre-built evaluation images live. Theirs, on Docker Hub.
 DEFAULT_IMAGE_PREFIX = "hwiwonlee/secb.eval.x86_64."
 
-#: The sweep's own daemon. Not the host's -- see the `secbench` compose profile.
-#: A sweep that fell back to the default socket would fill the machine's system
-#: disk with two hundred gigabytes of somebody else's images, which is the one
-#: failure this whole arrangement exists to prevent.
-DEFAULT_DOCKER_HOST = "tcp://localhost:2376"
+#: The sweep's own daemon, as a socket under `root`.
+#:
+#: Not the host's: a sweep that fell back to the default socket would fill the
+#: machine's system disk with two hundred gigabytes of somebody else's images,
+#: which is the one failure this arrangement exists to prevent.
+#:
+#: A socket rather than a TCP port because an unauthenticated daemon on
+#: 127.0.0.1 is reachable by every process on the machine with no credential;
+#: a socket carries file permissions. Derived from `root` so the compose mount
+#: and this cannot disagree.
+SOCKET_NAME = "run/docker.sock"
 
 
 def _repo_root() -> Path:
@@ -126,7 +132,7 @@ class BenchConfig:
     limit: int = field(default_factory=lambda: _env_int(ENV_LIMIT, 0))
 
     #: The sweep's daemon, never the host's.
-    docker_host: str = field(default_factory=lambda: os.getenv(ENV_DOCKER_HOST, DEFAULT_DOCKER_HOST))
+    docker_host: str = ""  # resolved in __post_init__ from `root`, or overridden
     image_prefix: str = field(default_factory=lambda: os.getenv(ENV_IMAGE_PREFIX, DEFAULT_IMAGE_PREFIX))
 
     #: Remove an instance's image once it has been scored.
@@ -157,6 +163,14 @@ class BenchConfig:
     #
     # Every path the sweep touches hangs off `root`, so deleting one directory
     # undoes a sweep and nothing is left behind anywhere else.
+
+    def __post_init__(self) -> None:
+        # `root` decides where the socket is, so the compose mount and the sweep
+        # cannot drift. An explicit SECB_DOCKER_HOST still wins.
+        if not self.docker_host:
+            override = os.getenv(ENV_DOCKER_HOST)
+            resolved = override or f"unix://{self.root / SOCKET_NAME}"
+            object.__setattr__(self, "docker_host", resolved)
 
     @property
     def data_dir(self) -> Path:

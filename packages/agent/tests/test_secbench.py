@@ -220,3 +220,101 @@ def test_loading_without_fetching_says_so(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     with pytest.raises(FileNotFoundError, match="agent bench fetch"):
         ds.load(BenchConfig())
+
+
+# -- producing a patch -------------------------------------------------------
+
+
+def test_a_replacement_becomes_a_diff_the_evaluator_can_apply() -> None:
+    """Our agent works in line replacements, which is what an editor wants.
+    Every benchmark in this space speaks diffs, so the translation happens once."""
+    from agent.remediate import splice, unified_diff
+    from agent.schema import Span
+
+    before = "int main(void) {\n    char b[8];\n    strcpy(b, x);\n    return 0;\n}\n"
+    span = Span(file="m.c", start_line=3, end_line=3, start_column=0, end_column=1, excerpt="    strcpy(b, x);")
+    after = splice(before, span, "    strncpy(b, x, sizeof(b) - 1);")
+    diff = unified_diff("m.c", before, after)
+
+    assert diff.startswith("--- a/m.c\n+++ b/m.c\n")
+    assert "-    strcpy(b, x);" in diff
+    assert "+    strncpy(b, x, sizeof(b) - 1);" in diff
+
+
+def test_a_file_that_moved_is_refused_rather_than_corrupted() -> None:
+    """The excerpt was read when the finding was made. A mismatch means the file
+    changed, and applying to that is applying to code nobody looked at."""
+    from agent.remediate import Stale, splice
+    from agent.schema import Span
+
+    span = Span(file="m.c", start_line=1, end_line=1, start_column=0, end_column=1, excerpt="something else")
+    with pytest.raises(Stale):
+        splice("int x;\n", span, "int y;")
+
+
+def test_predictions_are_written_in_the_shape_their_evaluator_reads(tmp_path: Path, monkeypatch) -> None:
+    """SWE-agent's format, because it is the simplest of the four they accept
+    and needs no change upstream. Pinned here so a drift is a failing test."""
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    from agent.bench.runner import Attempt, write_predictions
+
+    config = BenchConfig()
+    write_predictions(
+        [Attempt(instance_id="a.cve-1", patch="diff --git a/x b/x\n"), Attempt(instance_id="b.cve-2")],
+        config,
+    )
+    payload = json.loads(config.predictions_file.read_text())
+
+    assert payload["a.cve-1"]["model_patch"] == "diff --git a/x b/x\n"
+    # Written with an empty patch rather than dropped: their evaluator counts it
+    # unresolved, which it is, and omitting it would shrink the denominator.
+    assert payload["b.cve-2"]["model_patch"] == ""
+
+
+def test_an_instance_that_produced_nothing_is_still_scored(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    from agent.bench.runner import Attempt
+    from agent.bench.score import outcome_for
+
+    outcome, note = outcome_for(Attempt(instance_id="a.cve-1"), None)
+    assert outcome == "not_located"
+    assert note
+
+
+def test_the_runner_owns_the_early_stages_and_the_evaluator_the_late_ones() -> None:
+    """The honest division: only the runner knows whether the agent found
+    anything, and only a build knows whether the patch works."""
+    from agent.bench.runner import Attempt
+    from agent.bench.score import outcome_for
+
+    patched = Attempt(instance_id="a.cve-1", patch="diff --git a/x b/x\n")
+    assert outcome_for(patched, {"resolved": True})[0] == "solved"
+    assert outcome_for(patched, {"resolved": False, "stage": "build_failed"})[0] == "patch_build_failed"
+    assert outcome_for(patched, {"resolved": False, "reason": "tests_failed"})[0] == "fixed_tests_broke"
+    # Scored, not resolved, and their report did not say how. The note carries
+    # what they actually said, so nobody has to trust the guess.
+    outcome, note = outcome_for(patched, {"resolved": False})
+    assert outcome == "built_not_fixed" and note
+
+
+def test_an_unscored_instance_is_not_a_failure() -> None:
+    """`not_run` and `not_located` are different facts and the page groups them
+    apart -- one is work remaining, the other is a result."""
+    from agent.bench.runner import Attempt
+    from agent.bench.score import outcome_for
+
+    assert outcome_for(Attempt(instance_id="a", patch="diff"), None)[0] == "not_run"
+
+
+def test_the_sweep_is_never_imported_by_the_request_path() -> None:
+    """Same rule the tuner follows. A benchmark reachable from a request is one
+    you will iterate against, and the moment we tune against a held-out set it
+    stops measuring us."""
+    from pathlib import Path as P
+
+    import agent
+
+    package = P(agent.__file__).parent
+    for name in ("graph/build.py", "graph/nodes.py", "graph/session.py", "llm.py", "mcp/server.py"):
+        source = (package / name).read_text(encoding="utf-8")
+        assert "bench" not in source.replace("benchmark", ""), f"{name} reaches the sweep"
