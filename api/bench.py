@@ -244,7 +244,12 @@ SEC_BENCH = Dataset(
             "reason": "범위 밖입니다. 우리는 찾고, 설명하고, 고칩니다. 익스플로잇은 만들지 않습니다.",
         }
     ],
-    how_to_run="SEC-bench 패치 트랙 스윕은 아직 이 저장소에 없습니다. 스윕이 인스턴스별 결과를 기록하면 여기에 그대로 나옵니다.",
+    how_to_run=(
+        "터미널에서: docker compose --profile secbench up -d 로 전용 도커를 띄우고, "
+        "agent bench fetch → prepare → run → score 순서로 돌립니다. "
+        "SECB_LIMIT=10 으로 일부만 먼저 돌려 보는 편이 낫습니다 — 200건은 하루로 끝나지 않습니다. "
+        "이 화면에는 실행 단추가 없습니다: 고정 대상을 한 번 누르면 돌아가게 해 두면, 결국 그것에 맞춰 조정하게 됩니다."
+    ),
 )
 
 PINNED = Dataset(
