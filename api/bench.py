@@ -459,7 +459,10 @@ def _secbench_instances() -> list[Instance]:
     out: list[Instance] = []
     for attempt in attempts:
         record = known.get(attempt.instance_id)
-        outcome, note = outcome_for(attempt, verdicts.get(attempt.instance_id))
+        # The attempt's own verdict first: it was written while the instance's
+        # image was still on disk, which is the only moment it could be. The
+        # batch results are the fallback for a re-score.
+        outcome, note = outcome_for(attempt, attempt.verdict or verdicts.get(attempt.instance_id))
         out.append(
             Instance(
                 id=attempt.instance_id,

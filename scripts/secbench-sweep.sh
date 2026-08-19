@@ -102,7 +102,8 @@ step "dataset"
 "${VENV}/agent" bench fetch || { red "fetch failed"; exit 1; }
 
 step "sweeping"
-info "each instance is a ~1-3GB pull, an inspection and a patch — allow ~30 minutes each"
+info "each instance is a ~3GB pull, an inspection, a patch and its scoring — allow ~30-40 minutes each"
+info "scored as it goes, so results appear on 벤치마크 while this runs"
 info "safe to interrupt: a re-run of this script skips what already finished"
 started=$(date +%s)
 "${VENV}/agent" bench run
@@ -114,9 +115,12 @@ info "sweep phase finished in $(( ($(date +%s) - started) / 60 )) minutes"
 # Theirs, not ours. Built once; the image is pinned so a later sweep scores the
 # same way.
 
-step "scoring"
-# Unconditional: a cached build is a no-op, and guessing the built image's name
-# from the compose project is fragile in a way that failing to build is not.
+step "re-scoring"
+# The sweep scores each instance as it goes, while that instance's image is
+# still on disk -- afterwards it has been pruned, and scoring would have to
+# download all two hundred again. This pass is the safety net: it re-runs their
+# batch evaluator over the cumulative preds.json and fills in anything whose
+# per-instance scoring failed.
 info "building SEC-bench's tooling image (cached after the first run)"
 docker compose --profile secbench build secbench \
   || { red "build failed — the patches are still in ${SECB_ROOT}/preds.json"; exit 1; }

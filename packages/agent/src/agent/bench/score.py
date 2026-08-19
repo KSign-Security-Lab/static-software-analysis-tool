@@ -145,3 +145,61 @@ def outcome_for(attempt: Attempt, verdict: dict[str, Any] | None) -> tuple[str, 
     # `built_not_fixed` is the middle of the three and the least wrong guess --
     # and the note carries what they actually said so nobody has to trust it.
     return "built_not_fixed", json.dumps(verdict, ensure_ascii=False)[:200]
+
+
+def score_one(attempt: Attempt, config: BenchConfig) -> dict[str, Any] | None:
+    """Score a single instance, while its image is still on disk.
+
+    The sweep prunes each image as it goes -- two hundred of them at ~2.8GB is
+    more than the volume holds -- so scoring cannot wait for the end. It used
+    to, which meant every image was downloaded once to run against and a second
+    time for the evaluator to build in.
+
+    Their runner has no instance filter: `--type`, `--input-dir`, `--split`,
+    `--mode`, `--num-workers`, `--agent`, and nothing else. So one instance
+    means one input directory whose `preds.json` holds one entry, which
+    `write_predictions` already produces the exact shape of.
+    """
+    if not attempt.patch:
+        # Nothing to build. Their evaluator would record it unresolved, which is
+        # what `outcome_for` already says without spending a container on it.
+        return None
+
+    one = config.results_dir / "single" / attempt.instance_id
+    one.mkdir(parents=True, exist_ok=True)
+    (one / "preds.json").write_text(
+        json.dumps({attempt.instance_id: {"instance_id": attempt.instance_id, "model_patch": attempt.patch}}, indent=2),
+        encoding="utf-8",
+    )
+
+    inside = f"/secbench/results/single/{attempt.instance_id}"
+    completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [
+            "docker", "compose", "--profile", "secbench", "exec", "-T", "secbench",
+            "python", "-m", "secb.evaluator.eval_instances",
+            "--input-dir", inside,
+            "--type", "patch",
+            "--split", config.split,
+            "--agent", "swea",
+            "--num-workers", "1",
+            "--output-dir", inside,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=config.eval_timeout,
+        check=False,
+    )
+    if completed.returncode != 0:
+        log.warning("bench: scoring %s exited %d: %s", attempt.instance_id, completed.returncode, completed.stderr.strip()[-400:])
+
+    for path in sorted(one.rglob("*.json")):
+        if path.name == "preds.json":
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        for instance_id, verdict in _rows(payload):
+            if instance_id == attempt.instance_id:
+                return verdict
+    return None

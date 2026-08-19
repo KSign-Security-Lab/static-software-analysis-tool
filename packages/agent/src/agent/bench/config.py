@@ -28,6 +28,7 @@ ENV_INSTANCES = "SECB_INSTANCES"
 ENV_LIMIT = "SECB_LIMIT"
 ENV_DOCKER_HOST = "SECB_DOCKER_HOST"
 ENV_IMAGE_PREFIX = "SECB_IMAGE_PREFIX"
+ENV_IMAGE_TAG = "SECB_IMAGE_TAG"
 ENV_PRUNE = "SECB_PRUNE"
 ENV_CONTEXT = "SECB_CONTEXT"
 ENV_CALLER_DEPTH = "SECB_CALLER_DEPTH"
@@ -50,6 +51,21 @@ CONTEXTS = ("sanitizer", "repo")
 
 #: Where the pre-built evaluation images live. Theirs, on Docker Hub.
 DEFAULT_IMAGE_PREFIX = "hwiwonlee/secb.eval.x86_64."
+
+#: The tag their evaluator uses, and therefore the one to pull.
+#:
+#: Each instance carries `latest`, `patch` and `poc`. `eval_instances.py` builds
+#: `f"{PREFIX}.{id}:patch"` for a patch evaluation, so pulling the repository
+#: untagged fetched `:latest` and left the evaluator to download a second image
+#: per instance -- ~2.8GB each, over two hundred instances.
+#:
+#: The content is the same either way: measured on njs.cve-2022-32414, the two
+#: tags share every layer and the crashing file is byte-identical in both. So
+#: this was a bandwidth and ordering fault rather than a correctness one. Pulling
+#: what the evaluator will use is still right: it makes "the tree we patched" and
+#: "the tree that gets built" the same object rather than two that happen to
+#: agree today.
+DEFAULT_IMAGE_TAG = "patch"
 
 #: The sweep's own daemon, as a socket under `root`.
 #:
@@ -134,6 +150,9 @@ class BenchConfig:
     #: The sweep's daemon, never the host's.
     docker_host: str = ""  # resolved in __post_init__ from `root`, or overridden
     image_prefix: str = field(default_factory=lambda: os.getenv(ENV_IMAGE_PREFIX, DEFAULT_IMAGE_PREFIX))
+    #: `patch` or `poc`. A setting rather than a rewrite, so the other track is
+    #: reachable without touching the runner.
+    image_tag: str = field(default_factory=lambda: os.getenv(ENV_IMAGE_TAG, DEFAULT_IMAGE_TAG))
 
     #: Remove an instance's image once it has been scored.
     #:
@@ -194,7 +213,8 @@ class BenchConfig:
         return self.root / "results"
 
     def image_for(self, instance_id: str) -> str:
-        return f"{self.image_prefix}{instance_id}"
+        """The exact reference their evaluator will use, tag and all."""
+        return f"{self.image_prefix}{instance_id}:{self.image_tag}"
 
     def docker_env(self) -> dict[str, str]:
         """The environment a `docker` call needs to reach the sweep's daemon.
@@ -213,6 +233,7 @@ class BenchConfig:
             "limit": self.limit or "(none)",
             "docker_host": self.docker_host,
             "image_prefix": self.image_prefix,
+            "image_tag": self.image_tag,
             "prune_after": self.prune_after,
             "context": self.context,
             "caller_depth": self.caller_depth,

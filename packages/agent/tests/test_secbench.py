@@ -361,3 +361,85 @@ def test_asking_for_the_work_again_is_possible(tmp_path: Path, monkeypatch) -> N
 
     sweep([ds.Instance.from_record({**RECORD, "instance_id": "p.cve-0"})], config, resume=False)
     assert ran == ["p.cve-0"]
+
+
+# -- the two bugs a running sweep found --------------------------------------
+
+
+def test_the_image_reference_is_the_one_their_evaluator_builds() -> None:
+    """Pulling the repository untagged fetched `:latest`.
+
+    `eval_instances.py` builds `f"{PREFIX}.{id}:patch"` for a patch evaluation,
+    so the sweep ran against one image and was judged in another -- and the
+    evaluator, finding nothing local, downloaded a second ~2.8GB per instance.
+    Measured afterwards, the two tags share every layer and the crashing file is
+    byte-identical, so this cost bandwidth rather than correctness. Pulling what
+    will actually be built is still right: it makes the tree we patch and the
+    tree that gets built one object instead of two that happen to agree.
+    """
+    config = BenchConfig()
+    reference = config.image_for("njs.cve-2022-32414")
+
+    assert reference.endswith(":patch")
+    assert reference == f"{config.image_prefix}njs.cve-2022-32414:patch"
+
+
+def test_the_track_is_a_setting_not_a_rewrite(monkeypatch) -> None:
+    monkeypatch.setenv("SECB_IMAGE_TAG", "poc")
+    assert BenchConfig().image_for("a.cve-1").endswith(":poc")
+
+
+def test_an_instance_is_scored_before_its_image_is_removed(tmp_path: Path, monkeypatch) -> None:
+    """The ordering bug, asserted on call order.
+
+    The sweep prunes as it goes because two hundred images do not fit. Scoring
+    used to happen in a separate phase at the end, by which time every image was
+    gone -- so the evaluator re-downloaded each one. A comment would not have
+    caught this; the sequence is the only thing that says it.
+    """
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    from agent.bench import runner as bench_runner
+    from agent.bench.runner import Attempt, sweep
+
+    calls: list[str] = []
+
+    monkeypatch.setattr(bench_runner, "prepare", lambda i, _c: calls.append(f"pull:{i.instance_id}") or True)
+    monkeypatch.setattr(
+        bench_runner, "run_one", lambda i, _c: Attempt(instance_id=i.instance_id, patch="diff --git a/x b/x\n")
+    )
+    monkeypatch.setattr(
+        bench_runner, "_score_now", lambda a, _c: calls.append(f"score:{a.instance_id}") or {"resolved": True}
+    )
+    monkeypatch.setattr(
+        bench_runner, "_docker", lambda _c, *args, **kw: calls.append(f"{args[0]}:{args[-1].split(':')[0]}")
+    )
+
+    sweep([ds.Instance.from_record({**RECORD, "instance_id": "a.cve-1"})], BenchConfig())
+
+    assert calls.index("score:a.cve-1") < calls.index("rmi:hwiwonlee/secb.eval.x86_64.a.cve-1"), (
+        "the image must still be there when the evaluator wants it"
+    )
+
+
+def test_the_verdict_is_kept_with_the_attempt(tmp_path: Path, monkeypatch) -> None:
+    """Written while the image was on disk, which is the only moment it could be.
+    Re-reading the batch results later is the fallback, not the source."""
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    from agent.bench import runner as bench_runner
+    from agent.bench.runner import Attempt, load_attempts
+
+    config = BenchConfig()
+    bench_runner._write_attempt(
+        Attempt(instance_id="a.cve-1", patch="diff", verdict={"resolved": True}), config
+    )
+    assert load_attempts(config)[0].verdict == {"resolved": True}
+
+
+def test_an_unpatched_instance_costs_no_container(tmp_path: Path, monkeypatch) -> None:
+    """Their evaluator would record it unresolved, which `outcome_for` already
+    says without spending minutes of build time to hear it."""
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    from agent.bench.runner import Attempt
+    from agent.bench.score import score_one
+
+    assert score_one(Attempt(instance_id="a.cve-1", patch=""), BenchConfig()) is None

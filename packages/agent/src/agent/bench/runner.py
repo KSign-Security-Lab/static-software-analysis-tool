@@ -55,6 +55,9 @@ class Attempt:
     #: ones, and saying which is which is the point of the taxonomy.
     stage: str = ""
     note: str = ""
+    #: Their evaluator's verdict, stored beside the attempt that produced it.
+    #: Written while the image is still here, because afterwards it is not.
+    verdict: dict | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -272,6 +275,18 @@ def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = Tru
         else:
             attempts.append(run_one(instance, config))
 
+        # Scored here, before the image goes. The image is what the evaluator
+        # builds in, so scoring at the end of the sweep -- which is what this
+        # did -- meant every instance was downloaded once to run against and a
+        # second time to be judged in. Two hundred of them at ~2.8GB is not a
+        # rounding error.
+        #
+        # It also means the sweep reports as it goes. A run that takes days and
+        # says nothing until it finishes is a run nobody can course-correct.
+        verdict = _score_now(attempts[-1], config)
+        if verdict is not None:
+            attempts[-1].verdict = verdict
+
         _write_attempt(attempts[-1], config)
         # Rewritten every instance so an interrupted sweep still has a
         # `preds.json` covering everything that finished.
@@ -283,6 +298,23 @@ def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = Tru
             _docker(config, "rmi", "-f", config.image_for(instance.instance_id))
 
     return attempts
+
+
+def _score_now(attempt: Attempt, config: BenchConfig) -> dict | None:
+    """Their evaluator, on this one instance, before its image is removed.
+
+    Imported here rather than at module scope: `score` imports `Attempt` from
+    this module, so a top-level import would close a cycle. Failure is a missing
+    verdict rather than a dead sweep -- `outcome_for` renders that as not-yet
+    -scored, and `agent bench score` can fill it in later from `preds.json`.
+    """
+    try:
+        from .score import score_one
+
+        return score_one(attempt, config)
+    except Exception as err:  # noqa: BLE001 - one instance's scoring is not the sweep
+        log.warning("bench: could not score %s: %s", attempt.instance_id, err)
+        return None
 
 
 def _write_attempt(attempt: Attempt, config: BenchConfig) -> None:
