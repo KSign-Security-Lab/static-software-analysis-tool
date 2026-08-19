@@ -84,8 +84,10 @@ export default function Scoreboard() {
  * nothing to connect to.
  */
 function Progress({ view }: { view: DatasetView }) {
-  const { total } = view.dataset;
-  const attempted = view.instances.length;
+  const total = view.dataset.total || view.instances.length;
+  // Rows are the whole split now, so a row is not an attempt: the unrun ones
+  // are listed too, which is the point.
+  const attempted = view.instances.filter((i) => i.outcome !== "not_run").length;
   if (!total || attempted >= total) return null;
 
   return (

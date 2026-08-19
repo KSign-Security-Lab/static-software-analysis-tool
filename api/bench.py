@@ -444,53 +444,83 @@ def _corpus_instances(config: AgentConfig | None = None) -> list[Instance]:
     return out
 
 
-def _secbench_instances() -> list[Instance]:
-    """What the sweep recorded, if it has run.
+def _secbench_sources() -> tuple[list[Any], list[Any], dict[str, Any]]:
+    """`(dataset records, attempts, verdicts)`, all three off disk.
 
     Read off disk rather than out of the database, because a sweep is a thing
     that happens beside the app -- offline, over hours, possibly on another
-    machine -- and the surface's job is to show what it left behind. An empty
-    list is the ordinary state and the dataset's `how_to_run` says what to do
-    about it.
+    machine -- and the surface's job is to show what it left behind.
 
     Imported inside the function so the API does not pull the sweep's module
     graph on startup: `agent.bench` is deliberately not part of the request
     path, and importing it here would make that untrue in the import graph even
-    if nothing called it.
+    if nothing called it. Separated from the join below so the join can be
+    tested without two hundred instances on disk.
     """
     try:
         from agent.bench.config import BenchConfig
         from agent.bench.dataset import load as load_dataset
         from agent.bench.runner import load_attempts
-        from agent.bench.score import outcome_for, read_results
+        from agent.bench.score import read_results
+    except ImportError:  # pragma: no cover - the sweep is optional
+        return [], [], {}
+
+    config = BenchConfig()
+    try:
+        records = list(load_dataset(config))
+    except FileNotFoundError:
+        # Nothing fetched yet. Whatever the sweep recorded is all there is,
+        # which before a fetch is nothing.
+        records = []
+    return records, list(load_attempts(config)), read_results(config)
+
+
+def _secbench_instances() -> list[Instance]:
+    """Every instance in the split, with what the sweep concluded about it.
+
+    The whole split, in the order the sweep walks it, so an unattempted instance
+    is a row saying so rather than an absence. Listing only what had been
+    attempted made a set of two hundred read as a set of four -- the denominator
+    was on the page in the progress line, and the list beside it contradicted
+    it.
+    """
+    try:
+        from agent.bench.score import outcome_for
     except ImportError:  # pragma: no cover - the sweep is optional
         return []
 
-    config = BenchConfig()
-    attempts = load_attempts(config)
-    if not attempts:
-        return []
-
-    verdicts = read_results(config)
-    try:
-        known = {record.instance_id: record for record in load_dataset(config)}
-    except FileNotFoundError:
-        known = {}
+    known, recorded, verdicts = _secbench_sources()
+    attempts = {attempt.instance_id: attempt for attempt in recorded}
+    records = {record.instance_id: record for record in known}
+    ids = [record.instance_id for record in known] or list(attempts)
 
     out: list[Instance] = []
-    for attempt in attempts:
-        record = known.get(attempt.instance_id)
+    for instance_id in ids:
+        record = records.get(instance_id)
+        attempt = attempts.get(instance_id)
+        if attempt is None:
+            out.append(
+                Instance(
+                    id=instance_id,
+                    project=record.project_name if record else "",
+                    cwe="",  # the benchmark ships no label; the CWE is the agent's answer
+                    cve=instance_id.split(".", 1)[-1].upper() if "." in instance_id else "",
+                    outcome="not_run",
+                    note=record.bug_description[:120] if record else "",
+                )
+            )
+            continue
         # The attempt's own verdict first: it was written while the instance's
         # image was still on disk, which is the only moment it could be. The
         # batch results are the fallback for a re-score.
-        outcome, note = outcome_for(attempt, attempt.verdict or verdicts.get(attempt.instance_id))
+        outcome, note = outcome_for(attempt, attempt.verdict or verdicts.get(instance_id))
         out.append(
             Instance(
-                id=attempt.instance_id,
+                id=instance_id,
                 project=record.project_name if record else "",
                 cwe=attempt.cwe or "",
                 # The instance id carries the CVE: `njs.cve-2022-32414`.
-                cve=attempt.instance_id.split(".", 1)[-1].upper() if "." in attempt.instance_id else "",
+                cve=instance_id.split(".", 1)[-1].upper() if "." in instance_id else "",
                 outcome=outcome,
                 run_id=attempt.run_id,
                 config_hash=attempt.config_hash,
@@ -518,7 +548,7 @@ def _score(dataset: Dataset, instances: list[Instance]) -> Score:
             return Score(
                 available=False,
                 harness=harness,
-                unavailable_reason=f"{waiting}건이 채점을 기다리고 있습니다 — agent bench score 를 돌리면 채워집니다",
+                unavailable_reason=f"{waiting}건이 채점을 기다리고 있습니다 — 스윕을 다시 시작하면 채워집니다",
             )
         return Score(available=False, harness=harness, unavailable_reason="아직 돌린 결과가 없습니다")
 

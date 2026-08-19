@@ -386,3 +386,41 @@ def test_a_failure_before_logging_starts_is_still_reported(tmp_path, monkeypatch
     monkeypatch.setattr(sweep, "_paths", lambda: (tmp_path / "p", tmp_path / "l", tmp_path / "b"))
 
     assert any("Permission denied" in line for line in sweep.status()["log"])
+
+
+def test_the_list_is_the_whole_split_not_only_what_ran(tmp_path, monkeypatch) -> None:
+    """Two hundred instances of which four have been attempted is a set of two
+    hundred, and the list has to say so.
+
+    Showing only the attempted ones read as "there are four test cases" -- the
+    denominator was on the page in the progress line and the list beside it
+    contradicted it. The corpus has always listed its unrun files; this is the
+    same rule.
+    """
+    from api import bench
+
+    class Record:
+        def __init__(self, instance_id):
+            self.instance_id = instance_id
+            self.project_name = instance_id.split(".")[0]
+            self.bug_description = "a crash"
+
+    class Attempt:
+        instance_id = "b.cve-2"
+        patch = "diff"
+        stage = ""
+        note = ""
+        cwe = "CWE-125"
+        run_id = "r"
+        config_hash = "cfg"
+        verdict = None
+
+    monkeypatch.setattr(
+        bench,
+        "_secbench_sources",
+        lambda: ([Record("a.cve-1"), Record("b.cve-2"), Record("c.cve-3")], [Attempt()], {}),
+    )
+    found = bench._secbench_instances()
+
+    assert [i.id for i in found] == ["a.cve-1", "b.cve-2", "c.cve-3"], "dataset order, so it matches [n/200]"
+    assert [i.outcome for i in found] == ["not_run", "awaiting_score", "not_run"]

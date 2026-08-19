@@ -62,7 +62,9 @@ export default function Instances() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {view.data && view.data.instances.length === 0 ? (
+        {/* Nothing attempted, not no rows: the whole split is listed from the
+            start, so "empty" means every row is 안 돌림 rather than absent. */}
+        {view.data && view.data.instances.every((i) => i.outcome === "not_run") ? (
           <EmptyState icon={FlaskConical} title="아직 결과가 없습니다">
             {view.data.dataset.how_to_run}
           </EmptyState>
