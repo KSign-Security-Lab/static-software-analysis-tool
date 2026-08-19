@@ -70,6 +70,63 @@ services:
       retries: 90
       start_period: 30s
 
+  # SEC-bench's own Docker daemon, so its images do not land on the host's.
+  #
+  #   docker compose --profile secbench up -d
+  #
+  # The full set of evaluation images is around 200 GB. `/var/lib/docker` is on
+  # the system disk, and image layers live in a daemon's data-root -- a volume
+  # cannot redirect them, so the only way to put them somewhere else without
+  # migrating everything is a second daemon. This is that, as a service rather
+  # than as a command somebody has to remember.
+  #
+  # Nothing about the host daemon changes: it is not restarted, reconfigured or
+  # migrated, and vLLM, Postgres and Joern keep running while a sweep does.
+  secbench-docker:
+    image: docker:28-dind
+    container_name: ssat-secbench-docker-${USER}
+    profiles: [secbench]
+    # dind needs it. Confined to a profile that is down by default, and the
+    # alternative -- dockerd on the host -- needs the same grant with none of
+    # the repeatability. Running SEC-bench's own images is the point, so the
+    # trust boundary is at their containers either way.
+    privileged: true
+    environment:
+      # Plain TCP on an internal compose network. Not published to the host.
+      DOCKER_TLS_CERTDIR: ""
+    command: ["--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+    volumes:
+      # Where the 200 GB goes. Repo-relative by default so a checkout works
+      # unconfigured; `.env` points it at a disk with room.
+      - ${SECB_DOCKER_ROOT:-./artifacts/secbench/docker}:/var/lib/docker
+      - ${SECB_ROOT:-./artifacts/secbench}:/secbench
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # SEC-bench's tooling, pinned. Their instructions want conda and Python 3.12;
+  # this keeps both off the host and makes scoring reproducible -- the same
+  # commit evaluates the same way next month.
+  secbench:
+    build:
+      context: .
+      dockerfile: docker/secbench.Dockerfile
+    container_name: ssat-secbench-${USER}
+    profiles: [secbench]
+    depends_on:
+      secbench-docker:
+        condition: service_healthy
+    environment:
+      DOCKER_HOST: tcp://secbench-docker:2375
+      SECB_ROOT: /secbench
+    volumes:
+      - ${SECB_ROOT:-./artifacts/secbench}:/secbench
+    # Long-lived, so `docker compose exec secbench ...` can drive it.
+    command: ["sleep", "infinity"]
+
 volumes:
   # Named, so `docker compose down` does not take the runs with it.
   ssat-postgres:
