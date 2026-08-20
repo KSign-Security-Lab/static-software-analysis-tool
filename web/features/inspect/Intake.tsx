@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { IntakeSkip, RunSummary, UploadResult } from "@/lib/api/types";
-import { filesFromDrop } from "@/lib/run/drop";
+import { filesFromDrop, isArchiveDrop } from "@/lib/run/drop";
 import { useCloneRepo, useStartRun, useUpload, useUploadArchive } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
@@ -31,6 +31,9 @@ import { cn } from "@/lib/utils";
 export default function Intake({ run }: { run: RunSummary | undefined }) {
   const [runId, setRunId] = useRunId();
   const [uploaded, setUploaded] = useState<UploadResult | null>(null);
+  const upload = useUpload();
+  const archive = useUploadArchive();
+  const [over, setOver] = useState(0);
 
   // The run row is the truth once it exists; `uploaded` is only what this tab
   // just did, and it carries the one thing the row does not: how much was read.
@@ -41,18 +44,69 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
     setRunId(result.run_id);
   }
 
+  /**
+   * A drop anywhere on this screen, whatever tab is showing.
+   *
+   * It used to be the 폴더 tab's zone alone, so dropping a `.zip` -- onto a screen
+   * whose middle tab is literally 압축 파일 -- did nothing at all, and dropping a
+   * folder while that tab was open did nothing either. What was dropped is
+   * knowable, so the tabs are for *picking* and the drop decides for itself.
+   */
+  async function drop(transfer: DataTransfer) {
+    const dropped = await filesFromDrop(transfer);
+    if (dropped.length === 0) return;
+    accept(
+      isArchiveDrop(dropped)
+        ? await archive.mutateAsync(dropped[0].file)
+        : await upload.mutateAsync(dropped),
+    );
+  }
+
+  const busy = upload.isPending || archive.isPending;
+
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <div className="mx-auto w-full max-w-2xl px-6 py-10">
+    <div
+      className="min-h-0 flex-1 overflow-auto"
+      // Depth-counted: `dragleave` fires on every child the pointer crosses, so
+      // a boolean flickers off over the very text describing the zone.
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setOver((n) => n + 1);
+      }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={() => setOver((n) => Math.max(0, n - 1))}
+      onDrop={(event) => {
+        event.preventDefault();
+        setOver(0);
+        void drop(event.dataTransfer);
+      }}
+    >
+      {/* At the container, not inside a tab. The drop is handled for the whole
+          screen, so the affordance has to be too -- dragging over the git tab
+          worked and looked like nothing, which reads as a dead zone. */}
+      <div
+        className={cn(
+          "mx-auto w-full max-w-2xl rounded-xl px-6 py-10 transition-colors",
+          over > 0 && "bg-accent-wash/40 outline-2 outline-dashed outline-accent",
+        )}
+      >
         <h1 className="text-lg font-semibold text-ink-strong">검사할 코드</h1>
         <p className="mt-1 text-xs leading-relaxed text-ink-muted">
-          폴더, 압축 파일, git 주소 가운데 하나를 주십시오. 읽고 나면 무엇을 얼마나 읽었는지 먼저 보여 드립니다.
+          폴더, 압축 파일, git 주소 가운데 하나를 주십시오. 폴더든 <code className="font-mono">.zip</code> 이든 이
+          화면 아무 곳에나 끌어다 놓아도 됩니다. 읽고 나면 무엇을 얼마나 읽었는지 먼저 보여 드립니다.
         </p>
 
         {run?.status === "failed" && run.error && (
           <p className="mt-4 flex items-start gap-2 rounded-md border border-danger/40 bg-danger-wash px-3 py-2 text-xs text-ink">
             <AlertTriangle className="mt-px size-3.5 shrink-0 text-danger" aria-hidden />
             {run.error}
+          </p>
+        )}
+
+        {over > 0 && (
+          <p className="mt-4 flex items-center gap-2 text-xs font-medium text-accent-ink">
+            <Upload className="size-4 shrink-0" aria-hidden />
+            놓으면 바로 읽습니다 — 폴더든 .zip 이든 됩니다
           </p>
         )}
 
@@ -73,10 +127,10 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
           </TabsList>
 
           <TabsContent value="folder">
-            <FolderIntake onDone={accept} />
+            <FolderIntake onDone={accept} dragging={over > 0} busy={busy} />
           </TabsContent>
           <TabsContent value="zip">
-            <ArchiveIntake onDone={accept} />
+            <ArchiveIntake onDone={accept} dragging={over > 0} busy={busy} />
           </TabsContent>
           <TabsContent value="git">
             <GitIntake onDone={accept} />
@@ -91,10 +145,17 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
 
 /* -- the three ways in -------------------------------------------------------- */
 
-function FolderIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
+function FolderIntake({
+  onDone,
+  dragging,
+  busy,
+}: {
+  onDone: (result: UploadResult) => void;
+  dragging: boolean;
+  busy: boolean;
+}) {
   const upload = useUpload();
   const picker = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(0);
 
   async function send(files: (File | { file: File; path: string })[]) {
     if (files.length === 0) return;
@@ -103,25 +164,12 @@ function FolderIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
 
   return (
     <div
-      // Depth-counted: `dragleave` fires on every child the pointer crosses, so
-      // a boolean flickers off over the text inside the zone it is describing.
-      onDragEnter={(event) => {
-        event.preventDefault();
-        setOver((n) => n + 1);
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDragLeave={() => setOver((n) => Math.max(0, n - 1))}
-      onDrop={(event) => {
-        event.preventDefault();
-        setOver(0);
-        void filesFromDrop(event.dataTransfer).then((dropped) => send(dropped));
-      }}
       className={cn(
         "mt-3 grid place-items-center gap-3 rounded-lg border border-dashed border-line-2 px-6 py-12 text-center transition-colors",
-        over > 0 && "border-accent bg-accent-wash",
+        dragging && "border-accent bg-accent-wash",
       )}
     >
-      <Upload className={cn("size-6", over > 0 ? "text-accent-ink" : "text-ink-faint")} aria-hidden />
+      <Upload className={cn("size-6", dragging ? "text-accent-ink" : "text-ink-faint")} aria-hidden />
       <p className="text-sm text-ink-muted">폴더를 여기에 끌어다 놓으세요</p>
       <input
         ref={picker}
@@ -136,25 +184,40 @@ function FolderIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
           event.target.value = "";
         }}
       />
-      <Button variant="outline" size="sm" disabled={upload.isPending} onClick={() => picker.current?.click()}>
-        {upload.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <FolderOpen className="size-3.5" />}
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => picker.current?.click()}>
+        {busy ? <Loader2 className="size-3.5 animate-spin" /> : <FolderOpen className="size-3.5" />}
         폴더 고르기
       </Button>
-      <p className="text-2xs text-ink-faint">
-        하위 폴더까지 그대로 올라갑니다. <code className="font-mono">node_modules</code> 같은 것은 검사에서 건너뜁니다.
+      <p className="text-2xs leading-relaxed text-ink-faint">
+        하위 폴더까지 그대로 올라갑니다. <code className="font-mono">.git</code>,{" "}
+        <code className="font-mono">node_modules</code>, <code className="font-mono">build</code> 같은 디렉터리는 읽지도
+        않고 건너뜁니다.
       </p>
     </div>
   );
 }
 
-function ArchiveIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
+function ArchiveIntake({
+  onDone,
+  dragging,
+  busy,
+}: {
+  onDone: (result: UploadResult) => void;
+  dragging: boolean;
+  busy: boolean;
+}) {
   const upload = useUploadArchive();
   const picker = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="mt-3 grid place-items-center gap-3 rounded-lg border border-dashed border-line-2 px-6 py-12 text-center">
-      <FileArchive className="size-6 text-ink-faint" aria-hidden />
-      <p className="text-sm text-ink-muted">.zip 파일을 고르세요</p>
+    <div
+      className={cn(
+        "mt-3 grid place-items-center gap-3 rounded-lg border border-dashed border-line-2 px-6 py-12 text-center transition-colors",
+        dragging && "border-accent bg-accent-wash",
+      )}
+    >
+      <FileArchive className={cn("size-6", dragging ? "text-accent-ink" : "text-ink-faint")} aria-hidden />
+      <p className="text-sm text-ink-muted">.zip 파일을 끌어다 놓거나 고르세요</p>
       <input
         ref={picker}
         type="file"
@@ -166,11 +229,14 @@ function ArchiveIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
           event.target.value = "";
         }}
       />
-      <Button variant="outline" size="sm" disabled={upload.isPending} onClick={() => picker.current?.click()}>
-        {upload.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <FileArchive className="size-3.5" />}
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => picker.current?.click()}>
+        {busy ? <Loader2 className="size-3.5 animate-spin" /> : <FileArchive className="size-3.5" />}
         압축 파일 고르기
       </Button>
-      <p className="text-2xs text-ink-faint">500MB, 20,000개 파일까지. 한 파일은 50MB까지.</p>
+      <p className="text-2xs leading-relaxed text-ink-faint">
+        500MB, 20,000개 파일까지. 한 파일은 50MB까지. <code className="font-mono">.git</code> 이나 빌드 산출물은 세지
+        않습니다.
+      </p>
     </div>
   );
 }

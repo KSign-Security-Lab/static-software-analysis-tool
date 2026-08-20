@@ -1276,7 +1276,11 @@ def test_the_total_size_cap_is_still_a_refusal(client: TestClient, monkeypatch: 
     response = client.post("/agent/runs", files={"files": ("upload.zip", payload, "application/zip")})
 
     assert response.status_code == 400
-    assert "expands past" in response.json()["detail"]
+    detail = response.json()["detail"]
+    # Actionable, not just accurate: `expands past 524288000 bytes` said what
+    # happened and nothing about what to do next.
+    assert "MB를 넘습니다" in detail
+    assert "하위 폴더만 골라" in detail
 
 
 def test_the_file_count_cap_is_still_a_refusal(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1309,3 +1313,42 @@ def test_loose_files_are_capped_the_same_way_an_archive_is(client: TestClient, m
     body = response.json()
     assert body["files"] == ["small.c"]
     assert body["intake"]["skipped"] == [{"path": "generated.json", "size": 4096, "reason": "too_large"}]
+
+
+def test_the_dead_weight_of_a_real_project_is_not_stored(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`.git`, `node_modules` and build output are excluded at intake.
+
+    Only the git path did this, so a project *zipped up* stored its whole history
+    as rows and the indexer then skipped every one of them -- which is how an
+    upload could exceed the total cap on bytes nobody was ever going to read.
+
+    Not reported as skips: unlike an oversized source file, nobody is surprised
+    that `.git` was left out, and ten thousand of them would bury the ones that
+    matter.
+    """
+    body = _upload(
+        client,
+        {
+            **SAMPLE,
+            ".git/objects/ab/cdef": "x" * 2048,
+            "node_modules/dep/index.js": "module.exports = 1",
+            "build/out.o": "x" * 2048,
+            "vendor/lib/thing.c": "int vendored;",
+        },
+    )
+
+    assert set(body["files"]) == {"src/app.c", "src/util.h"}
+    assert body["intake"]["skipped"] == []
+
+
+def test_the_total_cap_counts_only_what_is_kept(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A project whose bulk is `.git` must not be refused for its bulk.
+
+    The whole point of filtering at intake: 40 MB of history against a 128-byte
+    budget is fine, because none of it is stored.
+    """
+    monkeypatch.setattr("agent.files.MAX_UPLOAD_BYTES", 128)
+
+    body = _upload(client, {"src/app.c": "int x;", ".git/pack/big": "x" * 40_000})
+
+    assert body["files"] == ["src/app.c"]

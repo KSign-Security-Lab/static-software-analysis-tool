@@ -18,6 +18,8 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
+from .index import SKIP_DIRS
+
 #: Caps on what an upload may contain, and they defend two different things.
 #:
 #: The totals are a resource-exhaustion defence: a zip bomb is still a zip bomb
@@ -43,6 +45,23 @@ MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024
 
 class UploadRejected(ValueError):
     """The archive was malformed, hostile, or bigger than the totals allow."""
+
+
+def is_noise(path: str) -> bool:
+    """Whether a stored path is something no part of this ever reads.
+
+    The same `SKIP_DIRS` the indexer walks past, applied at intake instead of
+    after it. Only the git path did this, so a project *zipped up* stored its
+    entire `.git` history, its `node_modules` and its build output as rows -- and
+    then the indexer skipped every one of them. Half a gigabyte of a real upload
+    is routinely this, which is how a project could exceed `MAX_UPLOAD_BYTES` on
+    bytes that were never going to be looked at.
+
+    Excluding them here rather than raising the cap is the honest fix: the tree
+    that gets stored is then the tree that gets analysed, and the budget is spent
+    on files that matter. Nothing wants `.git` in a patch archive either.
+    """
+    return any(part in SKIP_DIRS for part in PurePosixPath(path).parts)
 
 
 @dataclass(frozen=True)
@@ -121,6 +140,21 @@ def prepare(name: str, raw: bytes) -> Upload:
     return Upload(path=path, content=_decode(raw), size=len(raw), sha=hashlib.sha256(raw).hexdigest())
 
 
+def _too_big(what: str) -> str:
+    """A refusal somebody can act on.
+
+    `archive expands past 524288000 bytes` says what happened and nothing about
+    what to do, and the answer is rarely obvious: `.git` and build output are
+    already excluded, so what is left is genuinely this large and the reader has
+    to choose a subtree.
+    """
+    limit = MAX_UPLOAD_BYTES // (1024 * 1024)
+    return (
+        f"{what}이 {limit}MB를 넘습니다. `.git`, `node_modules`, `build` 같은 디렉터리는 이미 빼고 센 "
+        f"값입니다 — 검사할 하위 폴더만 골라 다시 올려 주십시오."
+    )
+
+
 def read_zip(archive: Path) -> Tree:
     """Every file in an uploaded zip, validated and capped.
 
@@ -151,6 +185,11 @@ def read_zip(archive: Path) -> Tree:
                 name = safe_name(info.filename)
                 if name is None:
                     raise UploadRejected(f"unsafe path in archive: {info.filename!r}")
+                if is_noise(name):
+                    # Not reported: unlike an oversized source file, nobody is
+                    # surprised that `.git` was left out, and listing ten
+                    # thousand of them would bury the skips that matter.
+                    continue
                 if info.file_size > MAX_SINGLE_FILE_BYTES:
                     # Never opened, so its bytes never count against the total.
                     skipped.append(Skipped(path=name, size=info.file_size))
@@ -158,7 +197,7 @@ def read_zip(archive: Path) -> Tree:
 
                 total_bytes += info.file_size
                 if total_bytes > MAX_UPLOAD_BYTES:
-                    raise UploadRejected(f"archive expands past {MAX_UPLOAD_BYTES} bytes")
+                    raise UploadRejected(_too_big("압축 파일"))
 
                 with zf.open(info) as src:
                     kept.append(prepare(info.filename, src.read()))
@@ -185,12 +224,14 @@ def read_files(payload: dict[str, bytes]) -> Tree:
 
     for name, raw in payload.items():
         stored = safe_name(name)
+        if stored is not None and is_noise(stored):
+            continue
         if len(raw) > MAX_SINGLE_FILE_BYTES:
             skipped.append(Skipped(path=stored or name, size=len(raw)))
             continue
         total_bytes += len(raw)
         if total_bytes > MAX_UPLOAD_BYTES:
-            raise UploadRejected(f"upload is larger than {MAX_UPLOAD_BYTES} bytes")
+            raise UploadRejected(_too_big("올린 파일"))
         kept.append(prepare(name, raw))
 
     return Tree(files=kept, skipped=skipped)

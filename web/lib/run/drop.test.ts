@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filesFromDrop } from "./drop";
+import { filesFromDrop, isArchiveDrop } from "./drop";
 
 /**
  * A dropped tree, walked back into paths.
@@ -103,5 +103,64 @@ describe("filesFromDrop", () => {
     } as unknown as DataTransfer);
 
     expect(dropped).toEqual([]);
+  });
+});
+
+describe("what is not worth reading off somebody's disk", () => {
+  it("does not descend into the directories the server discards anyway", async () => {
+    // The comment above `MAX_FILES` has said `node_modules` is not a scan target
+    // since this file was written, and nothing acted on it: every object in
+    // `.git` was read into browser memory, uploaded, and thrown away. That is
+    // most of why dropping a real project was slow enough to look broken.
+    const dropped = await filesFromDrop(
+      transfer([
+        dir("proj", [
+          dir("src", [file("main.c")]),
+          dir(".git", [dir("objects", [file("abcdef")])]),
+          dir("node_modules", [dir("dep", [file("index.js")])]),
+          dir("build", [file("out.o")]),
+          dir("vendor", [file("thing.c")]),
+        ]),
+      ]),
+    );
+
+    expect(dropped.map((each) => each.path)).toEqual(["proj/src/main.c"]);
+  });
+
+  it("does not mistake a file for a directory of the same name", async () => {
+    // `build` as a *file* is somebody's shell script, and dropping it should
+    // upload it. Only directories are skipped.
+    const dropped = await filesFromDrop(transfer([dir("proj", [file("build")])]));
+    expect(dropped.map((each) => each.path)).toEqual(["proj/build"]);
+  });
+});
+
+describe("isArchiveDrop", () => {
+  it("recognises a bare zip, which goes to a different endpoint", async () => {
+    const dropped = await filesFromDrop(transfer([file("project.zip")]));
+    expect(isArchiveDrop(dropped)).toBe(true);
+  });
+
+  it("is case-insensitive, because Windows", async () => {
+    const dropped = await filesFromDrop(transfer([file("Project.ZIP")]));
+    expect(isArchiveDrop(dropped)).toBe(true);
+  });
+
+  it("treats a zip inside a dropped folder as a tree with one file in it", async () => {
+    // Not an archive upload: the reader dropped a directory, and expanding the
+    // one file in it server-side would be answering a question nobody asked.
+    const dropped = await filesFromDrop(transfer([dir("proj", [file("inner.zip")])]));
+    expect(dropped.map((each) => each.path)).toEqual(["proj/inner.zip"]);
+    expect(isArchiveDrop(dropped)).toBe(false);
+  });
+
+  it("is not an archive when several things were dropped", async () => {
+    const dropped = await filesFromDrop(transfer([file("a.zip"), file("b.zip")]));
+    expect(isArchiveDrop(dropped)).toBe(false);
+  });
+
+  it("is not an archive when a folder was dropped", async () => {
+    const dropped = await filesFromDrop(transfer([dir("proj", [file("main.c")])]));
+    expect(isArchiveDrop(dropped)).toBe(false);
   });
 });

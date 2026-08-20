@@ -32,10 +32,10 @@ from .files import (
     Tree,
     Upload,
     UploadRejected,
+    is_noise,
     prepare,
     safe_name,
 )
-from .index import SKIP_DIRS
 
 log = logging.getLogger(__name__)
 
@@ -280,8 +280,9 @@ def read_tree(root: Path) -> Tree:
 
     Same caps and the same name rules, deliberately: a repository is a tree
     somebody handed us and there is no reason it should be allowed to be bigger
-    or stranger than an archive. `.git` goes first -- it is most of the bytes of
-    a shallow clone and none of the source.
+    or stranger than an archive. `is_noise` is what drops `.git` -- most of the
+    bytes of a shallow clone and none of the source -- and it is shared with the
+    other two intake paths so the three cannot disagree about what a tree is.
 
     A file over the per-file cap is skipped and reported rather than refusing the
     clone. Checked-in generated artifacts are ordinary in a real repository, and
@@ -294,13 +295,8 @@ def read_tree(root: Path) -> Tree:
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.is_symlink():
             continue
-        relative = path.relative_to(root)
-        parts = relative.parts
-        if any(part in SKIP_DIRS for part in parts[:-1]) or parts[0] in SKIP_DIRS:
-            continue
-
-        name = safe_name(relative.as_posix())
-        if name is None:
+        name = safe_name(path.relative_to(root).as_posix())
+        if name is None or is_noise(name):
             continue
 
         size = path.stat().st_size
