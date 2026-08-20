@@ -305,11 +305,42 @@ def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = Tru
         write_predictions(attempts, config)
 
         if config.prune_after:
-            # The reason is the volume: the full set is around two hundred
-            # gigabytes on a disk shared with other accounts.
-            _docker(config, "rmi", "-f", config.image_for(instance.instance_id))
+            _prune(instance.instance_id, config)
 
     return attempts
+
+
+def _prune(instance_id: str, config: BenchConfig) -> None:
+    """Everything this instance left behind, before the next one starts.
+
+    Removing our own pull is not enough. Their evaluator builds its own image
+    per instance to apply the patch in, and leaves it: the sweep would grow by
+    both, which is what "build and prune" has to mean if two hundred instances
+    are to fit in the space of one.
+
+    Matched by name rather than swept with `image prune -a`, which would also
+    take the base layers every instance shares -- correct for disk, and about a
+    gigabyte of re-download apiece.
+
+    All of it inside the sweep's own daemon. Nothing here can reach the images
+    on the host, which is the reason that daemon exists.
+    """
+    # Ours by name, because we know it and it must go whether or not the
+    # discovery below works.
+    _docker(config, "rmi", "-f", config.image_for(instance_id))
+
+    # Theirs by search, because we do not know what they tagged it.
+    listed = _docker(
+        config, "images", "--format", "{{.Repository}}:{{.Tag}}", "--filter", f"reference=*{instance_id}*"
+    )
+    for reference in dict.fromkeys((listed.stdout or "").split()):
+        _docker(config, "rmi", "-f", reference)
+
+    # The build's intermediate layers and the exited containers it ran in.
+    # Dangling only, so the shared base survives.
+    _docker(config, "container", "prune", "-f")
+    _docker(config, "image", "prune", "-f")
+    _docker(config, "builder", "prune", "-f")
 
 
 def _score_now(attempt: Attempt, config: BenchConfig) -> dict | None:

@@ -462,8 +462,17 @@ def test_an_instance_is_scored_before_its_image_is_removed(tmp_path: Path, monke
     monkeypatch.setattr(
         bench_runner, "_score_now", lambda a, _c: calls.append(f"score:{a.instance_id}") or {"resolved": True}
     )
+    # Returns a result rather than None: `_prune` reads the image list back out
+    # of it to find what the evaluator left behind.
+    class Listed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
     monkeypatch.setattr(
-        bench_runner, "_docker", lambda _c, *args, **kw: calls.append(f"{args[0]}:{args[-1].split(':')[0]}")
+        bench_runner,
+        "_docker",
+        lambda _c, *args, **kw: (calls.append(f"{args[0]}:{args[-1].split(':')[0]}"), Listed())[1],
     )
 
     sweep([ds.Instance.from_record({**RECORD, "instance_id": "a.cve-1"})], BenchConfig())
@@ -495,3 +504,33 @@ def test_an_unpatched_instance_costs_no_container(tmp_path: Path, monkeypatch) -
     from agent.bench.score import score_one
 
     assert score_one(Attempt(instance_id="a.cve-1", patch=""), BenchConfig()) is None
+
+
+def test_an_instance_takes_its_leavings_with_it(monkeypatch) -> None:
+    """What makes two hundred instances fit in the space of one.
+
+    Removing our own pull is not enough: their evaluator builds its own image
+    per instance to apply the patch in, and leaves it behind. With the sweep
+    back on `/` -- 433G at 98% -- the difference between pruning one image and
+    pruning both is whether the run finishes or fills the disk.
+
+    Matched by name rather than swept with `image prune -a`: the base layers
+    every instance shares are worth about a gigabyte of re-download apiece.
+    """
+    from agent.bench import runner
+
+    calls: list[tuple] = []
+
+    class Result:
+        returncode = 0
+        stdout = "hwiwonlee/secb.eval.x86_64.njs.cve-1:patch\nsecb.eval.njs.cve-1.built:latest\n"
+        stderr = ""
+
+    monkeypatch.setattr(runner, "_docker", lambda config, *argv, **kw: (calls.append(argv), Result())[1])
+    runner._prune("njs.cve-1", BenchConfig())
+
+    removed = [argv[2] for argv in calls if argv[0] == "rmi"]
+    assert "hwiwonlee/secb.eval.x86_64.njs.cve-1:patch" in removed, "ours, by name"
+    assert "secb.eval.njs.cve-1.built:latest" in removed, "theirs, by search"
+    assert ("image", "prune", "-f") in calls, "dangling layers"
+    assert ("image", "prune", "-af") not in calls, "-a would take the shared base too"

@@ -523,12 +523,14 @@ def _secbench_sources(split: str = "cve") -> tuple[list[Any], list[Any], dict[st
         records = list(load_dataset(config))
         attempts = list(load_attempts(config))
         verdicts = read_results(config)
+    except FileNotFoundError:
+        # Nothing fetched yet: the ordinary first state of a checkout, and not
+        # worth a line in the log every time the page is opened.
+        return [], [], {}
     except OSError as err:
-        # FileNotFoundError means nothing has been fetched yet, which is the
-        # ordinary first state. The wider OSError is a disk that has stopped
-        # answering -- `SECB_ROOT` is a mount that can go away, and it has --
-        # and neither is a reason to return a 500 to a page whose whole job is
-        # to say what state things are in.
+        # A disk that has stopped answering. `SECB_ROOT` is a mount and mounts
+        # go away; neither case is a reason to return a 500 from a page whose
+        # whole job is to say what state things are in.
         log.warning("bench: cannot read the sweep's directory: %s", err)
         return [], [], {}
     return records, attempts, verdicts
