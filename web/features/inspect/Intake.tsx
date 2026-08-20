@@ -34,6 +34,7 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
   const [uploaded, setUploaded] = useState<UploadResult | null>(null);
   const upload = useUpload();
   const archive = useUploadArchive();
+  const clone = useCloneRepo();
   const health = useAgentHealth();
   const [over, setOver] = useState(0);
 
@@ -55,6 +56,10 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
    * knowable, so the tabs are for *picking* and the drop decides for itself.
    */
   async function drop(transfer: DataTransfer) {
+    // A second drop while the first is still being read would create a second
+    // run and leave the first orphaned -- and a big tree takes long enough that
+    // dropping again is the natural thing to try.
+    if (busy) return;
     const dropped = await filesFromDrop(transfer);
     if (dropped.length === 0) return;
     accept(
@@ -64,7 +69,9 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
     );
   }
 
-  const busy = upload.isPending || archive.isPending;
+  // Includes the clone: it is the slowest of the three and the one most likely
+  // to be pressed twice.
+  const busy = upload.isPending || archive.isPending || clone.isPending;
 
   return (
     <div
@@ -112,6 +119,9 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
           </p>
         )}
 
+        {busy ? (
+          <Reading kind={clone.isPending ? "clone" : "upload"} />
+        ) : (
         <Tabs defaultValue="folder" className="mt-6">
           <TabsList>
             <TabsTrigger value="folder">
@@ -135,9 +145,10 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
             <ArchiveIntake onDone={accept} dragging={over > 0} busy={busy} />
           </TabsContent>
           <TabsContent value="git">
-            <GitIntake onDone={accept} />
+            <GitIntake onDone={accept} clone={clone} busy={busy} />
           </TabsContent>
         </Tabs>
+        )}
 
         {/* Above the intake tabs, not beside the button: uploading still works
             without a model, and the reader should know before they choose a
@@ -248,8 +259,15 @@ function ArchiveIntake({
   );
 }
 
-function GitIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
-  const clone = useCloneRepo();
+function GitIntake({
+  onDone,
+  clone,
+  busy,
+}: {
+  onDone: (result: UploadResult) => void;
+  clone: ReturnType<typeof useCloneRepo>;
+  busy: boolean;
+}) {
   const [url, setUrl] = useState("");
   const [ref, setRef] = useState("");
 
@@ -280,8 +298,8 @@ function GitIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
           placeholder="비워 두면 기본 브랜치"
         />
       </div>
-      <Button type="submit" size="sm" disabled={!url.trim() || clone.isPending}>
-        {clone.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <FolderGit2 className="size-3.5" />}
+      <Button type="submit" size="sm" disabled={!url.trim() || busy}>
+        {busy ? <Loader2 className="size-3.5 animate-spin" /> : <FolderGit2 className="size-3.5" />}
         가져오기
       </Button>
       <p className="text-2xs leading-relaxed text-ink-faint">
@@ -289,6 +307,27 @@ function GitIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
         가져온 검사는 나중에 고친 것을 브랜치로 바로 올릴 수 있습니다.
       </p>
     </form>
+  );
+}
+
+/**
+ * Reading and parsing, which is not instant and used to look like nothing.
+ *
+ * The upload response comes back *after* the server has chunked and linked the
+ * whole tree -- indexing is synchronous so the next screen has a file list to
+ * render -- so on a real project this is seconds of a spinner inside a button
+ * while the rest of the screen still invited another folder.
+ */
+function Reading({ kind }: { kind: "upload" | "clone" }) {
+  return (
+    <div className="mt-6 grid place-items-center gap-3 rounded-lg border border-line bg-surface px-6 py-12 text-center">
+      <Loader2 className="size-6 animate-spin text-accent-ink" aria-hidden />
+      <p className="text-sm text-ink">{kind === "clone" ? "저장소를 가져오는 중" : "코드를 읽는 중"}</p>
+      <p className="max-w-sm text-2xs leading-relaxed text-ink-faint">
+        파일을 읽고 함수 단위로 쪼개 서로의 호출 관계까지 이어 두는 중입니다. 큰 프로젝트는 몇 초 걸립니다 — 끝나면
+        무엇을 얼마나 읽었는지 보여 드립니다.
+      </p>
+    </div>
   );
 }
 

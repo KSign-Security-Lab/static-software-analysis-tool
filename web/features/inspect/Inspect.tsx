@@ -60,7 +60,7 @@ export default function Inspect() {
       <BackendDown />
       {stage === "intake" && <Intake run={run.data} />}
       {stage === "scanning" && <Progress findings={findings} />}
-      {stage === "results" && <Findings findings={findings} />}
+      {stage === "results" && <Findings findings={findings} stats={report.data?.stats} />}
     </>
   );
 }

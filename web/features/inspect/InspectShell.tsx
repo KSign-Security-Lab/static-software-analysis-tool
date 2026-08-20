@@ -36,7 +36,18 @@ export default function InspectShell({ children }: { children: ReactNode }) {
 
   return (
     <RunStreamProvider runId={runId}>
-      <div className="flex h-dvh overflow-hidden bg-bg text-ink">
+      {/* `fixed inset-0`, not `h-dvh`, and it is load-bearing.
+
+          In flow, the findings list's overflow escaped into the document's own
+          scroll box: past the end of the list the *window* scrolled another
+          2,600px, taking the rail with it and leaving a full-width black void.
+          `overflow-hidden` here did not stop it and neither did `overflow:
+          hidden` on html or body -- measured, both of them. Out of flow, the
+          document has nothing to scroll: `documentElement.scrollHeight` goes
+          from 3566 to 950 against a 950px viewport.
+
+          The box is the same one `h-dvh` produced, so nothing inside changes. */}
+      <div className="fixed inset-0 flex overflow-hidden bg-bg text-ink">
         <Rail
           wordmark
           foot={

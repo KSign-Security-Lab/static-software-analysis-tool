@@ -5,11 +5,13 @@ import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/workbench/PanelShell";
 import BucketTray from "@/features/inspect/BucketTray";
+import Coverage from "@/features/inspect/Coverage";
 import FilterBar from "@/features/inspect/FilterBar";
 import FindingDetail from "@/features/inspect/FindingDetail";
 import FindingRow from "@/features/inspect/FindingRow";
 import { NO_FACETS, apply, sort, type Facets } from "@/lib/inspect/filter";
 import { setMany, toggle, useBucket } from "@/lib/inspect/bucket";
+import type { RunStats } from "@/lib/api/types";
 import { type UiFinding } from "@/lib/model/finding";
 import { useSort } from "@/lib/run/selection";
 import { useOpenFinding } from "@/lib/run/queries";
@@ -29,7 +31,7 @@ import { useSelection } from "@/lib/run/selection";
  * the two things that actually want width are a finding's evidence and its
  * patch, which are both in the detail column.
  */
-export default function Findings({ findings }: { findings: UiFinding[] }) {
+export default function Findings({ findings, stats }: { findings: UiFinding[]; stats?: RunStats }) {
   const [runId] = useRunId();
   const [order] = useSort();
   const { select } = useSelection();
@@ -42,7 +44,8 @@ export default function Findings({ findings }: { findings: UiFinding[] }) {
 
   if (findings.length === 0) {
     return (
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Coverage stats={stats} />
         <div className="mx-auto w-full max-w-2xl px-6 py-10">
           <EmptyState icon={ShieldCheck} title="찾은 취약점이 없습니다">
             읽은 단위에서 보고할 것이 없었습니다. 그것도 결과입니다 — 무엇을 얼마나 읽었는지는 ‘지난 검사’ 에
@@ -54,7 +57,11 @@ export default function Findings({ findings }: { findings: UiFinding[] }) {
   }
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,26rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,34rem)]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Above both columns: it is a statement about the whole report, and a
+          reader who takes the list at face value is the person it is for. */}
+      <Coverage stats={stats} />
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,26rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,34rem)]">
       <section className="flex min-h-0 min-w-0 flex-col border-r border-line">
         <FilterBar
           findings={findings}
@@ -94,7 +101,8 @@ export default function Findings({ findings }: { findings: UiFinding[] }) {
         <BucketTray findings={findings} />
       </section>
 
-      <FindingDetail finding={open} />
+        <FindingDetail finding={open} />
+      </div>
     </div>
   );
 }

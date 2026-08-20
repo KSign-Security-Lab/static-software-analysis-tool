@@ -2,6 +2,7 @@
 
 import { Loader2, Play, Square } from "lucide-react";
 
+import Activity from "@/features/inspect/Activity";
 import FindingRow from "@/features/inspect/FindingRow";
 import { Button } from "@/components/ui/button";
 import { Progress as Bar } from "@/components/ui/progress";
@@ -62,6 +63,12 @@ export default function Progress({ findings }: { findings: UiFinding[] }) {
         {fraction !== null && <Bar value={fraction * 100} className="mt-4" />}
 
         {live.error && <p className="mt-4 text-xs text-danger">{live.error}</p>}
+
+        {/* Between the bar and the findings, because it answers the question the
+            bar raises: it is moving, but on what? */}
+        <div className="mt-6 rounded-lg border border-line bg-surface px-4 py-3">
+          <Activity />
+        </div>
 
         <div className="mt-8">
           <h2 className="text-xs font-semibold text-ink-strong">
