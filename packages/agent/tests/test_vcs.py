@@ -171,13 +171,13 @@ def test_an_oversized_file_is_skipped_rather_than_refusing_the_clone(
     clone over one of them threw away every other file for nothing.
     """
     monkeypatch.setattr("agent.vcs.MAX_SINGLE_FILE_BYTES", 16)
-    (tmp_path / "big.json").write_bytes(b"x" * 64)
+    (tmp_path / "big.c").write_bytes(b"x" * 64)
     (tmp_path / "small.c").write_bytes(b"int x;")
 
     tree = read_tree(tmp_path)
 
     assert [each.path for each in tree.files] == ["small.c"]
-    assert [(each.path, each.size, each.reason) for each in tree.skipped] == [("big.json", 64, "too_large")]
+    assert [(each.path, each.size, each.reason) for each in tree.skipped] == [("big.c", 64, "too_large")]
 
 
 def test_a_repository_of_nothing_but_oversized_files_is_still_an_answer(
@@ -186,9 +186,9 @@ def test_a_repository_of_nothing_but_oversized_files_is_still_an_answer(
     # Nothing was kept, so there is no tree to inspect -- and that is a different
     # thing from a clone that failed.
     monkeypatch.setattr("agent.vcs.MAX_SINGLE_FILE_BYTES", 16)
-    (tmp_path / "big.json").write_bytes(b"x" * 64)
+    (tmp_path / "big.c").write_bytes(b"x" * 64)
 
-    with pytest.raises(UploadRejected, match="가져올 파일이 없습니다"):
+    with pytest.raises(UploadRejected, match="검사할 수 있는 소스를 찾지 못했습니다"):
         read_tree(tmp_path)
 
 
@@ -202,13 +202,13 @@ def test_the_total_cap_is_still_a_refusal(tmp_path: Path, monkeypatch: pytest.Mo
     for name in ("a.c", "b.c", "c.c"):
         (tmp_path / name).write_bytes(b"x" * 16)
 
-    with pytest.raises(UploadRejected, match="expands past"):
+    with pytest.raises(UploadRejected, match="MB를 넘습니다"):
         read_tree(tmp_path)
 
 
 def test_a_repository_with_nothing_in_it_is_an_answer(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
-    with pytest.raises(UploadRejected, match="가져올 파일이 없습니다"):
+    with pytest.raises(UploadRejected, match="검사할 수 있는 소스를 찾지 못했습니다"):
         read_tree(tmp_path)
 
 

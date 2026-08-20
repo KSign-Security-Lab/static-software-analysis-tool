@@ -397,11 +397,18 @@ export interface CloneRequest {
   ref?: string | null;
 }
 
-/** A file intake did not store, and why. */
+/**
+ * A file intake did not store, and why.
+ *
+ * `binary` is not a size judgement: `files.content` is a Postgres text column, so
+ * a binary cannot be stored at all -- and storing it mangled, which is what the
+ * lossy decode used to do, was worse than useless, because the archive route
+ * writes rows back out as text and a PNG came out corrupted.
+ */
 export interface IntakeSkip {
   path: string;
   size: number;
-  reason: "too_large";
+  reason: "too_large" | "binary";
 }
 
 /**
@@ -414,7 +421,16 @@ export interface IntakeSkip {
  * surprise unless somebody is told at the time.
  */
 export interface Intake {
+  /** Source files stored, which is exactly what gets analysed. */
   kept: number;
+  /**
+   * Every file the upload contained, litter aside.
+   *
+   * `seen` against `kept` is the ordinary shape of a project -- four hundred
+   * files, sixty of them source -- and it is how the reader learns nothing went
+   * missing without being handed a list of three hundred READMEs.
+   */
+  seen: number;
   skipped: IntakeSkip[];
 }
 

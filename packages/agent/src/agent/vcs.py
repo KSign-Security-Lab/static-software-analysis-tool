@@ -28,11 +28,14 @@ from .files import (
     MAX_SINGLE_FILE_BYTES,
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_FILES,
+    too_big,
     Skipped,
     Tree,
     Upload,
     UploadRejected,
+    is_binary,
     is_noise,
+    is_source,
     prepare,
     safe_name,
 )
@@ -290,6 +293,7 @@ def read_tree(root: Path) -> Tree:
     """
     kept: list[Upload] = []
     skipped: list[Skipped] = []
+    seen = 0
     total = 0
 
     for path in sorted(root.rglob("*")):
@@ -298,6 +302,11 @@ def read_tree(root: Path) -> Tree:
         name = safe_name(path.relative_to(root).as_posix())
         if name is None or is_noise(name):
             continue
+        seen += 1
+        if not is_source(name):
+            continue
+        if len(kept) >= MAX_UPLOAD_FILES:
+            raise UploadRejected(f"소스 파일이 {MAX_UPLOAD_FILES}개를 넘습니다")
 
         size = path.stat().st_size
         if size > MAX_SINGLE_FILE_BYTES:
@@ -306,15 +315,20 @@ def read_tree(root: Path) -> Tree:
             continue
         total += size
         if total > MAX_UPLOAD_BYTES:
-            raise UploadRejected(f"repository expands past {MAX_UPLOAD_BYTES} bytes")
-        if len(kept) >= MAX_UPLOAD_FILES:
-            raise UploadRejected(f"repository has more than {MAX_UPLOAD_FILES} files")
+            raise UploadRejected(too_big("저장소"))
 
-        kept.append(prepare(name, path.read_bytes()))
+        raw = path.read_bytes()
+        if is_binary(raw):
+            skipped.append(Skipped(path=name, size=size, reason="binary"))
+            continue
+        kept.append(prepare(name, raw))
 
     if not kept:
-        raise UploadRejected("저장소에 가져올 파일이 없습니다")
-    return Tree(files=kept, skipped=skipped)
+        raise UploadRejected(
+            f"저장소에서 검사할 수 있는 소스를 찾지 못했습니다. 파일 {seen}개를 봤지만 "
+            "C·C++·Java·Python·JS/TS·Go·Rust·C# 가운데 하나가 아니었습니다."
+        )
+    return Tree(files=kept, skipped=skipped, seen=seen)
 
 
 def _authenticated(url: str, token: str) -> str:

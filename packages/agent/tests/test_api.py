@@ -132,16 +132,21 @@ def test_files_endpoint_lists_the_whole_tree(client: TestClient) -> None:
     assert body["files"] == sorted(body["files"])
 
 
-def test_files_endpoint_includes_files_the_indexer_skipped(client: TestClient) -> None:
-    """A patch built from this run still has to ship the README.
+def test_only_files_the_analyser_can_read_are_stored(client: TestClient) -> None:
+    """The stored tree *is* the analysed tree.
 
-    No chunk is ever made of it, so it is absent from the index and present
-    here -- and the archive route reads this list, not the index.
+    A README, a Makefile and a `package.json` produce no chunks -- there is no
+    grammar for them -- so storing them cost bytes toward the upload cap and gave
+    nothing back. `seen` against `kept` is how the reader still learns their
+    project is four hundred files of which sixty are source.
     """
-    body = _upload(client, {**SAMPLE, "notes.txt": "hello\n"})
-    assert "notes.txt" in body["files"]
-    assert body["index"]["files_indexed"] == 2
-    assert "notes.txt" in client.get(f"/agent/runs/{body['run_id']}/files").json()["files"]
+    body = _upload(client, {**SAMPLE, "README.md": "# hi\n", "Makefile": "all:\n", "package.json": "{}"})
+
+    assert set(body["files"]) == {"src/app.c", "src/util.h"}
+    assert body["intake"] == {"kept": 2, "seen": 5, "skipped": []}
+    # Not reported one by one: three hundred such lines would bury the skips that
+    # a reader can actually act on.
+    assert client.get(f"/agent/runs/{body['run_id']}/files").json()["files"] == ["src/app.c", "src/util.h"]
 
 
 def test_files_endpoint_404s_for_an_unknown_run(client: TestClient) -> None:
@@ -1236,13 +1241,15 @@ def test_an_oversized_file_is_skipped_and_the_rest_is_indexed(
     # Comfortably above both SAMPLE files and far below the artifact.
     monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 1024)
 
-    body = _upload(client, {**SAMPLE, "SRC/pkix1.c/pkix1.json": "x" * 4096})
+    # A *source* file this time: a generated `.json` no longer reaches the size
+    # check at all, because it is not something the analyser reads.
+    body = _upload(client, {**SAMPLE, "src/generated.c": "x" * 4096})
 
     assert set(body["files"]) == {"src/app.c", "src/util.h"}
     assert body["uploaded"] == 2
     assert body["index"]["files_indexed"] == 2
     assert body["intake"]["kept"] == 2
-    assert body["intake"]["skipped"] == [{"path": "SRC/pkix1.c/pkix1.json", "size": 4096, "reason": "too_large"}]
+    assert body["intake"]["skipped"] == [{"path": "src/generated.c", "size": 4096, "reason": "too_large"}]
 
 
 def test_what_was_skipped_survives_the_request_that_decided_it(
@@ -1250,21 +1257,21 @@ def test_what_was_skipped_survives_the_request_that_decided_it(
 ) -> None:
     """A patch archive a week later is missing that file. The run has to say why."""
     monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 1024)
-    run_id = _upload(client, {**SAMPLE, "big.json": "x" * 4096})["run_id"]
+    run_id = _upload(client, {**SAMPLE, "big.c": "x" * 4096})["run_id"]
 
     listed = client.get(f"/agent/runs/{run_id}").json()
-    assert listed["intake"]["skipped"][0]["path"] == "big.json"
+    assert listed["intake"]["skipped"][0]["path"] == "big.c"
 
 
 def test_an_upload_of_nothing_but_oversized_files_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """Different from an empty upload: this is a tree with no source in it."""
     monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 64)
 
-    payload = _zip({"big.json": "x" * 4096})
+    payload = _zip({"big.c": "x" * 4096})
     response = client.post("/agent/runs", files={"files": ("upload.zip", payload, "application/zip")})
 
     assert response.status_code == 400
-    assert "한 파일 제한을 넘었습니다" in response.json()["detail"]
+    assert "너무 크거나 텍스트가 아니었습니다" in response.json()["detail"]
 
 
 def test_the_total_size_cap_is_still_a_refusal(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1290,7 +1297,7 @@ def test_the_file_count_cap_is_still_a_refusal(client: TestClient, monkeypatch: 
     response = client.post("/agent/runs", files={"files": ("upload.zip", payload, "application/zip")})
 
     assert response.status_code == 400
-    assert "the limit is 3" in response.json()["detail"]
+    assert "3개를 넘습니다" in response.json()["detail"]
 
 
 def test_loose_files_are_capped_the_same_way_an_archive_is(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1305,14 +1312,14 @@ def test_loose_files_are_capped_the_same_way_an_archive_is(client: TestClient, m
         "/agent/runs",
         files=[
             ("files", ("small.c", b"int x;", "text/plain")),
-            ("files", ("generated.json", b"x" * 4096, "application/json")),
+            ("files", ("generated.c", b"x" * 4096, "text/plain")),
         ],
     )
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["files"] == ["small.c"]
-    assert body["intake"]["skipped"] == [{"path": "generated.json", "size": 4096, "reason": "too_large"}]
+    assert body["intake"]["skipped"] == [{"path": "generated.c", "size": 4096, "reason": "too_large"}]
 
 
 def test_the_dead_weight_of_a_real_project_is_not_stored(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1352,3 +1359,73 @@ def test_the_total_cap_counts_only_what_is_kept(client: TestClient, monkeypatch:
     body = _upload(client, {"src/app.c": "int x;", ".git/pack/big": "x" * 40_000})
 
     assert body["files"] == ["src/app.c"]
+
+
+def test_a_mac_made_zip_does_not_take_the_upload_down(client: TestClient) -> None:
+    """The crash this exists for: `psycopg.DataError` from inside the ORM flush.
+
+    A Mac writes an AppleDouble fork beside every file it archives, and its header
+    is literally `\\x00\\x05\\x16\\x07`. `files.content` is a Postgres text column,
+    Postgres rejects NUL outright, and `errors="replace"` does not help because
+    NUL is perfectly valid UTF-8 -- so one such entry failed the whole upload with
+    a 500 and left the run empty.
+    """
+    body = _upload(
+        client,
+        {
+            **SAMPLE,
+            "__MACOSX/src/._app.c": b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X\x00\x02\x00\x00\x00\t",
+            "src/._app.c": b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X",
+            "src/.DS_Store": b"\x00\x00\x00\x01Bud1",
+        },
+    )
+
+    assert set(body["files"]) == {"src/app.c", "src/util.h"}
+    # Mac litter is noise, not a skip worth reporting: one entry per real file
+    # would bury the skips that matter.
+    assert body["intake"]["skipped"] == []
+
+
+def test_a_binary_file_is_skipped_and_named(client: TestClient) -> None:
+    """Not a size judgement. It cannot be stored, and storing it mangled was worse
+    than useless: the archive route writes rows back out as text, so a PNG went in
+    and came out corrupted."""
+    # Named `.c`, so it passes the source filter and the bytes are what refuse it --
+    # a corrupt file wearing a source extension is the only way a binary now
+    # reaches this check at all.
+    body = _upload(client, {**SAMPLE, "src/blob.c": b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"})
+
+    assert set(body["files"]) == {"src/app.c", "src/util.h"}
+    assert body["intake"]["skipped"] == [{"path": "src/blob.c", "size": 16, "reason": "binary"}]
+
+
+def test_text_that_merely_looks_odd_is_still_stored(client: TestClient) -> None:
+    """The heuristic is a NUL in the first block, not "is not ASCII".
+
+    Korean comments, a UTF-8 BOM and invalid byte sequences all have to survive --
+    `errors="replace"` is what they are for, and refusing them would refuse most
+    of this repository's own corpus.
+    """
+    body = _upload(
+        client,
+        {
+            "src/korean.c": "/* 셸로 넘어가는 입력 */\nint main(void) { return 0; }\n",
+            "src/bom.c": b"\xef\xbb\xbfint x;\n",
+            "src/latin1.c": b"/* caf\xe9 */\nint y;\n",
+        },
+    )
+
+    assert set(body["files"]) == {"src/korean.c", "src/bom.c", "src/latin1.c"}
+    assert body["intake"]["skipped"] == []
+
+
+def test_a_stray_nul_deep_in_a_text_file_does_not_fail_the_upload(client: TestClient) -> None:
+    """Past the sniff window, so `is_binary` misses it and the decode has to catch
+    it. Defence in depth: one odd byte is not worth refusing an upload over."""
+    padded = ("int x;\n" * 2000).encode() + b"\x00tail\n"
+    body = _upload(client, {"src/odd.c": padded})
+
+    assert body["files"] == ["src/odd.c"]
+    stored = client.get(f"/agent/runs/{body['run_id']}/file", params={"path": "src/odd.c"}).json()
+    assert "\x00" not in stored["content"]
+    assert "�" in stored["content"]

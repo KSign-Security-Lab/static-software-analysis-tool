@@ -91,14 +91,18 @@ async def create_run(owner: OwnerDep, files: List[UploadFile] = File(...)) -> Di
         raise HTTPException(status_code=400, detail=str(err)) from err
 
     if not tree.files:
-        # Distinguished, because the two mean different things to the reader: an
-        # empty upload is a mistake to repeat differently, and an upload that was
-        # *all* oversized artifacts is a tree with no source in it.
-        detail = (
-            f"올릴 수 있는 파일이 없습니다. {len(tree.skipped)}개가 한 파일 제한을 넘었습니다."
-            if tree.skipped
-            else "upload contained no files"
-        )
+        # Three different things to say, because they send the reader somewhere
+        # different: nothing arrived, everything that arrived was unreadable, or
+        # the project is simply not in a language this can analyse.
+        if tree.seen == 0:
+            detail = "올린 파일이 없습니다."
+        elif tree.skipped:
+            detail = f"검사할 수 있는 소스가 없습니다. 파일 {tree.seen}개 가운데 {len(tree.skipped)}개는 너무 크거나 텍스트가 아니었습니다."
+        else:
+            detail = (
+                f"검사할 수 있는 소스가 없습니다. 파일 {tree.seen}개를 봤지만 "
+                "C·C++·Java·Python·JS/TS·Go·Rust·C# 가운데 하나가 아니었습니다."
+            )
         raise HTTPException(status_code=400, detail=detail)
 
     return _indexed(run, tree, _origin_of(files, len(tree.files)))

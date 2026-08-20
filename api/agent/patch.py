@@ -98,10 +98,14 @@ def run_patch(run: RunDep, request: PatchRequest) -> Dict[str, Any]:
 def run_archive(run: RunDep, request: PatchRequest) -> Response:
     """The whole tree with the selected fixes in it, as a zip.
 
-    For a reader who wants to build the thing rather than review the change. The
-    entire tree, not only the patched files: a zip of three files out of four
-    hundred is not a source tree, and working out which four hundred to combine
-    it with is exactly the work this was supposed to save.
+    Every source file this run analysed, not only the patched ones -- working out
+    which of four hundred to combine a three-file zip with is exactly the work
+    this was supposed to save.
+
+    Not the *whole* tree, and it cannot be: intake stores only what the analyser
+    reads, so a Makefile or a PNG was never here to ship. This is something to
+    unpack over a checkout, not something to build from scratch, and the intake
+    screen says which files were left out.
 
     Refuses when nothing applied. An archive identical to the upload, named as
     though it were fixed, is the one output here that could mislead somebody

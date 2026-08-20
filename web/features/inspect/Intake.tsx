@@ -189,8 +189,8 @@ function FolderIntake({
         폴더 고르기
       </Button>
       <p className="text-2xs leading-relaxed text-ink-faint">
-        하위 폴더까지 그대로 올라갑니다. <code className="font-mono">.git</code>,{" "}
-        <code className="font-mono">node_modules</code>, <code className="font-mono">build</code> 같은 디렉터리는 읽지도
+        소스 파일만 올라갑니다 — C · C++ · Java · Python · JS/TS · Go · Rust · C#.{" "}
+        <code className="font-mono">.git</code>, <code className="font-mono">node_modules</code> 같은 디렉터리는 읽지도
         않고 건너뜁니다.
       </p>
     </div>
@@ -234,8 +234,8 @@ function ArchiveIntake({
         압축 파일 고르기
       </Button>
       <p className="text-2xs leading-relaxed text-ink-faint">
-        500MB, 20,000개 파일까지. 한 파일은 50MB까지. <code className="font-mono">.git</code> 이나 빌드 산출물은 세지
-        않습니다.
+        소스 파일만 꺼냅니다 — C · C++ · Java · Python · JS/TS · Go · Rust · C#. 소스 20,000개, 합쳐서 500MB,
+        한 파일 50MB까지.
       </p>
     </div>
   );
@@ -292,7 +292,8 @@ function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadR
   const { ensureAttached } = useRunStream();
   const start = useStartRun(runId, ensureAttached);
   const stats = indexed?.index ?? run?.index;
-  const skipped = (indexed?.intake ?? run?.intake)?.skipped ?? [];
+  const intake = indexed?.intake ?? run?.intake;
+  const skipped = intake?.skipped ?? [];
   const reading = run?.status === "created" || run?.status === "indexing";
 
   return (
@@ -310,6 +311,12 @@ function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadR
             <Stat label="단위" value={stats?.chunks} />
             <Stat label="연결" value={stats?.links} />
           </dl>
+          {intake && intake.seen > intake.kept && (
+            <p className="mt-2 text-2xs leading-relaxed text-ink-faint">
+              파일 {intake.seen.toLocaleString()}개 가운데 {intake.kept.toLocaleString()}개를 읽습니다. 나머지는
+              분석할 수 있는 언어가 아닙니다 — C · C++ · Java · Python · JS/TS · Go · Rust · C# 만 읽습니다.
+            </p>
+          )}
           {skipped.length > 0 && <Skipped skipped={skipped} />}
           {stats?.chunks === 0 ? (
             <p className="mt-3 text-xs text-warn">
@@ -343,29 +350,55 @@ function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadR
  * upload over one generated artifact, which cost them every other file.
  */
 function Skipped({ skipped }: { skipped: IntakeSkip[] }) {
+  // Grouped by reason, because the two are different facts about the tree and a
+  // mixed list of ten paths says neither.
+  const groups = (["too_large", "binary"] as const)
+    .map((reason) => ({ reason, rows: skipped.filter((each) => each.reason === reason) }))
+    .filter((group) => group.rows.length > 0);
+
   return (
-    <div className="mt-3 space-y-1 rounded-md border border-warn/40 bg-warn-wash px-3 py-2">
-      <p className="flex items-center gap-1.5 text-xs text-ink">
-        <FileWarning className="size-3.5 shrink-0 text-warn" aria-hidden />
-        너무 큰 파일 {skipped.length}개를 건너뜁니다
-      </p>
-      <ul className="space-y-0.5">
-        {skipped.slice(0, 5).map((each) => (
-          <li key={each.path} className="flex items-baseline gap-2 font-mono text-2xs text-ink-muted">
-            <span className="min-w-0 truncate">{each.path}</span>
-            <span className="shrink-0 text-ink-faint">{(each.size / 1024 / 1024).toFixed(0)}MB</span>
-          </li>
-        ))}
-        {skipped.length > 5 && (
-          <li className="font-mono text-2xs text-ink-faint">그 밖에 {skipped.length - 5}개</li>
-        )}
-      </ul>
-      <p className="text-2xs leading-relaxed text-ink-faint">
-        한 파일 50MB까지만 받습니다. 이만한 파일은 대개 생성된 산출물이고, 검사는 1.5MB가 넘는 파일을 어차피 읽지
-        않습니다. 저장하지 않으므로 나중에 ‘수정된 소스’ 를 내려받아도 이 파일들은 들어 있지 않습니다.
-      </p>
+    <div className="mt-3 space-y-2 rounded-md border border-warn/40 bg-warn-wash px-3 py-2">
+      {groups.map(({ reason, rows }) => (
+        <div key={reason} className="space-y-1">
+          <p className="flex items-center gap-1.5 text-xs text-ink">
+            <FileWarning className="size-3.5 shrink-0 text-warn" aria-hidden />
+            {SKIP_TITLE[reason]} {rows.length}개를 건너뜁니다
+          </p>
+          <ul className="space-y-0.5">
+            {rows.slice(0, 5).map((each) => (
+              <li key={each.path} className="flex items-baseline gap-2 font-mono text-2xs text-ink-muted">
+                <span className="min-w-0 truncate">{each.path}</span>
+                <span className="shrink-0 text-ink-faint">{size(each.size)}</span>
+              </li>
+            ))}
+            {rows.length > 5 && (
+              <li className="font-mono text-2xs text-ink-faint">그 밖에 {rows.length - 5}개</li>
+            )}
+          </ul>
+          <p className="text-2xs leading-relaxed text-ink-faint">{SKIP_WHY[reason]}</p>
+        </div>
+      ))}
     </div>
   );
+}
+
+const SKIP_TITLE: Record<IntakeSkip["reason"], string> = {
+  too_large: "너무 큰 파일",
+  binary: "텍스트가 아닌 파일",
+};
+
+const SKIP_WHY: Record<IntakeSkip["reason"], string> = {
+  too_large:
+    "한 파일 50MB까지만 받습니다. 이만한 파일은 대개 생성된 산출물이고, 검사는 1.5MB가 넘는 파일을 어차피 읽지 않습니다.",
+  binary:
+    "이미지나 실행 파일처럼 텍스트가 아닌 것은 읽지 않습니다. 그대로 담아 두면 ‘수정된 소스’ 를 내려받을 때 깨진 파일이 나오기 때문에, 아예 넣지 않습니다.",
+};
+
+/** MB below a megabyte reads as `0MB`, which looks like a bug rather than a size. */
+function size(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)}MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${bytes}B`;
 }
 
 function Stat({ label, value }: { label: string; value: number | undefined }) {

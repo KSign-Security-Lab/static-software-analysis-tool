@@ -42,6 +42,9 @@ SKIP_DIRS = frozenset(
         ".ruff_cache",
         "vendor",
         "third_party",
+        # What a Mac puts in a zip beside everything it archives. Binary, and one
+        # entry per real file -- so a zipped project arrives at twice the count.
+        "__MACOSX",
     }
 )
 
