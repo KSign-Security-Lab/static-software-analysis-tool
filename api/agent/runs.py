@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from agent.index import build_index
 from agent.runs import (
@@ -22,6 +23,8 @@ from agent.runs import (
     new_run,
     write_files,
 )
+
+from agent.vcs import GitError, Origin, clone, label_for, read_tree
 
 from .channels import _channels, _channels_lock, _live_channel
 from .deps import OwnerDep, RunDep
@@ -89,33 +92,90 @@ async def create_run(owner: OwnerDep, files: List[UploadFile] = File(...)) -> Di
     if written == 0:
         raise HTTPException(status_code=400, detail="upload contained no files")
 
+    return _indexed(run, written, _origin_of(files, written))
+
+
+def _origin_of(files: List[UploadFile], written: int) -> Origin:
+    """What to call an upload in the run list.
+
+    A zip is named by its archive, a tree by how much of it there is. Neither is
+    a git remote, so `kind` says so and the patch surface knows not to offer a
+    push it has nowhere to send.
+    """
+    first = (files[0].filename or "") if files else ""
+    if len(files) == 1 and first.lower().endswith(".zip"):
+        return Origin(kind="zip", label=first)
+    return Origin(kind="upload", label=f"{written}개 파일")
+
+
+def _indexed(run: Run, written: int, origin: Origin) -> Dict[str, Any]:
+    """Index a populated run and describe it back.
+
+    Shared by both intake routes so a repository and a zip cannot end up
+    differently indexed, or differently described, for no reason a reader could
+    see.
+    """
     run.set_status(STATUS_INDEXING)
     store = run.store()
     try:
         result = build_index(run.file_contents(), store)
     finally:
         store.close()
-    run.write_meta(status="indexed", index=result.as_dict(), uploaded=written)
+    run.write_meta(status="indexed", index=result.as_dict(), uploaded=written, origin=origin.as_dict())
 
     return {
         "run_id": run.run_id,
         "uploaded": written,
         "index": result.as_dict(),
         "files": sorted(iter_all_files(run)),
+        "origin": origin.as_dict(),
     }
 
 
-@router.post("/runs/new")
-def create_empty_run(owner: OwnerDep) -> Dict[str, Any]:
-    """An empty run to paste into.
+class CloneRequest(BaseModel):
+    """A repository to fetch, and optionally which branch or tag of it."""
 
-    The upload endpoint needs files; starting from a blank editor does not have
-    any yet, and making the user save a file to disk first to try one snippet
-    is a poor trade.
+    url: str
+    ref: str | None = None
+
+
+@router.post("/runs/git")
+def create_run_from_git(owner: OwnerDep, request: CloneRequest) -> Dict[str, Any]:
+    """Clone a repository and index it.
+
+    Synchronous like the upload route, and for the same reason: the page cannot
+    show anything until the file list exists. A shallow clone of a normal
+    repository is seconds.
+
+    The remote is recorded on the run -- URL, ref and the exact commit -- because
+    that is what makes a patch from this run pushable later. Without the commit
+    a push would have to guess what the fix was computed against.
     """
     run = new_run(owner=owner)
-    run.write_meta(status="indexed", index={}, uploaded=0)
-    return {"run_id": run.run_id, "uploaded": 0, "index": {}, "files": []}
+    try:
+        with tempfile.TemporaryDirectory(prefix="ssat-clone-") as tmp:
+            # Scratch, like the zip: the checkout is read into rows and gone
+            # before the request ends. The run never touches the filesystem.
+            cloned = clone(request.url, request.ref, Path(tmp) / "repo")
+            files = read_tree(cloned.root)
+            written = run.put_files(files)
+    except UploadRejected as err:
+        run.set_status(STATUS_FAILED, error=str(err))
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except GitError as err:
+        # The remote's answer, not ours. 502 rather than 500: we reached out and
+        # something upstream said no.
+        run.set_status(STATUS_FAILED, error=str(err))
+        raise HTTPException(status_code=502, detail=str(err)) from err
+
+    origin = Origin(
+        kind="git",
+        label=label_for(request.url, cloned.ref),
+        url=request.url,
+        ref=cloned.ref,
+        commit=cloned.commit,
+    )
+    return _indexed(run, written, origin)
 
 
 def _reindex(run: Run) -> Dict[str, int]:

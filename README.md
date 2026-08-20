@@ -14,7 +14,8 @@ lines share one CPG front end:
 **LLM-based**, in `packages/agent`: a model reads the code one syntactic chunk
 at a time, with callees analysed before their callers so what a callee does to
 its inputs is known by the time its caller is judged. Findings carry resolved
-line-level spans and render as lint markers in a code editor at `/inspect`.
+line-level spans, so each one can show the code it is about, the evidence trail
+behind it, and a patch for exactly those lines.
 
 The two routes coexist and neither depends on the other — `agent` imports
 neither `ssat` nor `gnn`.
@@ -40,10 +41,12 @@ packages/agent/         LLM inspection over an OpenAI-compatible endpoint
     graph/              the LangGraph inspection loop
     mcp/                the tool surface, served over MCP
 api/                    FastAPI service (SSAT routes + /agent/*)
-web/                    Next.js UI — one app, three areas:
-                          /          CPG + pipeline views, F2-A, annotated source
-                          /stages    run one pipeline stage, read the raw JSON
-                          /inspect   the LLM agent's code editor
+web/                    Next.js UI — five surfaces, two shells:
+                          /agent           검사: upload, scan, triage, patch
+                          /f2a             F2-A evidence over a CPG
+                          /extract         AST / CFG / DFG / call graph views
+                          /extract/stages  run one pipeline stage, read raw JSON
+                          /bench           public-benchmark results
 docs/v2/                F2-A design documents
 artifacts/              generated output, scratch and corpora (gitignored)
 ```
@@ -125,13 +128,19 @@ agent index   path/to/src        # deterministic, no model calls
 agent inspect path/to/src -v     # the real thing; minutes, not seconds
 ```
 
-Or open `/inspect` in the web UI: upload a tree, read it in the editor, press
-검사 실행, and findings stream in as squiggles with explanation, evidence and a
-proposed fix. Nothing is ever applied.
+Or open `/agent` in the web UI — 검사. Give it a folder, a `.zip` or a git URL,
+press 검사 시작, and findings stream in as they are found: severity, CWE, the
+code, the evidence trail, how to fix it, and a patch for those exact lines. Tick
+the ones that matter and the bucket becomes a unified `.patch`, a patched source
+`.zip`, or -- for a run cloned from a repository -- a pushed branch.
 
-Backed by `/agent/runs`, `/agent/runs/{id}/{files,file,inspect,events,findings,diff}`
-and `/agent/health`. Progress streams over SSE because a chunk-by-chunk run
-takes minutes.
+Nothing is applied to the analysed tree, ever. That is what makes a finding's
+anchor still mean something afterwards and a patch reproducible; the fix leaves
+as a diff and is applied wherever the reader chooses.
+
+Backed by `/agent/runs`, `/agent/runs/git`, and
+`/agent/runs/{id}/{files,file,inspect,events,findings,propose,patch,archive,push}`.
+Progress streams over SSE because a chunk-by-chunk run takes minutes.
 
 Model choice, GPU sizing, port conflicts and how to read the output are in
 [`packages/agent/README.md`](packages/agent/README.md).

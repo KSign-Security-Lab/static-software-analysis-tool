@@ -125,25 +125,9 @@ describe("layoutFor", () => {
 
   it("falls back to the perspective's own default", () => {
     expect(layoutFor({}, "f2a")).toEqual(DEFAULT_LAYOUT);
-    expect(layoutFor({}, "agent")).toEqual(defaultLayoutFor("agent"));
+    expect(layoutFor({}, "f2a")).toEqual(defaultLayoutFor("f2a"));
   });
 
-  it("gives 검사 three regions and no dock", () => {
-    // The navigator lists the run, the centre holds the code or the drawing,
-    // 상세 argues. The bottom panel is gone: it held the findings, which are the
-    // navigator's list now, interleaved with tool calls, which are steps in a
-    // finding's 판단 과정.
-    const agent = defaultLayoutFor("agent");
-    expect(agent.h.inspector).toBeGreaterThan(0);
-    expect(agent.v.dock).toBe(0);
-    expect(agent.v.centre).toBe(100);
-  });
-
-  it("leaves the editor the larger share, since the rest is about the code", () => {
-    const agent = defaultLayoutFor("agent");
-    expect(agent.h.main).toBeGreaterThan(agent.h.side);
-    expect(agent.h.main).toBeGreaterThan(agent.h.inspector);
-  });
 
   it("leaves 스테이지 with neither a dock nor an inspector", () => {
     // It is a step list and one editor over a raw response, and it showed a

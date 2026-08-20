@@ -30,10 +30,7 @@ from agent.runs import (
     STATUS_INSPECTING,
     STATUS_INTERRUPTED,
     Run,
-    diff_reports,
-    get_run,
 )
-from agent.remediate import Stale, splice
 from agent.schema import Report
 
 from .channels import (
@@ -45,7 +42,6 @@ from .channels import (
     _live_channel,
 )
 from .deps import RunDep
-from .runs import _reindex
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -83,12 +79,6 @@ class ResumeRequest(BaseModel):
     #: to steer -- a live one already has the breakpoints it was started with.
     breakpoints: List[str] = []
     breakpoints_after: List[str] = []
-
-
-class DiffRequest(BaseModel):
-    """Compare this run against another."""
-
-    against: str
 
 
 @dataclass
@@ -502,8 +492,8 @@ def run_propose(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
         # nothing, which is not a fix.
         raise HTTPException(status_code=409, detail="제안된 코드가 지금 코드와 같습니다.")
 
-    # Kept, so the diff a reader approves is the one `/apply` splices, and so a
-    # reload does not lose it.
+    # Kept, so the diff a reader approves is the one the patch is built from,
+    # and so a reload does not lose it.
     report.findings[at] = finding.model_copy(update={"remediation": built})
     run.save_report(report)
 
@@ -512,75 +502,3 @@ def run_propose(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
         "finding_id": finding.id,
         "remediation": built.model_dump(),
     }
-
-
-@router.post("/runs/{run_id}/apply")
-def run_apply(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
-    """Splice a finding's proposed replacement over the lines it is anchored to.
-
-    Server-side because the arithmetic must not be the client's: the span is
-    1-based and inclusive, the file may have moved since the report was written,
-    and an off-by-one here silently corrupts source rather than failing.
-
-    Refuses rather than guesses. A finding with no replacement was one the model
-    said it could not fix in place, and a span whose text no longer matches what
-    was analysed is a file edited since -- applying to that is applying to code
-    nobody looked at.
-    """
-    report = run.load_report()
-    if report is None:
-        raise HTTPException(status_code=409, detail="this run has no completed report")
-
-    finding = next((f for f in report.findings if f.id == request.finding_id), None)
-    if finding is None:
-        raise HTTPException(status_code=404, detail=f"unknown finding: {request.finding_id}")
-
-    span = finding.primary
-    original = run.read_file(span.file)
-    if original is None:
-        raise HTTPException(status_code=404, detail=f"cannot read {span.file}")
-
-    # The arithmetic lives in `remediate.splice`, not here. Two things apply a
-    # patch now -- this button and the SEC-bench sweep -- and an off-by-one in
-    # one of two copies would corrupt source while the other stayed correct.
-    try:
-        patched = splice(original, span, finding.remediation.replacement or "")
-    except Stale as err:
-        detail = str(err)
-        if "changed" in detail:
-            detail = "이 파일은 검사 이후 바뀌었습니다. 다시 검사한 뒤 적용하세요."
-        raise HTTPException(status_code=409, detail=detail) from err
-
-    run.put_file(span.file, patched.encode("utf-8"))
-    index = _reindex(run)
-
-    return {
-        "run_id": run.run_id,
-        "finding_id": finding.id,
-        "path": span.file,
-        "lines": [span.start_line, span.end_line],
-        "index": index,
-        # The run's own answer to "did that work" is a re-inspection, and the id
-        # is content-derived, so this finding cannot survive its own fix.
-        "reinspect": True,
-    }
-
-
-@router.post("/runs/{run_id}/diff")
-def run_diff(run: RunDep, request: DiffRequest) -> Dict[str, Any]:
-    """New / fixed / unchanged against another run.
-
-    Works because finding ids are content-derived: a finding that shifted
-    because a line was inserted above it counts as unchanged.
-    """
-    current = run
-    other = get_run(request.against)
-    if other is None:
-        raise HTTPException(status_code=404, detail=f"unknown run: {request.against}")
-
-    after = current.load_report()
-    before = other.load_report()
-    if after is None or before is None:
-        raise HTTPException(status_code=409, detail="both runs must have a completed report")
-
-    return diff_reports(before, after).model_dump()

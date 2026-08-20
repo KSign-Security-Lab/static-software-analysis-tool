@@ -1,11 +1,9 @@
-import { del, get, post, postForm, put, seg, type RequestOptions } from "./client";
+import { del, get, post, postForm, seg, type RequestOptions } from "./client";
 import type {
   AgentHealth,
+  CloneRequest,
   FileContents,
-  FileWriteResult,
-  ApplyResult,
   ProposeResult,
-  FindingDiff,
   Report,
   RunSummary,
   UploadResult,
@@ -18,6 +16,10 @@ import type {
  * `AgentHealth` now: the previous split gave the inspect view and the trace
  * view a client each, and the two declared the same type differently -- one
  * with `tracing`, one without.
+ *
+ * Read-only over the tree. Nothing here writes a file: the tree a report was
+ * made from stays as it was analysed, and a fix leaves as a patch -- see
+ * `lib/api/patch.ts`.
  */
 
 export function health(probe = false, options?: RequestOptions): Promise<AgentHealth> {
@@ -30,10 +32,6 @@ export function listRuns(options?: RequestOptions): Promise<{ runs: RunSummary[]
 
 export function fetchRun(runId: string, options?: RequestOptions): Promise<RunSummary> {
   return get<RunSummary>(`/agent/runs/${seg(runId)}`, options);
-}
-
-export function createEmptyRun(): Promise<UploadResult> {
-  return post<UploadResult>("/agent/runs/new");
 }
 
 /**
@@ -56,6 +54,32 @@ export function uploadSource(files: (File | { file: File; path: string })[]): Pr
   return postForm<UploadResult>("/agent/runs", form);
 }
 
+/**
+ * Upload a zip.
+ *
+ * The same endpoint and the same field: the server decides by the filename that
+ * a single `.zip` is an archive to expand rather than a file to store. It has
+ * always accepted this; a separate function exists because the two intake
+ * buttons mean different things to the reader and one of them had no name.
+ */
+export function uploadArchive(file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("files", file, file.name.toLowerCase().endsWith(".zip") ? file.name : `${file.name}.zip`);
+  return postForm<UploadResult>("/agent/runs", form);
+}
+
+/**
+ * Clone a repository and index it.
+ *
+ * Slower than an upload -- the server is fetching a remote -- but the same
+ * shape comes back, so the intake screen does not branch on which button was
+ * pressed. A refused URL is a 400 with the reason; an unreachable remote is a
+ * 502, which is the remote's answer and not ours.
+ */
+export function cloneRepo(request: CloneRequest): Promise<UploadResult> {
+  return post<UploadResult>("/agent/runs/git", request);
+}
+
 export function deleteRun(runId: string): Promise<{ deleted: string }> {
   return del<{ deleted: string }>(`/agent/runs/${seg(runId)}`);
 }
@@ -64,7 +88,8 @@ export function deleteRun(runId: string): Promise<{ deleted: string }> {
  * Every file in the run.
  *
  * `RunSummary.files` is at most two names -- a label, not a tree -- so this is
- * the only way to populate an explorer for a run this tab did not just upload.
+ * the only way to know what a run actually covered when the tab did not upload
+ * it.
  */
 export function fetchFiles(runId: string, options?: RequestOptions): Promise<{ run_id: string; files: string[] }> {
   return get<{ run_id: string; files: string[] }>(`/agent/runs/${seg(runId)}/files`, options);
@@ -74,43 +99,19 @@ export function fetchFile(runId: string, path: string, options?: RequestOptions)
   return get<FileContents>(`/agent/runs/${seg(runId)}/file?path=${encodeURIComponent(path)}`, options);
 }
 
-export function writeFile(runId: string, path: string, content: string): Promise<FileWriteResult> {
-  return put<FileWriteResult>(`/agent/runs/${seg(runId)}/file`, { path, content });
-}
-
-export function deleteFile(runId: string, path: string): Promise<FileWriteResult & { deleted: string }> {
-  return del<FileWriteResult & { deleted: string }>(
-    `/agent/runs/${seg(runId)}/file?path=${encodeURIComponent(path)}`,
-  );
-}
-
 export function fetchFindings(runId: string, options?: RequestOptions): Promise<Report> {
   return get<Report>(`/agent/runs/${seg(runId)}/findings`, options);
 }
 
 /**
- * Splice a finding's proposed fix over the lines it is anchored to.
- *
- * The arithmetic is the server's, deliberately: the span is 1-based and
- * inclusive, and an off-by-one here would corrupt somebody's source rather than
- * fail. It refuses -- 409 -- when the file has changed since the run, because
- * the span would then point at code nobody analysed.
- */
-export function applyFix(runId: string, findingId: string): Promise<ApplyResult> {
-  return post<ApplyResult>(`/agent/runs/${seg(runId)}/apply`, { finding_id: findingId });
-}
-
-/**
  * Ask for code to fix a finding that arrived with advice and none.
  *
- * A separate call from `applyFix`, and deliberately: it writes the proposal into
- * the report and stops. The diff a reader approves has to be the diff that gets
- * spliced, and that means showing it before anything is written to their source.
+ * What makes such a finding patchable at all: a specialist proposes a fix only
+ * when it happens to fit the lines the anchor resolved to, and often it does
+ * not. Writes the proposal into the report and stops -- the patch is still built
+ * from the report when the bucket is exported, so this changes what a fix *is*
+ * rather than applying one.
  */
 export function proposeFix(runId: string, findingId: string): Promise<ProposeResult> {
   return post<ProposeResult>(`/agent/runs/${seg(runId)}/propose`, { finding_id: findingId });
-}
-
-export function diffRuns(runId: string, against: string): Promise<FindingDiff> {
-  return post<FindingDiff>(`/agent/runs/${seg(runId)}/diff`, { against });
 }

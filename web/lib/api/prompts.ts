@@ -1,24 +1,14 @@
-import { del, get, put, seg, type RequestOptions } from "./client";
+import { get, type RequestOptions } from "./client";
 import type { PromptRow } from "./types";
 
 /**
- * Prompt overrides.
+ * The system prompts a run used, read-only.
  *
- * Every mutation returns the whole list, so nothing here needs a refetch --
- * the caller writes the response straight into the cache.
- *
- * Names contain a colon (`lens:memory`), which is why the path segment is
- * escaped.
+ * Adopting a tuned prompt from the browser was the studio's. Tuning happens
+ * through `agent.tuner` now, which replays a recorded run before it proposes a
+ * change -- something a PUT from a page could not do. What this is still for is
+ * naming the prompt behind a recorded call in a finding's 판단 과정.
  */
-
 export function fetchPrompts(options?: RequestOptions): Promise<{ prompts: PromptRow[] }> {
   return get<{ prompts: PromptRow[] }>("/agent/prompts", options);
-}
-
-export function savePrompt(name: string, text: string): Promise<{ prompts: PromptRow[] }> {
-  return put<{ prompts: PromptRow[] }>(`/agent/prompts/${seg(name)}`, { text });
-}
-
-export function resetPrompt(name: string): Promise<{ prompts: PromptRow[] }> {
-  return del<{ prompts: PromptRow[] }>(`/agent/prompts/${seg(name)}`);
 }

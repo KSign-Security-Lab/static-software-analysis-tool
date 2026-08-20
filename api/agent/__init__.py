@@ -13,12 +13,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from . import files, inspection, meta, runs, trace
+from . import files, inspection, meta, patch, runs, trace
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 # Order matters only where paths could shadow each other; these do not overlap.
-for _group in (meta, runs, files, trace, inspection):
+for _group in (meta, runs, files, trace, inspection, patch):
     router.include_router(_group.router)
 
 __all__ = ["router"]

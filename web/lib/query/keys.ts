@@ -20,18 +20,15 @@ export const keys = {
   files: (id: string) => ["agent", "run", id, "files"] as const,
   file: (id: string, path: string) => ["agent", "run", id, "file", path] as const,
   findings: (id: string) => ["agent", "run", id, "findings"] as const,
-  /** Keyed by both runs: a comparison belongs to the pair, not to either one. */
-  diff: (id: string, against: string) => ["agent", "run", id, "diff", against] as const,
   spans: (id: string) => ["agent", "run", id, "spans"] as const,
   threads: (id: string) => ["agent", "run", id, "threads"] as const,
-  input: (id: string) => ["agent", "run", id, "input"] as const,
   knowledge: (id: string) => ["agent", "run", id, "knowledge"] as const,
 
   /** The structural line: Joern is expensive, so results are keyed by input. */
   analyze: (hash: string) => ["ssat", "analyze", hash] as const,
 } as const;
 
-/** Everything the trace view reads off disk; what a new checkpoint invalidates. */
+/** Everything a finding's 판단 과정 reads; what a finished node invalidates. */
 export function recordedKeys(id: string) {
   return [keys.spans(id), keys.threads(id)];
 }

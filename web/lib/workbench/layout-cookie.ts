@@ -14,7 +14,7 @@ import { PERSPECTIVES, type PerspectiveId } from "./perspectives";
  *
  * The wire format is positional rather than JSON:
  *
- *     1~agent:20_58_22_70_30~f2a:15_57_28_46_54
+ *     1~f2a:15_57_28_46_54~extract:18_60_22_100_0
  *     ^ version    ^ side_main_inspector_centre_dock
  *
  * A cookie rides on every request including every asset, and JSON spends most
@@ -43,7 +43,7 @@ export const LAYOUT_COOKIE = "ssat.layout";
  * `StepGraph` refits whenever its pane resizes, so that drag actually works; it
  * did nothing at all before this round, when `fitView` only ran on mount.
  *
- * 5: the bottom panel holds the agent's structure above its record.
+ * 5: the bottom panel's share, where a surface has one.
  *
  * 4: the bottom panel holds the call record and the pipeline too.
  *
@@ -91,17 +91,11 @@ export const DEFAULT_LAYOUT: PaneLayout = {
 
 /** Where a surface differs from the four-pane default. */
 const PER_PERSPECTIVE: Partial<Record<PerspectiveId, PaneLayout>> = {
-  // Four regions, one job each: files left, code in the centre, the bottom panel
-  // holding the run as one list, and a right column holding the agent's structure
-  // above 상세 -- which shows whatever is picked anywhere else.
+  // 검사 is absent, and not by oversight: it has its own shell with no panels
+  // at all, so `layoutFor` is never asked about it. A stored cookie from before
+  // that may still carry an `agent:` segment; it decodes and is never read,
+  // which is cheaper than a version bump that resets everyone's drags.
   //
-  // The dock's share is larger than a problems list alone would need, because it
-  // also holds the call record and the pipeline drawing -- everything that used
-  // to be a full-window overlay over the top of the editor. It is draggable from
-  // here; the point is that the editor is still there when you drag it.
-  // No dock, and the side column is wider than it was: it lists the findings
-  // now as well as the files, and a finding's title needs more than 15%.
-  agent: { h: { side: 20, main: 55, inspector: 25 }, v: { centre: 100, dock: 0 } },
   // 스테이지 is a side list and one editor over its raw response: it has
   // neither a bottom panel nor an inspector, and was showing a staging
   // placeholder in each of them.
@@ -111,9 +105,9 @@ const PER_PERSPECTIVE: Partial<Record<PerspectiveId, PaneLayout>> = {
   // is what it showed before -- a "문제" tab reading 준비 중, on a screen that
   // does not look for problems.
   extract: { h: { side: 18, main: 60, inspector: 22 }, v: { centre: 100, dock: 0 } },
-  // Same shape as 검사, and for the same reason: a list on the left whose rows
-  // are prose -- an instance id and why it broke -- above nothing, beside a
-  // detail column. No dock; there is no second list to put in one.
+  // A list on the left whose rows are prose -- an instance id and why it broke
+  // -- above nothing, beside a detail column. No dock; there is no second list
+  // to put in one.
   bench: { h: { side: 24, main: 51, inspector: 25 }, v: { centre: 100, dock: 0 } },
 };
 

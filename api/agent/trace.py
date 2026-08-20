@@ -1,50 +1,25 @@
-"""What one run actually did: spans, checkpoints, state, the chat thread, and
-replaying a single recorded LLM call.
+"""What one run actually did: its call tree, its knowledge graph, and the
+conversations it had.
+
+Read-only. Editing a run's state mid-flight and replaying one recorded call
+belonged to the studio, which 검사 no longer has -- what remains is what a
+finding's 판단 과정 is drawn from.
 """
 
 from __future__ import annotations
 
-import time
-from agent.config import AgentConfig
-from agent.graph.build import NODES
-from agent.schema import LENSES
-
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from agent.knowledge import read_graph, write_graph
-from agent.llm import StructuredCaller
-from agent.promptstore import lens_prompt
 from graphify import to_json as knowledge_json
 
 from .deps import RunDep
 
 log = logging.getLogger(__name__)
 router = APIRouter()
-
-
-#: Which schema a step's call is guided into. `gather` is the odd one out: it is
-#: a tool-calling loop returning prose, not a structured object.
-#: What guided decoding constrained each kind of call to, so a replay is
-#: constrained the same way. Every specialist produces a ChunkAnalysis -- the
-#: lens is in the prompt, not in the shape of the answer.
-_REPLAY_SCHEMAS = {
-    "triage": "Triage",
-    "verify": "Verdict",
-    **{lens_prompt(lens): "ChunkAnalysis" for lens in LENSES},
-}
-
-
-class StateRequest(BaseModel):
-    """Write state over a checkpoint."""
-
-    values: Dict[str, Any]
-    checkpoint_id: Optional[str] = None
-    #: Whose write this stands in for. Inferred from the checkpoint when absent.
-    as_node: Optional[str] = None
 
 
 @router.get("/runs/{run_id}/spans")
@@ -78,56 +53,6 @@ def _span_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "tokens": sum(row["tokens"] or 0 for row in rows),
         "total_ms": sum(latencies),
     }
-
-
-@router.get("/runs/{run_id}/checkpoints")
-def run_checkpoints(run: RunDep, full: bool = False) -> Dict[str, Any]:
-    """This run's state after each super-step, oldest first.
-
-    The trace says what was called; this says what the graph *knew* at each
-    step -- what was still queued, what the last node wrote, where it would go
-    next. One thread per run, so this is only ever this run's history.
-
-    ``?full=true`` returns the bulky fields rather than counting them, which is
-    what the thread panel asks for when a step is expanded.
-    """
-    steps = run.checkpoints(full=full)
-    return {"run_id": run.run_id, "checkpoints": steps, "count": len(steps)}
-
-
-@router.get("/runs/{run_id}/state")
-def run_state(run: RunDep, checkpoint_id: str | None = None) -> Dict[str, Any]:
-    """One checkpoint's state in full.
-
-    The history summarises the bulky fields, which is right for a timeline and
-    wrong for an editor: a count cannot be edited back into a list. Defaults to
-    the latest checkpoint, which is where a stopped run is sitting.
-    """
-    state = run.state(checkpoint_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="this run has no state at that point")
-    return {"run_id": run.run_id, **state}
-
-
-@router.post("/runs/{run_id}/state")
-def set_run_state(run: RunDep, request: StateRequest) -> Dict[str, Any]:
-    """Write state over a checkpoint, branching the run there.
-
-    Nothing is overwritten: the write lands as a child of the checkpoint it was
-    made against, so the course already recorded survives being second-guessed
-    and both lines show up in the history.
-    """
-    if request.as_node is not None and request.as_node not in NODES:
-        raise HTTPException(status_code=400, detail=f"unknown node: {request.as_node}")
-    if not run.checkpoints():
-        raise HTTPException(status_code=409, detail="this run has no history to write over")
-
-    try:
-        checkpoint_id = run.set_state(request.values, request.checkpoint_id, request.as_node)
-    except ValueError as err:
-        # LangGraph refuses a write it cannot attribute to a node.
-        raise HTTPException(status_code=400, detail=str(err)) from err
-    return {"run_id": run.run_id, "checkpoint_id": checkpoint_id}
 
 
 @router.get("/runs/{run_id}/graph")
@@ -234,99 +159,4 @@ def _turn(span: Any, by_id: Dict[str, Any]) -> Dict[str, Any]:
         "latency_ms": span.latency_ms,
         "tokens": span.tokens,
         "error": span.error,
-    }
-
-
-class ReplayRequest(BaseModel):
-    """Run one recorded model call again, with the prompt changed."""
-
-    #: Defaults to what the span recorded, so an unedited replay is a re-run of
-    #: exactly what happened.
-    system: Optional[str] = None
-    user: Optional[str] = None
-
-
-def _recorded_messages(span: Any) -> tuple[str, str]:
-    """The system and user text of a recorded model call."""
-    inputs = span.inputs if isinstance(span.inputs, dict) else {}
-    messages = inputs.get("messages")
-    if isinstance(messages, list):
-        system = next((m.get("content", "") for m in messages if m.get("role") == "system"), "")
-        user = next((m.get("content", "") for m in messages if m.get("role") in ("human", "user")), "")
-        return str(system), str(user)
-    prompts = inputs.get("prompts")
-    if isinstance(prompts, list) and prompts:
-        return "", str(prompts[0])
-    return "", ""
-
-
-@router.post("/runs/{run_id}/spans/{span_id}/replay")
-def replay_span(run: RunDep, span_id: str, request: ReplayRequest | None = None) -> Dict[str, Any]:
-    """Call the model again for one span, optionally with an edited prompt.
-
-    A side experiment, deliberately: it writes nothing to the run, the trace or
-    the report. The point is to see what a changed prompt would have produced
-    for an input that really occurred, and to be able to try that ten times
-    without turning the recorded run into a scratchpad. Changing the run's
-    course is what the checkpoint fork is for.
-    """
-    options = request or ReplayRequest()
-
-    # No separate "has this run a trace at all" check: a run with no spans has
-    # no span with this id either, and that is the 404 below.
-    spans = run.spans()
-    try:
-        span = next((s for s in spans.spans() if s.id == span_id), None)
-    finally:
-        spans.close()
-
-    if span is None:
-        raise HTTPException(status_code=404, detail=f"unknown span: {span_id}")
-    if span.kind != "llm":
-        raise HTTPException(status_code=400, detail="only a model call can be replayed")
-
-    recorded_system, recorded_user = _recorded_messages(span)
-    system = options.system if options.system is not None else recorded_system
-    user = options.user if options.user is not None else recorded_user
-    if not user.strip():
-        raise HTTPException(status_code=400, detail="this span recorded no prompt to replay")
-
-    config = AgentConfig()
-    try:
-        config.require_model()
-    except RuntimeError as err:
-        raise HTTPException(status_code=409, detail=str(err)) from err
-
-    step = str(span.meta.get("step") or "")
-    schema = _REPLAY_SCHEMAS.get(step)
-
-    started = time.monotonic()
-    caller = StructuredCaller(config)
-    if schema is None:
-        # No schema for this step, so the reply is taken as text. Tools are not
-        # offered: a replay must not touch the filesystem or the sandbox.
-        result: Any = caller.llm.invoke([("system", system), ("human", user)]).content
-        failure = None
-    else:
-        from agent import schema as wire
-
-        produced = caller.call(getattr(wire, schema), system, user)
-        # `None` output and a reason beside it, rather than `None` alone: a
-        # replay that died on the token limit and a replay the model refused
-        # look identical otherwise, and this screen exists to compare a call
-        # against its recording.
-        result = produced.value.model_dump() if produced.ok else None
-        failure = produced.reason
-
-    return {
-        "run_id": run.run_id,
-        "span_id": span_id,
-        "step": step or None,
-        "schema": schema,
-        "output": result,
-        "failed": None if schema is None else failure,
-        "latency_ms": int((time.monotonic() - started) * 1000),
-        # So the UI can say what it is comparing against without a second read.
-        "recorded": {"system": recorded_system, "user": recorded_user, "output": span.outputs},
-        "edited": system != recorded_system or user != recorded_user,
     }

@@ -7,10 +7,6 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import ActivityBar from "@/components/workbench/ActivityBar";
 import PerspectiveHeader from "@/components/workbench/PerspectiveHeader";
 import { CpgSourceProvider } from "@/features/cpg/provider";
-import { RunControlsProvider } from "@/lib/run/controls";
-import { useForgetMissingRun } from "@/lib/run/forget-missing";
-import { RunStreamProvider } from "@/lib/run/stream";
-import { useRunId } from "@/lib/run/use-run-id";
 import { cookieValue, layoutFor, type PaneLayout, type StoredLayout } from "@/lib/workbench/layout-cookie";
 import { perspective, type PerspectiveId } from "@/lib/workbench/perspectives";
 import type { PaneId } from "@/lib/workbench/store";
@@ -19,6 +15,11 @@ import { useBeforePaint } from "@/lib/workbench/use-before-paint";
 
 /**
  * The workbench: activity bar, explorer, centre, dock, inspector.
+ *
+ * Four surfaces now, not five. 검사 left for a shell of its own -- see
+ * `app/(inspect)` -- and took with it the two providers that only it used (the
+ * event stream and the draft store) and the status strip that only it filled.
+ * What is left is the arrangement the research surfaces actually want.
  *
  * The panel tree is the only place geometry lives. `main` nests its own
  * vertical group so the dock spans the editor width and the explorer runs full
@@ -37,16 +38,6 @@ export interface WorkbenchProps {
   side: ReactNode;
   dock: ReactNode;
   inspector: ReactNode;
-  /**
-   * A strip between the title bar and the panels, for state that belongs to
-   * the whole surface rather than to any one pane.
-   *
-   * A slot rather than a branch on `perspective`: 검사 has a run to report on
-   * and the other three do not, and the shell should not be the place that
-   * knows which. Renders `null` for them, which is why the container below is
-   * a flex column rather than a grid -- see the note on it.
-   */
-  status: ReactNode;
 }
 
 /** Registers the handle with the store and mirrors folds back out of it. */
@@ -114,13 +105,7 @@ export default function Workbench({
   side,
   dock,
   inspector,
-  status,
 }: WorkbenchProps) {
-  const [runId] = useRunId();
-  // Here because the shell is what owns which run the tab is on, and because it
-  // is mounted exactly once -- a dozen components each deciding to drop the id
-  // would be a dozen writes to the address bar.
-  useForgetMissingRun();
   const initial: PaneLayout = layoutFor(stored, current);
 
   // Not state: it is only ever read when writing the cookie back, and making
@@ -166,40 +151,27 @@ export default function Workbench({
   );
 
   return (
-    // The stream sits above the panels and outside the routes, so exactly one
-    // EventSource exists per tab and it survives navigation between
-    // perspectives. See lib/run/stream.tsx for why that is load-bearing.
-    <RunStreamProvider runId={runId}>
-      <CpgSourceProvider>
-        <RunControlsProvider>
+    <CpgSourceProvider>
         {/*
-          A flex column, not a grid, and the status slot is why.
+          A flex column, not a grid.
 
-          It was `grid-rows-[auto_1fr]` with two children. Adding a third row
-          for the slot broke every surface that does not fill it: a slot
-          rendering `null` puts no element in the grid, so the panel row
-          dropped into the `auto` track and sized itself to its content --
-          F2-A's four panels came out 350px tall in an 800px window, with the
-          rest of the page bare background.
+          It was `grid-rows-[auto_1fr]`, and a surface that renders no header
+          puts no element in the grid: the panel row dropped into the `auto`
+          track and sized itself to its content -- F2-A's four panels came out
+          350px tall in an 800px window, with the rest of the page bare
+          background.
 
           Rows a child may decline to render cannot be positional. Flex places
           what is actually there.
         */}
         <div className="flex h-dvh flex-col overflow-hidden bg-bg text-ink">
           {/*
-            Only where a surface asked for one.
-
-            검사 does not: the bar was `SSAT │ 검사 │ 1,270px of nothing │ 사용법
-            ▣▣▣` at 1600, and the run strip beneath it held nothing that wanted
-            to be permanent. Both are gone there, and the 72px they cost is the
-            drawing's now. The rail carries what was genuinely global.
-
-            The other three keep it, so the app is briefly inconsistent -- a
-            deliberate cost, taken because 검사 is where the work happens and it
-            is the surface that could not afford the rows.
+            Only where a surface asked for one. All four of these do; the
+            flag stays because `chrome: false` is what let 검사 reclaim 72px of
+            permanent bar, and re-learning that would be the expensive way to
+            find out.
           */}
           {perspective(current).chrome && <PerspectiveHeader />}
-          {status}
 
           {/*
             `min-w-0` is load-bearing, and its absence was visible as the right
@@ -280,8 +252,6 @@ export default function Workbench({
             </ResizablePanelGroup>
           </div>
         </div>
-        </RunControlsProvider>
-      </CpgSourceProvider>
-    </RunStreamProvider>
+    </CpgSourceProvider>
   );
 }

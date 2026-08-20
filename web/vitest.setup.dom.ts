@@ -1,4 +1,17 @@
 /**
+ * What the DOM suite needs before any test runs.
+ *
+ * Two unrelated things, both about the environment rather than about any one
+ * test.
+ */
+
+// The matchers. `@testing-library/jest-dom` has been a devDependency since the
+// suite was set up and was never registered, so `toBeInTheDocument` threw
+// `Invalid Chai property` -- which reads as a broken test rather than as a
+// missing import, and is why assertions here had to be written the long way.
+import "@testing-library/jest-dom/vitest";
+
+/**
  * What jsdom does not implement and Radix assumes.
  *
  * `ResizeObserver` is the one that bites: `ScrollArea` measures itself in a

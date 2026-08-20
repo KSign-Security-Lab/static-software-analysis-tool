@@ -115,6 +115,79 @@ export function postForm<T>(path: string, form: FormData, options: RequestOption
   return request<T>(path, { ...options, method: "POST", body: form });
 }
 
+/**
+ * A POST whose answer is a file rather than JSON.
+ *
+ * `request` parses every response as JSON, which a zip is not. The download it
+ * produces cannot be a plain `<a href>` either: the route is a POST because the
+ * selection travels in the body, so the bytes have to come back through fetch
+ * and be handed to the browser as a Blob.
+ *
+ * Errors still arrive as JSON, so the failure path is the same as everywhere
+ * else -- an `ApiError` carrying the server's Korean `detail`.
+ */
+export async function postBlob(
+  path: string,
+  payload?: unknown,
+  options: RequestOptions = {},
+): Promise<{ blob: Blob; filename: string | null; headers: Headers }> {
+  const base = apiBase();
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      ...options,
+      method: "POST",
+      headers: { ...ownerHeaders(), ...json },
+      body: JSON.stringify(payload ?? {}),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(`백엔드(${base})에 연결할 수 없습니다. 실행 중인지 확인하세요. [${String(err)}]`, 0);
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      detail = (JSON.parse(text) as { detail?: string })?.detail ?? text;
+    } catch {
+      /* error bodies are not always JSON */
+    }
+    throw new ApiError(detail || `${res.status} ${res.statusText}`, res.status);
+  }
+
+  return {
+    blob: await res.blob(),
+    filename: filenameOf(res.headers.get("content-disposition")),
+    headers: res.headers,
+  };
+}
+
+/** The name the server chose for the file, if it said. */
+function filenameOf(disposition: string | null): string | null {
+  const found = disposition?.match(/filename="?([^";]+)"?/);
+  return found ? found[1] : null;
+}
+
+/**
+ * Hand a file to the browser.
+ *
+ * An object URL and a synthetic click, revoked on the next tick. Here rather
+ * than in a component because two things download now -- a patch built in the
+ * browser from returned text, and an archive streamed from the server -- and
+ * the revoke is the part that gets forgotten.
+ */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export function streamUrl(path: string): string {
   return `${apiBase()}${path}`;
 }

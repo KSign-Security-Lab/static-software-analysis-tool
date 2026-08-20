@@ -3,22 +3,21 @@ import { Network, ScanSearch, ShieldCheck, TerminalSquare, Trophy, type LucideIc
 /**
  * The five surfaces, declared once.
  *
- * The activity bar and the title bar both read this, so a route cannot be
- * added in one place and forgotten in another -- and `carries` names the
- * params that must survive a switch, which is what stops the rail dropping
- * `?run=` on the way past.
+ * The rail reads this, so a route cannot be added in one place and forgotten in
+ * another -- and `carries` names the params that must survive a switch, which is
+ * what stops the rail dropping `?run=` on the way past.
  *
- * 트레이스 was a fifth until it turned out not to be a place. What it held is
- * spread across 검사 now: the pipeline drawing is the top of the right column and
- * the call record is the bottom panel's list. It was briefly a full-window
- * overlay, which had the width and covered the editor -- and the code is what all
- * of it is talking about, so hiding the code to explain the code was the wrong
- * trade.
+ * Two shells, one list. 검사 left the workbench: it is a flow -- give code, read
+ * findings, take a patch -- and a four-pane IDE is the wrong shape for a flow.
+ * The four research surfaces stayed, because comparing a graph against the code
+ * that produced it is exactly what resizable panes are for. `panes` and `chrome`
+ * are the workbench's fields and 검사 answers both with nothing.
  *
- * Nothing about that is carried between surfaces. An earlier version carried
- * `centre` with a comment claiming a round trip preserved it, which it never
- * could: `hrefFor` copies from the params it is handed, and the hop out drops
- * whatever the destination does not carry.
+ * 트레이스 was a sixth until it turned out not to be a place. What it held now
+ * belongs to the finding it explains: 판단 과정 and 에이전트 구조 are the last two
+ * sections of a finding's detail, closed until asked for. They were two of four
+ * centre tabs competing with the code for width, which is why neither was ever
+ * read -- the reader had to leave the finding to look at its own reasoning.
  */
 
 export type PerspectiveId = "agent" | "f2a" | "extract" | "stages" | "bench";
@@ -77,22 +76,23 @@ export const PERSPECTIVES: readonly Perspective[] = [
     id: "agent",
     href: "/agent",
     label: "검사",
-    note: "코드를 올려 취약점을 찾고, 그 판단 과정을 그대로 열어 봅니다",
+    note: "코드를 올려 취약점을 찾고, 고칠 것만 골라 패치를 받습니다",
     icon: ScanSearch,
-    carries: ["run", "file"],
-    // No dock. The findings it held are the navigator's 문제 list, and the tool
-    // calls it interleaved with them are steps in a finding's 판단 과정.
-    panes: ["side", "inspector"],
+    carries: ["run"],
+    // Neither. This surface has its own shell -- see app/(inspect) -- and the
+    // workbench never renders it, so a pane list or a title bar here would be
+    // describing a layout that does not exist.
+    panes: [],
     chrome: false,
     purpose:
-      "이 코드에 취약점이 있는가, 그리고 에이전트는 왜 그렇게 판단했는가 — 결과와 과정을 나란히 봅니다.",
+      "이 코드에 취약점이 있는가, 그리고 그중 무엇을 지금 고칠 것인가 — 찾고, 읽고, 골라서 패치까지 갑니다.",
     steps: [
-      "왼쪽 ‘탐색기’에 파일을 추가하거나, 가운데 편집기에 폴더를 끌어다 놓습니다. 코드를 그대로 붙여넣어도 됩니다.",
-      "맨 위 ‘검사 실행’을 누릅니다. 고친 파일은 먼저 저장되고, 그 줄에 지금 어디까지 왔는지가 계속 표시됩니다.",
-      "아래 ‘실행’의 ‘문제’ 에 찾은 것이 쌓입니다. 한 줄을 고르면 가운데 편집기가 그 줄로 가고, 오른쪽 아래 ‘상세’ 에 판단·근거·고치는 방법·판단 과정이 나옵니다. 패치가 있으면 그 자리에서 적용할 수 있습니다.",
-      "같은 목록을 ‘전체’ 나 ‘도구’ 로 넓히면 에이전트가 한 호출이 전부 보입니다. 호출을 고르면 보낸 지시와 답변과 부른 도구가 ‘상세’ 에 나옵니다. 호출은 특정 줄에 대한 것이 아니라서 편집기는 그대로 있습니다.",
-      "오른쪽 위 ‘에이전트 구조’ 는 검사가 지나가는 길입니다. 문제를 고르면 그 판단에 관여한 노드만 밝게 남고, 노드를 누르면 그 노드가 무엇인지 ‘상세’ 에 나옵니다. 그림이 작으면 경계선을 끌어 넓히면 됩니다.",
-      "맨 위 숫자를 누르면 검사 범위와 판단 흐름, 든 비용이 나옵니다. ‘중단점’ 은 다음 실행을 원하는 노드에서 멈추고, ‘지난 검사’ 로 예전 검사를 다시 열거나 지울 수 있습니다.",
+      "폴더를 끌어다 놓거나, 압축 파일을 고르거나, git 주소를 붙여넣습니다.",
+      "‘검사 시작’을 누릅니다. 다 끝나기를 기다릴 필요는 없습니다 — 찾은 것이 그 자리에서 쌓이고, 바로 읽어도 됩니다.",
+      "목록에서 한 줄을 고르면 오른쪽에 판단·근거·고치는 방법·패치가 나옵니다. 심각도나 CWE, 파일로 좁힐 수 있습니다.",
+      "왜 그렇게 판단했는지 궁금하다면 ‘판단 과정’을 펼칩니다. 그 판단을 낸 호출이 순서대로 나오고, 하나를 고르면 주고받은 말이 그대로 보입니다.",
+      "고칠 것에 체크합니다. 아래에 담긴 개수가 나오고, ‘패치 만들기’를 누르면 무엇이 들어가고 무엇이 빠지는지 먼저 보여 줍니다.",
+      "패치 파일이나 수정된 소스를 내려받습니다. git 주소로 가져온 검사라면 브랜치로 바로 올릴 수도 있습니다.",
     ],
   },
   {
@@ -183,8 +183,15 @@ export function perspective(id: PerspectiveId): Perspective {
  *
  * Longest match wins, so `/extract/stages` is 스테이지 rather than the 추출
  * view that merely shares its prefix.
+ *
+ * Takes a nullable path because every caller hands it `usePathname()` directly,
+ * and that returns `null` outside a router -- which threw
+ * `Cannot read properties of null` from three call sites rather than answering
+ * "no perspective", which is the honest answer to "where am I" when nobody
+ * knows.
  */
-export function perspectiveFor(pathname: string): Perspective | undefined {
+export function perspectiveFor(pathname: string | null | undefined): Perspective | undefined {
+  if (!pathname) return undefined;
   let best: Perspective | undefined;
   for (const p of PERSPECTIVES) {
     if (pathname !== p.href && !pathname.startsWith(`${p.href}/`)) continue;

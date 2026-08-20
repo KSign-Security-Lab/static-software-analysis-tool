@@ -306,14 +306,6 @@ class Report(BaseModel):
         return sorted(self.findings, key=lambda f: f.sort_key())
 
 
-class FindingDiff(BaseModel):
-    """Two runs compared, by content-derived id."""
-
-    new: list[Finding] = Field(default_factory=list)
-    fixed: list[Finding] = Field(default_factory=list)
-    unchanged: list[Finding] = Field(default_factory=list)
-
-
 EXPORTED_MODELS: tuple[type[BaseModel], ...] = (
     Span,
     Evidence,
@@ -321,5 +313,4 @@ EXPORTED_MODELS: tuple[type[BaseModel], ...] = (
     Finding,
     RunStats,
     Report,
-    FindingDiff,
 )

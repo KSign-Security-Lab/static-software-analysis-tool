@@ -5,8 +5,8 @@ import { toast } from "sonner";
 
 import { describeError } from "@/lib/api/client";
 import { fetchGraph, resumeRun, type ResumeOptions } from "@/lib/api/control";
-import { fetchPrompts, resetPrompt, savePrompt } from "@/lib/api/prompts";
-import { fetchSpans, fetchThreads, replaySpan } from "@/lib/api/trace";
+import { fetchPrompts } from "@/lib/api/prompts";
+import { fetchSpans, fetchThreads } from "@/lib/api/trace";
 import { keys } from "@/lib/query/keys";
 
 const enabled = (runId: string | null): runId is string => Boolean(runId);
@@ -60,39 +60,6 @@ export function usePrompts() {
 }
 
 /** Both prompt mutations return the whole list, so nothing needs refetching. */
-export function useSavePrompt() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ name, text }: { name: string; text: string }) => savePrompt(name, text),
-    onSuccess: (result) => client.setQueryData(keys.prompts(), result.prompts),
-    onError: (error) => toast.error("프롬프트를 저장할 수 없습니다", { description: describeError(error) }),
-  });
-}
-
-export function useResetPrompt() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (name: string) => resetPrompt(name),
-    onSuccess: (result) => client.setQueryData(keys.prompts(), result.prompts),
-    onError: (error) => toast.error("프롬프트를 되돌릴 수 없습니다", { description: describeError(error) }),
-  });
-}
-
-/**
- * Re-run one recorded model call.
- *
- * Writes nothing -- not the run, not the trace, not the report -- so there is
- * deliberately no cache invalidation here. That is the pane's contract and the
- * reason it is safe to press repeatedly.
- */
-export function useReplay(runId: string | null) {
-  return useMutation({
-    mutationFn: ({ spanId, system, user }: { spanId: string; system?: string | null; user?: string | null }) =>
-      replaySpan(runId!, spanId, { system, user }),
-    onError: (error) => toast.error("다시 실행할 수 없습니다", { description: describeError(error) }),
-  });
-}
-
 /** Resume, fork, re-run, abort -- all the same endpoint. */
 export function useResume(runId: string | null, ensureAttached: () => Promise<void>) {
   const client = useQueryClient();

@@ -10,7 +10,7 @@ import type { Finding, Report, RunStats, Span as WireSpan } from "@/lib/agent-sc
  * the route handlers under api/agent/.
  */
 
-export type { Evidence, Finding, FindingDiff, Remediation, Report, RunStats } from "@/lib/agent-schema";
+export type { Evidence, Finding, Remediation, Report, RunStats } from "@/lib/agent-schema";
 
 /**
  * A region of source code.
@@ -45,6 +45,14 @@ export interface RunSummary {
   files: string[];
   file_count: number;
   updated_at: number;
+  /**
+   * What was scanned, when the server recorded it.
+   *
+   * Optional because a run created before intake started recording this has no
+   * honest answer, and `undefined` says so where a made-up label would not.
+   * See `Origin`, below.
+   */
+  origin?: Origin;
   /** A trace database exists, so this run was inspected at least once. */
   started: boolean;
   /**
@@ -65,7 +73,6 @@ export interface RunSummary {
   progress?: { next: string[]; step: number | null } | null;
 }
 
-/** What applying a proposed fix changed. */
 /** What `/propose` wrote into the report: the same shape a run would have made. */
 export interface ProposeResult {
   run_id: string;
@@ -73,28 +80,11 @@ export interface ProposeResult {
   remediation: { summary: string; detail: string; diff: string | null; replacement: string | null };
 }
 
-export interface ApplyResult {
-  run_id: string;
-  finding_id: string;
-  path: string;
-  /** The 1-based inclusive span that was replaced. */
-  lines: [number, number];
-  index: IndexStats;
-  /** The finding cannot survive its own fix: its id is derived from the anchor. */
-  reinspect: boolean;
-}
-
 export interface FileContents {
   path: string;
   content: string;
   /** A Monaco language id, chosen server-side from the extension. */
   language: string;
-}
-
-export interface FileWriteResult {
-  path: string;
-  index: IndexStats;
-  files: string[];
 }
 
 /* -- the agent's own graph --------------------------------------------------- */
@@ -295,24 +285,13 @@ export interface InspectionState {
   stats: Record<string, number>;
 }
 
-/* -- prompts and replay ------------------------------------------------------ */
+/* -- prompts ----------------------------------------------------------------- */
 
 export interface PromptRow {
   name: string;
   default: string;
   override: string | null;
   in_use: boolean;
-}
-
-export interface Replay {
-  run_id: string;
-  span_id: string;
-  step: string | null;
-  schema: "Triage" | "Verdict" | "ChunkAnalysis" | null;
-  output: unknown;
-  latency_ms: number;
-  recorded: { system: string; user: string; output: unknown };
-  edited: boolean;
 }
 
 /* -- health ------------------------------------------------------------------ */
@@ -386,21 +365,69 @@ export interface ThreadsResponse {
   run_id: string;
   threads: Thread[];
 }
-export interface CheckpointsResponse {
-  run_id: string;
-  checkpoints: Checkpoint[];
-  count: number;
+
+/* -- intake ------------------------------------------------------------------ */
+
+/**
+ * Where a run's code came from.
+ *
+ * Recorded for every intake path, not only git, because two surfaces read it:
+ * the run list, which needs something a person recognises, and the patch
+ * dialog, which offers to push only when there is a remote to push to.
+ */
+export interface Origin {
+  kind: "upload" | "zip" | "git";
+  /** `myrepo@main`, `upload.zip`, `12개 파일`. */
+  label: string;
+  url: string | null;
+  ref: string | null;
+  /** The commit the tree was read at. What a later push is honest about. */
+  commit: string | null;
 }
-export interface InputResponse {
-  run_id: string;
-  values: InspectionState;
+
+export interface CloneRequest {
+  url: string;
+  ref?: string | null;
 }
-export type StateResponse = Checkpoint & { run_id: string };
+
 export interface UploadResult {
   run_id: string;
   uploaded: number;
   index: IndexStats;
   files: string[];
+  origin: Origin;
+}
+
+/* -- patch export ------------------------------------------------------------ */
+
+/** Why a selected finding did not make it into the patch. */
+export type SkipReason = "no_replacement" | "overlap" | "stale" | "unreadable";
+
+export interface PatchSkip {
+  finding_id: string;
+  reason: SkipReason;
+  detail: string;
+}
+
+export interface PatchPreview {
+  run_id: string;
+  /** One `git apply`-able diff over every file the selection touches. */
+  patch: string;
+  applied: string[];
+  skipped: PatchSkip[];
+  files: string[];
+}
+
+export interface PushResult {
+  run_id: string;
+  branch: string;
+  commit: string;
+  applied: string[];
+  skipped: PatchSkip[];
+  /** Where to open a pull request by hand. Null for hosts we do not know. */
+  compare_url: string | null;
+  /** Set only when a pull request was asked for and GitHub made one. */
+  pr_url: string | null;
 }
 
 export const EMPTY_SUMMARY: SpanSummary = {

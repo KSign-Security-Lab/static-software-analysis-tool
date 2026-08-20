@@ -32,7 +32,7 @@ from .db import Run as RunRow
 from .db import session_scope
 from .files import Upload, UploadRejected, prepare, read_zip
 from .index import ChunkStore, IndexResult, build_index
-from .schema import Finding, FindingDiff, Report
+from .schema import Report
 from .graph.checkpoints import read_history, read_state, write_state
 from .trace import SpanStore
 
@@ -51,7 +51,6 @@ __all__ = [
     "abandon_live_runs",
     "delete_run",
     "describe_run",
-    "diff_reports",
     "get_run",
     "index_run",
     "iter_all_files",
@@ -103,9 +102,7 @@ class Run:
     def read_file(self, path: str) -> str | None:
         """One file's text, or None. Replaces reading it off disk."""
         with session_scope(self.config) as session:
-            return session.scalar(
-                select(FileRow.content).where(FileRow.run_id == self.run_id, FileRow.path == path)
-            )
+            return session.scalar(select(FileRow.content).where(FileRow.run_id == self.run_id, FileRow.path == path))
 
     def put_file(self, name: str, raw: bytes) -> str:
         """Create or replace one file. Returns the stored path."""
@@ -149,26 +146,24 @@ class Run:
 
     def delete_file(self, path: str) -> bool:
         with session_scope(self.config) as session:
-            result = session.execute(
-                delete(FileRow).where(FileRow.run_id == self.run_id, FileRow.path == path)
-            )
+            result = session.execute(delete(FileRow).where(FileRow.run_id == self.run_id, FileRow.path == path))
             return bool(result.rowcount)
 
     def files(self) -> list[str]:
-        """Every uploaded file, indexable or not -- the editor can still show them."""
+        """Every uploaded file, indexable or not.
+
+        Not the same list as the index: a tree contains files the chunker skips, and
+        a patch built from this run still has to ship them.
+        """
         with session_scope(self.config) as session:
             return list(
-                session.scalars(
-                    select(FileRow.path).where(FileRow.run_id == self.run_id).order_by(FileRow.path)
-                )
+                session.scalars(select(FileRow.path).where(FileRow.run_id == self.run_id).order_by(FileRow.path))
             )
 
     def file_contents(self) -> dict[str, str]:
         """The whole tree at once, for the indexer."""
         with session_scope(self.config) as session:
-            rows = session.execute(
-                select(FileRow.path, FileRow.content).where(FileRow.run_id == self.run_id)
-            ).all()
+            rows = session.execute(select(FileRow.path, FileRow.content).where(FileRow.run_id == self.run_id)).all()
         return {path: content for path, content in rows}
 
     # -- checkpoints --------------------------------------------------------
@@ -359,11 +354,7 @@ def abandon_live_runs(config: AgentConfig | None = None) -> list[str]:
     """
     cfg = config or AgentConfig()
     with session_scope(cfg) as session:
-        ids = list(
-            session.scalars(
-                select(RunRow.id).where(RunRow.status.in_((STATUS_INSPECTING, STATUS_INTERRUPTED)))
-            )
-        )
+        ids = list(session.scalars(select(RunRow.id).where(RunRow.status.in_((STATUS_INSPECTING, STATUS_INTERRUPTED)))))
     for run_id in ids:
         Run(run_id=run_id, config=cfg).set_status(
             STATUS_FAILED, error="서버가 다시 시작되어 실행이 끊겼습니다", parked=None, progress=None
@@ -407,20 +398,9 @@ def index_run(run: Run) -> IndexResult:
 
 
 def iter_all_files(run: Run) -> Iterator[str]:
-    """Every uploaded file, indexable or not -- the editor can still show them."""
-    yield from run.files()
+    """Every uploaded file, indexable or not.
 
-
-def diff_reports(before: Report, after: Report) -> FindingDiff:
-    """Compare two reports by finding id.
-
-    This is the payoff for content-derived ids: a finding that moved because a
-    line was inserted above it is *unchanged*, not simultaneously new and fixed.
+    Not the same list as the index: a tree contains files the chunker skips, and
+    a patch built from this run still has to ship them.
     """
-    old: dict[str, Finding] = {f.id: f for f in before.findings}
-    new: dict[str, Finding] = {f.id: f for f in after.findings}
-    return FindingDiff(
-        new=[f for finding_key, f in new.items() if finding_key not in old],
-        fixed=[f for finding_key, f in old.items() if finding_key not in new],
-        unchanged=[f for finding_key, f in new.items() if finding_key in old],
-    )
+    yield from run.files()

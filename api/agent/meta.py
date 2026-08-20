@@ -7,8 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter
 
 from agent import promptstore as prompt_store
 from agent.config import AgentConfig
@@ -89,33 +88,10 @@ def agent_graph() -> Dict[str, Any]:
 
 @router.get("/prompts")
 def list_prompts() -> Dict[str, Any]:
-    """The system prompts, their shipped defaults, and any tuning applied."""
+    """The system prompts, their shipped defaults, and any tuning applied.
+
+    Read-only over HTTP. Adopting a tuned prompt was the studio's, and tuning
+    now happens through :mod:`agent.tuner`, which replays before it proposes --
+    a PUT from a browser could not.
+    """
     return {"prompts": prompt_store.describe(AgentConfig().prompts_file)}
-
-
-class PromptRequest(BaseModel):
-    text: str
-
-
-@router.put("/prompts/{name}")
-def put_prompt(name: str, request: PromptRequest) -> Dict[str, Any]:
-    """Adopt a tuned prompt. Every later run uses it until it is cleared."""
-    path = AgentConfig().prompts_file
-    try:
-        prompt_store.save(path, name, request.text)
-    except prompt_store.UnknownPrompt as err:
-        raise HTTPException(status_code=404, detail=str(err)) from err
-    except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
-    return {"prompts": prompt_store.describe(path)}
-
-
-@router.delete("/prompts/{name}")
-def delete_prompt(name: str) -> Dict[str, Any]:
-    """Go back to the prompt the code ships with."""
-    path = AgentConfig().prompts_file
-    try:
-        prompt_store.clear(path, name)
-    except prompt_store.UnknownPrompt as err:
-        raise HTTPException(status_code=404, detail=str(err)) from err
-    return {"prompts": prompt_store.describe(path)}

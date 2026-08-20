@@ -3,16 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { NuqsTestingAdapter, type OnUrlUpdateFunction } from "nuqs/adapters/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { idOf, useFilter, useSelection, type Selection } from "./selection";
+import { idOf, useSelection, useSort, type Selection } from "./selection";
 
 /**
- * One selection at a time.
+ * One selection at a time, and the one exception to it.
  *
- * Four params could be set at once -- `finding`, `span`, `node`, `cp` -- each
- * written by whichever pane owned it. Nothing on screen could then state what the
- * right-hand pane was showing, and clearing one left the others set. "Exactly
- * one" has to be a property of the hook, not a convention five callers follow,
- * which is what these pin.
+ * Several params could be set at once -- `finding`, `span`, and once `node` and
+ * `cp` too -- each written by whichever pane owned it. Nothing on screen could
+ * then state what the detail column was showing, and clearing one left the
+ * others set. "Exactly one" has to be a property of the hook rather than a
+ * convention its callers follow, which is what these pin.
+ *
+ * The exception is a call, which is a *step of* the open finding rather than an
+ * alternative to it, so selecting one deliberately keeps `?finding=`.
  */
 
 afterEach(cleanup);
@@ -52,52 +55,62 @@ describe("reading the selection", () => {
   it.each([
     ["finding", { finding: "agent:f1" }, "agent:f1"],
     ["call", { span: "span-gather" }, "span-gather"],
-    ["node", { node: "verify" }, "verify"],
   ])("reads a %s", (kind, search, id) => {
     show(search);
     expect(screen.getByTestId("kind").textContent).toBe(kind);
     expect(screen.getByTestId("id").textContent).toBe(id);
   });
 
-  it("prefers the finding when a hand-written URL sets two", () => {
-    // Only reachable by typing a URL: `select` cannot produce this state. The
-    // point is that it resolves to one thing rather than rendering two.
-    show({ finding: "agent:f1", node: "verify" });
-    expect(screen.getByTestId("kind").textContent).toBe("finding");
+  it("prefers the call when both are set, because it is the narrower reading", () => {
+    // The ordinary state while reading 판단 과정: the finding stays open and one
+    // of its steps is being read.
+    show({ finding: "agent:f1", span: "span-gather" });
+    expect(screen.getByTestId("kind").textContent).toBe("call");
   });
 });
 
 describe("selecting", () => {
-  it("clears every other kind, not just the one the caller knew about", async () => {
+  it("keeps the finding open when a call inside it is selected", async () => {
+    // A call is only ever interesting as a step in an argument, so opening one
+    // must not cost the reader the claim it belongs to.
     const onUrlUpdate = vi.fn();
-    show({ finding: "agent:f1", node: "verify", cp: "cp-3" }, { kind: "call", id: "span-gather" }, onUrlUpdate);
+    show({ finding: "agent:f1" }, { kind: "call", id: "span-gather" }, onUrlUpdate);
 
     await userEvent.click(screen.getByText("select"));
 
     expect(params(onUrlUpdate).get("span")).toBe("span-gather");
-    expect(params(onUrlUpdate).get("finding")).toBeNull();
-    expect(params(onUrlUpdate).get("node")).toBeNull();
-      });
+    expect(params(onUrlUpdate).get("finding")).toBe("agent:f1");
+  });
+
+  it("drops an open call when a different finding is selected", async () => {
+    // The step belonged to the finding being left behind.
+    const onUrlUpdate = vi.fn();
+    show({ finding: "agent:f1", span: "span-gather" }, { kind: "finding", id: "agent:f2" }, onUrlUpdate);
+
+    await userEvent.click(screen.getByText("select"));
+
+    expect(params(onUrlUpdate).get("finding")).toBe("agent:f2");
+    expect(params(onUrlUpdate).get("span")).toBeNull();
+  });
 
   it("leaves everything else in the URL alone", async () => {
-    // The run, the open file and the line are not the selection.
+    // The run and the sort are not the selection.
     const onUrlUpdate = vi.fn();
-    show({ run: "abc", file: "main.c", line: "6" }, { kind: "node", id: "verify" }, onUrlUpdate);
+    show({ run: "abc", sort: "file" }, { kind: "finding", id: "agent:f1" }, onUrlUpdate);
 
     await userEvent.click(screen.getByText("select"));
 
     expect(params(onUrlUpdate).get("run")).toBe("abc");
-    expect(params(onUrlUpdate).get("file")).toBe("main.c");
-    expect(params(onUrlUpdate).get("line")).toBe("6");
+    expect(params(onUrlUpdate).get("sort")).toBe("file");
   });
 
-  it("clears all three on clear", async () => {
+  it("clears both on clear", async () => {
     const onUrlUpdate = vi.fn();
-    show({ finding: "agent:f1" }, null, onUrlUpdate);
+    show({ finding: "agent:f1", span: "span-gather" }, null, onUrlUpdate);
 
     await userEvent.click(screen.getByText("clear"));
 
-    for (const key of ["finding", "span", "node"]) {
+    for (const key of ["finding", "span"]) {
       expect(params(onUrlUpdate).get(key)).toBeNull();
     }
   });
@@ -112,40 +125,40 @@ describe("idOf", () => {
   });
 });
 
-describe("the list filter", () => {
-  function FilterHarness() {
-    const [filter, setFilter] = useFilter();
+describe("the row order", () => {
+  function SortHarness() {
+    const [sort, setSort] = useSort();
     return (
       <div>
-        <span data-testid="filter">{filter}</span>
-        <button type="button" onClick={() => void setFilter("all")}>
-          all
+        <span data-testid="sort">{sort}</span>
+        <button type="button" onClick={() => void setSort("file")}>
+          by file
         </button>
       </div>
     );
   }
 
-  const showFilter = (searchParams: Record<string, string>, onUrlUpdate?: OnUrlUpdateFunction) =>
+  const showSort = (searchParams: Record<string, string>, onUrlUpdate?: OnUrlUpdateFunction) =>
     render(
       <NuqsTestingAdapter searchParams={searchParams} onUrlUpdate={onUrlUpdate}>
-        <FilterHarness />
+        <SortHarness />
       </NuqsTestingAdapter>,
     );
 
-  it("opens on the problems, not on the machinery", () => {
-    showFilter({});
-    expect(screen.getByTestId("filter").textContent).toBe("problems");
+  it("opens on the worst thing found", () => {
+    showSort({});
+    expect(screen.getByTestId("sort").textContent).toBe("severity");
   });
 
-  it("drops out of the URL at its default", async () => {
+  it("carries a real order in the URL", async () => {
     const onUrlUpdate = vi.fn();
-    showFilter({ show: "tools" }, onUrlUpdate);
-    await userEvent.click(screen.getByText("all"));
-    expect(params(onUrlUpdate).get("show")).toBe("all");
+    showSort({}, onUrlUpdate);
+    await userEvent.click(screen.getByText("by file"));
+    expect(params(onUrlUpdate).get("sort")).toBe("file");
   });
 
-  it("ignores a filter it does not have", () => {
-    showFilter({ show: "nonsense" });
-    expect(screen.getByTestId("filter").textContent).toBe("problems");
+  it("ignores an order it does not have", () => {
+    showSort({ sort: "nonsense" });
+    expect(screen.getByTestId("sort").textContent).toBe("severity");
   });
 });

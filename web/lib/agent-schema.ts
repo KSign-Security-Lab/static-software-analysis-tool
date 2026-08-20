@@ -67,12 +67,6 @@ export interface Report {
   stats?: RunStats;
 }
 
-export interface FindingDiff {
-  new?: Finding[];
-  fixed?: Finding[];
-  unchanged?: Finding[];
-}
-
 export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 
 export type SeverityName = (typeof SEVERITIES)[number];

@@ -7,33 +7,31 @@ import { toast } from "sonner";
 import { describeError } from "@/lib/api/client";
 import { startRun, type StartOptions } from "@/lib/api/control";
 import {
-  applyFix,
-  proposeFix,
-  createEmptyRun,
-  deleteFile,
+  cloneRepo,
   deleteRun,
-  diffRuns,
   fetchFile,
   fetchFiles,
   fetchFindings,
   fetchRun,
   health,
   listRuns,
+  proposeFix,
+  uploadArchive,
   uploadSource,
-  writeFile,
 } from "@/lib/api/runs";
-import type { FileWriteResult, Report } from "@/lib/api/types";
+import type { CloneRequest, UploadResult } from "@/lib/api/types";
 import { fromAgent, type UiFinding } from "@/lib/model/finding";
 import { keys } from "@/lib/query/keys";
 import { useSelectedFinding } from "@/lib/run/selection";
 
 /**
- * The queries and mutations the inspect surface runs on.
+ * The queries and mutations 검사 runs on.
  *
- * Every mutation that changes the tree returns the new file list, so the cache
- * is written from the response rather than invalidated and re-read -- one
- * round trip instead of two, and no window where the explorer disagrees with
- * the editor.
+ * Nothing here writes to a run's tree. Intake creates a run and fills it once;
+ * after that the tree is what the report was made from, and a fix leaves as a
+ * patch rather than as an edit -- so the cache-coherence problem that used to
+ * live in this file (three mutations, one file list, one index) is gone with the
+ * editor that caused it.
  */
 
 const enabled = (runId: string | null): runId is string => Boolean(runId);
@@ -103,39 +101,15 @@ export function useOpenFinding(runId: string | null): UiFinding | undefined {
 }
 
 /**
- * Apply a finding's proposed fix to the file it points at.
- *
- * The server does the splicing, and the arithmetic is why: the span is 1-based
- * and inclusive, and an off-by-one here corrupts somebody's source rather than
- * failing. It refuses when the file has changed since the run.
- *
- * The finding cannot survive its own fix -- its id is derived from the anchor
- * text -- which is the honest signal that it worked: re-run, and it moves to
- * 해결됨 under 비교.
- */
-export function useApplyFix(runId: string | null) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (findingId: string) => applyFix(runId!, findingId),
-    onSuccess: (result) => {
-      toast.success("고침을 적용했습니다", {
-        description: `${result.path} ${result.lines[0]}번 줄. 다시 검사하면 해결됐는지 확인할 수 있습니다.`,
-      });
-      // The file and the index both moved under us.
-      void client.invalidateQueries({ queryKey: keys.run(result.run_id) });
-    },
-    onError: (error) => toast.error("고침을 적용할 수 없습니다", { description: describeError(error) }),
-  });
-}
-
-/**
  * Ask the model for code to fix a finding that arrived without any.
  *
- * The counterpart to `useApplyFix` and never folded into it. A finding that came
- * with a patch is one click; a finding that came with only advice is now two --
- * make it, then approve it -- rather than the nothing it used to be. The middle
- * step is the diff, and it is not ceremony: this ends in a write to somebody's
- * source file.
+ * What makes an advice-only finding patchable at all. The specialist proposes a
+ * fix only when it happens to fit the lines the anchor resolved to, and often it
+ * does not -- so without this, ticking such a finding produces a `no_replacement`
+ * skip and nothing a reader can do about it.
+ *
+ * Writes the proposal into the report and stops. Nothing is applied anywhere:
+ * the patch is still built from the report when the bucket is exported.
  */
 export function useProposeFix(runId: string | null) {
   const client = useQueryClient();
@@ -150,40 +124,13 @@ export function useProposeFix(runId: string | null) {
   });
 }
 
-/** Every run on this server, newest first: what a comparison can be made against. */
+/** Every run this owner has, newest first: the 지난 검사 list. */
 export function useRuns() {
   return useQuery({
     queryKey: keys.runs(),
     queryFn: ({ signal }) => listRuns({ signal }).then((r) => r.runs),
     staleTime: 30_000,
   });
-}
-
-/**
- * This run's findings against another's.
- *
- * A read, so a query rather than a mutation, even though the endpoint takes a
- * POST -- the pair of run ids is the whole of the input, and asking twice for
- * the same pair should not go to the server twice.
- *
- * The point of content-derived finding ids: fix something, run again, and the
- * ones that closed are nameable rather than merely absent.
- */
-export function useDiff(runId: string | null, against: string | null) {
-  return useQuery({
-    queryKey: keys.diff(runId ?? "", against ?? ""),
-    queryFn: () => diffRuns(runId!, against!),
-    enabled: enabled(runId) && Boolean(against) && runId !== against,
-    retry: false,
-  });
-}
-
-/** Both file mutations return the tree; write it straight in. */
-function applyTree(client: QueryClient, runId: string, result: FileWriteResult) {
-  client.setQueryData(keys.files(runId), result.files);
-  client.setQueryData(keys.summary(runId), (previous: unknown) =>
-    previous ? { ...previous, index: result.index, file_count: result.files.length } : previous,
-  );
 }
 
 /**
@@ -214,73 +161,52 @@ export function useDeleteRun() {
   });
 }
 
-export function useCreateRun() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: createEmptyRun,
-    onSuccess: (result) => {
-      client.setQueryData(keys.files(result.run_id), result.files);
-      void client.invalidateQueries({ queryKey: keys.runs() });
-    },
-    onError: (error) => toast.error("실행을 만들 수 없습니다", { description: describeError(error) }),
-  });
+/**
+ * What every intake path does once the run exists.
+ *
+ * The file list comes back with the response, so it is written straight into the
+ * cache -- the screen that follows needs it immediately and asking again would
+ * be a round trip to be told what we were just told.
+ */
+function seedRun(client: QueryClient, result: UploadResult) {
+  client.setQueryData(keys.files(result.run_id), result.files);
+  void client.invalidateQueries({ queryKey: keys.runs() });
 }
 
+/** A folder, or a set of loose files, with the path each had. */
 export function useUpload() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (files: (File | { file: File; path: string })[]) => uploadSource(files),
-    onSuccess: (result) => {
-      client.setQueryData(keys.files(result.run_id), result.files);
-      void client.invalidateQueries({ queryKey: keys.runs() });
-    },
+    onSuccess: (result) => seedRun(client, result),
     onError: (error) => toast.error("업로드 실패", { description: describeError(error) }),
   });
 }
 
-/**
- * Write one file.
- *
- * The run id may be passed per call, and has to be: creating a run and writing
- * the first file into it happens in one handler, and the hook was bound to the
- * run id from the render that is still executing -- which is `null`, because
- * the run did not exist when it started. That sent the first file of every
- * fresh session to `/agent/runs/null/file`, and the caller's `.catch` swallowed
- * the 404, so what you saw was an empty editor and no reason for it.
- */
-export function useWriteFile(runId: string | null) {
+/** A zip. The server has always taken one; nothing used to say so. */
+export function useUploadArchive() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ path, content, runId: override }: { path: string; content: string; runId?: string }) =>
-      writeFile(override ?? runId!, path, content),
-    onSuccess: (result, { content, runId: override }) => {
-      const id = override ?? runId!;
-      applyTree(client, id, result);
-      // The editor already holds this text; re-fetching it would be a round
-      // trip to be told what we just sent.
-      client.setQueryData(keys.file(id, result.path), (previous: unknown) =>
-        previous ? { ...(previous as object), content } : previous,
-      );
-    },
-    onError: (error) => toast.error("저장 실패", { description: describeError(error) }),
+    mutationFn: (file: File) => uploadArchive(file),
+    onSuccess: (result) => seedRun(client, result),
+    onError: (error) => toast.error("압축 파일을 읽을 수 없습니다", { description: describeError(error) }),
   });
 }
 
-export function useDeleteFile(runId: string | null) {
+/**
+ * A git remote.
+ *
+ * Slower than the other two, because the server is fetching somebody else's
+ * repository. Both failure modes are worth distinguishing and the API already
+ * does: a URL it may not fetch is a 400 with the reason, an unreachable remote
+ * is a 502.
+ */
+export function useCloneRepo() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (path: string) => deleteFile(runId!, path),
-    onSuccess: (result) => {
-      applyTree(client, runId!, result);
-      client.removeQueries({ queryKey: keys.file(runId!, result.deleted) });
-      // Its findings referenced a file that no longer exists.
-      client.setQueryData<Report | undefined>(keys.findings(runId!), (previous) =>
-        previous
-          ? { ...previous, findings: (previous.findings ?? []).filter((f) => f.primary.file !== result.deleted) }
-          : previous,
-      );
-    },
-    onError: (error) => toast.error("삭제 실패", { description: describeError(error) }),
+    mutationFn: (request: CloneRequest) => cloneRepo(request),
+    onSuccess: (result) => seedRun(client, result),
+    onError: (error) => toast.error("저장소를 가져올 수 없습니다", { description: describeError(error) }),
   });
 }
 

@@ -22,18 +22,17 @@ export default async function WorkbenchLayout({
   side,
   dock,
   inspector,
-  status,
 }: {
   children: ReactNode;
   side: ReactNode;
   dock: ReactNode;
   inspector: ReactNode;
-  /** A strip under the title bar, for surfaces with run-wide state to report. */
-  status: ReactNode;
 }) {
   const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
   const stored = decodeLayout(cookieStore.get(LAYOUT_COOKIE)?.value);
-  const perspective = perspectiveFor(headerStore.get("x-pathname") ?? "")?.id ?? "agent";
+  // 검사 has its own shell now, so nothing here should ever resolve to it; the
+  // fallback is F2-A, which is the first surface this layout actually serves.
+  const perspective = perspectiveFor(headerStore.get("x-pathname") ?? "")?.id ?? "f2a";
 
   // Seed the fold mirror from the same layout the panels are sized with. It used
   // to be read off the panel handles as they attached, which threw during commit
@@ -54,7 +53,6 @@ export default async function WorkbenchLayout({
         side={side}
         dock={dock}
         inspector={inspector}
-        status={status}
       >
         {children}
       </Workbench>

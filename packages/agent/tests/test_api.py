@@ -15,7 +15,6 @@ from typing import Any, Iterator
 
 import pytest
 
-from agent.llm import Outcome
 
 pytest.importorskip("fastapi", reason="the API extras are not installed")
 pytest.importorskip("httpx", reason="fastapi.testclient needs httpx")
@@ -134,10 +133,15 @@ def test_files_endpoint_lists_the_whole_tree(client: TestClient) -> None:
 
 
 def test_files_endpoint_includes_files_the_indexer_skipped(client: TestClient) -> None:
-    """The editor can open a README even though no chunk was ever made of it."""
-    run_id = _upload(client)["run_id"]
-    client.put(f"/agent/runs/{run_id}/file", json={"path": "notes.txt", "content": "hello\n"})
-    assert "notes.txt" in client.get(f"/agent/runs/{run_id}/files").json()["files"]
+    """A patch built from this run still has to ship the README.
+
+    No chunk is ever made of it, so it is absent from the index and present
+    here -- and the archive route reads this list, not the index.
+    """
+    body = _upload(client, {**SAMPLE, "notes.txt": "hello\n"})
+    assert "notes.txt" in body["files"]
+    assert body["index"]["files_indexed"] == 2
+    assert "notes.txt" in client.get(f"/agent/runs/{body['run_id']}/files").json()["files"]
 
 
 def test_files_endpoint_404s_for_an_unknown_run(client: TestClient) -> None:
@@ -262,50 +266,9 @@ def test_findings_endpoint_returns_an_empty_report_before_inspection(client: Tes
     assert body["schema_version"] == "1"
 
 
-def test_diff_requires_both_runs_to_have_reports(client: TestClient) -> None:
-    first = _upload(client)["run_id"]
-    second = _upload(client)["run_id"]
-    response = client.post(f"/agent/runs/{first}/diff", json={"against": second})
-    assert response.status_code == 409
-
-
 def test_diff_against_an_unknown_run_is_a_404(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
     assert client.post(f"/agent/runs/{run_id}/diff", json={"against": "nosuchrun"}).status_code == 404
-
-
-def test_diff_reports_new_fixed_and_unchanged(client: TestClient, tmp_path: Path) -> None:
-    """The payoff for content-derived ids, exercised through the wire."""
-    from agent.runs import get_run
-    from agent.schema import Finding, Remediation, Report, Span
-
-    def make(finding_id: str) -> Finding:
-        return Finding(
-            id=finding_id,
-            chunk_id="c1",
-            severity="high",
-            confidence=0.9,
-            title="t",
-            cwe="CWE-78",
-            primary=Span(file="src/app.c", start_line=1, start_column=1, end_line=1, end_column=2, excerpt="x"),
-            explanation="e",
-            remediation=Remediation(summary="s", detail="d"),
-            verified=True,
-        )
-
-    before_id = _upload(client)["run_id"]
-    after_id = _upload(client)["run_id"]
-
-    before = get_run(before_id)
-    after = get_run(after_id)
-    assert before is not None and after is not None
-    before.save_report(Report(run_id=before_id, findings=[make("stays"), make("gone")]))
-    after.save_report(Report(run_id=after_id, findings=[make("stays"), make("fresh")]))
-
-    body = client.post(f"/agent/runs/{after_id}/diff", json={"against": before_id}).json()
-    assert [f["id"] for f in body["new"]] == ["fresh"]
-    assert [f["id"] for f in body["fixed"]] == ["gone"]
-    assert [f["id"] for f in body["unchanged"]] == ["stays"]
 
 
 def test_existing_ssat_routes_still_work(client: TestClient) -> None:
@@ -331,84 +294,31 @@ def test_openapi_documents_the_agent_routes(client: TestClient) -> None:
         "/agent/runs/{run_id}/inspect",
         "/agent/runs/{run_id}/events",
         "/agent/runs/{run_id}/findings",
-        "/agent/runs/{run_id}/diff",
-        "/agent/runs/{run_id}/state",
         "/agent/runs/{run_id}/resume",
+        "/agent/runs/git",
+        "/agent/runs/{run_id}/patch",
+        "/agent/runs/{run_id}/archive",
+        "/agent/runs/{run_id}/push",
     ):
         assert route in paths, f"{route} is missing from the OpenAPI document"
 
+    # And the editing surface is gone rather than merely unused: a route that
+    # still answers is a route something will start calling again.
+    for route in (
+        "/agent/runs/new",
+        "/agent/runs/{run_id}/apply",
+        "/agent/runs/{run_id}/diff",
+        "/agent/runs/{run_id}/state",
+        "/agent/runs/{run_id}/checkpoints",
+        "/agent/runs/{run_id}/input",
+        "/agent/runs/{run_id}/spans/{span_id}/replay",
+        # Both verbs went, so FastAPI never registers the path.
+        "/agent/prompts/{name}",
+    ):
+        assert route not in paths, f"{route} should have been removed"
 
-# -- editing a run in place (the agent section's light IDE) ------------------
-
-
-def test_an_empty_run_can_be_created_and_pasted_into(client: TestClient) -> None:
-    """Trying one snippet must not require saving a file and uploading it."""
-    run_id = client.post("/agent/runs/new").json()["run_id"]
-    assert any(run["run_id"] == run_id for run in client.get("/agent/runs").json()["runs"])
-
-    body = client.put(
-        f"/agent/runs/{run_id}/file",
-        json={"path": "main.c", "content": "void f(void) { g(); }\n"},
-    ).json()
-    assert body["files"] == ["main.c"]
-    assert body["index"]["chunks"] > 0
-
-
-def test_editing_a_file_reindexes_it(client: TestClient) -> None:
-    """The chunk store is what the inspection walks, so a stale index would
-    have it analysing code that is no longer there."""
-    run_id = client.post("/agent/runs/new").json()["run_id"]
-    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void one(void) { }\n"})
-    after = client.put(
-        f"/agent/runs/{run_id}/file",
-        json={"path": "a.c", "content": "void one(void) { }\nvoid two(void) { one(); }\n"},
-    ).json()
-
-    assert after["index"]["chunks"] == 3  # file chunk + two functions
-    assert "two" in client.get(f"/agent/runs/{run_id}/file", params={"path": "a.c"}).json()["content"]
-
-
-def test_adding_and_deleting_files_tracks_the_tree(client: TestClient) -> None:
-    run_id = client.post("/agent/runs/new").json()["run_id"]
-    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void a(void) { }\n"})
-    added = client.put(f"/agent/runs/{run_id}/file", json={"path": "b.c", "content": "void b(void) { }\n"}).json()
-    assert added["files"] == ["a.c", "b.c"]
-
-    removed = client.request("DELETE", f"/agent/runs/{run_id}/file", params={"path": "b.c"}).json()
-    assert removed["files"] == ["a.c"]
-    assert client.get(f"/agent/runs/{run_id}/file", params={"path": "b.c"}).status_code == 404
-
-
-@pytest.mark.parametrize("path", ["../escape.c", "../../etc/passwd", "/abs.c"])
-def test_writing_outside_the_run_is_rejected(client: TestClient, path: str, tmp_path: Path) -> None:
-    """The path comes from a browser, so this is a real boundary."""
-    run_id = client.post("/agent/runs/new").json()["run_id"]
-    response = client.put(f"/agent/runs/{run_id}/file", json={"path": path, "content": "x"})
-    assert response.status_code == 400
-    assert not (tmp_path / "escape.c").exists()
-
-
-def test_deleting_a_file_drops_its_findings(client: TestClient) -> None:
-    """A finding pointing at a file that no longer exists cannot be opened."""
-    from agent.runs import get_run
-
-    run_id = client.post("/agent/runs/new").json()["run_id"]
-    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void a(void) { }\n"})
-
-    paths = get_run(run_id)
-    assert paths is not None
-    store = paths.store()
-    store.add_findings("chunk1", [{"id": "f1", "primary": {"file": "a.c"}}])
-    assert len(store.findings()) == 1
-    store.close()
-
-    client.request("DELETE", f"/agent/runs/{run_id}/file", params={"path": "a.c"})
-    store = paths.store()
-    assert store.findings() == []
-    store.close()
-
-
-# -- local traces --------------------------------------------------------------
+    # The file route survives, read-only.
+    assert set(paths["/agent/runs/{run_id}/file"]) == {"get"}
 
 
 def test_spans_are_empty_before_an_inspection(client: TestClient) -> None:
@@ -529,18 +439,10 @@ def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestC
     assert turn["tools"][0]["latency_ms"] == 400
 
 
-def test_thread_and_checkpoints_are_empty_before_an_inspection(client: TestClient) -> None:
+def test_the_thread_is_empty_before_an_inspection(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
     assert client.get(f"/agent/runs/{run_id}/thread").json()["threads"] == []
-    assert client.get(f"/agent/runs/{run_id}/checkpoints").json()["count"] == 0
-
-
-def test_checkpoints_of_an_unknown_run_is_a_404(client: TestClient) -> None:
-    assert client.get("/agent/runs/deadbeef/checkpoints").status_code == 404
     assert client.get("/agent/runs/deadbeef/thread").status_code == 404
-
-
-# -- the studio: breakpoints, state and resume --------------------------------
 
 
 def test_graph_endpoint_names_the_nodes_a_breakpoint_may_use(client: TestClient) -> None:
@@ -584,23 +486,6 @@ def test_state_before_any_run_is_a_404_not_an_empty_state(client: TestClient) ->
     assert client.get("/agent/runs/deadbeef/state").status_code == 404
 
 
-def test_writing_state_with_no_history_is_refused(client: TestClient) -> None:
-    run_id = _upload(client)["run_id"]
-    response = client.post(f"/agent/runs/{run_id}/state", json={"values": {"pending": []}})
-
-    assert response.status_code == 409
-
-
-def test_writing_state_as_an_unknown_node_is_refused(client: TestClient) -> None:
-    run_id = _upload(client)["run_id"]
-    response = client.post(
-        f"/agent/runs/{run_id}/state",
-        json={"values": {"pending": []}, "as_node": "analyze"},
-    )
-
-    assert response.status_code == 400
-
-
 def test_resuming_a_run_that_is_not_stopped_is_refused(client: TestClient) -> None:
     """Nothing is in flight and there is no history, so there is nowhere to go."""
     run_id = _upload(client)["run_id"]
@@ -617,65 +502,6 @@ def test_resume_rejects_an_action_it_does_not_know(client: TestClient) -> None:
 def test_state_and_resume_of_an_unknown_run_are_404(client: TestClient) -> None:
     assert client.post("/agent/runs/deadbeef/resume", json={}).status_code == 404
     assert client.post("/agent/runs/deadbeef/state", json={"values": {}}).status_code == 404
-
-
-def test_state_can_be_read_and_branched_over_a_real_history(client: TestClient) -> None:
-    """The round trip the studio's editor makes: read a step, write it back."""
-    from agent.config import AgentConfig
-    from agent.graph.build import run_inspection
-    from agent.runs import get_run
-
-    run_id = client.post("/agent/runs/new").json()["run_id"]
-    client.put(f"/agent/runs/{run_id}/file", json={"path": "a.c", "content": "void one(void) { }\n"})
-    paths = get_run(run_id)
-    assert paths is not None
-
-    store = paths.store()
-    try:
-        run_inspection(
-            run_id=run_id,
-            files=paths.file_contents(),
-            store=store,
-            config=AgentConfig(model="fake", enable_tools=False),
-            caller=_SilentCaller(),
-            checkpoints=True,
-        )
-    finally:
-        store.close()
-
-    state = client.get(f"/agent/runs/{run_id}/state").json()
-    # Full values, not the summary the timeline gets: a count cannot be edited
-    # back into a list.
-    assert isinstance(state["values"]["pending"], list)
-
-    history = client.get(f"/agent/runs/{run_id}/checkpoints").json()["checkpoints"]
-    target = next(h for h in history if h["node"] == "plan")
-    written = client.post(
-        f"/agent/runs/{run_id}/state",
-        json={"values": {"pending": ["made-up"]}, "checkpoint_id": target["checkpoint_id"]},
-    ).json()
-
-    branched = client.get(f"/agent/runs/{run_id}/state", params={"checkpoint_id": written["checkpoint_id"]}).json()
-    assert branched["values"]["pending"] == ["made-up"]
-    # The line it was branched off is still there, and still says what it said.
-    assert branched["parent_checkpoint_id"] == target["checkpoint_id"]
-    assert len(client.get(f"/agent/runs/{run_id}/checkpoints").json()["checkpoints"]) == len(history) + 1
-
-
-class _SilentCaller:
-    """A model that finds nothing, so a run finishes without one being served."""
-
-    def call(self, schema: Any, system: str, user: str, trace: Any = None) -> Any:
-        from agent.schema import ChunkAnalysis, Verdict
-
-        if schema is ChunkAnalysis:
-            return Outcome.of(ChunkAnalysis())
-        if schema is Verdict:
-            return Outcome.of(Verdict(refuted=False, reason="holds", confidence=0.9))
-        return Outcome.failed("refused")
-
-    def gather(self, system: str, user: str, session: Any, budget: int, trace: Any = None) -> str:
-        return ""
 
 
 def test_watching_a_run_does_not_make_it_look_started(client: TestClient) -> None:
@@ -806,129 +632,11 @@ def test_prompts_start_as_the_shipped_defaults(client: TestClient, tmp_path: Pat
     assert rows["lens:memory"]["in_use"] == DEFAULTS["lens:memory"]
 
 
-def test_a_tuned_prompt_is_saved_and_revertible(client: TestClient, monkeypatch, tmp_path: Path) -> None:
-    from agent.config import ENV_PROMPTS_FILE
-
-    monkeypatch.setenv(ENV_PROMPTS_FILE, str(tmp_path / "prompts.json"))
-
-    saved = client.put("/agent/prompts/lens:memory", json={"text": "Only memory errors."}).json()
-    rows = {row["name"]: row for row in saved["prompts"]}
-    assert rows["lens:memory"]["override"] == "Only memory errors."
-    assert rows["lens:memory"]["in_use"] == "Only memory errors."
-
-    reverted = client.delete("/agent/prompts/lens:memory").json()
-    assert {r["name"]: r for r in reverted["prompts"]}["lens:memory"]["override"] is None
-
-
-def test_an_unknown_or_empty_prompt_is_refused(client: TestClient, monkeypatch, tmp_path: Path) -> None:
-    from agent.config import ENV_PROMPTS_FILE
-
-    monkeypatch.setenv(ENV_PROMPTS_FILE, str(tmp_path / "prompts.json"))
-
-    assert client.put("/agent/prompts/analyze", json={"text": "x"}).status_code == 404
-    assert client.delete("/agent/prompts/analyze").status_code == 404
-    assert client.put("/agent/prompts/lens:memory", json={"text": "  "}).status_code == 400
-
-
-def test_replaying_a_span_that_is_not_a_model_call_is_refused(client: TestClient) -> None:
-    from agent.runs import get_run
-
-    run_id = _upload(client)["run_id"]
-    paths = get_run(run_id)
-    assert paths is not None
-    spans = paths.spans()
-    spans.start(span_id="node", parent_id=None, name="analyse", kind="chain", started_at=0.0)
-    spans.finish(span_id="node", ended_at=1.0)
-    spans.close()
-
-    response = client.post(f"/agent/runs/{run_id}/spans/node/replay", json={})
-    assert response.status_code == 400
-    assert "model call" in response.json()["detail"]
-
-
 def test_replaying_an_unknown_span_is_a_404(client: TestClient) -> None:
     run_id, _ = _recorded_llm_span(client)
 
     assert client.post(f"/agent/runs/{run_id}/spans/nope/replay", json={}).status_code == 404
     assert client.post("/agent/runs/deadbeef/spans/x/replay", json={}).status_code == 404
-
-
-def test_replaying_without_a_model_configured_says_so(client: TestClient) -> None:
-    """A 409 rather than a crashed request: the fix is configuration."""
-    run_id, span_id = _recorded_llm_span(client)
-
-    response = client.post(f"/agent/runs/{run_id}/spans/{span_id}/replay", json={})
-    assert response.status_code == 409
-    assert "AGENT_MODEL" in response.json()["detail"]
-
-
-def test_a_replay_leaves_the_recorded_run_alone(client: TestClient, monkeypatch) -> None:
-    """The whole basis of the tuning loop: try a prompt ten times without
-    turning the run you are studying into a scratchpad."""
-    import api.agent.trace as routes
-    from agent.runs import get_run
-
-    run_id, span_id = _recorded_llm_span(client)
-    monkeypatch.setenv(ENV_MODEL, "fake")
-
-    class FakeCaller:
-        def __init__(self, config) -> None:  # noqa: ANN001
-            self.llm = self
-
-        def call(self, schema, system, user, trace=None):  # noqa: ANN001
-            return Outcome.of(schema(findings=[], note=f"saw: {system[:12]}"))
-
-    monkeypatch.setattr(routes, "StructuredCaller", FakeCaller)
-
-    body = client.post(
-        f"/agent/runs/{run_id}/spans/{span_id}/replay",
-        json={"system": "BE LENIENT"},
-    ).json()
-
-    assert body["edited"] is True
-    assert body["step"] == "lens:memory"
-    assert body["output"]["note"] == "saw: BE LENIENT"
-    # What it is being compared against comes back with it.
-    assert body["recorded"]["system"] == "BE STRICT"
-    assert body["recorded"]["output"] == {"text": ["nothing found"]}
-
-    # The trace is untouched: still one span, still saying what it said.
-    paths = get_run(run_id)
-    assert paths is not None
-    spans = paths.spans()
-    try:
-        rows = spans.spans()
-    finally:
-        spans.close()
-    assert len(rows) == 1
-    assert rows[0].outputs == {"text": ["nothing found"]}
-
-
-def test_an_unedited_replay_reuses_what_the_span_recorded(client: TestClient, monkeypatch) -> None:
-    import api.agent.trace as routes
-
-    run_id, span_id = _recorded_llm_span(client)
-    monkeypatch.setenv(ENV_MODEL, "fake")
-
-    seen: dict[str, str] = {}
-
-    class FakeCaller:
-        def __init__(self, config) -> None:  # noqa: ANN001
-            self.llm = self
-
-        def call(self, schema, system, user, trace=None):  # noqa: ANN001
-            seen.update(system=system, user=user)
-            return Outcome.of(schema(findings=[], note=""))
-
-    monkeypatch.setattr(routes, "StructuredCaller", FakeCaller)
-
-    body = client.post(f"/agent/runs/{run_id}/spans/{span_id}/replay", json={}).json()
-
-    assert seen == {"system": "BE STRICT", "user": "int x;"}
-    assert body["edited"] is False
-
-
-# -- picking a run out of a list ----------------------------------------------
 
 
 def test_a_run_is_labelled_by_its_files_not_its_id(client: TestClient) -> None:
@@ -1126,56 +834,382 @@ def _paths_for(run_id: str):
     return paths
 
 
-def test_a_fix_replaces_exactly_the_lines_the_finding_is_anchored_to(client: TestClient) -> None:
+def _report_with_fixes(paths, specs: list[dict[str, Any]]) -> None:
+    """A report over `src/app.c`, one finding per spec.
+
+    Specs carry `id`, `line`, `replacement` and optionally `end`; the excerpt is
+    read from the run so the anchors match unless a test means them not to.
+    """
+    from agent.schema import Finding, Remediation, Report, Span
+
+    source = paths.read_file("src/app.c").splitlines()
+    findings = []
+    for spec in specs:
+        start = spec["line"]
+        end = spec.get("end", start)
+        excerpt = spec.get("excerpt", "\n".join(source[start - 1 : end]))
+        findings.append(
+            Finding(
+                id=spec["id"],
+                chunk_id="c1",
+                severity=spec.get("severity", "high"),
+                confidence=spec.get("confidence", 0.9),
+                title="셸로 넘어가는 입력",
+                cwe="CWE-78",
+                primary=Span(
+                    file="src/app.c",
+                    start_line=start,
+                    start_column=1,
+                    end_line=end,
+                    end_column=1,
+                    excerpt=excerpt,
+                ),
+                explanation="설명",
+                remediation=Remediation(summary="고치기", detail="자세히", replacement=spec.get("replacement")),
+                verified=True,
+            )
+        )
+    paths.save_report(Report(run_id=paths.run_id, findings=findings))
+
+
+def _line_of(paths, needle: str) -> int:
+    source = paths.read_file("src/app.c").splitlines()
+    return next(i for i, line in enumerate(source, 1) if needle in line)
+
+
+def test_patch_returns_a_diff_for_the_selected_findings(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
-    source = paths.read_file("src/app.c")
-    target = next(i for i, line in enumerate(source.splitlines(), 1) if "sprintf" in line)
-    original = source.splitlines()[target - 1]
-
-    _report_with_fix(
+    target = _line_of(paths, "sprintf")
+    _report_with_fixes(
         paths,
-        replacement='static void run(const char *u) { char c[64]; snprintf(c, sizeof(c), "wget %s", u); system(c); }',
-        excerpt=original,
-        start=target,
-        end=target,
+        [{"id": "f1", "line": target, "replacement": "static void run(const char *u) { (void)u; }"}],
     )
 
-    response = client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "f1"})
+    response = client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": ["f1"]})
     assert response.status_code == 200, response.text
+    body = response.json()
 
-    after = paths.read_file("src/app.c").splitlines()
-    assert "snprintf" in after[target - 1]
-    assert len(after) == len(source.splitlines()), "a one-line fix must not change the line count"
-    # Everything around it untouched: this splices, it does not rewrite.
-    assert after[: target - 1] == source.splitlines()[: target - 1]
-    assert after[target:] == source.splitlines()[target:]
+    assert body["applied"] == ["f1"]
+    assert body["skipped"] == []
+    assert body["files"] == ["src/app.c"]
+    assert body["patch"].startswith("--- a/src/app.c")
+    assert "+static void run(const char *u) { (void)u; }" in body["patch"]
 
 
-def test_a_fix_is_refused_when_the_file_changed_since_the_run(client: TestClient) -> None:
-    """The span points at lines that were analysed. If they are not there any
-    more, applying writes over code nobody looked at."""
+def test_patch_never_touches_the_stored_tree(client: TestClient) -> None:
+    """The whole reason a patch is reproducible: the analysed tree is immutable."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
-    _report_with_fix(paths, replacement="int safe = 1;", excerpt="something that was never there", start=3, end=3)
+    before = paths.read_file("src/app.c")
+    _report_with_fixes(paths, [{"id": "f1", "line": _line_of(paths, "sprintf"), "replacement": "void run(void) { }"}])
 
-    response = client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "f1"})
-    assert response.status_code == 409, response.text
-    assert "다시 검사" in response.json()["detail"]
+    assert client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": ["f1"]}).status_code == 200
+    assert paths.read_file("src/app.c") == before
 
 
-def test_a_finding_with_no_replacement_is_refused_rather_than_guessed_at(client: TestClient) -> None:
-    """An empty `replacement` is the model saying it cannot fix this in place."""
+def test_patch_reports_what_it_could_not_apply(client: TestClient) -> None:
+    """Advice without code is a reason, not a smaller patch than expected."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
-    _report_with_fix(paths, replacement=None, excerpt="anything", start=1, end=1)
+    _report_with_fixes(
+        paths,
+        [
+            {"id": "coded", "line": _line_of(paths, "sprintf"), "replacement": "void run(void) { }"},
+            {"id": "prose", "line": _line_of(paths, "void handle"), "replacement": None},
+        ],
+    )
 
-    response = client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "f1"})
+    body = client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": ["coded", "prose"]}).json()
+
+    assert body["applied"] == ["coded"]
+    assert body["skipped"] == [{"finding_id": "prose", "reason": "no_replacement", "detail": ""}]
+
+
+def test_patch_of_an_unfixable_selection_is_an_empty_patch_not_an_error(client: TestClient) -> None:
+    """A question about the selection, answered. Not a failed request."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fixes(paths, [{"id": "prose", "line": 1, "replacement": None}])
+
+    response = client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": ["prose"]})
+    assert response.status_code == 200
+    assert response.json()["patch"] == ""
+    assert response.json()["applied"] == []
+
+
+def test_patch_refuses_an_unknown_finding_rather_than_patching_a_subset(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fixes(paths, [{"id": "f1", "line": _line_of(paths, "sprintf"), "replacement": "void run(void) { }"}])
+
+    response = client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": ["f1", "ghost"]})
+    assert response.status_code == 404
+    assert "ghost" in response.json()["detail"]
+
+
+def test_patch_needs_a_completed_report(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    response = client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": ["f1"]})
     assert response.status_code == 409
-    assert "no fix" in response.json()["detail"]
 
 
-def test_applying_an_unknown_finding_is_a_404(client: TestClient) -> None:
+def test_patch_requires_at_least_one_finding(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
-    _report_with_fix(_paths_for(run_id), replacement="x", excerpt="y", start=1, end=1)
-    assert client.post(f"/agent/runs/{run_id}/apply", json={"finding_id": "nope"}).status_code == 404
+    assert client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": []}).status_code == 422
+
+
+def test_archive_ships_the_whole_tree_with_the_fix_in_it(client: TestClient) -> None:
+    """Every file, not only the patched ones: three files out of four hundred
+    is not a source tree."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fixes(
+        paths,
+        [
+            {
+                "id": "f1",
+                "line": _line_of(paths, "sprintf"),
+                "replacement": "static void run(const char *u) { (void)u; }",
+            }
+        ],
+    )
+
+    response = client.post(f"/agent/runs/{run_id}/archive", json={"finding_ids": ["f1"]})
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+    assert f"ssat-{run_id}-fixed.zip" in response.headers["content-disposition"]
+    assert response.headers["x-ssat-applied"] == "1"
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert set(archive.namelist()) == {"src/app.c", "src/util.h"}
+        patched = archive.read("src/app.c").decode("utf-8")
+        assert "static void run(const char *u) { (void)u; }" in patched
+        assert "sprintf" not in patched
+        # The file nobody fixed comes through unchanged.
+        assert archive.read("src/util.h").decode("utf-8") == paths.read_file("src/util.h")
+
+
+def test_archive_refuses_when_nothing_could_be_applied(client: TestClient) -> None:
+    """An archive identical to the upload, named as though it were fixed, is the
+    one output here that could get unpatched code shipped."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fixes(paths, [{"id": "prose", "line": 1, "replacement": None}])
+
+    response = client.post(f"/agent/runs/{run_id}/archive", json={"finding_ids": ["prose"]})
+    assert response.status_code == 409
+    assert "내려받을 소스가 없습니다" in response.json()["detail"]
+
+
+def test_two_fixes_in_one_file_both_reach_the_archive(client: TestClient) -> None:
+    """The ordering guarantee, end to end through HTTP."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    upper = _line_of(paths, "sprintf")
+    lower = _line_of(paths, "void handle")
+    assert upper < lower
+    _report_with_fixes(
+        paths,
+        [
+            # Grows by a line, which is what would shift the one below it.
+            {"id": "upper", "line": upper, "replacement": "static void run(const char *u) {\n    (void)u;\n}"},
+            {"id": "lower", "line": lower, "replacement": "void handle(Request *r) { (void)r; }"},
+        ],
+    )
+
+    body = client.post(f"/agent/runs/{run_id}/patch", json={"finding_ids": ["upper", "lower"]}).json()
+    assert sorted(body["applied"]) == ["lower", "upper"]
+    assert body["skipped"] == []
+
+    response = client.post(f"/agent/runs/{run_id}/archive", json={"finding_ids": ["upper", "lower"]})
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        patched = archive.read("src/app.c").decode("utf-8")
+    assert "(void)u;" in patched
+    assert "void handle(Request *r) { (void)r; }" in patched
+
+
+# -- intake from a git remote --------------------------------------------------
+#
+# This route makes the *server* fetch a URL somebody typed. `test_vcs.py` covers
+# the validation in detail; what matters here is that a refusal is a 400 and not
+# a half-created run, and that the commit is recorded so a push can be honest.
+
+
+@pytest.fixture
+def git_remote(tmp_path: Path) -> Path:
+    import subprocess
+
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "app.c").write_text("void run(char *u) {\n    system(u);\n}\n", encoding="utf-8")
+    for args in (
+        ["git", "init", "-q", "-b", "main", "."],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "t"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-q", "-m", "first"],
+    ):
+        subprocess.run(args, cwd=work, check=True, capture_output=True)  # noqa: S603 - fixed argv, no shell
+
+    bare = tmp_path / "remote.git"
+    subprocess.run(  # noqa: S603, S607 - fixed argv, no shell
+        ["git", "clone", "-q", "--bare", str(work), str(bare)], cwd=tmp_path, check=True, capture_output=True
+    )
+    return bare
+
+
+def test_cloning_a_repository_indexes_it_and_records_the_commit(
+    client: TestClient, git_remote: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    # A filesystem path cannot pass the real check; it is tested on its own.
+    monkeypatch.setattr("agent.vcs.check_url", lambda url: url)
+
+    response = client.post("/agent/runs/git", json={"url": str(git_remote), "ref": "main"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["files"] == ["app.c"]
+    assert body["index"]["files_indexed"] == 1
+    origin = body["origin"]
+    assert origin["kind"] == "git"
+    assert origin["ref"] == "main"
+    assert len(origin["commit"]) == 40
+    assert origin["label"].endswith("@main")
+
+    # And it survives on the run, which is what a later push reads.
+    listed = client.get(f"/agent/runs/{body['run_id']}").json()
+    assert listed["origin"]["commit"] == origin["commit"]
+
+
+def test_a_url_the_server_may_not_fetch_is_a_400(client: TestClient) -> None:
+    response = client.post("/agent/runs/git", json={"url": "file:///etc/passwd"})
+    assert response.status_code == 400
+    assert "지원하지 않습니다" in response.json()["detail"]
+
+
+def test_an_unreachable_remote_is_a_502_not_a_500(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """We reached out and something upstream said no. That is not our error."""
+    import shutil
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    monkeypatch.setattr("agent.vcs.check_url", lambda url: url)
+
+    response = client.post("/agent/runs/git", json={"url": "/nonexistent/repo.git"})
+    assert response.status_code == 502
+
+
+def test_an_upload_records_what_kind_of_intake_it_was(client: TestClient) -> None:
+    """The patch surface reads this to decide whether pushing is even possible."""
+    body = _upload(client)
+    assert body["origin"] == {"kind": "zip", "label": "upload.zip", "url": None, "ref": None, "commit": None}
+
+
+def test_pushing_a_run_that_was_uploaded_is_a_400(client: TestClient) -> None:
+    """No remote, so no button. The API says so rather than trying."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fixes(paths, [{"id": "f1", "line": _line_of(paths, "sprintf"), "replacement": "void run(void) { }"}])
+
+    response = client.post(
+        f"/agent/runs/{run_id}/push",
+        json={"finding_ids": ["f1"], "branch": "ssat/fix", "token": "t"},
+    )
+    assert response.status_code == 400
+    assert "올릴 원격이 없습니다" in response.json()["detail"]
+
+
+def test_pushing_with_nothing_applicable_is_refused_before_any_network(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    _report_with_fixes(_paths_for(run_id), [{"id": "prose", "line": 1, "replacement": None}])
+
+    response = client.post(
+        f"/agent/runs/{run_id}/push",
+        json={"finding_ids": ["prose"], "branch": "ssat/fix", "token": "t"},
+    )
+    # The origin check comes first, and this run has no git origin either.
+    assert response.status_code in {400, 409}
+
+
+def test_a_push_needs_a_token(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    response = client.post(
+        f"/agent/runs/{run_id}/push",
+        json={"finding_ids": ["f1"], "branch": "ssat/fix", "token": ""},
+    )
+    assert response.status_code == 422
+
+
+def test_a_cloned_run_can_have_its_fix_pushed_back(
+    client: TestClient, git_remote: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole path, end to end: clone, report, select, push.
+
+    Against a bare repository on disk rather than a network host. The URL check
+    and the credential rewrite are stubbed -- both are tested on their own in
+    `test_vcs.py` -- so what this exercises is the route: origin lookup, patch
+    built server-side from ids, apply on a fresh clone, branch created.
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    monkeypatch.setattr("agent.vcs.check_url", lambda url: url)
+    monkeypatch.setattr("agent.vcs._authenticated", lambda url, token: url)
+
+    created = client.post("/agent/runs/git", json={"url": str(git_remote), "ref": "main"}).json()
+    run_id = created["run_id"]
+    paths = _paths_for(run_id)
+
+    from agent.schema import Finding, Remediation, Report, Span
+
+    paths.save_report(
+        Report(
+            run_id=run_id,
+            findings=[
+                Finding(
+                    id="f1",
+                    chunk_id="c1",
+                    severity="critical",
+                    confidence=0.95,
+                    title="셸로 넘어가는 입력",
+                    cwe="CWE-78",
+                    primary=Span(
+                        file="app.c",
+                        start_line=2,
+                        start_column=1,
+                        end_line=2,
+                        end_column=1,
+                        excerpt="    system(u);",
+                    ),
+                    explanation="입력이 그대로 셸로 갑니다.",
+                    remediation=Remediation(summary="쓰지 않습니다", detail="제거", replacement="    (void)u;"),
+                    verified=True,
+                )
+            ],
+        )
+    )
+
+    response = client.post(
+        f"/agent/runs/{run_id}/push",
+        json={"finding_ids": ["f1"], "branch": "ssat/fix-1", "token": "secret-token"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["branch"] == "ssat/fix-1"
+    assert body["applied"] == ["f1"]
+
+    shown = subprocess.run(  # noqa: S603, S607 - fixed argv, no shell
+        ["git", "show", "ssat/fix-1:app.c"], cwd=git_remote, capture_output=True, text=True, check=True
+    )
+    assert "(void)u;" in shown.stdout
+    assert "system(u);" not in shown.stdout
+
+    # The token was a request argument and nothing more.
+    assert "secret-token" not in json.dumps(paths.read_meta())
