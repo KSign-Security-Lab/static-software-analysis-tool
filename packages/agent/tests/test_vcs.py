@@ -147,9 +147,7 @@ def test_read_tree_skips_the_git_directory_and_vendored_code(tmp_path: Path) -> 
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
 
-    files = read_tree(tmp_path)
-
-    assert [each.path for each in files] == ["src/app.c"]
+    assert [each.path for each in read_tree(tmp_path).files] == ["src/app.c"]
 
 
 def test_read_tree_ignores_symlinks(tmp_path: Path) -> None:
@@ -160,18 +158,46 @@ def test_read_tree_ignores_symlinks(tmp_path: Path) -> None:
     except OSError:
         pytest.skip("this filesystem does not do symlinks")
 
-    assert [each.path for each in read_tree(tmp_path)] == ["real.c"]
+    assert [each.path for each in read_tree(tmp_path).files] == ["real.c"]
 
 
-def test_read_tree_enforces_the_same_single_file_cap_as_a_zip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_oversized_file_is_skipped_rather_than_refusing_the_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A checked-in generated artifact must not cost the reader the repository.
+
+    Real projects carry them -- a 260 MB `pkix1.json` beside the C it came from --
+    and the indexer skips anything over 1.5 MB anyway, so refusing the whole
+    clone over one of them threw away every other file for nothing.
+    """
     monkeypatch.setattr("agent.vcs.MAX_SINGLE_FILE_BYTES", 16)
-    (tmp_path / "big.c").write_bytes(b"x" * 64)
+    (tmp_path / "big.json").write_bytes(b"x" * 64)
+    (tmp_path / "small.c").write_bytes(b"int x;")
 
-    with pytest.raises(UploadRejected, match="too large"):
+    tree = read_tree(tmp_path)
+
+    assert [each.path for each in tree.files] == ["small.c"]
+    assert [(each.path, each.size, each.reason) for each in tree.skipped] == [("big.json", 64, "too_large")]
+
+
+def test_a_repository_of_nothing_but_oversized_files_is_still_an_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Nothing was kept, so there is no tree to inspect -- and that is a different
+    # thing from a clone that failed.
+    monkeypatch.setattr("agent.vcs.MAX_SINGLE_FILE_BYTES", 16)
+    (tmp_path / "big.json").write_bytes(b"x" * 64)
+
+    with pytest.raises(UploadRejected, match="가져올 파일이 없습니다"):
         read_tree(tmp_path)
 
 
-def test_read_tree_enforces_the_total_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_total_cap_is_still_a_refusal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The totals are the resource-exhaustion defence, and it stays a refusal.
+
+    A thousand merely-large files each pass the per-file cap and still add up, so
+    skipping cannot be the answer here the way it is for one absurd file.
+    """
     monkeypatch.setattr("agent.vcs.MAX_UPLOAD_BYTES", 24)
     for name in ("a.c", "b.c", "c.c"):
         (tmp_path / name).write_bytes(b"x" * 16)
@@ -225,7 +251,7 @@ def test_clone_returns_the_tree_and_the_commit_it_is_at(tmp_path: Path, remote: 
 
     assert cloned.ref == "main"
     assert len(cloned.commit) == 40
-    assert [each.path for each in read_tree(cloned.root)] == ["app.c"]
+    assert [each.path for each in read_tree(cloned.root).files] == ["app.c"]
 
 
 @needs_git

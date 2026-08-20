@@ -30,7 +30,7 @@ from .config import AgentConfig
 from .db import File as FileRow
 from .db import Run as RunRow
 from .db import session_scope
-from .files import Upload, UploadRejected, prepare, read_zip
+from .files import Tree, Upload, UploadRejected, prepare, read_files, read_zip
 from .index import ChunkStore, IndexResult, build_index
 from .schema import Report
 from .graph.checkpoints import read_history, read_state, write_state
@@ -375,14 +375,23 @@ def delete_run(run: Run) -> None:
             session.delete(row)
 
 
-def store_zip(run: Run, archive: Path) -> int:
-    """Store an uploaded zip. Returns the file count."""
-    return run.put_files(read_zip(archive))
+def store_zip(run: Run, archive: Path) -> Tree:
+    """Store an uploaded zip, and report what it passed over."""
+    tree = read_zip(archive)
+    run.put_files(tree.files)
+    return tree
 
 
-def write_files(run: Run, files: dict[str, bytes]) -> int:
-    """Store an explicit set of uploaded files, with the same name rules."""
-    return run.put_files([prepare(name, content) for name, content in files.items()])
+def write_files(run: Run, files: dict[str, bytes]) -> Tree:
+    """Store a set of loose files, under the same rules as an archive.
+
+    Returns the tree rather than a count because the count was never the
+    interesting half: a caller that cannot see what was skipped cannot say so,
+    and every intake path now has to.
+    """
+    tree = read_files(files)
+    run.put_files(tree.files)
+    return tree
 
 
 def index_run(run: Run) -> IndexResult:

@@ -1,13 +1,13 @@
 "use client";
 
-import { AlertTriangle, FileArchive, FolderGit2, FolderOpen, Loader2, Play, Upload } from "lucide-react";
+import { AlertTriangle, FileArchive, FileWarning, FolderGit2, FolderOpen, Loader2, Play, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { RunSummary, UploadResult } from "@/lib/api/types";
+import type { IntakeSkip, RunSummary, UploadResult } from "@/lib/api/types";
 import { filesFromDrop } from "@/lib/run/drop";
 import { useCloneRepo, useStartRun, useUpload, useUploadArchive } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
@@ -226,6 +226,7 @@ function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadR
   const { ensureAttached } = useRunStream();
   const start = useStartRun(runId, ensureAttached);
   const stats = indexed?.index ?? run?.index;
+  const skipped = (indexed?.intake ?? run?.intake)?.skipped ?? [];
   const reading = run?.status === "created" || run?.status === "indexing";
 
   return (
@@ -243,6 +244,7 @@ function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadR
             <Stat label="단위" value={stats?.chunks} />
             <Stat label="연결" value={stats?.links} />
           </dl>
+          {skipped.length > 0 && <Skipped skipped={skipped} />}
           {stats?.chunks === 0 ? (
             <p className="mt-3 text-xs text-warn">
               읽을 수 있는 코드가 없습니다. 다른 폴더나 브랜치를 주시거나, 지원하는 언어인지 확인해 주십시오.
@@ -263,6 +265,40 @@ function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadR
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Files intake passed over, and what that costs.
+ *
+ * Said rather than done quietly, because it has a consequence the reader would
+ * otherwise meet much later: a skipped file is not stored, so it will not be in
+ * a patched-source download either. The alternative was refusing the whole
+ * upload over one generated artifact, which cost them every other file.
+ */
+function Skipped({ skipped }: { skipped: IntakeSkip[] }) {
+  return (
+    <div className="mt-3 space-y-1 rounded-md border border-warn/40 bg-warn-wash px-3 py-2">
+      <p className="flex items-center gap-1.5 text-xs text-ink">
+        <FileWarning className="size-3.5 shrink-0 text-warn" aria-hidden />
+        너무 큰 파일 {skipped.length}개를 건너뜁니다
+      </p>
+      <ul className="space-y-0.5">
+        {skipped.slice(0, 5).map((each) => (
+          <li key={each.path} className="flex items-baseline gap-2 font-mono text-2xs text-ink-muted">
+            <span className="min-w-0 truncate">{each.path}</span>
+            <span className="shrink-0 text-ink-faint">{(each.size / 1024 / 1024).toFixed(0)}MB</span>
+          </li>
+        ))}
+        {skipped.length > 5 && (
+          <li className="font-mono text-2xs text-ink-faint">그 밖에 {skipped.length - 5}개</li>
+        )}
+      </ul>
+      <p className="text-2xs leading-relaxed text-ink-faint">
+        한 파일 50MB까지만 받습니다. 이만한 파일은 대개 생성된 산출물이고, 검사는 1.5MB가 넘는 파일을 어차피 읽지
+        않습니다. 저장하지 않으므로 나중에 ‘수정된 소스’ 를 내려받아도 이 파일들은 들어 있지 않습니다.
+      </p>
+    </div>
   );
 }
 

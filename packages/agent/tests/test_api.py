@@ -1213,3 +1213,99 @@ def test_a_cloned_run_can_have_its_fix_pushed_back(
 
     # The token was a request argument and nothing more.
     assert "secret-token" not in json.dumps(paths.read_meta())
+
+
+# -- what an upload may contain ------------------------------------------------
+#
+# Two caps defending two different things, and the difference is the point. The
+# totals are a resource-exhaustion defence and stay refusals. The per-file cap is
+# a judgement about what is worth keeping, so it skips -- because a real project
+# carries generated artifacts and refusing the whole upload over one of them cost
+# the reader every other file for nothing.
+
+
+def test_an_oversized_file_is_skipped_and_the_rest_is_indexed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The case this exists for: a 260 MB `pkix1.json` beside the C it came from.
+
+    The indexer skips anything over 1.5 MB anyway, so such a file was never going
+    to be inspected -- and the upload refusing outright meant the project could
+    not be scanned at all.
+    """
+    # Comfortably above both SAMPLE files and far below the artifact.
+    monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 1024)
+
+    body = _upload(client, {**SAMPLE, "SRC/pkix1.c/pkix1.json": "x" * 4096})
+
+    assert set(body["files"]) == {"src/app.c", "src/util.h"}
+    assert body["uploaded"] == 2
+    assert body["index"]["files_indexed"] == 2
+    assert body["intake"]["kept"] == 2
+    assert body["intake"]["skipped"] == [{"path": "SRC/pkix1.c/pkix1.json", "size": 4096, "reason": "too_large"}]
+
+
+def test_what_was_skipped_survives_the_request_that_decided_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A patch archive a week later is missing that file. The run has to say why."""
+    monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 1024)
+    run_id = _upload(client, {**SAMPLE, "big.json": "x" * 4096})["run_id"]
+
+    listed = client.get(f"/agent/runs/{run_id}").json()
+    assert listed["intake"]["skipped"][0]["path"] == "big.json"
+
+
+def test_an_upload_of_nothing_but_oversized_files_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Different from an empty upload: this is a tree with no source in it."""
+    monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 64)
+
+    payload = _zip({"big.json": "x" * 4096})
+    response = client.post("/agent/runs", files={"files": ("upload.zip", payload, "application/zip")})
+
+    assert response.status_code == 400
+    assert "한 파일 제한을 넘었습니다" in response.json()["detail"]
+
+
+def test_the_total_size_cap_is_still_a_refusal(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A thousand merely-large files each pass the per-file cap and still add up,
+    so skipping cannot be the answer here the way it is for one absurd file."""
+    monkeypatch.setattr("agent.files.MAX_UPLOAD_BYTES", 128)
+
+    payload = _zip({f"f{i}.c": "x" * 64 for i in range(8)})
+    response = client.post("/agent/runs", files={"files": ("upload.zip", payload, "application/zip")})
+
+    assert response.status_code == 400
+    assert "expands past" in response.json()["detail"]
+
+
+def test_the_file_count_cap_is_still_a_refusal(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("agent.files.MAX_UPLOAD_FILES", 3)
+
+    payload = _zip({f"f{i}.c": "int x;" for i in range(8)})
+    response = client.post("/agent/runs", files={"files": ("upload.zip", payload, "application/zip")})
+
+    assert response.status_code == 400
+    assert "the limit is 3" in response.json()["detail"]
+
+
+def test_loose_files_are_capped_the_same_way_an_archive_is(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The folder picker had no caps at all -- only `read_zip` counted anything.
+
+    So the same tree was refused as a zip and accepted as a folder, which is the
+    wrong way round: the folder picker is the path most people use.
+    """
+    monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 64)
+
+    response = client.post(
+        "/agent/runs",
+        files=[
+            ("files", ("small.c", b"int x;", "text/plain")),
+            ("files", ("generated.json", b"x" * 4096, "application/json")),
+        ],
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["files"] == ["small.c"]
+    assert body["intake"]["skipped"] == [{"path": "generated.json", "size": 4096, "reason": "too_large"}]

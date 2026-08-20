@@ -67,13 +67,21 @@ def _load_tree(source: Path, run: Run) -> int:
     Was `shutil.copytree` into the run's workspace. There is no workspace: the
     files become rows, which is the same bargain as before -- the user's
     checkout is read and never written -- reached without a second copy on disk.
+
+    Says what it passed over. A checked-in generated artifact is skipped rather
+    than refused, and a run quietly missing a file is exactly the surprise the
+    old outright refusal existed to avoid.
     """
     files: dict[str, bytes] = {}
     for path in sorted(source.rglob("*")):
         if not path.is_file() or path.is_symlink():
             continue
         files[path.relative_to(source).as_posix()] = path.read_bytes()
-    return write_files(run, files)
+
+    tree = write_files(run, files)
+    for each in tree.skipped:
+        _info(f"skipped {each.path} ({each.size / 1024 / 1024:.0f} MB): larger than one file may be")
+    return len(tree.files)
 
 
 def _print_finding(finding: Finding) -> None:
@@ -330,10 +338,7 @@ def cmd_corpus(args: argparse.Namespace) -> int:
     if result["embedded"] == 0 and result["removed"] == 0:
         print(f"corpus: {result['total']} samples, nothing new")
     else:
-        print(
-            f"corpus: {result['embedded']} embedded, {result['removed']} removed, "
-            f"{result['total']} total"
-        )
+        print(f"corpus: {result['embedded']} embedded, {result['removed']} removed, {result['total']} total")
     if result["skipped"]:
         # Said out loud rather than swallowed: a file in a folder with no CWE in
         # its name is silently not in the corpus, and that is worth knowing.

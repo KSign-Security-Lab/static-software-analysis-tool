@@ -53,6 +53,13 @@ export interface RunSummary {
    * See `Origin`, below.
    */
   origin?: Origin;
+  /**
+   * What intake kept and passed over.
+   *
+   * Optional for the same reason `origin` is: a run created before intake
+   * recorded it has no honest answer.
+   */
+  intake?: Intake;
   /** A trace database exists, so this run was inspected at least once. */
   started: boolean;
   /**
@@ -390,12 +397,34 @@ export interface CloneRequest {
   ref?: string | null;
 }
 
+/** A file intake did not store, and why. */
+export interface IntakeSkip {
+  path: string;
+  size: number;
+  reason: "too_large";
+}
+
+/**
+ * What intake kept, and what it passed over.
+ *
+ * The second half has to reach the screen. A file over the per-file cap is
+ * skipped rather than refusing the whole upload -- real projects carry generated
+ * artifacts, and the indexer would pass over anything above 1.5 MB anyway -- but
+ * it is also not *stored*, so it will not be in a patch archive later. That is a
+ * surprise unless somebody is told at the time.
+ */
+export interface Intake {
+  kept: number;
+  skipped: IntakeSkip[];
+}
+
 export interface UploadResult {
   run_id: string;
   uploaded: number;
   index: IndexStats;
   files: string[];
   origin: Origin;
+  intake: Intake;
 }
 
 /* -- patch export ------------------------------------------------------------ */

@@ -28,6 +28,8 @@ from .files import (
     MAX_SINGLE_FILE_BYTES,
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_FILES,
+    Skipped,
+    Tree,
     Upload,
     UploadRejected,
     prepare,
@@ -273,15 +275,20 @@ def clone(url: str, ref: str | None, into: Path) -> Cloned:
     return Cloned(root=into, commit=commit, ref=branch)
 
 
-def read_tree(root: Path) -> list[Upload]:
-    """Every file in a checkout, validated and capped like an uploaded zip.
+def read_tree(root: Path) -> Tree:
+    """Every file in a checkout, under the same rules as an uploaded zip.
 
     Same caps and the same name rules, deliberately: a repository is a tree
     somebody handed us and there is no reason it should be allowed to be bigger
     or stranger than an archive. `.git` goes first -- it is most of the bytes of
     a shallow clone and none of the source.
+
+    A file over the per-file cap is skipped and reported rather than refusing the
+    clone. Checked-in generated artifacts are ordinary in a real repository, and
+    they are exactly the files the indexer would pass over anyway.
     """
-    files: list[Upload] = []
+    kept: list[Upload] = []
+    skipped: list[Skipped] = []
     total = 0
 
     for path in sorted(root.rglob("*")):
@@ -298,18 +305,20 @@ def read_tree(root: Path) -> list[Upload]:
 
         size = path.stat().st_size
         if size > MAX_SINGLE_FILE_BYTES:
-            raise UploadRejected(f"{name} is {size} bytes; too large")
+            # Never read, so its bytes never count against the total.
+            skipped.append(Skipped(path=name, size=size))
+            continue
         total += size
         if total > MAX_UPLOAD_BYTES:
             raise UploadRejected(f"repository expands past {MAX_UPLOAD_BYTES} bytes")
-        if len(files) >= MAX_UPLOAD_FILES:
+        if len(kept) >= MAX_UPLOAD_FILES:
             raise UploadRejected(f"repository has more than {MAX_UPLOAD_FILES} files")
 
-        files.append(prepare(name, path.read_bytes()))
+        kept.append(prepare(name, path.read_bytes()))
 
-    if not files:
+    if not kept:
         raise UploadRejected("저장소에 가져올 파일이 없습니다")
-    return files
+    return Tree(files=kept, skipped=skipped)
 
 
 def _authenticated(url: str, token: str) -> str:
