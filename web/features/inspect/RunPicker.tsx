@@ -42,7 +42,15 @@ export default function RunPicker() {
       <PopoverContent align="end" className="w-96 p-0">
         {rows.length === 0 ? (
           <p className="px-3 py-4 text-xs text-ink-faint">
-            {runs.isPending ? "불러오는 중" : "아직 검사한 것이 없습니다."}
+            {/* Three states, and the third used to be told as the second. A
+                failed request is not an empty history, and saying "아직 검사한
+                것이 없습니다" to somebody whose backend is down sends them
+                looking for their scans instead of at their server. */}
+            {runs.isPending
+              ? "불러오는 중"
+              : runs.error
+                ? "목록을 가져오지 못했습니다. 백엔드에 연결됐는지 확인하세요."
+                : "아직 검사한 것이 없습니다."}
           </p>
         ) : (
           <ul className="max-h-96 overflow-auto py-1">

@@ -1,6 +1,9 @@
 import { post, postBlob, saveBlob, seg } from "./client";
 import type { PatchPreview, PushResult } from "./types";
 
+/** Splicing a tree and zipping it are seconds, not the default's tens of them. */
+const SLOW_MS = 180_000;
+
 /**
  * Turning a bucket of findings into something that leaves the browser.
  *
@@ -22,7 +25,7 @@ import type { PatchPreview, PushResult } from "./types";
  * the point of asking first.
  */
 export function previewPatch(runId: string, findingIds: string[]): Promise<PatchPreview> {
-  return post<PatchPreview>(`/agent/runs/${seg(runId)}/patch`, { finding_ids: findingIds });
+  return post<PatchPreview>(`/agent/runs/${seg(runId)}/patch`, { finding_ids: findingIds }, { timeoutMs: SLOW_MS });
 }
 
 /**
@@ -38,9 +41,11 @@ export function savePatch(runId: string, patch: string): void {
 
 /** The whole tree with the fixes in it. Streamed, so this is a real request. */
 export async function downloadArchive(runId: string, findingIds: string[]): Promise<void> {
-  const { blob, filename } = await postBlob(`/agent/runs/${seg(runId)}/archive`, {
-    finding_ids: findingIds,
-  });
+  const { blob, filename } = await postBlob(
+    `/agent/runs/${seg(runId)}/archive`,
+    { finding_ids: findingIds },
+    { timeoutMs: SLOW_MS },
+  );
   saveBlob(blob, filename ?? `ssat-${runId}-fixed.zip`);
 }
 
@@ -56,10 +61,15 @@ export function pushBranch(
   runId: string,
   request: { findingIds: string[]; branch: string; token: string; openPullRequest: boolean },
 ): Promise<PushResult> {
-  return post<PushResult>(`/agent/runs/${seg(runId)}/push`, {
-    finding_ids: request.findingIds,
-    branch: request.branch,
-    token: request.token,
-    open_pull_request: request.openPullRequest,
-  });
+  return post<PushResult>(
+    `/agent/runs/${seg(runId)}/push`,
+    {
+      finding_ids: request.findingIds,
+      branch: request.branch,
+      token: request.token,
+      open_pull_request: request.openPullRequest,
+    },
+    // A clone, an apply, a commit and a push against somebody else's forge.
+    { timeoutMs: 320_000 },
+  );
 }

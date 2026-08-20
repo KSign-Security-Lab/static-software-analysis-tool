@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 
+import BackendDown from "@/features/inspect/BackendDown";
 import Findings from "@/features/inspect/Findings";
 import Intake from "@/features/inspect/Intake";
 import Progress from "@/features/inspect/Progress";
@@ -52,6 +53,11 @@ export default function Inspect() {
   return (
     <>
       <RunBar stage={stage} findings={findings} />
+      {/* Above the stage, not inside one. A dead backend is not a property of
+          intake or of results -- and it is exactly the moment the screen below
+          becomes untrustworthy, so it has to be said where it cannot be
+          mistaken for part of the flow. */}
+      <BackendDown />
       {stage === "intake" && <Intake run={run.data} />}
       {stage === "scanning" && <Progress findings={findings} />}
       {stage === "results" && <Findings findings={findings} />}

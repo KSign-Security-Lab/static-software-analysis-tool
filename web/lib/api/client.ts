@@ -54,17 +54,71 @@ export function seg(value: string): string {
 export interface RequestOptions {
   /** React Query hands one to every queryFn; pass it through and cancellation works. */
   signal?: AbortSignal;
+  /**
+   * How long to wait for an answer. `null` waits for ever.
+   *
+   * Defaults to {@link DEFAULT_TIMEOUT_MS}, and the default exists because of a
+   * failure mode that had no error at all: a backend whose socket is open while
+   * nothing serves it -- uvicorn's reloader parent outliving its worker is the
+   * everyday way to get there -- *accepts* the connection and never replies. The
+   * fetch neither resolves nor rejects, so every query sat pending, the screen
+   * showed skeletons for ever, and nothing said the server was gone.
+   *
+   * Overridden upward by the handful of calls that are legitimately slow: a
+   * clone, an upload of a real tree, an LLM asked for a fix. A blanket 30s would
+   * cancel those mid-flight, which is a worse bug than the one being fixed.
+   */
+  timeoutMs?: number | null;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * The wait after which a backend is presumed gone rather than slow.
+ *
+ * Generous for a read: everything on the default path is a database query
+ * against localhost. Anything that can honestly take longer says so at its call
+ * site.
+ */
+export const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * One signal that fires on either the caller's cancellation or the deadline.
+ *
+ * `AbortSignal.any` is Safari 17.4 and Chrome 116, which is newer than some of
+ * what this is opened in, so its absence falls back to the timeout alone --
+ * losing React Query's cancellation, which wastes a request, rather than losing
+ * the deadline, which loses the error.
+ */
+function deadline(signal: AbortSignal | undefined, ms: number | null): AbortSignal | undefined {
+  if (ms === null) return signal;
+  const timeout = AbortSignal.timeout(ms);
+  if (!signal) return timeout;
+  return typeof AbortSignal.any === "function" ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  options: RequestOptions = {},
+): Promise<T> {
   const base = apiBase();
   let res: Response;
   try {
     // Added here rather than at each call site so nothing can forget it. It is
     // a name somebody typed, not a credential -- see `lib/run/whoami`.
     const headers = { ...ownerHeaders(), ...(init.headers as Record<string, string>) };
-    res = await fetch(`${base}${path}`, { ...init, headers });
+    res = await fetch(`${base}${path}`, {
+      ...init,
+      headers,
+      signal: deadline(options.signal, options.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs),
+    });
   } catch (err) {
+    // A deadline is a dead backend, not a cancellation, and it has to be told
+    // apart from one: `AbortSignal.timeout` aborts with `TimeoutError` while a
+    // caller's own abort is `AbortError`. Reported as offline because from the
+    // reader's side "no answer" and "no connection" are the same problem.
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new ApiError(`백엔드(${base})가 응답하지 않습니다. 실행 중인지 확인하세요.`, 0);
+    }
     // An abort is the caller getting what it asked for, not a failure. Wrapping
     // it would make React Query treat a cancelled query as a dead backend.
     if (err instanceof DOMException && err.name === "AbortError") throw err;
@@ -91,28 +145,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 const json = { "Content-Type": "application/json" };
 
 export function get<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  return request<T>(path, options);
+  return request<T>(path, {}, options);
 }
 
 export function post<T>(path: string, payload?: unknown, options: RequestOptions = {}): Promise<T> {
-  return request<T>(path, {
-    ...options,
-    method: "POST",
-    headers: json,
-    body: JSON.stringify(payload ?? {}),
-  });
+  return request<T>(path, { method: "POST", headers: json, body: JSON.stringify(payload ?? {}) }, options);
 }
 
 export function put<T>(path: string, payload: unknown, options: RequestOptions = {}): Promise<T> {
-  return request<T>(path, { ...options, method: "PUT", headers: json, body: JSON.stringify(payload) });
+  return request<T>(path, { method: "PUT", headers: json, body: JSON.stringify(payload) }, options);
 }
 
 export function del<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  return request<T>(path, { ...options, method: "DELETE" });
+  return request<T>(path, { method: "DELETE" }, options);
 }
 
 export function postForm<T>(path: string, form: FormData, options: RequestOptions = {}): Promise<T> {
-  return request<T>(path, { ...options, method: "POST", body: form });
+  return request<T>(path, { method: "POST", body: form }, options);
 }
 
 /**
@@ -135,12 +184,15 @@ export async function postBlob(
   let res: Response;
   try {
     res = await fetch(`${base}${path}`, {
-      ...options,
       method: "POST",
       headers: { ...ownerHeaders(), ...json },
       body: JSON.stringify(payload ?? {}),
+      signal: deadline(options.signal, options.timeoutMs === undefined ? DEFAULT_TIMEOUT_MS : options.timeoutMs),
     });
   } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new ApiError(`백엔드(${base})가 응답하지 않습니다. 실행 중인지 확인하세요.`, 0);
+    }
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     throw new ApiError(`백엔드(${base})에 연결할 수 없습니다. 실행 중인지 확인하세요. [${String(err)}]`, 0);
   }

@@ -1,4 +1,13 @@
 import { del, get, post, postForm, seg, type RequestOptions } from "./client";
+
+/**
+ * For the calls that are honestly slow rather than stuck.
+ *
+ * An upload of a real tree, a clone, an LLM asked for a fix: the default
+ * deadline exists to turn a dead backend into an error, and applying it to these
+ * would turn working requests into errors instead.
+ */
+const SLOW_MS = 180_000;
 import type {
   AgentHealth,
   CloneRequest,
@@ -51,7 +60,9 @@ export function uploadSource(files: (File | { file: File; path: string })[]): Pr
     const path = each instanceof File ? file.webkitRelativePath || file.name : each.path;
     form.append("files", file, path);
   }
-  return postForm<UploadResult>("/agent/runs", form);
+  // A real tree is tens of megabytes over the wire and then indexed
+  // synchronously before the response. The default deadline would cancel it.
+  return postForm<UploadResult>("/agent/runs", form, { timeoutMs: SLOW_MS });
 }
 
 /**
@@ -65,7 +76,7 @@ export function uploadSource(files: (File | { file: File; path: string })[]): Pr
 export function uploadArchive(file: File): Promise<UploadResult> {
   const form = new FormData();
   form.append("files", file, file.name.toLowerCase().endsWith(".zip") ? file.name : `${file.name}.zip`);
-  return postForm<UploadResult>("/agent/runs", form);
+  return postForm<UploadResult>("/agent/runs", form, { timeoutMs: SLOW_MS });
 }
 
 /**
@@ -77,7 +88,9 @@ export function uploadArchive(file: File): Promise<UploadResult> {
  * 502, which is the remote's answer and not ours.
  */
 export function cloneRepo(request: CloneRequest): Promise<UploadResult> {
-  return post<UploadResult>("/agent/runs/git", request);
+  // The server gives git 300s of its own; outliving that by a margin means a
+  // hung clone is reported by the side that actually knows why.
+  return post<UploadResult>("/agent/runs/git", request, { timeoutMs: 320_000 });
 }
 
 export function deleteRun(runId: string): Promise<{ deleted: string }> {
@@ -113,5 +126,6 @@ export function fetchFindings(runId: string, options?: RequestOptions): Promise<
  * rather than applying one.
  */
 export function proposeFix(runId: string, findingId: string): Promise<ProposeResult> {
-  return post<ProposeResult>(`/agent/runs/${seg(runId)}/propose`, { finding_id: findingId });
+  // One model call, and a loaded endpoint can take minutes over it.
+  return post<ProposeResult>(`/agent/runs/${seg(runId)}/propose`, { finding_id: findingId }, { timeoutMs: SLOW_MS });
 }
