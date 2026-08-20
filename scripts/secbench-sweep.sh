@@ -82,6 +82,18 @@ fi
 
 # Two disks matter and they are not the same one. Images go to SECB_DOCKER_ROOT;
 # the tooling image builds on the *host* daemon, which is usually /.
+# Free space is not the same question as a working disk. `df` answers from the
+# superblock and keeps answering after the filesystem has aborted its journal --
+# 207G free on a volume where every open() returns EIO. That state cost a sweep
+# once; the only honest check is to use it.
+if ! (echo ok > "${SECB_ROOT}/.writable" && [[ "$(cat "${SECB_ROOT}/.writable" 2>/dev/null)" == "ok" ]]) 2>/dev/null; then
+  red "cannot write to ${SECB_ROOT} — the filesystem is not usable"
+  red "  check:  cat /sys/fs/ext4/\$(findmnt -no SOURCE --target "${SECB_ROOT}" | xargs basename)/errors_count"
+  red "          sudo dmesg | grep -iE 'ext4|I/O error'"
+  fail=1
+fi
+rm -f "${SECB_ROOT}/.writable" 2>/dev/null
+
 host_free=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
 data_free=$(df -BG --output=avail "${SECB_ROOT}" 2>/dev/null | tail -1 | tr -dc '0-9')
 info "  free             / ${host_free}G · ${SECB_ROOT} ${data_free}G"

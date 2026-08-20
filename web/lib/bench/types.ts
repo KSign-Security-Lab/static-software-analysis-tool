@@ -106,6 +106,8 @@ export interface DatasetView {
   dataset: Dataset;
   score: Score;
   instances: Instance[];
+  /** Why the view is empty, when the reason is not "nothing has run yet". */
+  problem: string;
 }
 
 export interface DatasetList {

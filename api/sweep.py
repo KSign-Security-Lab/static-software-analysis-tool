@@ -192,12 +192,20 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
     if not SCRIPT.is_file():
         raise RuntimeError(f"{SCRIPT} 가 없습니다")
 
-    logfile.parent.mkdir(parents=True, exist_ok=True)
     # Appended, never truncated: a sweep is resumable and the log of the run
     # that crashed is how you find out why.
-    handle = logfile.open("a", encoding="utf-8")
-    handle.write(f"\n=== web 에서 시작 {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
-    handle.flush()
+    #
+    # This doubles as the disk check. `df` answers from the superblock and goes
+    # on reporting hundreds of free gigabytes after a filesystem has aborted its
+    # journal, so "is there room" and "does it work" are different questions and
+    # only the second one matters here.
+    try:
+        logfile.parent.mkdir(parents=True, exist_ok=True)
+        handle = logfile.open("a", encoding="utf-8")
+        handle.write(f"\n=== web 에서 시작 {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+        handle.flush()
+    except OSError as err:
+        raise RuntimeError(f"{logfile.parent} 에 쓸 수 없습니다 — 디스크를 확인하세요: {err}") from err
 
     env = {**os.environ}
     # Spawned from a service, PATH can be short of the things the script checks

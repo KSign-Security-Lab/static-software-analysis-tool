@@ -54,6 +54,9 @@ export default function Scoreboard() {
         <ScoreCard dataset={dataset} score={score} />
       </header>
 
+      {view.data.problem && (
+        <p className="rounded-md border border-warn/40 bg-warn-wash px-3 py-2 text-xs text-warn">{view.data.problem}</p>
+      )}
       <Progress view={view.data} />
       {/* Only the SEC-bench splits have a sweep to run; the corpus is a directory. */}
       {dataset.split && <Sweep dataset={dataset} instances={view.data.instances} />}

@@ -255,6 +255,11 @@ class DatasetView(BaseModel):
     dataset: Dataset
     score: Score
     instances: List[Instance]
+    #: Why this view is empty, when the reason is not "nothing has run".
+    #: `SECB_ROOT` is a mount and mounts go away; rendering that as 아직 결과가
+    #: 없습니다 would be this page's own failure mode -- a state it cannot see,
+    #: reported as a state it understands.
+    problem: str = ""
 
 
 # -- the two datasets --------------------------------------------------------
@@ -516,11 +521,44 @@ def _secbench_sources(split: str = "cve") -> tuple[list[Any], list[Any], dict[st
     config = BenchConfig(split=split)
     try:
         records = list(load_dataset(config))
-    except FileNotFoundError:
-        # Nothing fetched yet. Whatever the sweep recorded is all there is,
-        # which before a fetch is nothing.
-        records = []
-    return records, list(load_attempts(config)), read_results(config)
+        attempts = list(load_attempts(config))
+        verdicts = read_results(config)
+    except OSError as err:
+        # FileNotFoundError means nothing has been fetched yet, which is the
+        # ordinary first state. The wider OSError is a disk that has stopped
+        # answering -- `SECB_ROOT` is a mount that can go away, and it has --
+        # and neither is a reason to return a 500 to a page whose whole job is
+        # to say what state things are in.
+        log.warning("bench: cannot read the sweep's directory: %s", err)
+        return [], [], {}
+    return records, attempts, verdicts
+
+
+def _root_problem() -> str:
+    """Why the sweep's directory cannot be read, when it cannot.
+
+    Deliberately not `df`: free space and a working filesystem are different
+    questions. An ext4 volume that has aborted its journal goes on reporting
+    hundreds of free gigabytes while every open() returns EIO, so the only
+    check worth making is to touch it.
+    """
+    try:
+        from agent.bench.config import BenchConfig
+    except ImportError:  # pragma: no cover - the sweep is optional
+        return ""
+
+    root = BenchConfig().root
+    # A write, because nothing cheaper is decisive: `listdir` answers out of the
+    # dentry cache long after the inodes behind it stopped opening, so a
+    # directory can list its contents and refuse to produce any of them.
+    probe = root / ".readable"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as err:
+        return f"{root} 를 쓸 수 없습니다 — 디스크를 확인하세요 ({err.strerror or err})"
+    return ""
 
 
 def _secbench_instances(split: str = "cve") -> list[Instance]:
@@ -758,5 +796,10 @@ def read_dataset(dataset_id: str) -> Dict[str, Any]:
         # A held-out number with no date cannot be checked against the code that
         # produced it, so the dataset carries when the sweep last wrote.
         dataset = dataset.model_copy(update={"ran_at": _last_sweep_at()})
-    view = DatasetView(dataset=dataset, score=_score(dataset, instances), instances=instances)
+    view = DatasetView(
+        dataset=dataset,
+        score=_score(dataset, instances),
+        instances=instances,
+        problem=_root_problem() if dataset.split and not instances else "",
+    )
     return view.model_dump()

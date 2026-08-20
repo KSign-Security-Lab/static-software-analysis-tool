@@ -1,6 +1,6 @@
 "use client";
 
-import { FlaskConical } from "lucide-react";
+import { AlertTriangle, FlaskConical } from "lucide-react";
 import { useMemo } from "react";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -74,9 +74,18 @@ export default function Instances() {
             the thing you tick to choose what to run, so it must not be replaced
             by a paragraph. */}
         {view.data && view.data.instances.length === 0 ? (
-          <EmptyState icon={FlaskConical} title="아직 결과가 없습니다">
-            {view.data.dataset.how_to_run}
-          </EmptyState>
+          // "Nothing has run" and "the disk holding it stopped answering" look
+          // identical from here and mean opposite things. The second one names
+          // itself rather than borrowing the first one's sentence.
+          view.data.problem ? (
+            <EmptyState icon={AlertTriangle} title="읽을 수 없습니다">
+              {view.data.problem}
+            </EmptyState>
+          ) : (
+            <EmptyState icon={FlaskConical} title="아직 결과가 없습니다">
+              {view.data.dataset.how_to_run}
+            </EmptyState>
+          )
         ) : (
           <ul className="py-1">
             {grouped.map((group) => (

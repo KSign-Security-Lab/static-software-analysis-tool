@@ -482,3 +482,36 @@ def test_the_two_splits_are_separate_datasets_that_add_up() -> None:
 
     assert splits == {"sec-bench": "cve", "sec-bench-oss": "oss"}
     assert sum(d.total for d in bench.DATASETS if d.split) == 300
+
+
+def test_an_unusable_disk_is_not_an_empty_benchmark(tmp_path, monkeypatch) -> None:
+    """The two look identical from the page and mean opposite things.
+
+    `SECB_ROOT` is a mount and mounts go away -- this one aborted its ext4
+    journal mid-project, after which every open() returned EIO while `df` went
+    on reporting 207G free. Rendering that as 아직 결과가 없습니다 would be the
+    page's own failure mode: a state it cannot see, reported as one it
+    understands.
+    """
+    from agent.bench.config import BenchConfig
+    from api import bench
+
+    blocked = tmp_path / "a-file" / "root"
+    (tmp_path / "a-file").write_text("not a directory", encoding="utf-8")
+    monkeypatch.setattr(bench, "_root_problem", bench._root_problem)
+    monkeypatch.setenv("SECB_ROOT", str(blocked))
+
+    assert BenchConfig().root == blocked
+    problem = bench._root_problem()
+    assert str(blocked) in problem and "디스크" in problem
+
+
+def test_a_working_disk_reports_nothing(tmp_path, monkeypatch) -> None:
+    """And it leaves nothing behind: the probe is a write, so it has to clean up
+    after itself or it is litter in the directory it is checking."""
+    from api import bench
+
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path / "root"))
+
+    assert bench._root_problem() == ""
+    assert list((tmp_path / "root").iterdir()) == []
