@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import difflib
 import logging
+from dataclasses import dataclass
+from typing import Iterable, Literal
 
 from .llm import Outcome, StructuredCaller
-from .schema import CandidateRemediation, Remediation, Span
+from .schema import CandidateRemediation, Finding, Remediation, Span
 
 log = logging.getLogger(__name__)
 
@@ -220,3 +222,120 @@ def unified_diff(path: str, before: str, after: str) -> str:
         n=3,
     )
     return "".join(patch)
+
+
+#: Why a selected finding did not make it into the patch.
+#:
+#: Four reasons rather than a bool, because the reader's next move differs for
+#: each: `no_replacement` is answered by asking for one, `overlap` by unticking
+#: one of the two, `stale` by re-inspecting, and `unreadable` is ours to fix.
+SkipReason = Literal["no_replacement", "overlap", "stale", "unreadable"]
+
+
+@dataclass(frozen=True)
+class Skip:
+    """One finding that was asked for and refused, and why."""
+
+    finding_id: str
+    reason: SkipReason
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class PatchSet:
+    """Everything the selected findings amount to.
+
+    `patch` is one `git apply`-able diff over however many files were touched;
+    `files` is the same result as whole texts, because a zip cannot be built
+    from a diff. Both come out of the same splices rather than being computed
+    twice -- a patch and an archive that disagreed about what the fix was would
+    be the worst possible bug here.
+    """
+
+    patch: str
+    applied: list[str]
+    skipped: list[Skip]
+    files: dict[str, str]
+
+
+def _overlaps(span: Span, taken: list[tuple[int, int]]) -> bool:
+    return any(span.start_line <= end and start <= span.end_line for start, end in taken)
+
+
+def _precedence(finding: Finding) -> tuple[int, float, str]:
+    """Which of two overlapping fixes to keep.
+
+    Widest span first. A fix covering lines 3-4 rewrites the line that a fix
+    covering only line 4 was going to rewrite, so the wide one subsumes it;
+    keeping the narrow one instead would apply the smaller change and drop the
+    larger. Confidence breaks ties, then the id, so the answer does not depend
+    on the order the ticks arrived in.
+
+    Deliberately separate from the order the splices are *applied* in. That has
+    to be bottom-up for the line arithmetic to hold, and letting position decide
+    precedence too meant whichever finding happened to sit lower in the file
+    won -- a rule nobody chose and nobody could explain to a reader.
+    """
+    width = finding.primary.end_line - finding.primary.start_line
+    return (-width, -finding.confidence, finding.id)
+
+
+def patch_set(sources: dict[str, str], findings: Iterable[Finding]) -> PatchSet:
+    """The selected findings, as one patch and one patched tree.
+
+    Two orderings, and they are not the same one. Conflicts are resolved by
+    `_precedence` -- the wider fix wins the region -- and the survivors are then
+    spliced **bottom-up**, because `splice` addresses lines by number: fixing
+    line 12 before line 40 would shift line 40 by however many lines the first
+    fix added, and the second splice would land on code nobody analysed.
+
+    Refuses rather than guesses, and says which. `splice` catches an anchor that
+    no longer matches; everything it cannot see -- a file this run does not have,
+    a finding with advice and no code, a region already claimed -- is caught here.
+    Every refusal is a `Skip` with a reason the reader can act on.
+    """
+    applied: list[str] = []
+    skipped: list[Skip] = []
+    patched: dict[str, str] = {}
+
+    by_file: dict[str, list[Finding]] = {}
+    for finding in findings:
+        by_file.setdefault(finding.primary.file, []).append(finding)
+
+    for path in sorted(by_file):
+        original = sources.get(path)
+        if original is None:
+            for finding in sorted(by_file[path], key=_precedence):
+                skipped.append(Skip(finding.id, "unreadable", f"{path} 은 이 검사에 없는 파일입니다"))
+            continue
+
+        # Claim regions by precedence, so the winner does not depend on position.
+        winners: list[Finding] = []
+        taken: list[tuple[int, int]] = []
+        for finding in sorted(by_file[path], key=_precedence):
+            if not (finding.remediation.replacement or "").strip():
+                skipped.append(Skip(finding.id, "no_replacement"))
+                continue
+            if _overlaps(finding.primary, taken):
+                skipped.append(
+                    Skip(finding.id, "overlap", f"{path}:{finding.primary.start_line} 은 이미 고칠 줄과 겹칩니다")
+                )
+                continue
+            taken.append((finding.primary.start_line, finding.primary.end_line))
+            winners.append(finding)
+
+        # Then splice bottom-up, so no fix moves another out from under itself.
+        text = original
+        for finding in sorted(winners, key=lambda f: (-f.primary.start_line, f.id)):
+            try:
+                text = splice(text, finding.primary, finding.remediation.replacement or "")
+            except Stale as err:
+                skipped.append(Skip(finding.id, "stale", str(err)))
+                continue
+            applied.append(finding.id)
+
+        if text != original:
+            patched[path] = text
+
+    patch = "".join(unified_diff(path, sources[path], patched[path]) for path in sorted(patched))
+    return PatchSet(patch=patch, applied=applied, skipped=skipped, files=patched)
