@@ -280,6 +280,21 @@ def start_inspection(run: RunDep, request: InspectRequest | None = None) -> Dict
                 "breakpoints_after": after,
             }
 
+    # Before anything is spawned, and after the two replies above, which do no
+    # work and so need no model.
+    #
+    # `require_model` was checked inside the worker, so a deployment with no
+    # `AGENT_MODEL` accepted the request with a 200, flipped the run to
+    # `inspecting`, and then died: the reader pressed 검사 시작 and got a failed
+    # scan rather than a button telling them what to configure. Which is the
+    # opposite of what that check is for -- its own docstring says it exists so a
+    # misconfigured deployment fails at startup rather than at chunk 400 of 600.
+    # `/propose` has always answered this up front; this now does too.
+    try:
+        AgentConfig().require_model()
+    except RuntimeError as err:
+        raise HTTPException(status_code=503, detail=str(err)) from err
+
     _spawn(
         run,
         WorkOrder(

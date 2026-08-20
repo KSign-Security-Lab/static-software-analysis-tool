@@ -309,7 +309,8 @@ export interface AgentHealth {
   model: string | null;
   sandbox: string;
   tools_enabled: boolean;
-  runs_dir: string;
+  /** The DSN with its password redacted, for saying which database this is. */
+  database: string;
   tracing: {
     enabled: boolean;
     project: string;

@@ -242,8 +242,22 @@ def test_health_probe_survives_a_dead_endpoint(client: TestClient, monkeypatch: 
     assert body["model_is_served"] is False
 
 
-def test_inspection_without_a_model_fails_the_run_not_the_request(client: TestClient) -> None:
-    """Starting is asynchronous, so a config error surfaces on the stream."""
+def test_a_run_that_dies_mid_flight_still_surfaces_on_the_stream(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Starting is asynchronous, so a *runtime* failure has nowhere else to go.
+
+    Configuration is answered by the route now -- see the 503 below -- and an
+    unreachable endpoint is not enough to fail a run either: the graph is
+    deliberately resilient, so it completes having found nothing. What is left is
+    a genuine crash, which is what the worker's except branch is for.
+    """
+    monkeypatch.setenv(ENV_MODEL, "agent")
+
+    def explode(**_kwargs: object) -> None:
+        raise RuntimeError("the checkpointer is gone")
+
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", explode)
     run_id = _upload(client)["run_id"]
     assert client.post(f"/agent/runs/{run_id}/inspect").status_code == 200
 
@@ -251,7 +265,11 @@ def test_inspection_without_a_model_fails_the_run_not_the_request(client: TestCl
         events = _collect_events(stream, limit=6)
 
     assert "run_failed" in events, events
-    assert client.get(f"/agent/runs/{run_id}").json()["status"] == "failed"
+    row = client.get(f"/agent/runs/{run_id}").json()
+    assert row["status"] == "failed"
+    # The reason is persisted, not only streamed: the stream cannot be replayed,
+    # so a tab that attached late has only the row to read.
+    assert "checkpointer" in row["error"]
 
 
 def _collect_events(stream, limit: int) -> list[str]:
@@ -509,11 +527,12 @@ def test_state_and_resume_of_an_unknown_run_are_404(client: TestClient) -> None:
     assert client.post("/agent/runs/deadbeef/state", json={"values": {}}).status_code == 404
 
 
-def test_watching_a_run_does_not_make_it_look_started(client: TestClient) -> None:
-    """The studio opens the stream when a run is picked, before anyone presses
-    start. If that read as in flight, the run could never be started at all."""
+def test_watching_a_run_does_not_make_it_look_started(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opening the stream before anyone presses start must not read as in flight,
+    or the run could never be started at all."""
     import api.agent.channels as routes
 
+    monkeypatch.setenv(ENV_MODEL, "agent")
     run_id = _upload(client)["run_id"]
     # What GET /events does on connect.
     routes._channel(run_id)
@@ -522,11 +541,12 @@ def test_watching_a_run_does_not_make_it_look_started(client: TestClient) -> Non
     assert body["already_running"] is False
 
 
-def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient) -> None:
+def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """The watcher holds the channel object, so a new worker reuses it rather
     than swapping in one nothing writes to."""
     import api.agent.channels as routes
 
+    monkeypatch.setenv(ENV_MODEL, "agent")
     run_id = _upload(client)["run_id"]
     watched = routes._channel(run_id)
 
@@ -1429,3 +1449,41 @@ def test_a_stray_nul_deep_in_a_text_file_does_not_fail_the_upload(client: TestCl
     stored = client.get(f"/agent/runs/{body['run_id']}/file", params={"path": "src/odd.c"}).json()
     assert "\x00" not in stored["content"]
     assert "�" in stored["content"]
+
+
+def test_starting_without_a_model_is_refused_rather_than_started(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 503 from the button, not a run that dies.
+
+    `require_model` was checked inside the worker thread, so a deployment with no
+    `AGENT_MODEL` accepted the request with a 200, marked the run `inspecting`,
+    and then failed -- which reaches the reader as 실행 실패 on a scan they thought
+    had started, rather than as a button telling them what to configure.
+    """
+    monkeypatch.delenv(ENV_MODEL, raising=False)
+    run_id = _upload(client)["run_id"]
+
+    response = client.post(f"/agent/runs/{run_id}/inspect", json={})
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "AGENT_MODEL" in detail
+    # And the run is untouched: nothing was spawned, so it is still indexed.
+    assert client.get(f"/agent/runs/{run_id}").json()["status"] != "inspecting"
+
+
+def test_health_names_what_the_endpoint_actually_serves(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The one fact that turns this dead end into a one-line fix.
+
+    Knowing `AGENT_MODEL` is unset does not say what to set it *to*, and the
+    endpoint already knows.
+    """
+    monkeypatch.delenv(ENV_MODEL, raising=False)
+    monkeypatch.setattr("api.agent.meta.list_models", lambda _base: ["agent", "other"])
+
+    body = client.get("/agent/health", params={"probe": "true"}).json()
+
+    assert body["configured"] is False
+    assert body["served_models"] == ["agent", "other"]
+    assert body["model_is_served"] is False

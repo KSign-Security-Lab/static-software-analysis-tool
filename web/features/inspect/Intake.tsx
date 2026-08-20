@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ModelMissing from "@/features/inspect/ModelMissing";
 import type { IntakeSkip, RunSummary, UploadResult } from "@/lib/api/types";
 import { filesFromDrop, isArchiveDrop } from "@/lib/run/drop";
-import { useCloneRepo, useStartRun, useUpload, useUploadArchive } from "@/lib/run/queries";
+import { useAgentHealth, useCloneRepo, useStartRun, useUpload, useUploadArchive } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
   const [uploaded, setUploaded] = useState<UploadResult | null>(null);
   const upload = useUpload();
   const archive = useUploadArchive();
+  const health = useAgentHealth();
   const [over, setOver] = useState(0);
 
   // The run row is the truth once it exists; `uploaded` is only what this tab
@@ -137,7 +139,12 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
           </TabsContent>
         </Tabs>
 
-        {runId && <Ready run={run} indexed={indexed} />}
+        {/* Above the intake tabs, not beside the button: uploading still works
+            without a model, and the reader should know before they choose a
+            folder that the scan itself will not run. */}
+        <ModelMissing health={health.data} />
+
+        {runId && <Ready run={run} indexed={indexed} configured={health.data?.configured ?? true} />}
       </div>
     </div>
   );
@@ -287,7 +294,15 @@ function GitIntake({ onDone }: { onDone: (result: UploadResult) => void }) {
 
 /* -- what arrived, and the one button ----------------------------------------- */
 
-function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadResult | null }) {
+function Ready({
+  run,
+  indexed,
+  configured,
+}: {
+  run: RunSummary | undefined;
+  indexed: UploadResult | null;
+  configured: boolean;
+}) {
   const [runId] = useRunId();
   const { ensureAttached } = useRunStream();
   const start = useStartRun(runId, ensureAttached);
@@ -329,7 +344,10 @@ function Ready({ run, indexed }: { run: RunSummary | undefined; indexed: UploadR
           )}
           <Button
             className="mt-3"
-            disabled={!runId || start.isPending || stats?.chunks === 0}
+            // Not disabled for a missing model without saying why -- the strip
+            // above says it, and a button that is grey for an unstated reason is
+            // worse than one that explains itself.
+            disabled={!runId || start.isPending || stats?.chunks === 0 || !configured}
             onClick={() => start.mutate({})}
           >
             {start.isPending ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}

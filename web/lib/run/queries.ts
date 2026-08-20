@@ -36,11 +36,23 @@ import { useSelectedFinding } from "@/lib/run/selection";
 
 const enabled = (runId: string | null): runId is string => Boolean(runId);
 
+/**
+ * Whether the agent can run at all, and what the endpoint serves.
+ *
+ * Probed, which costs a request to the model endpoint, and it is worth it: that
+ * request is the only way to answer "then what *should* `AGENT_MODEL` be", and
+ * knowing an id is unset without knowing the alternatives is a dead end.
+ *
+ * There is deliberately no default model -- a wrong one silently produces
+ * plausible nonsense -- so an unconfigured deployment is a normal state that the
+ * intake screen has to be able to describe.
+ */
 export function useAgentHealth() {
   return useQuery({
-    queryKey: keys.health(false),
-    queryFn: ({ signal }) => health(false, { signal }),
+    queryKey: keys.health(true),
+    queryFn: ({ signal }) => health(true, { signal }),
     staleTime: 60_000,
+    retry: false,
   });
 }
 
