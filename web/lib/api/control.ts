@@ -81,3 +81,18 @@ export function resumeRun(
 export function isFanOut(parentNext: string[] | undefined): boolean {
   return (parentNext?.length ?? 0) > 1;
 }
+
+/**
+ * Stop a running scan, keeping what it has already found.
+ *
+ * Not `resumeRun({action: "abort"})`, which steers a worker *waiting* at a
+ * breakpoint by handing it an answer -- nothing reads that queue unless the
+ * graph has parked, and this surface sets no breakpoints, so 중단 was refused on
+ * every scan it was pressed on. This sets a flag the graph loop checks instead.
+ *
+ * The run ends as `cancelled` rather than `done`, because stopping is neither
+ * finishing nor failing.
+ */
+export function cancelRun(runId: string): Promise<{ run_id: string; cancelled: boolean }> {
+  return post<{ run_id: string; cancelled: boolean }>(`/agent/runs/${seg(runId)}/cancel`);
+}

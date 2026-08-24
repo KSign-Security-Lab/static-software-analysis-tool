@@ -2,20 +2,21 @@ import type { RunLive } from "@/lib/run/reduce";
 import type { RunSummary } from "@/lib/api/types";
 
 /**
- * Which of the three screens 검사 is on.
+ * Which of the two screens 검사 is on.
  *
- * One route, three states, and the state is derived rather than stored: a stage
- * held in React would be a second source of truth next to the run's own status,
- * and the two would disagree exactly when it mattered -- a reload mid-scan, a
- * shared `?run=` link, a run this tab did not start.
+ * There were three. "Scanning" was a page for waiting -- a phase, a bar and a
+ * growing list -- which then swapped for a *different* page the moment the run
+ * ended, discarding the reader's scroll position and filters along with it. The
+ * findings stream in during the scan, so the results page can simply be the
+ * scanning page with a strip on it. A run in flight is not a different place.
  *
- * Pure so the transitions are testable without a browser. The awkward cases are
- * all here rather than spread across effects: a run that is inspecting but whose
- * stream this tab has not attached to yet, a run that failed after producing
- * findings, and a run parked at a breakpoint.
+ * Derived rather than stored: a stage held in React would be a second source of
+ * truth next to the run's own status, and the two would disagree exactly when it
+ * mattered -- a reload mid-scan, a shared `?run=` link, a run this tab did not
+ * start.
  */
 
-export type Stage = "intake" | "scanning" | "results";
+export type Stage = "intake" | "results";
 
 export interface StageInput {
   run: RunSummary | undefined;
@@ -29,8 +30,8 @@ export function stageOf({ run, live, hasFindings }: StageInput): Stage {
   if (!run) return "intake";
 
   // The stream is authoritative while it is open, because it is ahead of the
-  // row: `run_finished` arrives before the status column is re-read.
-  if (live.active && !live.finished) return "scanning";
+  // row: a run this tab has just started still reads `indexed` for a moment.
+  if (live.active && !live.finished) return "results";
 
   switch (run.status) {
     case "created":
@@ -39,14 +40,14 @@ export function stageOf({ run, live, hasFindings }: StageInput): Stage {
       // somewhere to put "reading 1,204 files".
       return "intake";
     case "indexed":
-      // Indexed and never started. Intake, because the button to start is there.
+      // Indexed and never started. Intake, because the button to start is there
+      // and there is nothing yet to put on a results page.
       return "intake";
     case "inspecting":
-      return "scanning";
+      // Running, with or without this tab attached to the stream.
+      return "results";
     case "interrupted":
-      // Parked. Findings so far are real and worth reading, so this is results
-      // rather than a third kind of progress screen.
-      return hasFindings ? "results" : "scanning";
+    case "cancelled":
     case "done":
       return "results";
     case "failed":
@@ -57,6 +58,19 @@ export function stageOf({ run, live, hasFindings }: StageInput): Stage {
     default:
       return "intake";
   }
+}
+
+/**
+ * Whether the scan is still going, from either side.
+ *
+ * The stream and the row disagree in both directions and briefly: a tab that has
+ * just pressed start has a live stream while the row still says `indexed`, and a
+ * tab that arrives mid-run has a row saying `inspecting` before its EventSource
+ * has attached. Either is enough.
+ */
+export function isScanning({ run, live }: Pick<StageInput, "run" | "live">): boolean {
+  if (live.active && !live.finished) return true;
+  return run?.status === "inspecting";
 }
 
 /**

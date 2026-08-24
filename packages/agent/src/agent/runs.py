@@ -18,6 +18,7 @@ not be a rewrite of those.
 
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -41,6 +42,7 @@ __all__ = [
     "MAX_UPLOAD_FILES",
     "MAX_SINGLE_FILE_BYTES",
     "Run",
+    "STATUS_CANCELLED",
     "STATUS_CREATED",
     "STATUS_DONE",
     "STATUS_FAILED",
@@ -55,6 +57,8 @@ __all__ = [
     "index_run",
     "iter_all_files",
     "list_runs",
+    "runs_with_same_tree",
+    "tree_sha",
     "new_run",
     "run_label",
     "store_zip",
@@ -72,6 +76,8 @@ STATUS_INSPECTING = "inspecting"
 #: still holding its tools and can be told to carry on.
 STATUS_INTERRUPTED = "interrupted"
 STATUS_DONE = "done"
+#: Stopped on request, so the report is partial and says so.
+STATUS_CANCELLED = "cancelled"
 STATUS_FAILED = "failed"
 
 
@@ -340,6 +346,73 @@ def list_runs(config: AgentConfig | None = None, owner: str | None = None) -> li
             query = query.where(RunRow.owner == owner)
         ids = list(session.scalars(query))
     return [describe_run(Run(run_id=run_id, config=cfg)) for run_id in ids]
+
+
+def tree_sha(run: Run) -> str | None:
+    """A fingerprint of exactly what a run holds, or None if it holds nothing.
+
+    `files.sha` exists for this -- its own docstring says so -- and a run is the
+    set of them: every path with its content hash, in path order. Two runs share
+    a fingerprint when they are byte-identical trees, and differ when a single
+    file was added, removed or edited. "Exact match" therefore needs no separate
+    definition; it falls out of the aggregate.
+
+    Computed rather than stored. A column or a `meta` field would only ever match
+    runs created after it was added, and the interesting case on the day this
+    ships is the history somebody already has.
+    """
+    with session_scope(run.config) as session:
+        rows = session.execute(
+            select(FileRow.path, FileRow.sha).where(FileRow.run_id == run.run_id).order_by(FileRow.path)
+        ).all()
+    if not rows:
+        return None
+    material = "\n".join(f"{path}:{sha}" for path, sha in rows)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def runs_with_same_tree(run: Run, owner: str | None = None) -> list[dict[str, Any]]:
+    """Other runs holding byte-identical code, most recently touched first.
+
+    What makes re-uploading answerable. The cross-run cache already means an
+    unchanged tree costs nothing to re-scan, but the reader only found that out
+    afterwards -- having uploaded, pressed start, and watched it finish in five
+    seconds. Knowing *before* is a different question, and this is it.
+
+    Two queries and the comparison in Python, rather than one clever one. The
+    fingerprint is an ordered aggregate hashed in the database if you write it
+    that way, and the first attempt here did: it needed `string_agg` with an
+    aggregate `ORDER BY`, a `convert_to`, a `sha256` and an `encode`, and it
+    failed on the argument types before it ever ran. The selectivity that
+    actually matters is the file count, which is a `GROUP BY` any database is
+    happy with -- and it reduces the candidates to nearly always none or one,
+    after which comparing two short strings per file costs nothing.
+
+    Scoped to one owner, because the run list is. Offering to open a stranger's
+    run would be worse than offering nothing: nobody recognises it, and the
+    header it is keyed by is a typed name rather than a login.
+    """
+    mine = tree_sha(run)
+    if mine is None:
+        return []
+
+    with session_scope(run.config) as session:
+        size = session.scalar(select(func.count()).select_from(FileRow).where(FileRow.run_id == run.run_id))
+        # A different number of files is a different tree, and this is the cheap
+        # way to say so for every run at once.
+        candidates = list(
+            session.scalars(
+                select(FileRow.run_id)
+                .join(RunRow, RunRow.id == FileRow.run_id)
+                .where(FileRow.run_id != run.run_id, *([RunRow.owner == owner] if owner else []))
+                .group_by(FileRow.run_id)
+                .having(func.count() == size)
+            )
+        )
+
+    matched = [run_id for run_id in candidates if tree_sha(Run(run_id=run_id, config=run.config)) == mine]
+    rows = [describe_run(Run(run_id=run_id, config=run.config)) for run_id in matched]
+    return sorted(rows, key=lambda row: row.get("updated_at") or 0, reverse=True)
 
 
 def abandon_live_runs(config: AgentConfig | None = None) -> list[str]:

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { RunStreamProvider } from "@/lib/run/stream";
 import { resetAll } from "@/lib/inspect/bucket";
 import type { UiFinding } from "@/lib/model/finding";
 import { keys } from "@/lib/query/keys";
@@ -61,7 +62,12 @@ function show(findings: UiFinding[]) {
   return render(
     <NuqsTestingAdapter searchParams={{ run: RUN }}>
       <QueryClientProvider client={client}>
-        <Findings findings={findings} />
+        {/* `Coverage` offers a forced re-scan, and starting a run must attach the
+            stream first -- the server ends it when a run finishes, so a second
+            run would otherwise execute with nobody listening. */}
+        <RunStreamProvider runId={null}>
+          <Findings findings={findings} />
+        </RunStreamProvider>
       </QueryClientProvider>
     </NuqsTestingAdapter>,
   );

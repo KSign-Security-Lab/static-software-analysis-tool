@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RunStatus, RunSummary } from "@/lib/api/types";
 import { IDLE, type RunLive } from "@/lib/run/reduce";
-import { phaseOf, progressOf, stageOf } from "./stage";
+import { isScanning, phaseOf, progressOf, stageOf } from "./stage";
 
 function run(status: RunStatus): RunSummary {
   return {
@@ -20,6 +20,13 @@ function live(over: Partial<RunLive> = {}): RunLive {
 }
 
 describe("stageOf", () => {
+  it("has no separate screen for a run in flight", () => {
+    // The findings stream in during a scan, so the results page is where the
+    // scan belongs -- a third screen only cost the reader their scroll and
+    // filters when it swapped at the end.
+    expect(stageOf({ run: run("inspecting"), live: live(), hasFindings: false })).toBe("results");
+  });
+
   it("shows intake when there is no run", () => {
     expect(stageOf({ run: undefined, live: live(), hasFindings: false })).toBe("intake");
   });
@@ -34,14 +41,11 @@ describe("stageOf", () => {
     expect(stageOf({ run: run("indexed"), live: live(), hasFindings: false })).toBe("intake");
   });
 
-  it("shows scanning while the run is inspecting", () => {
-    expect(stageOf({ run: run("inspecting"), live: live(), hasFindings: false })).toBe("scanning");
-  });
+
 
   it("believes the stream over the row while the stream is open", () => {
-    // `run_finished` arrives before the status column is re-read, and the row
-    // still says `indexed` for a run this tab has only just started.
-    expect(stageOf({ run: run("indexed"), live: live({ active: true }), hasFindings: false })).toBe("scanning");
+    // The row still says `indexed` for a run this tab has only just started.
+    expect(stageOf({ run: run("indexed"), live: live({ active: true }), hasFindings: false })).toBe("results");
   });
 
   it("goes to results once the stream says the run finished", () => {
@@ -57,14 +61,38 @@ describe("stageOf", () => {
     expect(stageOf({ run: run("done"), live: live(), hasFindings: false })).toBe("results");
   });
 
-  it("shows what a parked run has already found rather than a third progress screen", () => {
-    expect(stageOf({ run: run("interrupted"), live: live(), hasFindings: true })).toBe("results");
-    expect(stageOf({ run: run("interrupted"), live: live(), hasFindings: false })).toBe("scanning");
+  it("shows a parked or stopped run, found anything or not", () => {
+    // Both are "stopped, not finished", and both have a report to render even
+    // when it is empty -- which is a statement about coverage, not a blank page.
+    for (const status of ["interrupted", "cancelled"] as const) {
+      expect(stageOf({ run: run(status), live: live(), hasFindings: true })).toBe("results");
+      expect(stageOf({ run: run(status), live: live(), hasFindings: false })).toBe("results");
+    }
   });
 
   it("keeps a failed run's findings readable, and sends an empty failure back to intake", () => {
     expect(stageOf({ run: run("failed"), live: live(), hasFindings: true })).toBe("results");
     expect(stageOf({ run: run("failed"), live: live(), hasFindings: false })).toBe("intake");
+  });
+});
+
+describe("isScanning", () => {
+  it("is true from the stream before the row has caught up", () => {
+    expect(isScanning({ run: run("indexed"), live: live({ active: true }) })).toBe(true);
+  });
+
+  it("is true from the row before the stream has attached", () => {
+    // A tab that arrives mid-run has a row saying `inspecting` and no
+    // EventSource yet; the strip has to appear anyway.
+    expect(isScanning({ run: run("inspecting"), live: live() })).toBe(true);
+  });
+
+  it("is false once the stream says it finished", () => {
+    expect(isScanning({ run: run("done"), live: live({ active: true, finished: true }) })).toBe(false);
+  });
+
+  it("is false with no run at all", () => {
+    expect(isScanning({ run: undefined, live: live() })).toBe(false);
   });
 });
 

@@ -14,7 +14,7 @@ which node is running *now*, and that only comes out of the stream.
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from ..cache import ResultCache, recipe_of
 from ..config import AgentConfig
@@ -69,11 +69,23 @@ class InspectionSession:
         checkpoints: bool = False,
         breakpoints: Sequence[str] = (),
         breakpoints_after: Sequence[str] = (),
+        #: Asked between super-steps: has somebody said stop?
+        #:
+        #: A callable rather than a flag, because the answer changes while the
+        #: graph runs and the caller owns where it lives -- the API keeps it on
+        #: the run's channel, the CLI has no use for it at all.
+        cancelled: Callable[[], bool] | None = None,
     ) -> None:
         self.run_id = run_id
         self.store = store
         self.config = config
         self._emit: ProgressSink = emit if emit is not None else (lambda event, payload: None)
+        self._cancelled: Callable[[], bool] = cancelled if cancelled is not None else (lambda: False)
+        #: Whether this session stopped because it was asked to, rather than
+        #: because it ran out of work. The worker reads it to decide what the run
+        #: is now -- a partial report presented as `done` would be the coverage
+        #: lie the whole surface is built to avoid.
+        self.stopped = False
         self._index_stats = index_stats or {}
         self._values: dict[str, Any] = {}
         self._next: tuple[str, ...] = ()
@@ -170,9 +182,7 @@ class InspectionSession:
         # One thread per run, so a run's history is its own and stepping through
         # it afterwards shows that run's states and nobody else's.
         # One thread per run, keyed by run id in shared tables.
-        self._conn, self._saver = (
-            checkpoint_saver(config.database_url) if checkpoints else (None, None)
-        )
+        self._conn, self._saver = checkpoint_saver(config.database_url) if checkpoints else (None, None)
 
         # Interrupts are implemented by the checkpointer -- without one there is
         # nowhere to stop, so breakpoints are dropped rather than raising.
@@ -335,13 +345,27 @@ class InspectionSession:
         }
 
     def _stream(self, payload: Any, config: dict[str, Any]) -> None:
-        """Drive the graph, reporting each node as it starts and finishes."""
+        """Drive the graph, reporting each node as it starts and finishes.
+
+        Checked for cancellation between frames, which is where stopping is
+        cheap and safe: the checkpointer has written the last super-step, so
+        abandoning the generator leaves a resumable history rather than a torn
+        one, and `report()` reads the store -- so everything found up to here
+        survives being asked to stop.
+
+        Not an exception. A cancelled run is not a failed one, and raising here
+        would have to be caught and translated back into "this is fine" by every
+        caller.
+        """
         for mode, frame in self._app.stream(payload, config=config, stream_mode=["debug", "values"]):
             if mode == "values":
                 if isinstance(frame, dict):
                     self._values = frame
             else:
                 self._report(frame)
+            if self._cancelled():
+                self.stopped = True
+                break
         self._refresh()
 
     def _report(self, frame: Any) -> None:

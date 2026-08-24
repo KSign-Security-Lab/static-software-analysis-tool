@@ -22,7 +22,19 @@ export type { Evidence, Finding, Remediation, Report, RunStats } from "@/lib/age
  */
 export type SourceSpan = WireSpan;
 
-export type RunStatus = "created" | "indexing" | "indexed" | "inspecting" | "interrupted" | "done" | "failed";
+/**
+ * `cancelled` is deliberately not `done`: `done` says the tree was read, and a
+ * partial report wearing it is the coverage lie this surface is built to avoid.
+ */
+export type RunStatus =
+  | "created"
+  | "indexing"
+  | "indexed"
+  | "inspecting"
+  | "interrupted"
+  | "cancelled"
+  | "done"
+  | "failed";
 
 export interface IndexStats {
   files_indexed: number;
@@ -442,6 +454,15 @@ export interface UploadResult {
   files: string[];
   origin: Origin;
   intake: Intake;
+  /**
+   * Earlier runs holding byte-identical code, newest first.
+   *
+   * Answered with the upload rather than left for the page to ask, because the
+   * answer decides whether this upload should be started at all: the cross-run
+   * cache means an unchanged tree costs nothing to re-scan, and the reader used
+   * to discover that only by watching a scan finish in five seconds.
+   */
+  matches: RunSummary[];
 }
 
 /* -- patch export ------------------------------------------------------------ */

@@ -1,10 +1,11 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
+import { Search, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/workbench/PanelShell";
 import BucketTray from "@/features/inspect/BucketTray";
+import ScanStrip from "@/features/inspect/ScanStrip";
 import Coverage from "@/features/inspect/Coverage";
 import FilterBar from "@/features/inspect/FilterBar";
 import FindingDetail from "@/features/inspect/FindingDetail";
@@ -31,7 +32,16 @@ import { useSelection } from "@/lib/run/selection";
  * the two things that actually want width are a finding's evidence and its
  * patch, which are both in the detail column.
  */
-export default function Findings({ findings, stats }: { findings: UiFinding[]; stats?: RunStats }) {
+export default function Findings({
+  findings,
+  stats,
+  scanning = false,
+}: {
+  findings: UiFinding[];
+  stats?: RunStats;
+  /** A scan is still running, so this list is growing and not yet complete. */
+  scanning?: boolean;
+}) {
   const [runId] = useRunId();
   const [order] = useSort();
   const { select } = useSelection();
@@ -45,12 +55,22 @@ export default function Findings({ findings, stats }: { findings: UiFinding[]; s
   if (findings.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
+        {scanning && <ScanStrip />}
         <Coverage stats={stats} />
         <div className="mx-auto w-full max-w-2xl px-6 py-10">
-          <EmptyState icon={ShieldCheck} title="찾은 취약점이 없습니다">
-            읽은 단위에서 보고할 것이 없었습니다. 그것도 결과입니다 — 무엇을 얼마나 읽었는지는 ‘지난 검사’ 에
-            남아 있습니다.
-          </EmptyState>
+          {/* "없습니다" would be a claim about the code. While a scan is running
+              it is a claim about how far it has got, and those are different
+              sentences. */}
+          {scanning ? (
+            <EmptyState icon={Search} title="아직 찾은 것이 없습니다">
+              계속 찾고 있습니다. 읽은 단위 대부분은 아무 문제가 없고, 나오는 대로 이 자리에 쌓입니다.
+            </EmptyState>
+          ) : (
+            <EmptyState icon={ShieldCheck} title="찾은 취약점이 없습니다">
+              읽은 단위에서 보고할 것이 없었습니다. 그것도 결과입니다 — 무엇을 얼마나 읽었는지는 ‘지난 검사’ 에
+              남아 있습니다.
+            </EmptyState>
+          )}
         </div>
       </div>
     );
@@ -58,6 +78,7 @@ export default function Findings({ findings, stats }: { findings: UiFinding[]; s
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {scanning && <ScanStrip />}
       {/* Above both columns: it is a statement about the whole report, and a
           reader who takes the list at face value is the person it is for. */}
       <Coverage stats={stats} />
@@ -98,7 +119,10 @@ export default function Findings({ findings, stats }: { findings: UiFinding[]; s
           )}
         </ul>
 
-        <BucketTray findings={findings} />
+        {/* Hidden while a scan runs, and not merely disabled: `/patch` builds
+            from the saved report, which does not exist until the run ends, so
+            every button in the tray would 409. */}
+        {!scanning && <BucketTray findings={findings} />}
       </section>
 
         <FindingDetail finding={open} />

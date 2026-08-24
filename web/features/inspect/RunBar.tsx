@@ -6,7 +6,6 @@ import RunPicker from "@/features/inspect/RunPicker";
 import WhoAmI from "@/features/inspect/WhoAmI";
 import { Button } from "@/components/ui/button";
 import type { Origin } from "@/lib/api/types";
-import type { Stage } from "@/lib/inspect/stage";
 import { SEVERITY_DOT, SEVERITY_LABEL, type UiFinding } from "@/lib/model/finding";
 import { bySeverity } from "@/lib/inspect/filter";
 import { useRun } from "@/lib/run/queries";
@@ -24,7 +23,7 @@ import { useRunId } from "@/lib/run/use-run-id";
  * this is, whose runs these are, and how to start again. The severity tally
  * joins them only once there is something to tally.
  */
-export default function RunBar({ stage, findings }: { stage: Stage; findings: UiFinding[] }) {
+export default function RunBar({ findings }: { findings: UiFinding[] }) {
   const [runId, setRunId] = useRunId();
   const run = useRun(runId);
   const origin = run.data?.origin;
@@ -42,9 +41,10 @@ export default function RunBar({ stage, findings }: { stage: Stage; findings: Ui
         )}
       </span>
 
-      {/* Only where there is something to count. A row of zeroes on the intake
-          screen would be a summary of nothing. */}
-      {stage === "results" && counts.length > 0 && (
+      {/* Only where there is something to count. `stage === "results"` used to
+          gate this and now always holds -- a scan runs on the results page -- so
+          the tally is gated on there being a tally. */}
+      {counts.length > 0 && (
         <span className="flex shrink-0 items-center gap-2.5 border-l border-line pl-3">
           {counts.map(({ value, count }) => (
             <span key={value} className="flex items-center gap-1 text-2xs text-ink-muted">

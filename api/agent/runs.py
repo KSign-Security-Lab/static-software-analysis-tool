@@ -22,6 +22,7 @@ from agent.runs import (
     store_zip,
     list_runs,
     new_run,
+    runs_with_same_tree,
     write_files,
 )
 
@@ -105,7 +106,7 @@ async def create_run(owner: OwnerDep, files: List[UploadFile] = File(...)) -> Di
             )
         raise HTTPException(status_code=400, detail=detail)
 
-    return _indexed(run, tree, _origin_of(files, len(tree.files)))
+    return _indexed(run, tree, _origin_of(files, len(tree.files)), owner)
 
 
 def _origin_of(files: List[UploadFile], written: int) -> Origin:
@@ -121,12 +122,13 @@ def _origin_of(files: List[UploadFile], written: int) -> Origin:
     return Origin(kind="upload", label=f"{written}개 파일")
 
 
-def _indexed(run: Run, tree: Tree, origin: Origin) -> Dict[str, Any]:
+def _indexed(run: Run, tree: Tree, origin: Origin, owner: str | None) -> Dict[str, Any]:
     """Index a populated run and describe it back.
 
     Shared by both intake routes so a repository and a zip cannot end up
     differently indexed, or differently described, for no reason a reader could
-    see -- including what each passed over.
+    see -- including what each passed over, and which earlier runs already hold
+    this exact code.
 
     `skipped` is carried on `meta` as well as returned, because the reason a file
     is missing from a later patch archive has to survive the request that decided
@@ -154,6 +156,11 @@ def _indexed(run: Run, tree: Tree, origin: Origin) -> Dict[str, Any]:
         "files": sorted(iter_all_files(run)),
         "origin": origin.as_dict(),
         "intake": intake,
+        # Answered here rather than left for the page to ask, because the answer
+        # decides whether this upload should be started at all. Indexing first is
+        # deliberate: it is seconds, and the summary the screen shows beside the
+        # question comes out of it.
+        "matches": runs_with_same_tree(run, owner),
     }
 
 
@@ -200,7 +207,7 @@ def create_run_from_git(owner: OwnerDep, request: CloneRequest) -> Dict[str, Any
         ref=cloned.ref,
         commit=cloned.commit,
     )
-    return _indexed(run, tree, origin)
+    return _indexed(run, tree, origin, owner)
 
 
 def _reindex(run: Run) -> Dict[str, int]:

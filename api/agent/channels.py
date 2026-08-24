@@ -55,6 +55,15 @@ class RunChannel:
     #: Set while the run is stopped at a breakpoint, so a resume request knows
     #: whether to steer the live worker or start a new one.
     waiting: threading.Event = field(default_factory=threading.Event)
+    #: Asked to stop, whether or not it is waiting for anything.
+    #:
+    #: `commands` could not answer this. It is only read by a worker parked at a
+    #: breakpoint, so 중단 on an ordinary scan put a message into a queue nobody
+    #: was reading and the request was refused with "not stopped at a
+    #: breakpoint" -- which is true and useless, since the new surface sets no
+    #: breakpoints and a run therefore never parks. An event can be checked
+    #: rather than waited for, which is what stopping a *running* graph needs.
+    cancelled: threading.Event = field(default_factory=threading.Event)
     #: Whether a worker was ever put on this channel. A channel opened by a
     #: listener is not a run in flight -- without this, watching a run before
     #: starting it would make it look like it had already started.

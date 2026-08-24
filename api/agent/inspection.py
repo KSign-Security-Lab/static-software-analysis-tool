@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from agent.config import AgentConfig
 from agent.graph.session import InspectionSession, ParallelStep
 from agent.runs import (
+    STATUS_CANCELLED,
     STATUS_DONE,
     STATUS_FAILED,
     STATUS_INSPECTING,
@@ -155,6 +156,7 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
             checkpoints=True,
             breakpoints=order.breakpoints,
             breakpoints_after=order.breakpoints_after,
+            cancelled=channel.cancelled.is_set,
         )
 
         if order.fresh:
@@ -189,7 +191,17 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
 
         report = session.report()
         run.save_report(report)
-        run.set_status(STATUS_DONE, findings=len(report.findings), parked=None, progress=None)
+        # `cancelled` rather than `done`, because `done` says the tree was read.
+        # A partial report presented as complete is the coverage lie the whole
+        # surface is built to avoid -- and `stats` already carries the numbers
+        # that make the difference legible.
+        stopped = session.stopped or channel.cancelled.is_set()
+        run.set_status(
+            STATUS_CANCELLED if stopped else STATUS_DONE,
+            findings=len(report.findings),
+            parked=None,
+            progress=None,
+        )
         emit(
             "run_finished",
             {"run_id": run.run_id, "findings": len(report.findings), "aborted": aborted},
@@ -354,6 +366,33 @@ def resume_inspection(run: RunDep, request: ResumeRequest | None = None) -> Dict
         ),
     )
     return {"run_id": run.run_id, "resumed": True, "worker": "new"}
+
+
+@router.post("/runs/{run_id}/cancel")
+def cancel_inspection(run: RunDep) -> Dict[str, Any]:
+    """Stop a running scan, keeping what it has already found.
+
+    Separate from `/resume {action: "abort"}`, which steers a worker *waiting* at
+    a breakpoint by handing it an answer. That could not stop an ordinary scan:
+    nothing reads `commands` unless the graph has parked, and the surface this
+    serves sets no breakpoints, so 중단 refused every run it was pressed on with
+    "not stopped at a breakpoint" -- true, and useless.
+
+    So this sets a flag the graph loop *checks* rather than a message it waits
+    for, and pushes the abort command as well, so the one route covers a parked
+    worker too. The run ends as `cancelled` with the findings it had: stopping is
+    not failing, and it is not finishing either.
+    """
+    channel = _live_channel(run.run_id)
+    if channel is None or not channel.claimed:
+        raise HTTPException(status_code=409, detail="지금 진행 중인 검사가 없습니다.")
+
+    channel.cancelled.set()
+    if channel.waiting.is_set():
+        # Parked at a breakpoint, so it is waiting to be told rather than
+        # looking to be stopped. Both, and whichever it is reads it.
+        channel.commands.put({"action": "abort"})
+    return {"run_id": run.run_id, "cancelled": True}
 
 
 @router.get("/runs/{run_id}/events")

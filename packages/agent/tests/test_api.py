@@ -1487,3 +1487,187 @@ def test_health_names_what_the_endpoint_actually_serves(client: TestClient, monk
     assert body["configured"] is False
     assert body["served_models"] == ["agent", "other"]
     assert body["model_is_served"] is False
+
+
+# -- an upload that has been scanned before ------------------------------------
+#
+# The cross-run cache already means an unchanged tree costs nothing to re-scan.
+# What it did not do is *say so before the work*: the reader uploaded, pressed
+# start, and learned it had all happened before by watching it finish in five
+# seconds. These pin the question being answered at intake instead.
+
+
+def test_a_re_upload_names_the_run_that_already_has_it(client: TestClient) -> None:
+    first = _upload(client)
+    assert first["matches"] == [], "the first upload of a tree has nothing to match"
+
+    second = _upload(client)
+
+    assert [m["run_id"] for m in second["matches"]] == [first["run_id"]]
+    # Enough to describe it without a second request: what it was, how it went.
+    match = second["matches"][0]
+    assert match["file_count"] == 2
+    assert match["status"] in {"indexed", "done"}
+
+
+def test_one_changed_byte_is_a_different_tree(client: TestClient) -> None:
+    _upload(client)
+    edited = {**SAMPLE, "src/app.c": SAMPLE["src/app.c"] + "// touched\n"}
+
+    assert _upload(client, edited)["matches"] == []
+
+
+def test_a_missing_file_is_a_different_tree(client: TestClient) -> None:
+    """The file *count* is the prefilter, so this is the case it must not pass."""
+    _upload(client)
+
+    assert _upload(client, {"src/app.c": SAMPLE["src/app.c"]})["matches"] == []
+
+
+def test_an_added_file_is_a_different_tree(client: TestClient) -> None:
+    _upload(client)
+
+    assert _upload(client, {**SAMPLE, "src/extra.c": "int extra;\n"})["matches"] == []
+
+
+def test_a_stranger_s_run_is_never_offered(client: TestClient) -> None:
+    """The run list is scoped by the owner header, and so is this.
+
+    Not a security boundary -- nothing is -- but nobody recognises a stranger's
+    run, so offering to open one is worse than offering nothing.
+    """
+    payload = _zip(SAMPLE)
+    theirs = client.post(
+        "/agent/runs",
+        files={"files": ("upload.zip", payload, "application/zip")},
+        headers={"x-ssat-owner": "somebody-else"},
+    )
+    assert theirs.status_code == 200
+
+    mine = client.post(
+        "/agent/runs",
+        files={"files": ("upload.zip", _zip(SAMPLE), "application/zip")},
+        headers={"x-ssat-owner": "me"},
+    )
+    assert mine.json()["matches"] == []
+
+
+def test_matches_are_newest_first(client: TestClient) -> None:
+    older = _upload(client)["run_id"]
+    newer = _upload(client)["run_id"]
+
+    third = _upload(client)
+
+    assert [m["run_id"] for m in third["matches"]] == [newer, older]
+
+
+def test_a_cloned_tree_matches_an_uploaded_one(
+    client: TestClient, git_remote: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fingerprint is the content, not how it arrived."""
+    import shutil
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    monkeypatch.setattr("agent.vcs.check_url", lambda url: url)
+
+    first = client.post("/agent/runs/git", json={"url": str(git_remote), "ref": "main"}).json()
+    second = client.post("/agent/runs/git", json={"url": str(git_remote), "ref": "main"}).json()
+
+    assert [m["run_id"] for m in second["matches"]] == [first["run_id"]]
+
+
+# -- stopping a run ------------------------------------------------------------
+
+
+def test_cancelling_when_nothing_is_running_is_refused(client: TestClient) -> None:
+    run_id = _upload(client)["run_id"]
+    response = client.post(f"/agent/runs/{run_id}/cancel")
+
+    assert response.status_code == 409
+    assert "진행 중인 검사가 없습니다" in response.json()["detail"]
+
+
+def test_watching_a_run_is_not_something_to_cancel(client: TestClient) -> None:
+    """A channel opened by a listener is not a run in flight.
+
+    `claimed` is the difference, and it is the same distinction that stops
+    watching a run making it look started.
+    """
+    import api.agent.channels as channels
+
+    run_id = _upload(client)["run_id"]
+    channels._channel(run_id)
+
+    assert client.post(f"/agent/runs/{run_id}/cancel").status_code == 409
+
+
+def test_cancelling_a_live_run_sets_the_flag_the_graph_reads(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mechanism, without a model: the flag is what the graph loop checks.
+
+    `commands` could not carry this. Nothing reads that queue unless the graph
+    has parked at a breakpoint, which is why 중단 refused every ordinary scan.
+    """
+    import api.agent.channels as channels
+
+    run_id = _upload(client)["run_id"]
+    channel = channels._channel(run_id)
+    channel.claimed = True
+
+    response = client.post(f"/agent/runs/{run_id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["cancelled"] is True
+    assert channel.cancelled.is_set()
+
+
+def test_cancelling_a_parked_run_also_wakes_it(client: TestClient) -> None:
+    """One route for both. A worker waiting at a breakpoint is not looking at the
+    flag -- it is blocked on the queue -- so it gets the abort as well."""
+    import api.agent.channels as channels
+
+    run_id = _upload(client)["run_id"]
+    channel = channels._channel(run_id)
+    channel.claimed = True
+    channel.waiting.set()
+
+    client.post(f"/agent/runs/{run_id}/cancel")
+
+    assert channel.cancelled.is_set()
+    assert channel.commands.get_nowait() == {"action": "abort"}
+
+
+def test_a_cancelled_run_is_not_reported_as_done(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`done` says the tree was read. A partial report wearing it is the coverage
+    lie the whole surface is built to avoid."""
+    monkeypatch.setenv(ENV_MODEL, "agent")
+
+    class Stopped:
+        stopped = True
+
+        def __init__(self, **kwargs: object) -> None:
+            self._cancelled = kwargs.get("cancelled")
+
+        def start(self, **_kwargs: object) -> None:
+            return None
+
+        interrupted = False
+
+        def report(self):  # noqa: ANN202 - a stand-in for the real session
+            from agent.schema import Report
+
+            return Report(run_id="r")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", Stopped)
+    run_id = _upload(client)["run_id"]
+
+    assert client.post(f"/agent/runs/{run_id}/inspect").status_code == 200
+    with client.stream("GET", f"/agent/runs/{run_id}/events") as stream:
+        _collect_events(stream, limit=6)
+
+    assert client.get(f"/agent/runs/{run_id}").json()["status"] == "cancelled"

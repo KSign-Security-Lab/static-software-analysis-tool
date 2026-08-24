@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import DuplicateDialog from "@/features/inspect/DuplicateDialog";
 import ModelMissing from "@/features/inspect/ModelMissing";
 import type { IntakeSkip, RunSummary, UploadResult } from "@/lib/api/types";
 import { filesFromDrop, isArchiveDrop } from "@/lib/run/drop";
@@ -32,6 +33,14 @@ import { cn } from "@/lib/utils";
 export default function Intake({ run }: { run: RunSummary | undefined }) {
   const [runId, setRunId] = useRunId();
   const [uploaded, setUploaded] = useState<UploadResult | null>(null);
+  /**
+   * An upload whose code has been scanned before, until the reader answers.
+   *
+   * Separate from `uploaded` because dismissing the question must not un-upload
+   * the tree: 새로 검사 keeps the run and starts it, and the summary below stays
+   * exactly as it was.
+   */
+  const [duplicate, setDuplicate] = useState<UploadResult | null>(null);
   const upload = useUpload();
   const archive = useUploadArchive();
   const clone = useCloneRepo();
@@ -45,6 +54,9 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
   function accept(result: UploadResult) {
     setUploaded(result);
     setRunId(result.run_id);
+    // Asked before anything is started, because the answer decides whether it
+    // should be. See `DuplicateDialog`.
+    if (result.matches.length > 0) setDuplicate(result);
   }
 
   /**
@@ -156,6 +168,8 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
         <ModelMissing health={health.data} />
 
         {runId && <Ready run={run} indexed={indexed} configured={health.data?.configured ?? true} />}
+
+        {duplicate && <DuplicateDialog upload={duplicate} onDismiss={() => setDuplicate(null)} />}
       </div>
     </div>
   );

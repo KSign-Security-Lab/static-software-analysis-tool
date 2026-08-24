@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { describeError } from "@/lib/api/client";
+import { cancelRun } from "@/lib/api/control";
 import { downloadArchive, previewPatch, pushBranch, savePatch } from "@/lib/api/patch";
 import { keys } from "@/lib/query/keys";
 
@@ -73,5 +74,25 @@ export function usePushBranch(runId: string | null) {
       void client.invalidateQueries({ queryKey: keys.runs() });
     },
     onError: (error) => toast.error("브랜치를 올릴 수 없습니다", { description: describeError(error) }),
+  });
+}
+
+/**
+ * Stop a running scan.
+ *
+ * Invalidates the run rather than patching a status in: the worker decides what
+ * the run becomes -- `cancelled`, with whatever it had found -- and guessing that
+ * here would show a state the server may not agree with.
+ */
+export function useCancelRun(runId: string | null) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => cancelRun(runId!),
+    onSuccess: () => {
+      toast.info("검사를 중단했습니다", { description: "그때까지 찾은 것은 그대로 남습니다." });
+      void client.invalidateQueries({ queryKey: keys.run(runId!) });
+      void client.invalidateQueries({ queryKey: keys.runs() });
+    },
+    onError: (error) => toast.error("검사를 중단할 수 없습니다", { description: describeError(error) }),
   });
 }

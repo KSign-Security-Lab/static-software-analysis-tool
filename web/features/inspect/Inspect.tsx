@@ -5,10 +5,9 @@ import { useEffect, useMemo } from "react";
 import BackendDown from "@/features/inspect/BackendDown";
 import Findings from "@/features/inspect/Findings";
 import Intake from "@/features/inspect/Intake";
-import Progress from "@/features/inspect/Progress";
 import RunBar from "@/features/inspect/RunBar";
 import { reconcile } from "@/lib/inspect/bucket";
-import { stageOf } from "@/lib/inspect/stage";
+import { isScanning, stageOf } from "@/lib/inspect/stage";
 import { fromAgent } from "@/lib/model/finding";
 import { useFindings, useRun } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
@@ -33,6 +32,7 @@ export default function Inspect() {
 
   const findings = useMemo(() => fromAgent(report.data?.findings), [report.data]);
   const stage = stageOf({ run: run.data, live, hasFindings: findings.length > 0 });
+  const scanning = isScanning({ run: run.data, live });
 
   // Ticks for findings the report no longer has, dropped as soon as the report
   // says so. A re-scan gives every changed finding a new id -- they are derived
@@ -52,15 +52,16 @@ export default function Inspect() {
 
   return (
     <>
-      <RunBar stage={stage} findings={findings} />
+      <RunBar findings={findings} />
       {/* Above the stage, not inside one. A dead backend is not a property of
           intake or of results -- and it is exactly the moment the screen below
           becomes untrustworthy, so it has to be said where it cannot be
           mistaken for part of the flow. */}
       <BackendDown />
       {stage === "intake" && <Intake run={run.data} />}
-      {stage === "scanning" && <Progress findings={findings} />}
-      {stage === "results" && <Findings findings={findings} stats={report.data?.stats} />}
+      {stage === "results" && (
+        <Findings findings={findings} stats={report.data?.stats} scanning={scanning} />
+      )}
     </>
   );
 }

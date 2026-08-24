@@ -117,5 +117,6 @@ const STATUS: Record<string, string> = {
   indexed: "검사 전",
   inspecting: "검사 중",
   interrupted: "멈춤",
+  cancelled: "중단됨",
   failed: "실패",
 };

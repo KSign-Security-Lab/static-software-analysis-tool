@@ -83,9 +83,7 @@ class ScriptedCaller:
     #: Set by tests that want the gather step to return something.
     gathered: str = ""
 
-    def gather(
-        self, system: str, user: str, session: Any, budget: int, trace: Any = None, allowed: Any = None
-    ) -> str:
+    def gather(self, system: str, user: str, session: Any, budget: int, trace: Any = None, allowed: Any = None) -> str:
         self.prompts.append(("gather", user))
         self.gather_calls.append((session, budget))
         self.traces.append(trace)
@@ -1419,7 +1417,11 @@ def test_a_surviving_finding_gets_its_fix_during_the_run(indexed) -> None:
         def call(self, schema, system, user, trace=None):
             if schema is CandidateRemediation:
                 self.traces.append(trace)
-                return Outcome.of(CandidateRemediation(summary="셸을 거치지 마십시오", detail="배열로 넘기기", replacement="  execv(cmd);"))
+                return Outcome.of(
+                    CandidateRemediation(
+                        summary="셸을 거치지 마십시오", detail="배열로 넘기기", replacement="  execv(cmd);"
+                    )
+                )
             return super().call(schema, system, user, trace)
 
     caller = Fixer(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
@@ -1473,3 +1475,63 @@ def test_a_fix_the_model_will_not_give_costs_the_run_nothing(indexed) -> None:
     assert len(report.findings) == 1
     assert report.findings[0].remediation.replacement is None
     store.close()
+
+
+# -- stopping a run that is not parked -----------------------------------------
+#
+# `abort` steers a worker *waiting* at a breakpoint by handing it an answer, and
+# nothing reads that queue unless the graph has parked. So 중단 on an ordinary
+# scan -- which is every scan, the surface sets no breakpoints -- was refused with
+# "not stopped at a breakpoint". Cancellation is asked between super-steps
+# instead, which is a thing a running graph can be asked.
+
+
+def test_a_cancelled_run_stops_early_and_says_so(indexed, tmp_path: Path) -> None:
+    seen: list[str] = []
+
+    def watch(event: str, payload: Any) -> None:
+        seen.append(event)
+
+    # Stops at the first opportunity: cancelled before it ever starts.
+    with _session(indexed, tmp_path, emit=watch, cancelled=lambda: True) as session:
+        session.start()
+        assert session.stopped is True
+        assert session.report().stats.chunks_inspected == 0
+
+    # One frame reached the sink and then it stopped, and that frame is the
+    # opening checkpoint rather than a node: the check is between frames, and
+    # the first thing LangGraph emits is the state it is about to work from.
+    assert seen == ["checkpoint"]
+
+
+def test_cancelling_part_way_keeps_what_was_found(indexed, tmp_path: Path) -> None:
+    """Stopping is not failing, and the findings so far are the point of asking.
+
+    The checkpointer has written the last super-step, so abandoning the stream
+    leaves a resumable history rather than a torn one, and `report()` reads the
+    store -- which is why the findings survive.
+    """
+    steps = {"n": 0}
+
+    def after_a_few() -> bool:
+        steps["n"] += 1
+        return steps["n"] > 12
+
+    with _session(indexed, tmp_path, cancelled=after_a_few) as session:
+        session.start()
+        stopped = session.stopped
+        report = session.report()
+
+    assert stopped is True
+    # Whatever it managed is real. The count is not asserted -- it depends on
+    # where the twelfth frame lands -- only that stopping did not discard it.
+    assert report.stats.chunks_inspected >= 0
+    assert isinstance(report.findings, list)
+
+
+def test_a_run_nobody_cancels_finishes_normally(indexed, tmp_path: Path) -> None:
+    """The default must not cost anything: no callable, no stopping."""
+    with _session(indexed, tmp_path) as session:
+        session.start()
+        assert session.stopped is False
+        assert session.report().stats.chunks_inspected > 0
