@@ -9,8 +9,6 @@ def random_int_with_length(length: int) -> int:
         raise ValueError("Length must be positive")
 
     min_val = 10 ** (length - 1)
-    max_val = 10 ** length - 1
+    max_val = 10**length - 1
 
     return random.randint(min_val, max_val)
-
-

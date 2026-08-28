@@ -1,10 +1,20 @@
 """Post-processor for template nodes."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
-from ..types.cpg import CPGRoot, EdgeGeneric, VertexGeneric
+from ..types.cpg import CPGRoot
 from ..types.node import TemplateNodes
 from ..types.template.BaseNode.base_types import TemplateNodeTypes
+
+
+def as_template_node(data: Dict[str, Any]) -> TemplateNodes:
+    """Tag a dynamically built dict as a template node.
+
+    TemplateNodes is a union of TypedDicts, so a dict assembled at runtime (by
+    spreading an existing node and overriding keys) never matches structurally.
+    One cast in one place beats a `# type: ignore` at every construction site.
+    """
+    return cast(TemplateNodes, data)
 
 
 class PostProcessor:
@@ -35,7 +45,7 @@ class PostProcessor:
                 "code": code,
                 "children": self.add_code_properties(children, cpg) if children else [],
             }
-            result.append(processed_node)  # type: ignore
+            result.append(as_template_node(processed_node))
 
         return result
 
@@ -64,29 +74,52 @@ class PostProcessor:
                 current_type = self._get_node_type(current)
                 next_type = self._get_node_type(next_node) if next_node else None
 
-                if current_type == TemplateNodeTypes.ArrayDeclaration and next_type == TemplateNodeTypes.ArraySizeAllocation:
+                if (
+                    next_node is not None
+                    and current_type == TemplateNodeTypes.ArrayDeclaration
+                    and next_type == TemplateNodeTypes.ArraySizeAllocation
+                ):
                     array_decl = current
                     array_size = next_node
 
-                    merged_children.append({
-                        **(array_decl if isinstance(array_decl, dict) else array_decl.__dict__),
-                        "length": array_decl.get("length") if array_decl.get("length") == array_size.get("length") else array_size.get("length"),
-                        "children": (array_decl.get("children", []) or []) + (array_size.get("children", []) or []),
-                    })  # type: ignore
+                    merged_children.append(
+                        as_template_node(
+                            {
+                                **(array_decl if isinstance(array_decl, dict) else array_decl.__dict__),
+                                "length": array_decl.get("length")
+                                if array_decl.get("length") == array_size.get("length")
+                                else array_size.get("length"),
+                                "children": (array_decl.get("children", []) or [])
+                                + (array_size.get("children", []) or []),
+                            }
+                        )
+                    )
 
                     i += 2  # skip next (ArraySizeAllocation)
                 else:
-                    current_children = current.get("children", []) if isinstance(current, dict) else getattr(current, "children", [])
-                    merged_children.append({
-                        **(current if isinstance(current, dict) else current.__dict__),
-                        "children": self.merge_array_size_allocation(current_children) if current_children else current_children,
-                    })  # type: ignore
+                    current_children = (
+                        current.get("children", []) if isinstance(current, dict) else getattr(current, "children", [])
+                    )
+                    merged_children.append(
+                        as_template_node(
+                            {
+                                **(current if isinstance(current, dict) else current.__dict__),
+                                "children": self.merge_array_size_allocation(current_children)
+                                if current_children
+                                else current_children,
+                            }
+                        )
+                    )
                     i += 1
 
-            result.append({
-                **(node if isinstance(node, dict) else node.__dict__),
-                "children": merged_children,
-            })  # type: ignore
+            result.append(
+                as_template_node(
+                    {
+                        **(node if isinstance(node, dict) else node.__dict__),
+                        "children": merged_children,
+                    }
+                )
+            )
 
         return result
 
@@ -115,16 +148,18 @@ class PostProcessor:
             return result
 
         # Otherwise, keep this node but recurse into its children
-        children = node_dict.get("children", [])
+        children = node_dict.get("children") or []
         processed_children: List[TemplateNodes] = []
         for child in children:
             processed_children.extend(self._validate_node(child))
 
         return [
-            {
-                **node_dict,
-                "children": processed_children,
-            }  # type: ignore
+            as_template_node(
+                {
+                    **node_dict,
+                    "children": processed_children,
+                }
+            )
         ]
 
     def _unwrap_value(self, x: Any) -> Any:

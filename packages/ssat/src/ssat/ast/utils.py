@@ -8,9 +8,16 @@ from ..types.template.BaseNode.base_types import TemplateNodeTypes
 INVALID_FUNCTION_NAMES = ["", "<clinit>", "<empty>"]
 
 
-def recursively_get_functions_from_template(template: List[TemplateNodes]) -> List[TemplateNodes]:
-    """
-    Recursively extract function definitions from template nodes.
+def get_juliet_benchmark_functions(template: List[TemplateNodes]) -> List[TemplateNodes]:
+    """Extract the functions the Juliet benchmark cares about.
+
+    This is **not** a general-purpose function finder: it additionally requires
+    the name to match ``bad|good|sink``, which is Juliet's naming convention for
+    vulnerable/fixed/sink variants. On any other codebase it returns nothing.
+
+    For general extraction use :func:`ssat.utils.get_functions_from_template`.
+    The old name (``recursively_get_functions_from_template``) hid this filter
+    and made ``generate_ast`` silently yield zero functions on real code.
 
     Filters for:
     - FunctionDefinition node type
@@ -41,7 +48,7 @@ def recursively_get_functions_from_template(template: List[TemplateNodes]) -> Li
                         name not in INVALID_FUNCTION_NAMES
                         and isinstance(children, list)
                         and len(children) > 0
-                        and re.search(r"bad|good|sink", name, re.IGNORECASE)
+                        and re.search(r"bad|good|sink", name or "", re.IGNORECASE)
                     ):
                         functions.append(node)
 
@@ -67,4 +74,3 @@ def recursively_get_functions_from_template(template: List[TemplateNodes]) -> Li
 
     collect_functions(template)
     return functions
-

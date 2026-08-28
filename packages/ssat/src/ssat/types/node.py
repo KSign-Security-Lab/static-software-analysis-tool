@@ -1,6 +1,6 @@
 """Node type definitions and unions."""
 
-from typing import List, Union
+from typing import Union
 
 from .template import (
     IAddressOfExpression,
@@ -46,7 +46,6 @@ from .template import (
     IVariableDeclaration,
     IWhileStatement,
     TemplateFlattenedGraph,
-    TemplateFlattenedNode,
     TemplateNodeTypes,
 )
 
@@ -98,10 +97,7 @@ TemplateNodes = Union[
 
 __all__ = [
     "TemplateNodes",
-    "TemplateFlattenedNode",
     "TemplateFlattenedGraph",
     "TemplateNodeTypes",
     "IBaseNode",
 ]
-
-

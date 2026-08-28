@@ -1,0 +1,675 @@
+{
+  "function_names": {
+    "filtered": [],
+    "unfiltered": [
+      "foo",
+      "bar",
+      "dispatch"
+    ]
+  },
+  "functions": [
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ]
+        ],
+        "edges_ast_sb": [],
+        "nodes": [
+          {
+            "code": "<entry:foo>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149698,
+            "sid": 0
+          },
+          {
+            "code": "void *payload",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116992,
+            "sid": 1
+          },
+          {
+            "code": "<unknown> NULL",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280519,
+            "sid": 2
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "payload@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:foo>",
+              "def_vars": [
+                "payload"
+              ],
+              "use_vars": [
+                "payload"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 1,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 1,
+              "use_count": 1
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "void *payload",
+              "def_vars": [
+                "payload"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "<unknown> NULL",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 2
+          }
+        ]
+      },
+      "name": "foo"
+    },
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ]
+        ],
+        "edges_ast_sb": [],
+        "nodes": [
+          {
+            "code": "<entry:bar>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149699,
+            "sid": 0
+          },
+          {
+            "code": "void *payload",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116993,
+            "sid": 1
+          },
+          {
+            "code": "<unknown> NULL",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280518,
+            "sid": 2
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "payload@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:bar>",
+              "def_vars": [
+                "payload"
+              ],
+              "use_vars": [
+                "payload"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 1,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 1,
+              "use_count": 1
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "void *payload",
+              "def_vars": [
+                "payload"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "<unknown> NULL",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 2
+          }
+        ]
+      },
+      "name": "bar"
+    },
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ],
+          [
+            0,
+            3,
+            0
+          ]
+        ],
+        "edges_ast_sb": [
+          [
+            2,
+            3,
+            1
+          ]
+        ],
+        "nodes": [
+          {
+            "code": "<entry:dispatch>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149700,
+            "sid": 0
+          },
+          {
+            "code": "const OcppFrame *f",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116994,
+            "sid": 1
+          },
+          {
+            "code": "f->action",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 14,
+              "train_mask": 1
+            },
+            "node_type": "SwitchStatement",
+            "orig_id": 47244640256,
+            "sid": 2
+          },
+          {
+            "code": "ACTION_DATA_TRANSFER",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280516,
+            "sid": 3
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:dispatch>",
+              "def_vars": [
+                "f"
+              ],
+              "use_vars": [
+                "ACTION_DATA_TRANSFER"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 0,
+              "use_count": 1
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "const OcppFrame *f",
+              "def_vars": [
+                "f"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "f->action",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "SwitchStatement",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 2
+          },
+          {
+            "debug": {
+              "code": "ACTION_DATA_TRANSFER",
+              "def_vars": [
+                "ACTION_DATA_TRANSFER"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 3
+          }
+        ]
+      },
+      "name": "dispatch"
+    }
+  ],
+  "template_root_count": 15
+}

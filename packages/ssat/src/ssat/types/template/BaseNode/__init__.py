@@ -17,5 +17,3 @@ __all__ = [
     "is_expression",
     "is_declaration",
 ]
-
-

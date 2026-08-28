@@ -1,15 +1,14 @@
 """Tree to text conversion utility."""
 
-from typing import Any, Dict, List, Set, Union
+from typing import Any, List, Mapping, Optional, Set
 
-from ..types.cpg import TreeNode
 from ..types.node import TemplateNodes
 
 
 class TreeToText:
     """Convert template tree to text representation."""
 
-    def __init__(self, blacklist_props: List[str] = None):
+    def __init__(self, blacklist_props: Optional[List[str]] = None):
         """
         Initialize TreeToText.
 
@@ -33,9 +32,7 @@ class TreeToText:
         self._build_lines(root, "", True, lines, 0)
         return "\n".join(lines)
 
-    def _build_lines(
-        self, node: Union[TemplateNodes, TreeNode], prefix: str, is_last: bool, lines: List[str], depth: int
-    ) -> None:
+    def _build_lines(self, node: Mapping[str, Any], prefix: str, is_last: bool, lines: List[str], depth: int) -> None:
         """
         Recursive helper to build lines.
 
@@ -46,29 +43,20 @@ class TreeToText:
             lines: Collector for output lines.
             depth: Current depth (root=0, children=1, ...).
         """
-        type_name: str
-        if isinstance(node, dict):
-            if "nodeType" in node and isinstance(node["nodeType"], str):
-                type_name = node["nodeType"]
-            elif "label" in node and isinstance(node["label"], str):
-                type_name = node["label"]
-            else:
-                type_name = "Unknown"
-        else:
-            # For objects with attributes
-            if hasattr(node, "nodeType") and isinstance(getattr(node, "nodeType", None), str):
-                type_name = getattr(node, "nodeType")
-            elif hasattr(node, "label") and isinstance(getattr(node, "label", None), str):
-                type_name = getattr(node, "label")
-            else:
-                type_name = "Unknown"
+        # Template nodes carry "nodeType"; CPG tree nodes carry "label".
+        type_name = "Unknown"
+        for key in ("nodeType", "label"):
+            value = node.get(key)
+            if isinstance(value, str) and value:
+                type_name = value
+                break
 
         connector = "" if depth == 0 else ("└── " if is_last else "├── ")
         attr_text = self._format_attributes(node)
         lines.append(f"{prefix}{connector}{type_name}{attr_text}")
 
         new_prefix = "" if depth == 0 else prefix + ("    " if is_last else "│   ")
-        children = node.get("children", []) if isinstance(node, dict) else getattr(node, "children", [])
+        children = node.get("children", [])
         if not isinstance(children, list):
             children = []
 
@@ -76,7 +64,7 @@ class TreeToText:
             last = idx == len(children) - 1
             self._build_lines(child, new_prefix, last, lines, depth + 1)
 
-    def _format_attributes(self, node: Union[TemplateNodes, TreeNode]) -> str:
+    def _format_attributes(self, node: Mapping[str, Any]) -> str:
         """
         Format all keys except nodeType, label, children, and any in blacklist_props into "(k=v, ...)".
 
@@ -108,4 +96,3 @@ class TreeToText:
         if not parts:
             return ""
         return f" ({', '.join(parts)})"
-

@@ -6,34 +6,41 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "ssat",
-    "agent",
+    "gnn",
     "pytest>=8.0.0",
     "ruff>=0.9.0",
     "mypy>=1.14.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "jpype1>=1.5.0",
 ]
 
 [tool.uv]
 package = false
 
 
-
-
-
 [tool.uv.sources]
 ssat = { workspace = true }
-agent = { workspace = true }
+gnn = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/ssat",
-    "packages/agent",
+    "packages/gnn",
 ]
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py314"
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.14"
 strict = true
 ignore_missing_imports = true
+# So `uv run mypy` needs no arguments. packages/gnn is excluded: it is a
+# consumer of the pipeline's output, not part of the analysis library, and is
+# not held to the strict bar.
+files = ["packages/ssat/src/ssat", "api"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/ssat/tests"]

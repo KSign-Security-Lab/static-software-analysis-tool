@@ -1,5 +1,7 @@
 """Template type definitions."""
 
+from typing import Dict, List, TypedDict
+
 from typing import Union
 
 from .BaseNode.base_types import IBaseNode, TemplateNodeTypes
@@ -94,29 +96,25 @@ TemplateNodes = Union[
 ]
 
 # Template flattened node and graph
-from typing import List, TypedDict
-
-
-class TemplateFlattenedNode(TypedDict):
-    """A template node with a guaranteed unique ID."""
-
-    id: int
-    nodeType: str
-    # ... other fields from IBaseNode
 
 
 class TemplateFlattenedGraph(TypedDict):
-    """A graph representation of flattened template nodes."""
+    """A flattened template: the same nodes, plus explicit parent/child edges.
 
-    edges: List[dict]  # { from: int, to: int }
-    nodes: List[TemplateFlattenedNode]
+    ``nodes`` holds the original template nodes -- flattening collects and sorts
+    them, it does not reshape them. There used to be a separate
+    ``TemplateFlattenedNode`` stub here declaring only ``id`` and ``nodeType``
+    with a "... other fields from IBaseNode" comment; nothing referenced it.
+    """
+
+    edges: List[Dict[str, int]]  # { from: int, to: int }
+    nodes: List["TemplateNodes"]
 
 
 __all__ = [
     "TemplateNodeTypes",
     "IBaseNode",
     "TemplateNodes",
-    "TemplateFlattenedNode",
     "TemplateFlattenedGraph",
     # Expressions
     "IAddressOfExpression",
@@ -166,5 +164,3 @@ __all__ = [
     "ITranslationUnit",
     "IVariableDeclaration",
 ]
-
-

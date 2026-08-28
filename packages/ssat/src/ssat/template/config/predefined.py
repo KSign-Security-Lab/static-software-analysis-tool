@@ -11,5 +11,3 @@ PredefinedIdentifierTypes: dict[str, str] = {
 }
 
 IdentifierToLiteralMap: list[str] = ["NULL"]
-
-

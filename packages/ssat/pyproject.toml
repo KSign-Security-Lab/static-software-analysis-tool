@@ -11,38 +11,17 @@ dependencies = [
 ]
 
 [project.scripts]
+# One command with subcommands: ssat {cpg,template,ast,template-functions,dfg,full,f2a}.
+#
+# There used to be 24 entries here, including bare `test`, `lint`, `format` and
+# `docker-up`, which shadowed common command names in the venv's bin directory
+# and just shelled out to ruff/mypy/pytest/npm. Run those tools directly.
 ssat = "ssat.cli.__main__:ssat_main"
-cpg = "ssat.cli.__main__:cpg_main"
-dfg = "ssat.graph:dfg"
-docker-up = "ssat.cli.__main__:docker_up"
-docker-down = "ssat.cli.__main__:docker_down"
-docker-remove = "ssat.cli.__main__:docker_remove"
-docker-fresh = "ssat.cli.__main__:docker_fresh"
-scripts-help = "ssat.cli.__main__:scripts_help"
-generate-cpg = "ssat.cli.__main__:generate_cpg_entry"
-generate-template = "ssat.cli.__main__:generate_template_entry"
-generate-template-functions = "ssat.cli.__main__:generate_template_functions_entry"
-generate-dfg = "ssat.cli.__main__:generate_dfg_entry"
-generate-ast = "ssat.cli.__main__:generate_ast_entry"
-generate-full = "ssat.cli.__main__:generate_full_entry"
-type-check = "ssat.cli.__main__:type_check_entry"
-lint = "ssat.cli.__main__:lint_entry"
-lint-fix = "ssat.cli.__main__:lint_fix_entry"
-format = "ssat.cli.__main__:format_entry"
-format-check = "ssat.cli.__main__:format_check_entry"
-test = "ssat.cli.__main__:test_entry"
-test-log = "ssat.cli.__main__:test_log_entry"
-web-dev = "ssat.cli.__main__:web_dev_entry"
-web-build = "ssat.cli.__main__:web_build_entry"
-web-start = "ssat.cli.__main__:web_start_entry"
 
 [project.optional-dependencies]
-test = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "deepdiff>=6.0.0",
-    "jsonschema>=4.0.0",
-]
+# pytest-asyncio, deepdiff and jsonschema were declared but never imported by
+# any test; the pipeline has no async entry points left either.
+test = ["pytest>=7.0.0"]
 
 [build-system]
 requires = ["uv_build>=0.9.4,<0.10.0"]
@@ -53,4 +32,3 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-asyncio_mode = "auto"

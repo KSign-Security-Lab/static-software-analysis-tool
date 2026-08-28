@@ -1,0 +1,1412 @@
+{
+  "function_names": {
+    "filtered": [],
+    "unfiltered": [
+      "download_firmware",
+      "handle_update_firmware",
+      "dispatch",
+      "verify_signature"
+    ]
+  },
+  "functions": [
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ],
+          [
+            0,
+            3,
+            0
+          ],
+          [
+            0,
+            4,
+            0
+          ]
+        ],
+        "edges_ast_sb": [
+          [
+            2,
+            3,
+            1
+          ],
+          [
+            3,
+            4,
+            1
+          ]
+        ],
+        "nodes": [
+          {
+            "code": "<entry:download_firmware>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149697,
+            "sid": 0
+          },
+          {
+            "code": "const char *url",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116992,
+            "sid": 1
+          },
+          {
+            "code": "char cmd[256]",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 1.0,
+              "buffer_size_state": 1,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 1,
+              "is_loop": 0,
+              "node_type_id": 4,
+              "train_mask": 1
+            },
+            "node_type": "ArrayDeclaration",
+            "orig_id": 94489280512,
+            "sid": 2
+          },
+          {
+            "code": "sprintf(cmd, \"wget %s -O /tmp/fw.bin\", url)",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 1,
+              "call_flag_has_varargs": 1,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 4,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 30,
+              "train_mask": 1
+            },
+            "node_type": "StandardLibCall",
+            "orig_id": 30064771074,
+            "sid": 3
+          },
+          {
+            "code": "system(cmd)",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 30,
+              "train_mask": 1
+            },
+            "node_type": "StandardLibCall",
+            "orig_id": 30064771075,
+            "sid": 4
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "url@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "cmd@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            2,
+            3,
+            {
+              "debug": {
+                "var_key": "cmd@2"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            1,
+            3,
+            {
+              "debug": {
+                "var_key": "url@1"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            3,
+            4,
+            {
+              "debug": {
+                "var_key": "cmd@3"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:download_firmware>",
+              "def_vars": [
+                "cmd",
+                "url"
+              ],
+              "use_vars": [
+                "cmd",
+                "url"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 1,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 2,
+              "in_degree_dfg": 2,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 1,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 2,
+              "use_count": 2
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "const char *url",
+              "def_vars": [
+                "url"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 1,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "char cmd[256]",
+              "def_vars": [
+                "cmd"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ArrayDeclaration",
+              "out_degree_dfg": 1,
+              "use_count": 0
+            },
+            "sid": 2
+          },
+          {
+            "debug": {
+              "code": "sprintf(cmd, \"wget %s -O /tmp/fw.bin\", url)",
+              "def_vars": [
+                "cmd"
+              ],
+              "use_vars": [
+                "cmd",
+                "url"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 1,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 2,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 1,
+              "node_type_id": "StandardLibCall",
+              "out_degree_dfg": 1,
+              "use_count": 2
+            },
+            "sid": 3
+          },
+          {
+            "debug": {
+              "code": "system(cmd)",
+              "def_vars": [],
+              "use_vars": [
+                "cmd"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 1,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "StandardLibCall",
+              "out_degree_dfg": 0,
+              "use_count": 1
+            },
+            "sid": 4
+          }
+        ]
+      },
+      "name": "download_firmware"
+    },
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ],
+          [
+            0,
+            3,
+            0
+          ],
+          [
+            0,
+            4,
+            0
+          ],
+          [
+            0,
+            5,
+            0
+          ],
+          [
+            0,
+            6,
+            0
+          ],
+          [
+            0,
+            7,
+            0
+          ],
+          [
+            0,
+            8,
+            0
+          ]
+        ],
+        "edges_ast_sb": [
+          [
+            2,
+            3,
+            1
+          ],
+          [
+            3,
+            4,
+            1
+          ],
+          [
+            4,
+            5,
+            1
+          ],
+          [
+            5,
+            6,
+            1
+          ],
+          [
+            6,
+            7,
+            1
+          ],
+          [
+            7,
+            8,
+            1
+          ]
+        ],
+        "nodes": [
+          {
+            "code": "<entry:handle_update_firmware>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149698,
+            "sid": 0
+          },
+          {
+            "code": "Request *req",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116993,
+            "sid": 1
+          },
+          {
+            "code": "char *firmware_url",
+            "debug": {
+              "decl_name": "firmware_url",
+              "pointingType": "char",
+              "ptr_level": 1,
+              "storage": null
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 5,
+              "train_mask": 1
+            },
+            "node_type": "PointerDeclaration",
+            "orig_id": 94489280513,
+            "sid": 2
+          },
+          {
+            "code": "*firmware_url = req->location",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 6,
+              "train_mask": 1
+            },
+            "node_type": "AssignmentExpression",
+            "orig_id": 30064771076,
+            "sid": 3
+          },
+          {
+            "code": "firmware_url == NULL",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 10,
+              "train_mask": 1
+            },
+            "node_type": "IfStatement",
+            "orig_id": 47244640256,
+            "sid": 4
+          },
+          {
+            "code": "strncmp(firmware_url, \"https://\", 8) != 0",
+            "debug": {
+              "cond_call": {
+                "flags": {
+                  "alloc_sizeof_state": 0,
+                  "danger_unbounded": 0,
+                  "has_varargs": 0,
+                  "len_linked_to_dst": 0,
+                  "sizeof_non_dst": 0
+                },
+                "name": "strncmp",
+                "sem_id": 0
+              }
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 10,
+              "train_mask": 1
+            },
+            "node_type": "IfStatement",
+            "orig_id": 47244640257,
+            "sid": 5
+          },
+          {
+            "code": "!verify_signature(firmware_url)",
+            "debug": {
+              "cond_call": {
+                "flags": {
+                  "alloc_sizeof_state": 0,
+                  "danger_unbounded": 0,
+                  "has_varargs": 0,
+                  "len_linked_to_dst": 0,
+                  "sizeof_non_dst": 0
+                },
+                "name": "verify_signature",
+                "sem_id": 0
+              }
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 10,
+              "train_mask": 1
+            },
+            "node_type": "IfStatement",
+            "orig_id": 47244640258,
+            "sid": 6
+          },
+          {
+            "code": "download_firmware(firmware_url)",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 31,
+              "train_mask": 1
+            },
+            "node_type": "UserDefinedCall",
+            "orig_id": 30064771083,
+            "sid": 7
+          },
+          {
+            "code": "NULL",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280514,
+            "sid": 8
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            3,
+            7,
+            {
+              "debug": {
+                "var_key": "firmware_url@3"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:handle_update_firmware>",
+              "def_vars": [
+                "req"
+              ],
+              "use_vars": [
+                "firmware_url"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 0,
+              "use_count": 1
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "Request *req",
+              "def_vars": [
+                "req"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "char *firmware_url",
+              "def_vars": [
+                "firmware_url"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "PointerDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 2
+          },
+          {
+            "debug": {
+              "code": "*firmware_url = req->location",
+              "def_vars": [
+                "firmware_url"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "AssignmentExpression",
+              "out_degree_dfg": 1,
+              "use_count": 0
+            },
+            "sid": 3
+          },
+          {
+            "debug": {
+              "code": "firmware_url == NULL",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "IfStatement",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 4
+          },
+          {
+            "debug": {
+              "code": "strncmp(firmware_url, \"https://\", 8) != 0",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "IfStatement",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 5
+          },
+          {
+            "debug": {
+              "code": "!verify_signature(firmware_url)",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "IfStatement",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 6
+          },
+          {
+            "debug": {
+              "code": "download_firmware(firmware_url)",
+              "def_vars": [],
+              "use_vars": [
+                "firmware_url"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 1,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "UserDefinedCall",
+              "out_degree_dfg": 0,
+              "use_count": 1
+            },
+            "sid": 7
+          },
+          {
+            "debug": {
+              "code": "NULL",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 8
+          }
+        ]
+      },
+      "name": "handle_update_firmware"
+    },
+    {
+      "ast": {
+        "edges_ast_guard": [
+          {
+            "dst": 4,
+            "edge_type": 2,
+            "guard_branch": 0,
+            "guard_kind": 1,
+            "src": 3
+          }
+        ],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ],
+          [
+            0,
+            3,
+            0
+          ],
+          [
+            3,
+            4,
+            0
+          ]
+        ],
+        "edges_ast_sb": [
+          [
+            1,
+            2,
+            1
+          ]
+        ],
+        "nodes": [
+          {
+            "code": "<entry:dispatch>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149699,
+            "sid": 0
+          },
+          {
+            "code": "const char *action",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116994,
+            "sid": 1
+          },
+          {
+            "code": "Request *req",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116995,
+            "sid": 2
+          },
+          {
+            "code": "strcmp(action, \"UpdateFirmware\") == 0",
+            "debug": {
+              "cond_call": {
+                "flags": {
+                  "alloc_sizeof_state": 0,
+                  "danger_unbounded": 0,
+                  "has_varargs": 0,
+                  "len_linked_to_dst": 0,
+                  "sizeof_non_dst": 0
+                },
+                "name": "strcmp",
+                "sem_id": 0
+              }
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 10,
+              "train_mask": 1
+            },
+            "node_type": "IfStatement",
+            "orig_id": 47244640259,
+            "sid": 3
+          },
+          {
+            "code": "handle_update_firmware(req)",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 31,
+              "train_mask": 1
+            },
+            "node_type": "UserDefinedCall",
+            "orig_id": 30064771086,
+            "sid": 4
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "action@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "req@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            2,
+            4,
+            {
+              "debug": {
+                "var_key": "req@2"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 1,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:dispatch>",
+              "def_vars": [
+                "action",
+                "req"
+              ],
+              "use_vars": [
+                "action",
+                "req"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 2,
+              "in_degree_dfg": 2,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 2,
+              "use_count": 2
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "const char *action",
+              "def_vars": [
+                "action"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "Request *req",
+              "def_vars": [
+                "req"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 1,
+              "use_count": 0
+            },
+            "sid": 2
+          },
+          {
+            "debug": {
+              "code": "strcmp(action, \"UpdateFirmware\") == 0",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "IfStatement",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 3
+          },
+          {
+            "debug": {
+              "code": "handle_update_firmware(req)",
+              "def_vars": [],
+              "use_vars": [
+                "req"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 1,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "UserDefinedCall",
+              "out_degree_dfg": 0,
+              "use_count": 1
+            },
+            "sid": 4
+          }
+        ]
+      },
+      "name": "dispatch"
+    }
+  ],
+  "template_root_count": 30
+}

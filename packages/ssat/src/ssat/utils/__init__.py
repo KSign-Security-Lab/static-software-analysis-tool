@@ -1,16 +1,12 @@
-"""Utility functions for SSAT.
-
-Merges utilities from core/utils and the standalone utils package.
-"""
+"""Shared utility functions for SSAT."""
 
 import json
 from multiprocessing import Pool
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Mapping, Sequence
 
 # Re-export submodule utilities
-from .path_resolver import get_path, get_validated_path
-from .tree_to_text import TreeToText
+from .tree_to_text import TreeToText as TreeToText
 
 
 def multiprocess(func: Callable[[Any], Any], args: List[Any], num_processes: int) -> List[Any]:
@@ -23,7 +19,8 @@ def read_json(file_path: str | Path) -> Dict[str, Any]:
     """Read a JSON file and return its contents as a dictionary."""
     path = Path(file_path)
     with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        data: Dict[str, Any] = json.load(f)
+    return data
 
 
 def recursively_get_json_files(directory: str | Path) -> List[Path]:
@@ -31,7 +28,7 @@ def recursively_get_json_files(directory: str | Path) -> List[Path]:
     return list(Path(directory).rglob("*.json"))
 
 
-def get_functions_from_template(template: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def get_functions_from_template(template: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
     """
     Recursively extract function definitions from template nodes.
 
@@ -45,7 +42,7 @@ def get_functions_from_template(template: List[Dict[str, Any]]) -> List[Dict[str
     for node in template:
         node_type = node.get("nodeType")
         if node_type in ("FunctionDefinition", "FunctionDeclaration"):
-            functions.append(node)
+            functions.append(dict(node))
 
         children = node.get("children")
         if isinstance(children, list) and children:

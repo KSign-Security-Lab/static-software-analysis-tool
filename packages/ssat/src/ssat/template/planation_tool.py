@@ -9,7 +9,7 @@ from ..types.template.BaseNode.base_types import TemplateNodeTypes
 class PlanationTool:
     """Tool for flattening template nodes into graph structures."""
 
-    def __init__(self, blacklist: List[TemplateNodeTypes] = None):
+    def __init__(self, blacklist: Optional[List[TemplateNodeTypes]] = None):
         """Initialize planation tool."""
         self.blacklist: Set[TemplateNodeTypes] = set(blacklist) if blacklist else set()
         self.edges: List[Dict[str, int]] = []
@@ -31,17 +31,21 @@ class PlanationTool:
             # Sanity-check that every edge references existing node ids
             self._validate_edges()
 
-            graphs.append({
-                "edges": self.edges.copy(),
-                "nodes": self.nodes.copy(),
-            })
+            graphs.append(
+                {
+                    "edges": self.edges.copy(),
+                    "nodes": self.nodes.copy(),
+                }
+            )
 
         if remove_blacklist:
             # Filter out blacklisted nodes
             for graph in graphs:
                 graph["nodes"] = [node for node in graph["nodes"] if self._get_node_type(node) not in self.blacklist]
                 node_ids = {self._get_node_id(node) for node in graph["nodes"]}
-                graph["edges"] = [edge for edge in graph["edges"] if edge["from"] in node_ids and edge["to"] in node_ids]
+                graph["edges"] = [
+                    edge for edge in graph["edges"] if edge["from"] in node_ids and edge["to"] in node_ids
+                ]
 
         return graphs
 
@@ -88,4 +92,3 @@ class PlanationTool:
         if isinstance(node, dict):
             return node.get("nodeType")
         return getattr(node, "nodeType", None)
-

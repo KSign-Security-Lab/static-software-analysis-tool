@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, TypedDict, Union
 
 from pydantic import BaseModel, Field
 
@@ -57,9 +57,7 @@ VertexLabel = Literal[
     "UNKNOWN",
 ]
 
-GraphSONValue = Union[
-    bool, List["GraphSONValue"], None, int, float, str, Dict[str, "GraphSONValue"]
-]
+GraphSONValue = Union[bool, List["GraphSONValue"], None, int, float, str, Dict[str, "GraphSONValue"]]
 
 
 class GraphSON(BaseModel):
@@ -112,24 +110,31 @@ class ICPGRootExport(BaseModel):
     value: Union[CPGGraphData, Dict[str, Any]] = Field(alias="@value")
 
 
-class CPGRoot(BaseModel):
-    """CPG root structure."""
+# The three types below are TypedDicts rather than pydantic models because
+# nothing ever constructs or validates them -- the pipeline builds plain dicts
+# and reads them with .get()/[...]. Declaring them as BaseModel made every one
+# of those accesses a type error while changing nothing at runtime. Structural
+# validation of incoming CPGs is done by GraphSONWrapper in ssat.cpg.validate.
 
-    export: Union[ICPGRootExport, Dict[str, Any]]
+
+class CPGRoot(TypedDict):
+    """A CPG document: the joern-export GraphSON under an ``export`` key."""
+
+    export: Dict[str, Any]
 
 
-class NodeInfo(BaseModel):
-    """Node information structure."""
+class NodeInfo(TypedDict):
+    """A CPG vertex flattened to the fields the template stage needs."""
 
     code: str
     id: str
-    label: VertexLabel
+    label: str
     line_no: Union[int, str]
     name: str
     properties: Dict[str, Any]
 
 
 class TreeNode(NodeInfo):
-    """Tree node with children."""
+    """A :class:`NodeInfo` with its AST children attached."""
 
-    children: List[TreeNode]
+    children: List["TreeNode"]

@@ -1,21 +1,15 @@
-cpg_results/*
-ksigncase64/*
+# Scratch, generated output and evaluation corpora. See artifacts/README.md.
+artifacts/*
+!artifacts/README.md
 
+# Left in place because it is root-owned and belongs to another user.
+workspace-devel02/
+
+cpg_results/*
+
+# Joern intermediates
 *.bin
-joern/*
-workspace/
-converted/
-converted_full/
-joern_full/
-ast_output/
-data/
-overflows/
-C/
-2017-10-01-juliet-test-suite-for-c-cplusplus-v1-3.zip
 tmp/*
-result/*
-results/*
-test/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -335,12 +329,3 @@ dist
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
-
-# yarn v2
-.yarn/cache
-.yarn/unplugged
-.yarn/build-state.yml
-.yarn/install-state.gz
-.pnp.*
-
-/generated/prisma

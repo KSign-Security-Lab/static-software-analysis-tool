@@ -47,5 +47,3 @@ def infer_type_bottom_up(node: TreeNode) -> str:
     if len(unique) == 1:
         return unique[0]
     return f"({' '.join(unique)})"
-
-

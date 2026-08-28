@@ -1,0 +1,882 @@
+{
+  "function_names": {
+    "filtered": [],
+    "unfiltered": [
+      "on_scp",
+      "register_handler",
+      "init"
+    ]
+  },
+  "functions": [
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ]
+        ],
+        "edges_ast_sb": [],
+        "nodes": [
+          {
+            "code": "<entry:on_scp>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149697,
+            "sid": 0
+          },
+          {
+            "code": "void *payload",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116992,
+            "sid": 1
+          },
+          {
+            "code": "<unknown> NULL",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280517,
+            "sid": 2
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "payload@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:on_scp>",
+              "def_vars": [
+                "payload"
+              ],
+              "use_vars": [
+                "payload"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 1,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 1,
+              "use_count": 1
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "void *payload",
+              "def_vars": [
+                "payload"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "<unknown> NULL",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 2
+          }
+        ]
+      },
+      "name": "on_scp"
+    },
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ],
+          [
+            0,
+            3,
+            0
+          ],
+          [
+            0,
+            4,
+            0
+          ],
+          [
+            0,
+            5,
+            0
+          ],
+          [
+            0,
+            6,
+            0
+          ]
+        ],
+        "edges_ast_sb": [
+          [
+            1,
+            2,
+            1
+          ],
+          [
+            3,
+            4,
+            1
+          ],
+          [
+            4,
+            5,
+            1
+          ],
+          [
+            5,
+            6,
+            1
+          ]
+        ],
+        "nodes": [
+          {
+            "code": "<entry:register_handler>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149698,
+            "sid": 0
+          },
+          {
+            "code": "int action",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116993,
+            "sid": 1
+          },
+          {
+            "code": "HandlerFn fn",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116994,
+            "sid": 2
+          },
+          {
+            "code": "g_table[g_n].action = action",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 6,
+              "train_mask": 1
+            },
+            "node_type": "AssignmentExpression",
+            "orig_id": 30064771073,
+            "sid": 3
+          },
+          {
+            "code": "g_table[g_n].fn = fn",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 6,
+              "train_mask": 1
+            },
+            "node_type": "AssignmentExpression",
+            "orig_id": 30064771076,
+            "sid": 4
+          },
+          {
+            "code": "<global> g_n",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 3,
+              "train_mask": 1
+            },
+            "node_type": "VariableDeclaration",
+            "orig_id": 94489280515,
+            "sid": 5
+          },
+          {
+            "code": "<global> g_table",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 1,
+              "is_loop": 0,
+              "node_type_id": 4,
+              "train_mask": 1
+            },
+            "node_type": "ArrayDeclaration",
+            "orig_id": 94489280516,
+            "sid": 6
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "action@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ],
+          [
+            0,
+            0,
+            {
+              "debug": {
+                "var_key": "fn@0"
+              },
+              "feat": {
+                "flow_id": 1,
+                "guard_kind": 0,
+                "has_lower_guard": 0,
+                "has_upper_guard": 0,
+                "upper_guard_norm": 0.0
+              }
+            }
+          ]
+        ],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:register_handler>",
+              "def_vars": [
+                "action",
+                "fn"
+              ],
+              "use_vars": [
+                "action",
+                "fn",
+                "g_n"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 2,
+              "in_degree_dfg": 2,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 2,
+              "use_count": 3
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "int action",
+              "def_vars": [
+                "action"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "HandlerFn fn",
+              "def_vars": [
+                "fn"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 2
+          },
+          {
+            "debug": {
+              "code": "g_table[g_n].action = action",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "AssignmentExpression",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 3
+          },
+          {
+            "debug": {
+              "code": "g_table[g_n].fn = fn",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "AssignmentExpression",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 4
+          },
+          {
+            "debug": {
+              "code": "<global> g_n",
+              "def_vars": [
+                "g_n"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "VariableDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 5
+          },
+          {
+            "debug": {
+              "code": "<global> g_table",
+              "def_vars": [
+                "g_table"
+              ],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 1,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ArrayDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 6
+          }
+        ]
+      },
+      "name": "register_handler"
+    },
+    {
+      "ast": {
+        "edges_ast_guard": [],
+        "edges_ast_pc": [
+          [
+            0,
+            1,
+            0
+          ],
+          [
+            0,
+            2,
+            0
+          ]
+        ],
+        "edges_ast_sb": [],
+        "nodes": [
+          {
+            "code": "<entry:init>",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 1,
+              "train_mask": 1
+            },
+            "node_type": "FunctionEntry",
+            "orig_id": 111669149699,
+            "sid": 0
+          },
+          {
+            "code": "void",
+            "debug": {
+              "origin": "param_prologue"
+            },
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 2,
+              "train_mask": 1
+            },
+            "node_type": "ParameterDeclaration",
+            "orig_id": 115964116995,
+            "sid": 1
+          },
+          {
+            "code": "register_handler(MSG_SET_PROFILE, on_scp)",
+            "feat": {
+              "alloc_sizeof_state": 0,
+              "buffer_size_norm": 0.0,
+              "buffer_size_state": 0,
+              "call_dst_is_field": 0,
+              "call_flag_danger_unbounded": 0,
+              "call_flag_has_varargs": 0,
+              "call_flag_len_linked_to_dst": 0,
+              "call_flag_sizeof_non_dst": 0,
+              "call_len_linked_to_dst_extended": 0,
+              "call_sem_cat_id": 0,
+              "call_size_is_sizeof_base_struct": 0,
+              "call_size_kind": 0,
+              "call_size_mismatch_field": 0,
+              "ctx_guard_strength": 0,
+              "ctx_upper_bound_norm": 0.0,
+              "in_loop": 0,
+              "is_buffer_decl": 0,
+              "is_loop": 0,
+              "node_type_id": 31,
+              "train_mask": 1
+            },
+            "node_type": "UserDefinedCall",
+            "orig_id": 30064771080,
+            "sid": 2
+          }
+        ]
+      },
+      "dfg": {
+        "edges_dfg": [],
+        "nodes": [
+          {
+            "debug": {
+              "code": "<entry:init>",
+              "def_vars": [],
+              "use_vars": [
+                "on_scp"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "FunctionEntry",
+              "out_degree_dfg": 0,
+              "use_count": 1
+            },
+            "sid": 0
+          },
+          {
+            "debug": {
+              "code": "void",
+              "def_vars": [],
+              "use_vars": []
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "ParameterDeclaration",
+              "out_degree_dfg": 0,
+              "use_count": 0
+            },
+            "sid": 1
+          },
+          {
+            "debug": {
+              "code": "register_handler(MSG_SET_PROFILE, on_scp)",
+              "def_vars": [],
+              "use_vars": [
+                "on_scp"
+              ]
+            },
+            "feat": {
+              "call_danger_unbounded": 0,
+              "call_dst_indexed": 0,
+              "call_len_linked_to_dst": 0,
+              "call_size_nonconst": 0,
+              "def_count": 0,
+              "in_degree_dfg": 0,
+              "is_buffer_access": 0,
+              "is_sink_assign": 0,
+              "is_sink_call_bounded": 0,
+              "is_sink_call_unbounded": 0,
+              "node_type_id": "UserDefinedCall",
+              "out_degree_dfg": 0,
+              "use_count": 1
+            },
+            "sid": 2
+          }
+        ]
+      },
+      "name": "init"
+    }
+  ],
+  "template_root_count": 17
+}

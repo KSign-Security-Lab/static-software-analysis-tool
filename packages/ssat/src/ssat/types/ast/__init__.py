@@ -1,6 +1,6 @@
 """AST type definitions."""
 
-from typing import List, TypedDict
+from typing import Any, Dict, List, TypedDict
 
 
 class IASTFeature(TypedDict):
@@ -36,7 +36,7 @@ class IASTNode(TypedDict):
     code: str
     orig_id: int
     feat: IASTFeature
-    debug: dict
+    debug: Dict[str, Any]
 
 
 EdgeASTPC = tuple[int, int, int]
@@ -70,5 +70,3 @@ __all__ = [
     "EdgeASTGuard",
     "IASTResult",
 ]
-
-

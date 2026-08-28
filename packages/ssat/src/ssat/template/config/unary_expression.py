@@ -15,5 +15,3 @@ UnaryExpressionOperatorMap: dict[str, str] = {
     "<operator>.alloc": "alloc",
     "<operator>.arrayInitializer": "{}",
 }
-
-

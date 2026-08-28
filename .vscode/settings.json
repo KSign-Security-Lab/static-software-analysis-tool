@@ -1,14 +1,6 @@
 {
-  "eslint.workingDirectories": [
-    { "mode": "auto" },
-    "packages/core"
-  ],
+  "eslint.workingDirectories": [{ "mode": "auto" }, "web"],
   "eslint.useFlatConfig": true,
-  "eslint.experimental.useFlatConfig": true,
-  "eslint.validate": [
-    "typescript",
-    "typescriptreact",
-    "javascript"
-  ]
+  "eslint.validate": ["typescript", "typescriptreact", "javascript"],
+  "python.analysis.extraPaths": ["packages/ssat/src", "packages/agent/src"]
 }
-

@@ -1,7 +1,8 @@
 """Template converter for transforming CPG trees to template nodes."""
 
+import logging
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, List, NoReturn, Optional, Union, cast
 
 from ..types.cpg import TreeNode
 from ..types.template import (
@@ -46,12 +47,26 @@ from ..types.template import (
     IWhileStatement,
 )
 from ..types.template.BaseNode.base_types import TemplateNodeTypes
+from ..knowledge.library_calls import STANDARD_LIB_CALLS
 from ..utils.random import random_int_with_length
-from .config.binary_expression import BinaryExpressionBooleanMap, BinaryExpressionOperatorMap
+from .config.binary_expression import BinaryExpressionOperatorMap
 from .config.predefined import IdentifierToLiteralMap, PredefinedIdentifierTypes
-from .config.standard_lib_call import STANDARD_LIB_CALLS
 from .config.unary_expression import UnaryExpressionOperatorMap
 from .type_wrapper import binary_unary_type_wrapper
+
+logger = logging.getLogger(__name__)
+
+
+def _passthrough_node(node: TreeNode, children: List[TemplateNodes]) -> TemplateNodes:
+    """Fallback conversion: keep the raw CPG node, convert its children.
+
+    The result is deliberately *not* a well-formed template node -- it carries
+    the CPG's own keys (``label``, ``line_no``, ``properties``) and no
+    ``nodeType``. That is the contract: ``PostProcessor.remove_invalid_nodes``
+    drops anything without a valid ``nodeType`` in a later pass. Hence the cast.
+    """
+    return cast(TemplateNodes, {**node, "children": children})
+
 
 # Type aliases
 TemplateNodes = Union[
@@ -116,7 +131,7 @@ CallReturnTypes = Union[
 class TemplateConverter:
     """Converts CPG trees to template nodes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize converter."""
         self.call_collection: List[str] = []
 
@@ -133,8 +148,8 @@ class TemplateConverter:
         """Get collected call names."""
         return self.call_collection
 
-    def _assert_never(self, x: Any) -> None:
-        """Assert never reached."""
+    def _assert_never(self, x: Any) -> NoReturn:
+        """Every CPG label must be handled explicitly."""
         raise ValueError(f"Unexpected label: {x}")
 
     def _converted_children(self, children: List[TreeNode]) -> List[TemplateNodes]:
@@ -145,7 +160,19 @@ class TemplateConverter:
         """Dispatch helper: switch on node.label, extract payload, call the correct handler."""
         try:
             label = node.get("label", "")
-            if label in ["BINDING", "DEPENDENCY", "META_DATA", "METHOD_PARAMETER_OUT", "METHOD_RETURN", "MODIFIER", "NAMESPACE", "NAMESPACE_BLOCK", "TYPE", "TYPE_REF", "UNKNOWN"]:
+            if label in [
+                "BINDING",
+                "DEPENDENCY",
+                "META_DATA",
+                "METHOD_PARAMETER_OUT",
+                "METHOD_RETURN",
+                "MODIFIER",
+                "NAMESPACE",
+                "NAMESPACE_BLOCK",
+                "TYPE",
+                "TYPE_REF",
+                "UNKNOWN",
+            ]:
                 return self._handle_skipped_nodes(node)
             elif label == "BLOCK":
                 return self._handle_block(node)
@@ -182,20 +209,20 @@ class TemplateConverter:
             else:
                 return self._assert_never(label)
         except Exception as error:
-            error_msg = str(error) if isinstance(error, Exception) else str(error)
-            lines = [
-                "Error converting node:",
-                f"  • id:      {node.get('id', '')}",
-                f"  • label:   {node.get('label', '')}",
-                f"  • name:    {node.get('name', '')}",
-                "",
-                "Original error message:",
-                f"  {error_msg}",
-            ]
-            print("\n".join(lines))
+            error_msg = str(error)
+            # The raised ValueError already carries id/label/name, and each
+            # recursion level re-wraps it -- printing here as well produced one
+            # full stanza per ancestor node for a single root cause.
+            logger.debug(
+                "conversion failed at node id=%s label=%s name=%s: %s",
+                node.get("id", ""),
+                node.get("label", ""),
+                node.get("name", ""),
+                error_msg,
+            )
             raise ValueError(
                 f"Conversion failed for node id={node.get('id')} label={node.get('label')} name={node.get('name')}: {error_msg}"
-            )
+            ) from error
 
     def _format_string(self, s: str) -> str:
         """Format the string to remove quotes and escape characters."""
@@ -258,7 +285,11 @@ class TemplateConverter:
 
         if node_name == "<operator>.addressOf":
             identifier_child = next(
-                (child for child in node.get("children", []) if child.get("label") == "IDENTIFIER" and child.get("name") == node.get("code", "").replace("&", "")),
+                (
+                    child
+                    for child in node.get("children", [])
+                    if child.get("label") == "IDENTIFIER" and child.get("name") == node.get("code", "").replace("&", "")
+                ),
                 None,
             )
             type_val = "<unknown>"
@@ -285,11 +316,15 @@ class TemplateConverter:
             alloc_child = [child for child in children if child.get("name") == "<operator>.alloc"]
 
             if len(alloc_child) == 1:
-                type_full_name = self._unwrap_graphson_array(properties.get("TYPE_FULL_NAME", {}))
-                raw_size_match = re.search(r"\[(\d+)\]", type_full_name)
+                type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
+                raw_size_match = re.search(r"\[(\d+)\]", str(type_full_name))
                 full_raw_type = raw_size_match.group(1) if raw_size_match else None
 
-                length: Union[int, str] = int(full_raw_type) if full_raw_type and full_raw_type.isdigit() else (full_raw_type if full_raw_type else type_full_name)
+                length: Union[int, str] = (
+                    int(full_raw_type)
+                    if full_raw_type and full_raw_type.isdigit()
+                    else (full_raw_type if full_raw_type else type_full_name)
+                )
 
                 return {
                     "nodeType": TemplateNodeTypes.ArraySizeAllocation,
@@ -312,11 +347,13 @@ class TemplateConverter:
                 "nodeType": TemplateNodeTypes.CastExpression,
                 "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
                 "targetType": filtered_casting_type or code,
-                "children": self._converted_children([child for child in node.get("children", []) if child.get("label") != "TYPE_REF"]),
+                "children": self._converted_children(
+                    [child for child in node.get("children", []) if child.get("label") != "TYPE_REF"]
+                ),
             }
 
         if node_name in ["<operator>.fieldAccess", "<operator>.indirectFieldAccess"]:
-            type_full_name = self._unwrap_graphson_array(properties.get("TYPE_FULL_NAME", {}))
+            type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
             return {
                 "nodeType": TemplateNodeTypes.MemberAccess,
                 "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
@@ -339,18 +376,24 @@ class TemplateConverter:
             }
 
         # Fallback
-        return {
-            **node,
-            "children": [child for child in [self._dispatch_convert(child) for child in node.get("children", [])] if child is not None],
-        }  # type: ignore
+        return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _handle_control_structure(
         self, node: TreeNode
-    ) -> Optional[Union[IBreakStatement, IDoWhileStatement, IForStatement, IGotoStatement, IIfStatement, ISwitchStatement, IWhileStatement]]:
+    ) -> Optional[
+        Union[
+            IBreakStatement,
+            IDoWhileStatement,
+            IForStatement,
+            IGotoStatement,
+            IIfStatement,
+            ISwitchStatement,
+            IWhileStatement,
+        ]
+    ]:
         """Handle CONTROL_STRUCTURE node."""
         properties = node.get("properties", {})
-        control_structure_type = self._unwrap_graphson_array(properties.get("CONTROL_STRUCTURE_TYPE", {}))
-        cs_type = control_structure_type[0] if isinstance(control_structure_type, list) and len(control_structure_type) > 0 else ""
+        cs_type = self._unwrap_graphson_scalar(properties.get("CONTROL_STRUCTURE_TYPE", {}))
 
         if cs_type == "BREAK":
             return {
@@ -382,12 +425,15 @@ class TemplateConverter:
         elif cs_type == "IF":
             children = node.get("children", [])
             if len(children) < 2:
-                raise ValueError(f"Control structure node {node.get('id')} has {len(children)} children, expected at least 2.")
+                raise ValueError(
+                    f"Control structure node {node.get('id')} has {len(children)} children, expected at least 2."
+                )
 
             condition_child = self._dispatch_convert(children[0]) if len(children) > 0 else None
             if_true_child = self._dispatch_convert(children[1]) if len(children) > 1 else None
             else_branch = self._dispatch_convert(children[2]) if len(children) > 2 else None
-            else_child = else_branch.get("children", [])[0] if else_branch and isinstance(else_branch, dict) and isinstance(else_branch.get("children"), list) and len(else_branch["children"]) > 0 else None
+            else_children = else_branch.get("children") or [] if else_branch else []
+            else_child = else_children[0] if else_children else None
 
             restructured_children = []
             if condition_child:
@@ -421,10 +467,7 @@ class TemplateConverter:
             }
 
         # Fallback
-        return {
-            **node,
-            "children": [child for child in [self._dispatch_convert(child) for child in node.get("children", [])] if child is not None],
-        }  # type: ignore
+        return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _handle_field_identifier(self, node: TreeNode) -> Optional[IIdentifier]:
         """Handle FIELD_IDENTIFIER node."""
@@ -451,8 +494,8 @@ class TemplateConverter:
     def _handle_identifier(self, node: TreeNode) -> Optional[Union[IIdentifier, ILiteral, IPointerDereference]]:
         """Handle IDENTIFIER node."""
         properties = node.get("properties", {})
-        type_full_name = self._unwrap_graphson_array(properties.get("TYPE_FULL_NAME", {}))
-        type_full_name_str = "/".join(str(x) for x in type_full_name) if isinstance(type_full_name, list) else str(type_full_name)
+        type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
+        type_full_name_str = str(type_full_name)
 
         is_array = "[" in type_full_name_str and "]" in type_full_name_str
         size = type_full_name_str.split("[")[1].split("]")[0] if is_array else "<not-array>"
@@ -504,7 +547,7 @@ class TemplateConverter:
         """Handle IMPORT node."""
         return None  # Drop imports for now
         # properties = node.get("properties", {})
-        # imported_as = self._unwrap_graphson_array(properties.get("IMPORTED_AS", {}))
+        # imported_as = self._unwrap_graphson_scalar(properties.get("IMPORTED_AS", {}))
         # return {
         #     "nodeType": TemplateNodeTypes.IncludeDirective,
         #     "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
@@ -529,11 +572,11 @@ class TemplateConverter:
             }
 
         properties = node.get("properties", {})
-        name_array = self._unwrap_graphson_array(properties.get("NAME", {}))
+        label_name = self._unwrap_graphson_scalar(properties.get("NAME", {}))
         return {
             "nodeType": TemplateNodeTypes.Label,
             "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
-            "name": "/".join(str(x) for x in name_array) if isinstance(name_array, list) else "",
+            "name": str(label_name),
             "children": self._converted_children(node.get("children", [])),
         }
 
@@ -544,8 +587,8 @@ class TemplateConverter:
             raise ValueError(f"Literal node {node.get('id')} has {len(children)} children, expected 0.")
 
         properties = node.get("properties", {})
-        type_full_name = self._unwrap_graphson_array(properties.get("TYPE_FULL_NAME", {}))
-        type_full_name_str = "/".join(str(x) for x in type_full_name) if isinstance(type_full_name, list) else str(type_full_name)
+        type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
+        type_full_name_str = str(type_full_name)
         is_string = "char" in type_full_name_str
 
         node_name = node.get("name", "")
@@ -569,8 +612,8 @@ class TemplateConverter:
         node_name = node.get("name", "")
         predefined_type = PredefinedIdentifierTypes.get(node_name)
 
-        type_full_name = self._unwrap_graphson_array(properties.get("TYPE_FULL_NAME", {}))
-        type_full_name_str = "/".join(str(x) for x in type_full_name) if isinstance(type_full_name, list) else ""
+        type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
+        type_full_name_str = str(type_full_name)
 
         code = node.get("code", "")
         storage = None
@@ -581,7 +624,7 @@ class TemplateConverter:
             storage = parts[0].strip() if len(parts) > 1 else None
 
         if type_full_name and len(type_full_name) > 0:
-            type_full_name_str = "/".join(str(x) for x in type_full_name) if isinstance(type_full_name, list) else ""
+            type_full_name_str = str(type_full_name)
 
             if "[" in type_full_name_str and "]" in type_full_name_str:
                 element_type = type_full_name_str.split("[")[0]
@@ -631,30 +674,29 @@ class TemplateConverter:
         children = node.get("children", [])
         first_block = next((child for child in children if child.get("label") == "BLOCK"), None)
 
-        filename = self._unwrap_graphson_array(properties.get("FILENAME", {}))
-        ast_parent_full_name = self._unwrap_graphson_array(properties.get("AST_PARENT_FULL_NAME", {}))
-        is_external = self._unwrap_graphson_array(properties.get("IS_EXTERNAL", {}))
-        signature = self._unwrap_graphson_array(properties.get("SIGNATURE", {}))
+        filename_val = self._unwrap_graphson_scalar(properties.get("FILENAME", {}))
+        ast_parent_val = self._unwrap_graphson_scalar(properties.get("AST_PARENT_FULL_NAME", {}))
+        is_external_val = self._unwrap_graphson_scalar(properties.get("IS_EXTERNAL", {})) or False
+        signature_str = str(self._unwrap_graphson_scalar(properties.get("SIGNATURE", {})))
 
-        filename_val = filename[0] if isinstance(filename, list) and len(filename) > 0 else ""
-        ast_parent_val = ast_parent_full_name[0] if isinstance(ast_parent_full_name, list) and len(ast_parent_full_name) > 0 else ""
-        is_external_val = is_external[0] if isinstance(is_external, list) and len(is_external) > 0 else False
-        signature_str = "/".join(str(x) for x in signature) if isinstance(signature, list) else ""
-
-        if filename_val + ":<global>" == ast_parent_val and not is_external_val and len(signature_str) > 0:
+        if str(filename_val) + ":<global>" == str(ast_parent_val) and not is_external_val and len(signature_str) > 0:
             param_list: IParameterList = {
                 "nodeType": TemplateNodeTypes.ParameterList,
                 "id": random_int_with_length(len(str(node.get("id", ""))) + 3) if node.get("id") else -999,
                 "children": [
                     child
                     for child in [
-                        self._dispatch_convert(child) for child in children if child.get("label") == "METHOD_PARAMETER_IN"
+                        self._dispatch_convert(child)
+                        for child in children
+                        if child.get("label") == "METHOD_PARAMETER_IN"
                     ]
-                    if child is not None and isinstance(child, dict) and child.get("nodeType") == TemplateNodeTypes.ParameterDeclaration
+                    if child is not None
+                    and isinstance(child, dict)
+                    and child.get("nodeType") == TemplateNodeTypes.ParameterDeclaration
                 ],
             }
 
-            if len(param_list.get("children", [])) == 0:
+            if not param_list.get("children"):
                 param_list["children"] = [
                     {
                         "nodeType": TemplateNodeTypes.ParameterDeclaration,
@@ -678,7 +720,9 @@ class TemplateConverter:
             ]
 
             return {
-                "nodeType": TemplateNodeTypes.FunctionDeclaration if (first_block and first_block.get("code") == "<empty>") else TemplateNodeTypes.FunctionDefinition,
+                "nodeType": TemplateNodeTypes.FunctionDeclaration
+                if (first_block and first_block.get("code") == "<empty>")
+                else TemplateNodeTypes.FunctionDefinition,
                 "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
                 "name": node.get("name", ""),
                 "returnType": signature_str.split("(")[0] if "(" in signature_str else signature_str,
@@ -686,19 +730,16 @@ class TemplateConverter:
             }
 
         # Fallback
-        return {
-            **node,
-            "children": [child for child in [self._dispatch_convert(child) for child in children] if child is not None],
-        }  # type: ignore
+        return _passthrough_node(node, self._converted_children(children))
 
     def _handle_method_param_in(self, node: TreeNode) -> Optional[IParameterDeclaration]:
         """Handle METHOD_PARAMETER_IN node."""
         properties = node.get("properties", {})
-        type_full_name = self._unwrap_graphson_array(properties.get("TYPE_FULL_NAME", {}))
-        if not type_full_name or (isinstance(type_full_name, list) and len(type_full_name) == 0):
+        type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
+        if not type_full_name:
             raise ValueError(f"Method parameter in node {node.get('id')} has no type.")
 
-        type_full_name_str = "/".join(str(x) for x in type_full_name) if isinstance(type_full_name, list) else ""
+        type_full_name_str = str(type_full_name)
         is_array = "[" in type_full_name_str and "]" in type_full_name_str
         size = type_full_name_str.split("[")[1].split("]")[0] if is_array else None
         type_val = type_full_name_str.split("[")[0] if is_array else type_full_name_str
@@ -715,14 +756,14 @@ class TemplateConverter:
     def _handle_method_ref(self, node: TreeNode) -> Optional[IIdentifier]:
         """Handle METHOD_REF node."""
         properties = node.get("properties", {})
-        method_full_name = self._unwrap_graphson_array(properties.get("METHOD_FULL_NAME", {}))
-        type_full_name = self._unwrap_graphson_array(properties.get("TYPE_FULL_NAME", {}))
+        method_full_name = self._unwrap_graphson_scalar(properties.get("METHOD_FULL_NAME", {}))
+        type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
 
-        if not type_full_name or (isinstance(type_full_name, list) and len(type_full_name) == 0):
+        if not type_full_name:
             raise ValueError(f"Method reference node {node.get('id')} has no type.")
 
-        name = "/".join(str(x) for x in method_full_name) if isinstance(method_full_name, list) and len(method_full_name) > 0 else (node.get("name") or "<unknown>")
-        type_full_name_str = "/".join(str(x) for x in type_full_name) if isinstance(type_full_name, list) else ""
+        name = str(method_full_name) if method_full_name else (node.get("name") or "<unknown>")
+        type_full_name_str = str(type_full_name)
         is_array = "[" in type_full_name_str and "]" in type_full_name_str
         size = type_full_name_str.split("[")[1].split("]")[0] if is_array else None
         type_val = type_full_name_str.split("[")[0] if is_array else type_full_name_str
@@ -748,10 +789,7 @@ class TemplateConverter:
 
     def _handle_skipped_nodes(self, node: TreeNode) -> Optional[TemplateNodes]:
         """Handle skipped nodes."""
-        return {
-            **node,
-            "children": [child for child in [self._dispatch_convert(child) for child in node.get("children", [])] if child is not None],
-        }  # type: ignore
+        return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _handle_type_decl(self, node: TreeNode) -> Optional[Union[IStructType, ITypeDefinition, IUnionType]]:
         """Handle TYPE_DECL node."""
@@ -763,7 +801,13 @@ class TemplateConverter:
                 "nodeType": TemplateNodeTypes.StructType,
                 "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
                 "name": node.get("name", ""),
-                "children": self._converted_children([child for child in node.get("children", []) if child.get("label") != "METHOD" and child.get("name") != "<clinit>"]),
+                "children": self._converted_children(
+                    [
+                        child
+                        for child in node.get("children", [])
+                        if child.get("label") != "METHOD" and child.get("name") != "<clinit>"
+                    ]
+                ),
             }
 
         if "typedef union" in code:
@@ -775,20 +819,17 @@ class TemplateConverter:
             }
 
         if "typedef" in code:
-            alias_type_full_name = self._unwrap_graphson_array(properties.get("ALIAS_TYPE_FULL_NAME", {}))
+            alias_type_full_name = self._unwrap_graphson_scalar(properties.get("ALIAS_TYPE_FULL_NAME", {}))
             return {
                 "nodeType": TemplateNodeTypes.TypeDefinition,
                 "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
                 "name": node.get("name", ""),
-                "underlyingType": "/".join(str(x) for x in alias_type_full_name) if isinstance(alias_type_full_name, list) and len(alias_type_full_name) > 0 else "<unknown>",
+                "underlyingType": str(alias_type_full_name) if alias_type_full_name else "<unknown>",
                 "children": self._converted_children(node.get("children", [])),
             }
 
         # Fallback
-        return {
-            **node,
-            "children": [child for child in [self._dispatch_convert(child) for child in node.get("children", [])] if child is not None],
-        }  # type: ignore
+        return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _reshape_label_children(self, children: List[TreeNode]) -> List[TreeNode]:
         """Reshape the children of a switch label node to match the expected structure."""
@@ -812,14 +853,36 @@ class TemplateConverter:
 
         return reshaped_children
 
-    def _unwrap_graphson_array(self, value: Any) -> Any:
-        """Unwrap GraphSON array value."""
+    def _unwrap_graphson_scalar(self, value: Any) -> Any:
+        """Unwrap a GraphSON property down to the scalar it holds.
+
+        Joern exports vertex properties doubly wrapped::
+
+            {"@type": "g:VertexProperty",
+             "@value": {"@type": "g:List", "@value": ["char[64]"]}}
+
+        The previous implementation (named ``_unwrap_graphson_array``) stopped one
+        level early and returned the *list*. Callers treat the result as a string,
+        so ``re.search`` was handed a list and raised ``expected string or
+        bytes-like object, got 'list'`` for any assignment with an
+        ``<operator>.alloc`` child -- 37% of the real corpus.
+
+        Multi-valued properties are joined with "/" to match how
+        ``_handle_call_operators`` renders address-of types.
+        """
         if not isinstance(value, dict):
             return value
-        if "@value" in value:
-            inner = value["@value"]
-            if isinstance(inner, dict) and "@value" in inner:
-                return inner["@value"]
-            return inner
-        return value
+        if "@value" not in value:
+            return value
 
+        inner = value["@value"]
+        if isinstance(inner, dict) and "@value" in inner:
+            inner = inner["@value"]
+
+        if isinstance(inner, list):
+            if not inner:
+                return ""
+            if len(inner) == 1:
+                return inner[0]
+            return "/".join(str(item) for item in inner)
+        return inner
