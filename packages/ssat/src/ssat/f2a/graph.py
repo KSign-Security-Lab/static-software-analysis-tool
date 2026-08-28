@@ -18,7 +18,7 @@ export (see the F2-A implementation notes).
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, cast
 
 # Joern operator call names that model syntax rather than real function calls.
 FIELD_ACCESS_OPS = frozenset({"<operator>.indirectFieldAccess", "<operator>.fieldAccess"})
@@ -32,6 +32,11 @@ def _unwrap(value: Any) -> Any:
     if isinstance(value, list):
         return [_unwrap(v) for v in value]
     return value
+
+
+def cpg_id(vertex: Dict[str, Any]) -> int:
+    """The integer id of a raw GraphSON vertex dict."""
+    return cast(int, _unwrap(vertex.get("id")))
 
 
 class CPGModel:
@@ -179,6 +184,26 @@ class CPGModel:
             seen.add(cur)
             yield cur
             stack.extend(self.ast_children(cur))
+
+    def ast_parent(self, node_id: int) -> Optional[int]:
+        """The node's parent in the AST, if it has one."""
+        for parent in self.in_ids(node_id, "AST"):
+            return parent
+        return None
+
+    def is_internal_call(self, call_id: int) -> bool:
+        """True if this call-site resolves to a user-defined function with a body.
+
+        Excludes Joern's synthetic operator and global-scope methods, and anything
+        marked external -- a call to those tells you nothing about program flow.
+        """
+        callee = self.call_target(call_id)
+        if callee is None:
+            return False
+        name = self.name(callee)
+        if name.startswith("<operator>") or name.startswith("<global>"):
+            return False
+        return self.scalar(callee, "IS_EXTERNAL") is not True
 
     def method_of(self, node_id: Optional[int]) -> Optional[int]:
         """Climb AST parents to the enclosing METHOD."""

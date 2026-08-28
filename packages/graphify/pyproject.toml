@@ -1,0 +1,21 @@
+[project]
+name = "graphify"
+version = "0.1.0"
+description = "A knowledge graph over an indexed source tree, and the traversals an agent needs from it"
+readme = "README.md"
+authors = [{ name = "Keon Oh Kim", email = "keonoh00@gmail.com" }]
+requires-python = ">=3.14"
+# None. The graph is built from records the caller already has, the clustering
+# is a hundred lines, and nothing here leaves the machine. A dependency that
+# only ever makes one call is not worth the install.
+dependencies = []
+
+[project.scripts]
+graphify = "graphify.cli:main"
+
+[project.optional-dependencies]
+test = ["pytest>=8.0.0"]
+
+[build-system]
+requires = ["uv_build>=0.9.4,<0.10.0"]
+build-backend = "uv_build"

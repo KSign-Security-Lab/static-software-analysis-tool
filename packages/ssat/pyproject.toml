@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [{ name = "Keon Oh Kim", email = "keonoh00@gmail.com" }]
 requires-python = ">=3.14"
 dependencies = [
+    "schemagen",
     "pydantic>=2.12.3",
     "tqdm>=4.66.0",
 ]
@@ -32,3 +33,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+
+[tool.uv.sources]
+schemagen = { workspace = true }

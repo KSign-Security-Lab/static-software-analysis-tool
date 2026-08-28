@@ -12,6 +12,10 @@ POST /analyze-functions      {source|cpg, ...}             -> AST + DFG per func
 POST /f2a                    {cpg}                         -> F2AResult
 POST /analyze                {source, language, filename?} -> {cpg, method_count, f2a}
 
+The ``/agent/*`` routes are a separate line of analysis -- an LLM inspecting
+uploaded source chunk by chunk -- and live in :mod:`api.agent`. They
+share this app but nothing else: ``agent`` does not import ``ssat``.
+
 The two CPG endpoints run the same Joern behind :mod:`ssat.cpg.backends`;
 ``jpype`` is in-process, ``docker`` shells into the container.
 
@@ -22,7 +26,9 @@ TypeScript, by edge label. Those are a different thing from the ``/ast`` and
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, cast
+import logging
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, cast
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +39,30 @@ from ssat.f2a import run_f2a
 from ssat.pipeline import FunctionGraphs, analyze_template, generate_template, training_record
 from ssat.types.cpg import CPGRoot
 
-app = FastAPI(title="SSAT API", version="2.0.0")
+from agent.runs import abandon_live_runs
+
+from .agent import router as agent_router
+from .bench import router as bench_router
+
+log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Close the books on runs this process cannot possibly own.
+
+    An inspection lives on a worker thread here and streams over an in-process
+    channel, so anything still recorded as running when we start belongs to a
+    process that is gone. Saying so once at startup is the difference between a
+    dead run reading as failed and it reading as "실행 중" for ever.
+    """
+    abandoned = abandon_live_runs()
+    if abandoned:
+        log.info("marked %d abandoned run(s) as failed: %s", len(abandoned), ", ".join(abandoned))
+    yield
+
+
+app = FastAPI(title="SSAT API", version="2.0.0", lifespan=lifespan)
 
 # The Next.js dev server may call this service from localhost or over the
 # tailnet (100.x.x.x / fd7a:… IPv6), so allow any origin for this dev tool.
@@ -43,6 +72,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(agent_router)
+app.include_router(bench_router)
 
 # Map a UI language choice to a source filename Joern understands.
 _LANG_EXT = {"c": "main.c", "cpp": "main.cpp", "java": "Main.java"}

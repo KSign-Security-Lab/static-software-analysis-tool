@@ -7,6 +7,14 @@ requires-python = ">=3.14"
 dependencies = [
     "ssat",
     "gnn",
+    # With `rag`, because the semantic lookup is not optional to the agent that
+    # has the tool: without the extra, `search_semantic` answers every question
+    # with an error string, and the agent -- which cannot tell a missing
+    # capability from an unhelpful one -- quietly falls back to `search_text`
+    # and looks like it chose to. Nobody installs an extra to fix a tool they
+    # were never told was broken.
+    "agent[rag]",
+    "graphify",
     "pytest>=8.0.0",
     "ruff>=0.9.0",
     "mypy>=1.14.0",
@@ -22,11 +30,16 @@ package = false
 [tool.uv.sources]
 ssat = { workspace = true }
 gnn = { workspace = true }
+agent = { workspace = true }
+graphify = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/ssat",
     "packages/gnn",
+    "packages/agent",
+    "packages/graphify",
+    "packages/schemagen",
 ]
 
 [tool.ruff]
@@ -40,7 +53,70 @@ ignore_missing_imports = true
 # So `uv run mypy` needs no arguments. packages/gnn is excluded: it is a
 # consumer of the pipeline's output, not part of the analysis library, and is
 # not held to the strict bar.
-files = ["packages/ssat/src/ssat", "api"]
+files = [
+    "packages/ssat/src/ssat",
+    "packages/agent/src/agent",
+    "packages/graphify/src/graphify",
+    "packages/schemagen/src/schemagen",
+    "api",
+]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/ssat/tests"]
+testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/tests", "packages/schemagen/tests"]
+
+# ---------------------------------------------------------------------------
+# Task index. This is the package.json "scripts" block for the parts of this
+# repo that are not npm -- open it to see what can be run, the same way you
+# would open package.json.
+#
+# Run one with `scripts/run.sh <name>`; run it bare to list them. Extra
+# arguments are appended to the command. Comments directly above an entry are
+# shown as its description in the listing, so the two cannot drift.
+#
+# Not a Makefile: that would mean installing make to run a CLI. Not uv, which
+# has no task runner. `scripts/run.sh` is plain bash and parses this table.
+# ---------------------------------------------------------------------------
+[tool.tasks]
+# Install the Python workspace and the web dependencies
+setup = "uv sync && cd web && npm install"
+# Everything CI runs: lint, format, types, Python tests, web checks
+check = ".venv/bin/ruff check && .venv/bin/ruff format --check && .venv/bin/mypy && .venv/bin/python -m pytest -q && cd web && npm run --silent type-check && npm run --silent lint && npm run --silent test && npm run --silent licenses && npm run --silent licenses:check"
+# Python tests
+test = ".venv/bin/python -m pytest -q"
+# ruff check plus a format check, no writes
+lint = ".venv/bin/ruff check && .venv/bin/ruff format --check"
+# Format and autofix Python in place
+fmt = ".venv/bin/ruff format . && .venv/bin/ruff check --fix ."
+# mypy --strict over the gated packages
+types = ".venv/bin/mypy"
+# Regenerate web/lib/agent-schema.ts from the pydantic wire models
+schema = ".venv/bin/python -m agent.schema_ts --write && .venv/bin/python -m ssat.schema_ts --write"
+
+# Start vLLM in Docker and wait until it answers
+vllm = "docker compose --profile vllm up -d --wait vllm"
+# Follow the vLLM log
+vllm-logs = "docker compose --profile vllm logs -f vllm"
+# Run an inspection (bare = interactive: endpoint, model, target)
+agent = ".venv/bin/agent"
+# Index a tree without calling a model; deterministic
+index = ".venv/bin/agent index"
+# Which model servers are reachable, and LangSmith status
+endpoints = ".venv/bin/agent endpoints"
+# Serve the MCP tool surface over stdio (needs AGENT_RUN_ID)
+mcp = ".venv/bin/agent-mcp"
+
+# FastAPI on :8000 with auto-reload
+api = "scripts/dev-api.sh"
+# Next.js dev server on :3000
+web = "cd web && npm run dev"
+# Production build of the web app
+build = "cd web && npm run build"
+
+# Start everything at once: vLLM, the API and the web UI, in one terminal
+up = "scripts/up.sh"
+# Stop vLLM only -- a bare `compose down` would also stop the Joern container
+# that ssat's docker backend uses. Ctrl-C on `up` already stops the API and web.
+down = "docker compose --profile vllm rm -sf vllm"
+
+# End to end: start a server if needed, then inspect the sample tree
+demo = "docker compose --profile vllm up -d --wait vllm && AGENT_MODEL=agent .venv/bin/agent inspect -v packages/agent/tests/fixtures/sample"

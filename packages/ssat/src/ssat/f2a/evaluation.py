@@ -28,7 +28,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .graph import CPGModel
 from .kb import KnowledgeBase, default_knowledge_base
-from .pipeline import F2AAnalyzer, cpg_id
+from .graph import cpg_id
+from .pipeline import F2AAnalyzer
 from .resolution import CalculusConfig
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,467 @@
+/* ============================================================================
+   SSAT design system.
+   ----------------------------------------------------------------------------
+   Colour is defined in OKLCH so a ramp stays perceptually even -- the old
+   hand-picked hex ladder went muddy in the middle and two "different" greys
+   were indistinguishable on a laptop panel.
+
+   Three layers, and the order matters:
+
+     1. private inputs -- the neutral ramp and the signal hues. Plain custom
+        properties, deliberately NOT `@theme`: nothing should reference a ramp
+        step directly, so none of them needs to become a utility.
+     2. roles, redefined per theme. Also plain CSS, because their values change
+        with `data-theme` and `@theme` is for things that do not move.
+     3. `@theme inline`, mapping those roles into Tailwind's namespace -- once
+        for SSAT's own vocabulary (`bg-surface`, `text-ink-muted`) and once for
+        the token contract vendored shadcn components expect (`bg-muted`,
+        `border-input`). Both point at the same roles, so there is one palette.
+
+   `inline` is load-bearing in layer 3. Plain `@theme` would emit
+   `:root { --color-surface: var(--surface) }`, and custom-property
+   substitution happens where the property is *declared* -- so it would resolve
+   once against the root and inherit that fixed value, and a nested
+   `[data-theme="light"]` subtree would not change. `inline` compiles
+   `bg-surface` straight to `var(--surface)`, resolved at the element.
+
+   The accent is teal rather than the previous blue: blue was also the
+   information colour, so an interactive element and a neutral status looked
+   the same. Danger/warn/ok sit far apart in hue *and* lightness, which is what
+   makes them separable without relying on colour alone.
+   ========================================================================== */
+
+/* Tailwind's `dark:` variant defaults to prefers-color-scheme, shadcn's stock
+   setup keys off a `.dark` class, and this app has always used an attribute.
+   Three mechanisms, reduced to the one next-themes writes.
+
+   Two branches, not one: shadcn ships `&:is(.dark *)`, which matches only
+   descendants and so misses <html> itself. `:where()` keeps the variant at
+   specificity 0 so it can never outrank a plain utility. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ---------------------------------------------------------------------------
+   1. Private inputs
+   ------------------------------------------------------------------------ */
+:root {
+  /* ---- neutral ramp (slightly cool, so code reads as the warm thing) ---- */
+  --n-0: oklch(99% 0.002 240);
+  --n-50: oklch(97% 0.003 240);
+  --n-100: oklch(94% 0.004 240);
+  --n-200: oklch(89% 0.005 240);
+  --n-300: oklch(80% 0.007 240);
+  --n-400: oklch(67% 0.009 240);
+  --n-500: oklch(55% 0.010 240);
+  --n-600: oklch(44% 0.012 245);
+  --n-700: oklch(33% 0.014 248);
+  --n-800: oklch(24% 0.014 250);
+  --n-850: oklch(20% 0.014 252);
+  --n-900: oklch(16% 0.013 253);
+  --n-950: oklch(12% 0.012 255);
+
+  /* ---- signal hues ------------------------------------------------------ */
+  --teal-300: oklch(84% 0.10 186);
+  --teal-400: oklch(76% 0.13 186);
+  --teal-500: oklch(68% 0.15 186);
+  --teal-600: oklch(58% 0.14 186);
+
+  --violet-300: oklch(82% 0.10 300);
+  --violet-400: oklch(72% 0.15 300);
+  --violet-500: oklch(63% 0.18 300);
+
+  --red-400: oklch(70% 0.18 25);
+  --red-500: oklch(60% 0.21 25);
+  --amber-400: oklch(81% 0.15 75);
+  --amber-500: oklch(72% 0.16 70);
+  --green-400: oklch(78% 0.15 155);
+  --green-500: oklch(66% 0.15 155);
+
+  /* ---- motion -----------------------------------------------------------
+     The `--gap-*`, `--r-*`, `--rail`, `--aside` and `--bar` sets that used to
+     live here went with the stylesheets that read them. Spacing and radii are
+     Tailwind's `--spacing` / `--radius-*` now, and panel sizes belong to the
+     panel group, which measures rather than being told. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --fast: 120ms;
+  --slow: 240ms;
+}
+
+/* ---------------------------------------------------------------------------
+   1b. Scales that should become utilities
+   ------------------------------------------------------------------------ */
+@theme {
+  /* Reset Tailwind's own scale first. Without this its defaults survive
+     alongside ours and the type scale quietly grows to twelve steps with two
+     different ideas of what "small" means. Every name a vendored component
+     might reach for is redefined below, in our sizes. */
+  --text-*: initial;
+  /* One step larger than the first cut all the way down the ladder. 11px is a
+     size a tool that dense can *claim* to need and nobody can comfortably read
+     for an hour; it is also what two thirds of the app was set in, so the
+     whole thing read as fine print. Raised here rather than at the call sites
+     -- the point of a scale is that a decision like this is one edit. */
+  --text-2xs: 0.75rem; /*   12px — dense metadata */
+  --text-xs: 0.8125rem; /*  13px — labels, chips */
+  --text-sm: 0.875rem; /*   14px — body default */
+  --text-base: 0.9375rem; /*15px */
+  --text-md: 1rem; /*       16px — headings in panels */
+  --text-lg: 1.25rem; /*    20px — page titles */
+  --text-xl: 1.5rem; /*     24px */
+  --text-2xl: 1.875rem; /*  30px */
+
+  --radius-*: initial;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 999px;
+
+  /* 4px grid: `p-1` is 4px, `gap-4` is 16px. */
+  --spacing: 4px;
+
+  /* Names come from the loaders in app/fonts.ts, never as literals: a literal
+     is how this stack spent months asking for "Inter var" with no @font-face
+     anywhere and silently rendering in the system face.
+
+     Hangul is not subsetted by us. Inter carries no Hangul, so the browser's
+     own per-glyph fallback routes Korean to Noto Sans KR Variable and keeps
+     identifiers, CWE ids, paths and line numbers in Inter -- which is also why
+     subsetting to the UI strings would be wrong: decision.ts generates Korean
+     prose from enums and the agent returns free-form Korean, so a fixed subset
+     would render user content as tofu. */
+  --font-sans:
+    var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR Variable",
+    "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono:
+    var(--font-jetbrains), "SF Mono", ui-monospace, "Cascadia Code", Consolas, "Noto Sans KR Variable",
+    monospace;
+}
+
+@theme inline {
+  --ease-ssat: var(--ease);
+}
+
+/* ---------------------------------------------------------------------------
+   2. Roles, per theme
+   ------------------------------------------------------------------------ */
+
+/* ---- dark (default) ------------------------------------------------------ */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: var(--n-950);
+  --surface: var(--n-900);
+  --surface-2: var(--n-850);
+  --surface-3: var(--n-800);
+  --field: oklch(10% 0.012 255);
+
+  --line: oklch(100% 0 0 / 7%);
+  --line-2: oklch(100% 0 0 / 12%);
+  --line-3: oklch(100% 0 0 / 20%);
+
+  --ink: var(--n-100);
+  --ink-strong: var(--n-0);
+  --ink-muted: var(--n-400);
+  --ink-faint: var(--n-500);
+
+  --accent: var(--teal-400);
+  --accent-ink: var(--teal-300);
+  --accent-solid: var(--teal-600);
+  --accent-wash: oklch(76% 0.13 186 / 14%);
+
+  --alt: var(--violet-400);
+  --alt-wash: oklch(72% 0.15 300 / 16%);
+
+  --danger: var(--red-400);
+  --danger-wash: oklch(70% 0.18 25 / 16%);
+  --warn: var(--amber-400);
+  --warn-wash: oklch(81% 0.15 75 / 15%);
+  --ok: var(--green-400);
+  --ok-wash: oklch(78% 0.15 155 / 15%);
+
+  --shadow-1: 0 1px 2px oklch(0% 0 0 / 40%);
+  --shadow-2: 0 8px 28px oklch(0% 0 0 / 42%);
+}
+
+/* ---- light --------------------------------------------------------------- */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: var(--n-50);
+  --surface: var(--n-0);
+  --surface-2: var(--n-50);
+  --surface-3: var(--n-100);
+  --field: var(--n-0);
+
+  --line: oklch(0% 0 0 / 9%);
+  --line-2: oklch(0% 0 0 / 14%);
+  --line-3: oklch(0% 0 0 / 24%);
+
+  --ink: var(--n-800);
+  --ink-strong: var(--n-950);
+  --ink-muted: var(--n-600);
+  --ink-faint: var(--n-500);
+
+  --accent: var(--teal-600);
+  --accent-ink: oklch(42% 0.11 186);
+  --accent-solid: var(--teal-600);
+  --accent-wash: oklch(58% 0.14 186 / 12%);
+
+  --alt: var(--violet-500);
+  --alt-wash: oklch(63% 0.18 300 / 12%);
+
+  --danger: var(--red-500);
+  --danger-wash: oklch(60% 0.21 25 / 12%);
+  --warn: var(--amber-500);
+  --warn-wash: oklch(72% 0.16 70 / 16%);
+  --ok: var(--green-500);
+  --ok-wash: oklch(66% 0.15 155 / 14%);
+
+  --shadow-1: 0 1px 2px oklch(0% 0 0 / 8%);
+  --shadow-2: 0 8px 28px oklch(0% 0 0 / 12%);
+}
+
+/* ---- severity: hue AND lightness differ, so they survive greyscale ------ */
+:root {
+  --sev-critical: var(--red-500);
+  --sev-high: var(--red-400);
+  --sev-medium: var(--amber-400);
+  --sev-low: var(--teal-400);
+  --sev-info: var(--n-400);
+}
+
+/* ---------------------------------------------------------------------------
+   3. Roles -> Tailwind namespace
+   ------------------------------------------------------------------------ */
+@theme inline {
+  /* ---- SSAT's own vocabulary ------------------------------------------- */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-field: var(--field);
+
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-line-3: var(--line-3);
+
+  --color-ink: var(--ink);
+  --color-ink-strong: var(--ink-strong);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-wash: var(--accent-wash);
+
+  --color-alt: var(--alt);
+  --color-alt-wash: var(--alt-wash);
+
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+  --color-warn: var(--warn);
+  --color-warn-wash: var(--warn-wash);
+  --color-ok: var(--ok);
+  --color-ok-wash: var(--ok-wash);
+
+  --color-sev-critical: var(--sev-critical);
+  --color-sev-high: var(--sev-high);
+  --color-sev-medium: var(--sev-medium);
+  --color-sev-low: var(--sev-low);
+  --color-sev-info: var(--sev-info);
+
+  /* Named apart from the `--shadow-1`/`--shadow-2` roles on purpose. Tailwind
+     keeps any theme key that plain CSS also references, so `--shadow-1:
+     var(--shadow-1)` would be emitted as a tautology -- harmless only for as
+     long as the role stays unlayered and outranks it. Distinct names, and the
+     utilities say what they are for. */
+  --shadow-pane: var(--shadow-1);
+  --shadow-pop: var(--shadow-2);
+
+  /* ---- the contract vendored shadcn components expect -------------------
+     Deliberately NOT shadcn's raw `:root { --background; --muted; ... }`
+     block. Three of those names already exist here meaning something else --
+     `--muted` is a foreground, `--input` is a fill, `--accent` is the brand
+     hue -- and adopting theirs would silently repaint every legacy rule that
+     reads them.
+
+     It works because shadcn components reference *utilities* (`bg-muted`,
+     `border-input`), which resolve through `--color-*`. `--color-muted` and
+     `--muted` are different variables, so both vocabularies coexist over one
+     palette.
+
+     Read these three carefully; they are the traps:
+       --color-accent  is the grey a menu item goes on HOVER, not the brand.
+                       For the brand, use `text-accent-ink` / `bg-accent-wash`
+                       / `bg-accent-solid`.
+       --color-muted   is a BACKGROUND; its text is --color-muted-foreground.
+       --color-input   is a BORDER, so it maps to --line-2, not --field. The
+                       field fill is reachable as `bg-field`. */
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface-2);
+  --color-popover-foreground: var(--ink);
+
+  --color-primary: var(--accent-solid);
+  --color-primary-foreground: var(--n-0);
+  --color-secondary: var(--surface-3);
+  --color-secondary-foreground: var(--ink);
+
+  --color-muted: var(--surface-2);
+  --color-muted-foreground: var(--ink-muted);
+  --color-accent: var(--surface-3);
+  --color-accent-foreground: var(--ink-strong);
+
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--n-0);
+
+  --color-border: var(--line-2);
+  --color-input: var(--line-2);
+  --color-ring: var(--accent);
+}
+
+/* shadcn interpolates this one directly rather than through a utility. */
+:root {
+  --radius: var(--radius-md);
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   ---------------------------------------------------------------------------
+   In `@layer base` so utilities outrank them. Unlayered, `button { font:
+   inherit }` beats `.text-sm` outright -- layer order is consulted before
+   specificity -- and every vendored component that sets its own type would
+   silently inherit instead.
+   ------------------------------------------------------------------------ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--accent-wash);
+    color: var(--ink-strong);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: var(--radius-xs);
+  }
+
+  /* Scrollbars, so panes do not each look like a different application. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-3) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--line-2);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: var(--radius-full);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--line-3);
+    background-clip: content-box;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Preflight now handles the button and list resets these rules used to
+     stand in for; see the note at the top of globals.css. What is left here is
+     only what preflight does not say. */
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Editor decorations
+   ---------------------------------------------------------------------------
+   Monaco puts these class names on elements it owns, so they are written out
+   here rather than composed from utilities: there is no JSX to hang a
+   `className` on. components/editor/markers.ts has been asking for `ev-*`
+   since it was written and nothing defined them, so the evidence trail -- the
+   other lines that explain a finding -- lit up nothing at all.
+
+   The roles are the same five as ROLE_TONE in lib/model/finding.ts and carry
+   the same colours, so a step reads the same in the list and in the code.
+
+   Unlayered on purpose. Monaco ships its own unlayered stylesheet, and an
+   unlayered rule beats every layered one regardless of specificity.
+   ------------------------------------------------------------------------ */
+.ev-source {
+  background: color-mix(in oklab, var(--warn) 13%, transparent);
+}
+.ev-propagation {
+  background: color-mix(in oklab, var(--ink-faint) 11%, transparent);
+}
+.ev-sink {
+  background: color-mix(in oklab, var(--danger) 15%, transparent);
+}
+.ev-missing_check {
+  background: color-mix(in oklab, var(--alt) 13%, transparent);
+}
+.ev-context {
+  background: color-mix(in oklab, var(--ink-faint) 7%, transparent);
+}
+
+/* A stripe in the gutter, so a trail is followable by scrolling rather than
+   only by reading the lines it happens to have landed on. */
+.ev-margin-source {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.ev-margin-propagation {
+  box-shadow: inset 3px 0 0 var(--line-3);
+}
+.ev-margin-sink {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.ev-margin-missing_check {
+  box-shadow: inset 3px 0 0 var(--alt);
+}
+.ev-margin-context {
+  box-shadow: inset 3px 0 0 var(--line-2);
+}
+
+/* Where a jump landed. Set for a moment and then cleared, by CodeEditor. */
+.ssat-jump {
+  background: var(--accent-wash);
+}

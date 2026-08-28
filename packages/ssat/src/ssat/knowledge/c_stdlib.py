@@ -407,3 +407,84 @@ BOUNDED = {
     "recv",
     "getline",
 }
+
+
+# Which argument is the destination buffer and which is the size, for the
+# UNBOUNDED/BOUNDED families the def-use DFG classifies as sinks. This lived
+# inline in ``DFGExtractor.run()``.
+#
+# Deliberately *not* merged into API_SLOTS above, which is broader (97 entries)
+# but disagrees on two of these:
+#
+#   connect  API_SLOTS says dst=1, but arg 1 is ``const struct sockaddr *addr``
+#            -- an input the call reads, not a buffer it writes. The DFG wants
+#            no destination here.
+#   getline  absent from API_SLOTS; the DFG needs dst=0 (``lineptr``) and
+#            size=1 (``n``).
+#
+# Reconciling the two tables would change what the DFG reports, so they are kept
+# apart until someone decides which is right for each caller.
+DFG_SINK_SLOTS: Dict[str, Dict[str, int | None]] = {
+    "fgets": {"dst": 0, "size": 1},
+    "gets": {"dst": 0, "size": None},
+    "memcpy": {"dst": 0, "size": 2},
+    "memmove": {"dst": 0, "size": 2},
+    "strncpy": {"dst": 0, "size": 2},
+    "snprintf": {"dst": 0, "size": 1},
+    "vsnprintf": {"dst": 0, "size": 1},
+    "strcpy": {"dst": 0, "size": None},
+    "strcat": {"dst": 0, "size": None},
+    "sprintf": {"dst": 0, "size": None},
+    "vsprintf": {"dst": 0, "size": None},
+    "read": {"dst": 1, "size": 2},
+    "recv": {"dst": 1, "size": 2},
+    "getline": {"dst": 0, "size": 1},
+    "memset": {"dst": 0, "size": 2},
+    "connect": {"dst": None, "size": 2},
+}
+
+
+def dfg_sink_slots(name: str) -> Dict[str, int | None]:
+    """Destination/size argument positions for ``name``, empty if it is not a known sink."""
+    return DFG_SINK_SLOTS.get(name, {})
+
+
+# The *third* destination/size table, this one for the AST pass's call flags.
+#
+# All three agree on memcpy, memmove, strncpy, memset, snprintf, vsnprintf,
+# fgets, read and recv. They differ on:
+#
+#   connect   here dst=1, as in API_SLOTS; DFG_SINK_SLOTS says None, reading
+#             arg 1 as an address the call consumes rather than a buffer it fills.
+#   getline   absent here and from API_SLOTS; present in DFG_SINK_SLOTS.
+#   the       unbounded family (gets, strcpy, strcat, sprintf, vsprintf) is
+#   absent    absent here, so it gets no slots and therefore no size flags --
+#             which is consistent, since none of them takes a size argument.
+#
+# Each entry also declares how many arguments the call must have before the slots
+# mean anything; below that the AST pass reads no slots at all.
+AST_FLAG_SLOTS: Dict[str, Dict[str, int]] = {
+    "memcpy": {"dst": 0, "size": 2, "argc": 3},
+    "memmove": {"dst": 0, "size": 2, "argc": 3},
+    "strncpy": {"dst": 0, "size": 2, "argc": 3},
+    "memset": {"dst": 0, "size": 2, "argc": 3},
+    "snprintf": {"dst": 0, "size": 1, "argc": 2},
+    "vsnprintf": {"dst": 0, "size": 1, "argc": 2},
+    "fgets": {"dst": 0, "size": 1, "argc": 2},
+    "read": {"dst": 1, "size": 2, "argc": 3},
+    "recv": {"dst": 1, "size": 2, "argc": 3},
+    # connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
+    "connect": {"dst": 1, "size": 2, "argc": 3},
+}
+
+
+#: Calls whose extra arguments are a varargs list, for ``call_flag_has_varargs``.
+#:
+#: Deliberately narrower than ``CALL_SEM["format_print"]``, which also carries
+#: ``puts`` (not variadic) and ``printIntLine`` (a Juliet harness helper, not
+#: libc). This set is the printf family proper.
+VARARGS_CALLS = frozenset({"printf", "fprintf", "vprintf", "vfprintf", "sprintf", "snprintf", "vsprintf", "vsnprintf"})
+
+
+#: Allocators whose argument list is scanned for ``sizeof`` (``alloc_sizeof_state``).
+ALLOC_CALLS_FOR_SIZEOF = frozenset({"malloc", "calloc", "realloc", "alloca", "_alloca", "ALLOCA", "new", "new[]"})

@@ -1,0 +1,426 @@
+"""One run, one row, and everything it owns hanging off it.
+
+A run used to be a directory holding three SQLite databases, three JSON files
+and an extracted source tree -- seven things held together by a path
+convention. Nothing could be asked across runs, no transaction spanned a run's
+own state, and listing them meant reading every directory off disk.
+
+The tables here are not new. They are the `CREATE TABLE` text that was already
+in `index/store.py`, `trace/store.py`, `index/embed.py` and `cache.py`, given a
+`run_id` and a foreign key. What changes is that the run is the parent: deleting
+one is a single statement rather than an `rmtree`, and the cascade means no
+table can outlive the run it describes.
+
+The one deliberate exception is `results`, the cross-run cache. It is keyed by a
+content-derived chunk id precisely so that a re-run of unchanged code can reuse
+what a *previous* run concluded, so tying it to a run would defeat it.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+#: `BAAI/bge-small-en-v1.5`, which is what `index/embed.py` embeds with. The
+#: column is fixed-width, so this and `MODEL_NAME` have to move together.
+EMBED_DIMS = 384
+
+#: `jinaai/jina-embeddings-v2-base-code`, for the corpus in `agent/rag/`. A
+#: different model from the one above, and measured rather than assumed: asked
+#: to name the weakness in ten held-out functions, the general-purpose English
+#: model got 4 of 10 and the code-trained one 8 of 10. The English model was
+#: matching shared vocabulary -- a `system()` injection and a heap overflow that
+#: both call `snprintf` came back as neighbours.
+CORPUS_EMBED_DIMS = 768
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def _now() -> float:
+    return time.time()
+
+
+class Run(Base):
+    """The run itself: status, who made it, and what it concluded."""
+
+    __tablename__ = "runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    #: A name somebody typed, not an identity. See the API's `owner` header --
+    #: it exists so a shared list can be filtered to yours, and it is not a
+    #: security boundary. Nullable because a run made by the CLI has no browser
+    #: to have asked.
+    owner: Mapped[str | None] = mapped_column(String(128), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[float] = mapped_column(Float, default=_now)
+    updated_at: Mapped[float] = mapped_column(Float, default=_now, onupdate=_now)
+
+    #: The report, as the pydantic model serialises it. Not shredded into
+    #: columns: `agent/schema.py` owns that shape, it is versioned, and it is
+    #: what goes over the wire -- a second definition here would drift from it.
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    #: What `read_meta`/`write_meta` used to keep in `meta.json`. Free-form on
+    #: purpose: `write_meta(**updates)` takes arbitrary keys and several call
+    #: sites rely on that.
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+    #: The tree as a graph, which used to be `graph.json`. One per run, so a
+    #: column rather than a table.
+    knowledge: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    files: Mapped[list[File]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+class File(Base):
+    """A file of the uploaded tree.
+
+    Rows, not a directory, which is the whole point of this change. It also
+    retires `agent/paths.py`: `resolve_within` existed to stop a hostile archive
+    escaping the run root, and a path that is a column cannot escape anything.
+    The archive caps in `extract_zip` stay -- a zip bomb is still a zip bomb
+    when the destination is a table.
+    """
+
+    __tablename__ = "files"
+    __table_args__ = (UniqueConstraint("run_id", "path", name="files_run_path"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), index=True)
+    path: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    size: Mapped[int] = mapped_column(Integer)
+    #: Content hash, so a re-upload of an unchanged file is recognisable without
+    #: comparing bodies.
+    sha: Mapped[str] = mapped_column(String(64))
+
+    run: Mapped[Run] = relationship(back_populates="files")
+
+
+class Chunk(Base):
+    """One unit of code: a function, or a file's top-level declarations."""
+
+    __tablename__ = "chunks"
+    __table_args__ = (Index("chunks_run_file", "run_id", "file"),)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    file: Mapped[str] = mapped_column(Text)
+    symbol: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(String(32))
+    start_line: Mapped[int] = mapped_column(Integer)
+    end_line: Mapped[int] = mapped_column(Integer)
+    start_byte: Mapped[int] = mapped_column(Integer)
+    end_byte: Mapped[int] = mapped_column(Integer)
+    body: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(32))
+
+    #: These were JSON strings in a TEXT column and are arrays here, which is
+    #: what they always were -- the store's `_loads` helper goes with them.
+    defines: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    refs: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    types_used: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    includes: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+
+    #: Whether the body is the source verbatim. Was an INTEGER standing in for a
+    #: boolean, because SQLite has no boolean.
+    verbatim: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class Link(Base):
+    """A call or reference from one chunk to another."""
+
+    __tablename__ = "links"
+    __table_args__ = (Index("links_run_src", "run_id", "src"), Index("links_run_dst", "run_id", "dst"))
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    src: Mapped[str] = mapped_column(String(64), primary_key=True)
+    dst: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    symbol: Mapped[str] = mapped_column(Text, primary_key=True)
+
+
+class Note(Base):
+    """What a callee concluded, for its callers to read."""
+
+    __tablename__ = "notes"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    note: Mapped[str] = mapped_column(Text)
+
+
+class Finding(Base):
+    """One claim about one chunk. JSONB for the same reason `Run.report` is."""
+
+    __tablename__ = "findings"
+    __table_args__ = (Index("findings_run_chunk", "run_id", "chunk_id"),)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    chunk_id: Mapped[str] = mapped_column(String(64))
+    file: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
+class Inspected(Base):
+    """A chunk that has been looked at, so a re-run can tell "nothing found"
+    from "not yet analysed"."""
+
+    __tablename__ = "inspected"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+
+class Span(Base):
+    """One recorded step of a run: a model call, a tool call, a node."""
+
+    __tablename__ = "spans"
+    __table_args__ = (Index("spans_run_seq", "run_id", "seq"), Index("spans_run_parent", "run_id", "parent_id"))
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parent_id: Mapped[str | None] = mapped_column(String(64))
+    seq: Mapped[int] = mapped_column(Integer)
+    name: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(String(32))
+    started_at: Mapped[float] = mapped_column(Float)
+    ended_at: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(32))
+    error: Mapped[str | None] = mapped_column(Text)
+
+    #: Still text, still clipped. `trace/store.py`'s `clip` bounds these at
+    #: 20,000 characters and replaces an over-long payload with a truncation
+    #: marker; JSONB would accept the whole thing and quietly undo that.
+    inputs: Mapped[str | None] = mapped_column(Text)
+    outputs: Mapped[str | None] = mapped_column(Text)
+    meta: Mapped[str | None] = mapped_column(Text)
+    tokens: Mapped[int | None] = mapped_column(Integer)
+
+
+class Vector_(Base):
+    """A chunk's embedding, for the semantic fallback in `index/embed.py`.
+
+    `pgvector` rather than the old BLOB: the fallback used to load every vector
+    and score it in Python, which is a scan wearing an index's clothes.
+    """
+
+    __tablename__ = "vectors"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model: Mapped[str] = mapped_column(String(128))
+    embedding: Mapped[Any] = mapped_column(Vector(EMBED_DIMS))
+
+
+class CachedResult(Base):
+    """What a chunk was found to contain, keyed by content rather than by run.
+
+    The one table with no `run_id`, and deliberately: the chunk id is derived
+    from the code, so an unchanged unit in a new run hits what an older run
+    concluded. That reuse is what "지난 검사에서 가져옴" is.
+    """
+
+    __tablename__ = "results"
+
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    recipe: Mapped[str] = mapped_column(String(64), primary_key=True)
+    findings: Mapped[str] = mapped_column(Text)
+    note: Mapped[str] = mapped_column(Text, default="")
+
+
+class HarnessConfig(Base):
+    """One configuration of the harness, kept because a result points at it.
+
+    The hash is the key, so writing the same configuration twice writes one row
+    -- and a thousand runs configured alike are recognisably one experiment
+    without anyone having remembered to label them.
+
+    Never deleted. A superseded config stays because the runs it produced still
+    reference it, and a hash that resolves to nothing is a result with no
+    provenance, which is the failure the whole feature exists to prevent.
+    """
+
+    __tablename__ = "harness_configs"
+
+    config_hash: Mapped[str] = mapped_column(String(32), primary_key=True)
+    #: The tunable knobs, as `harness.knobs` shapes them.
+    knobs: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: Exempt from automatic proposals. A baseline someone is measuring against,
+    #: or a setting chosen for a reason the tuner cannot see.
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    label: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[float] = mapped_column(Float, default=_now)
+
+
+class ConfigProposal(Base):
+    """A change the tuner would like made, and everything needed to judge it.
+
+    Stored rather than applied. The evidence is here because a proposal without
+    it is an opinion, and the replay is here because evidence that a lens never
+    fired is not evidence that removing it is safe -- only a run with it removed
+    is that.
+
+    `status` moves proposed -> approved -> applied, or proposed -> rejected.
+    Nothing moves it to applied without a replay row, which `tuner.apply`
+    enforces and `test_tuner.py` checks.
+    """
+
+    __tablename__ = "config_proposals"
+    __table_args__ = (Index("config_proposals_base", "base_hash"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    #: What this proposal is a change *to*.
+    base_hash: Mapped[str] = mapped_column(String(32))
+    #: What it would become. Recorded in `harness_configs` before this is
+    #: written, so a proposal always names two configs that exist.
+    proposed_hash: Mapped[str] = mapped_column(String(32))
+    #: `{knob: [before, after]}`.
+    changes: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: What motivated it: which runs, which lens, which counts. Free-form
+    #: because the tuner's reasons are not a fixed set and pretending they were
+    #: would mean the next reason has nowhere to go.
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    #: The metric it claims will move, and which way.
+    metric: Mapped[str] = mapped_column(String(64), default="")
+    direction: Mapped[str] = mapped_column(String(8), default="up")
+    status: Mapped[str] = mapped_column(String(16), default="proposed")
+    #: The A/B replay that approved or refused it. Null until one has run, and
+    #: `applied` is unreachable while it is null.
+    replay: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    created_at: Mapped[float] = mapped_column(Float, default=_now)
+
+
+class PlanItem(Base):
+    """One unit of work the run intends to do, and what became of it.
+
+    The traversal was already decided -- `index/order.py` computes it, `plan`
+    pops from it -- but it existed only as a list of ids in the run's metadata
+    and a position implied by what had been marked inspected. Nothing recorded
+    *why* a unit was in the queue, and nothing could record that a unit had been
+    deferred rather than merely not reached yet.
+
+    So it becomes a row. The order key is kept alongside the status because the
+    two answer different questions: the key is where the index put this unit and
+    never changes, the status is where the run has got to. A plan that stored
+    only its current sequence could not say whether it had departed from the
+    computed one, which is the only interesting thing about an advisory plan.
+
+    Rows, not a JSON blob on the run, because a status is written per unit as
+    the run moves and a blob would be read-modify-written by every wave.
+    """
+
+    __tablename__ = "plan_items"
+    __table_args__ = (Index("plan_items_run_order", "run_id", "order_key"),)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    #: The chunk this item is about. One item per chunk, so the chunk id is the
+    #: identity -- a second item for the same unit would be a second opinion
+    #: about the same work, which the plan has no way to mean.
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    #: `pending` | `running` | `done` | `skipped` | `blocked`.
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    #: Why this item exists, in the reader's language.
+    reason: Mapped[str] = mapped_column(Text, default="")
+    #: Position in the order `index/order.py` computed. Stable: an advisory
+    #: event changes the status or the priority, never this.
+    order_key: Mapped[int] = mapped_column(Integer)
+    #: Above zero, an advisory event has raised this item. Sorting by
+    #: (-priority, order_key) is what makes an event's effect visible without
+    #: rewriting the order it departed from.
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PlanEventRow(Base):
+    """One advisory event, in the order it was applied.
+
+    The plan is a fold over this log, which is the reason it is a log: replaying
+    a run means replaying its events, and a plan stored only as its current
+    state could not be replayed at all -- you would have the answer with no way
+    to check it.
+
+    `seq` is assigned on write and is what "a fixed order" means. Events arrive
+    from a model, and a model's order is not reproducible; the sequence number
+    is, so applying the log twice gives the same plan twice.
+    """
+
+    __tablename__ = "plan_events"
+    __table_args__ = (Index("plan_events_run_seq", "run_id", "seq"),)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: `defer` | `skip` | `raise_priority` | `split`.
+    kind: Mapped[str] = mapped_column(String(24))
+    target: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str] = mapped_column(Text, default="")
+    #: The span whose model output justified this, so an event is answerable
+    #: rather than merely recorded.
+    span_id: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[float] = mapped_column(Float, default=_now)
+
+
+class CorpusSample(Base):
+    """A known weakness, kept beside the runs rather than inside one.
+
+    The second table with no `run_id`, for the same kind of reason as `results`
+    and a different purpose. A run's own vectors answer "where in *this* code";
+    these answer "what is this code *like*", and the examples they answer with
+    were recorded long before the run existed and outlive it.
+
+    The verifier had nothing outside the file it was reading to check a claim
+    against: `cwe` is a free string the model emits and nothing in the tool knew
+    what any of them meant. These are what it can be checked against.
+
+    Paired: a weakness and its fix are stored as separate samples under the same
+    CWE, because which one a piece of code resembles more is the useful question.
+    """
+
+    __tablename__ = "corpus"
+
+    #: `chunk_id_for(file, symbol, body)` -- content-derived, so re-ingesting an
+    #: unchanged corpus is a no-op without anything having to track state.
+    sample_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    cwe: Mapped[str] = mapped_column(String(16))
+    #: `vulnerable` or `fixed`.
+    variant: Mapped[str] = mapped_column(String(16))
+    file: Mapped[str] = mapped_column(Text)
+    symbol: Mapped[str] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(String(32))
+    body: Mapped[str] = mapped_column(Text)
+    #: Where it came from -- a CVE id, a repository, a URL. Empty for the
+    #: hand-written seed, which is its own provenance.
+    source: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(128))
+    embedding: Mapped[Any] = mapped_column(Vector(CORPUS_EMBED_DIMS))
+
+    # An ANN index from the start, unlike `vectors`. That one has none, which is
+    # right for the handful of chunks in one run and wrong here: this table is
+    # meant to be filled by a CVE scrape and a sequential scan over thousands of
+    # rows on every verification is a cost that arrives quietly.
+    __table_args__ = (
+        Index("corpus_cwe", "cwe"),
+        Index(
+            "corpus_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )

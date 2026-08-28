@@ -11,3 +11,6 @@ next-env.d.ts.bak
 .env*.local
 .DS_Store
 npm-debug.log*
+
+# Alternate build dirs (NEXT_DIST_DIR), so a build can run beside a dev server.
+.next-*

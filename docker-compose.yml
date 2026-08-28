@@ -7,3 +7,137 @@ services:
     restart: unless-stopped
     volumes:
       - ./artifacts/workspace:/workspace
+
+  # Where every agent run lives. `pgvector/pgvector` rather than plain postgres
+  # because `index/embed.py` stores one embedding per chunk and the semantic
+  # fallback searches them -- without the extension that search is a scan.
+  #
+  # Not behind a profile: the API does not start without it, unlike Joern's
+  # optional companions below.
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: ssat-postgres-${USER}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ssat
+      POSTGRES_PASSWORD: ssat
+      POSTGRES_DB: ssat
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ssat-postgres:/var/lib/postgresql/data
+    healthcheck:
+      # So `--wait` means the database is answering, not that the container is up.
+      test: ["CMD-SHELL", "pg_isready -U ssat -d ssat"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Behind a profile so a plain `docker compose up` for Joern does not pull 20 GB.
+  #   docker compose --profile vllm up -d vllm
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: ssat-vllm
+    profiles: [vllm]
+    ports:
+      - "${VLLM_PORT:-8001}:8000"
+    volumes:
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    ipc: host
+    # --served-model-name pins the id clients use, so AGENT_MODEL stays "agent"
+    # when the weights change. --tool-call-parser is what lets verification call
+    # tools; without it a run falls back to context-only and says so.
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-32B-Instruct-AWQ}
+      --served-model-name agent
+      --max-model-len ${VLLM_MAX_LEN:-16384}
+      --tensor-parallel-size ${VLLM_TP:-1}
+      --tool-call-parser ${VLLM_TOOL_PARSER:-hermes}
+      --enable-auto-tool-choice
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${VLLM_GPUS:-0}"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/models')"]
+      interval: 10s
+      timeout: 5s
+      retries: 90
+      start_period: 30s
+
+  # SEC-bench's own Docker daemon, so its images do not land on the host's.
+  #
+  #   docker compose --profile secbench up -d
+  #
+  # The full set of evaluation images is around 200 GB. `/var/lib/docker` is on
+  # the system disk, and image layers live in a daemon's data-root -- a volume
+  # cannot redirect them, so the only way to put them somewhere else without
+  # migrating everything is a second daemon. This is that, as a service rather
+  # than as a command somebody has to remember.
+  #
+  # Nothing about the host daemon changes: it is not restarted, reconfigured or
+  # migrated, and vLLM, Postgres and Joern keep running while a sweep does.
+  secbench-docker:
+    image: docker:28-dind
+    container_name: ssat-secbench-docker-${USER}
+    profiles: [secbench]
+    # dind needs it. Confined to a profile that is down by default, and the
+    # alternative -- dockerd on the host -- needs the same grant with none of
+    # the repeatability. Running SEC-bench's own images is the point, so the
+    # trust boundary is at their containers either way.
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    # The socket's group. Defaults to the conventional docker gid; a host that
+    # uses another sets SECB_DOCKER_GID. This grants nothing new -- anyone who
+    # can already run docker here can run the sweep's daemon, and nobody else.
+    command: ["--group", "${SECB_DOCKER_GID:-999}"]
+    volumes:
+      # Where the 200 GB goes. Repo-relative by default so a checkout works
+      # unconfigured; `.env` points it at a disk with room.
+      - ${SECB_DOCKER_ROOT:-./artifacts/secbench/docker}:/var/lib/docker
+      - ${SECB_ROOT:-./artifacts/secbench}:/secbench
+      # The daemon's socket, on the host, so the sweep can reach it.
+      #
+      # A socket rather than a published TCP port: an unauthenticated daemon on
+      # 127.0.0.1:2375 is reachable by every process on the machine with no
+      # credential at all, where a socket carries file permissions. The sweep
+      # sets DOCKER_HOST to this path.
+      - ${SECB_ROOT:-./artifacts/secbench}/run:/var/run
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  # SEC-bench's tooling, pinned. Their instructions want conda and Python 3.12;
+  # this keeps both off the host and makes scoring reproducible -- the same
+  # commit evaluates the same way next month.
+  secbench:
+    build:
+      context: .
+      dockerfile: docker/secbench.Dockerfile
+    container_name: ssat-secbench-${USER}
+    profiles: [secbench]
+    depends_on:
+      secbench-docker:
+        condition: service_healthy
+    environment:
+      # The sibling daemon, over the socket it shares through ${SECB_ROOT}/run.
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SECB_ROOT: /secbench
+    volumes:
+      - ${SECB_ROOT:-./artifacts/secbench}:/secbench
+      - ${SECB_ROOT:-./artifacts/secbench}/run:/var/run
+    # Long-lived, so `docker compose exec secbench ...` can drive it.
+    command: ["sleep", "infinity"]
+
+volumes:
+  # Named, so `docker compose down` does not take the runs with it.
+  ssat-postgres:

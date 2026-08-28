@@ -37,8 +37,10 @@ jobs:
         run: uv run mypy
 
       # Covers the F2-A suite, the golden characterization snapshots, the
-      # GNN training-data contract, and the CPG backend equivalence checks.
-      # Backend tests that need a Joern install or the container skip cleanly.
+      # GNN training-data contract, the CPG backend equivalence checks, and the
+      # agent package (index, schema, locate, tools, graph, API).
+      # Tests needing Joern, the container, or bubblewrap skip cleanly, and no
+      # test calls a model -- the inspection loop is driven by a scripted one.
       - name: pytest
         run: uv run pytest -q
 
@@ -53,7 +55,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # One source of truth for CI, dev and Docker. Node 20 went
+          # end-of-life in April 2026, and vite 8 (under vitest) already wants
+          # ^20.19 || >=22.12 -- latest-20.x satisfied that with no headroom.
+          node-version-file: web/.nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -64,3 +69,14 @@ jobs:
       - run: npm run lint
 
       - run: npm run test
+
+      # Every dependency is permissively licensed, or has a reviewed exception
+      # with a written reason. Runs before the build so a bad dependency fails
+      # fast rather than after a full compile.
+      - run: npm run licenses
+
+      - run: npm run licenses:check
+
+      # tsc --noEmit does not catch a server component importing a client-only
+      # module, or a broken dynamic() boundary. Only a real build does.
+      - run: npm run build
