@@ -22,7 +22,8 @@ class CPGHandler {
     const path = await import("path");
     const fs = await import("fs/promises");
 
-    const tmpDir = os.tmpdir();
+    let tmpDir = os.tmpdir();
+    if (tmpDir.startsWith("/home/tmp")) tmpDir = "/tmp";
     const base = originalFilename && originalFilename.trim().length > 0 ? originalFilename : "input.c";
     const ensuredName = base.endsWith(".c") ? base : `${base}.c`;
     const tmpPath = path.join(tmpDir, `${Date.now()}_${Math.random().toString(36).slice(2)}_${ensuredName}`);

@@ -1,0 +1,124 @@
+.panel {
+  position: absolute;
+  top: 6rem;
+  right: 1.5rem;
+  width: 380px;
+  max-height: 75vh;
+  z-index: 100;
+  background-color: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: rgba(249, 250, 251, 0.8);
+}
+
+.title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--foreground);
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  color: #3b82f6;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  transition: background-color 0.2s;
+}
+
+.closeButton:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: var(--foreground);
+}
+
+.content {
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.propertyRow {
+  display: flex;
+  flex-direction: column;
+}
+
+.propertyKey {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+}
+
+.propertyValue {
+  font-family: monospace;
+  font-size: 0.875rem;
+  background-color: rgba(0, 0, 0, 0.03);
+  padding: 0.5rem;
+  border-radius: 6px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  color: var(--foreground);
+}
+
+@media (prefers-color-scheme: dark) {
+  .panel {
+    background-color: rgba(20, 20, 20, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  }
+  .header {
+    background-color: rgba(30, 30, 30, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  .closeButton:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+  .propertyKey {
+    color: #9ca3af;
+  }
+  .propertyValue {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+}

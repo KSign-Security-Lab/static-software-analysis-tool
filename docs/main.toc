@@ -1,0 +1,89 @@
+\contentsline {section}{\numberline {1}개요}{8}{section.1}%
+\contentsline {subsection}{\numberline {1.1}목적}{8}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}프로그램 구성 및 설계}{8}{subsection.1.2}%
+\contentsline {subsubsection}{\numberline {1.2.1}데이터 전처리 파이프라인}{8}{subsubsection.1.2.1}%
+\contentsline {subsubsection}{\numberline {1.2.2}GNN 기반 분류 파이프라인}{9}{subsubsection.1.2.2}%
+\contentsline {section}{\numberline {2}Code Property Graph(CPG) 자동 생성 기술}{10}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Joern CPG}{10}{subsection.2.1}%
+\contentsline {subsubsection}{\numberline {2.1.1}Joern}{10}{subsubsection.2.1.1}%
+\contentsline {subsubsection}{\numberline {2.1.2}CPG Specification}{10}{subsubsection.2.1.2}%
+\contentsline {paragraph}{MetaData 계층}{10}{paragraph*.2}%
+\contentsline {paragraph}{FileSystem 계층}{10}{paragraph*.3}%
+\contentsline {paragraph}{Namespace 계층}{10}{paragraph*.4}%
+\contentsline {paragraph}{Method 계층}{11}{paragraph*.5}%
+\contentsline {paragraph}{Type 계층}{11}{paragraph*.6}%
+\contentsline {paragraph}{AST\xspace 계층}{11}{paragraph*.7}%
+\contentsline {paragraph}{CallGraph 계층}{11}{paragraph*.8}%
+\contentsline {paragraph}{CFG\xspace 계층}{11}{paragraph*.9}%
+\contentsline {paragraph}{PDG\xspace 계층}{11}{paragraph*.10}%
+\contentsline {paragraph}{Binding 계층}{11}{paragraph*.11}%
+\contentsline {paragraph}{보조 계층(Auxiliary Layers)}{12}{paragraph*.12}%
+\contentsline {subsection}{\numberline {2.2}컨테이너 기반 실행 환경}{12}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}병렬 처리 및 자동화}{12}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Template 변환}{14}{section.3}%
+\contentsline {subsection}{\numberline {3.1}개요 및 설계}{14}{subsection.3.1}%
+\contentsline {paragraph}{\textbf {설계 근거 및 전략}:}{14}{paragraph*.15}%
+\contentsline {subsection}{\numberline {3.2}기능 및 컴포넌트 구성}{14}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}동작 흐름}{15}{subsection.3.3}%
+\contentsline {subsubsection}{\numberline {3.3.1}Step 1: 트리 TemplateExtractor}{15}{subsubsection.3.3.1}%
+\contentsline {subsubsection}{\numberline {3.3.2}Step 2: 노드 TemplateConverter}{16}{subsubsection.3.3.2}%
+\contentsline {paragraph}{연산자 CALL}{16}{paragraph*.19}%
+\contentsline {paragraph}{제어 구조(Control Structure)}{16}{paragraph*.21}%
+\contentsline {paragraph}{변수 및 함수 처리}{17}{paragraph*.23}%
+\contentsline {subsection}{\numberline {3.4}설정}{17}{subsection.3.4}%
+\contentsline {section}{\numberline {4}AST 추출 모듈}{19}{section.4}%
+\contentsline {subsection}{\numberline {4.1}개요}{19}{subsection.4.1}%
+\contentsline {subsubsection}{\numberline {4.1.1}해결하고자 하는 문제}{19}{subsubsection.4.1.1}%
+\contentsline {subsection}{\numberline {4.2}동작 흐름}{19}{subsection.4.2}%
+\contentsline {subsubsection}{\numberline {4.2.1}Initialization}{19}{subsubsection.4.2.1}%
+\contentsline {subsubsection}{\numberline {4.2.2}주요 추출 과정}{20}{subsubsection.4.2.2}%
+\contentsline {subsection}{\numberline {4.3}핵심 구성 요소 역할}{21}{subsection.4.3}%
+\contentsline {subsubsection}{\numberline {4.3.1}Block Processing}{21}{subsubsection.4.3.1}%
+\contentsline {subsubsection}{\numberline {4.3.2}Node Creation}{21}{subsubsection.4.3.2}%
+\contentsline {subsubsection}{\numberline {4.3.3}Control Flow Handling}{21}{subsubsection.4.3.3}%
+\contentsline {subsubsection}{\numberline {4.3.4}Guard Edge Emission}{22}{subsubsection.4.3.4}%
+\contentsline {subsection}{\numberline {4.4}데이터 변환}{22}{subsection.4.4}%
+\contentsline {subsubsection}{\numberline {4.4.1}입출력 구조}{22}{subsubsection.4.4.1}%
+\contentsline {subsubsection}{\numberline {4.4.2}Node Features}{23}{subsubsection.4.4.2}%
+\contentsline {subsection}{\numberline {4.5}노드 및 엣지 타입}{23}{subsection.4.5}%
+\contentsline {subsubsection}{\numberline {4.5.1}지원 노드 타입}{23}{subsubsection.4.5.1}%
+\contentsline {subsubsection}{\numberline {4.5.2}엣지 타입}{23}{subsubsection.4.5.2}%
+\contentsline {subsection}{\numberline {4.6}호출 의미론 및 플래그}{23}{subsection.4.6}%
+\contentsline {subsubsection}{\numberline {4.6.1}호출 카테고리}{23}{subsubsection.4.6.1}%
+\contentsline {subsubsection}{\numberline {4.6.2}호출 플래그 계산}{24}{subsubsection.4.6.2}%
+\contentsline {section}{\numberline {5}GNN을 이용한 AST 기반의 취약점 탐지}{25}{section.5}%
+\contentsline {subsection}{\numberline {5.1}개요}{25}{subsection.5.1}%
+\contentsline {subsubsection}{\numberline {5.1.1}해결하고자 하는 문제}{25}{subsubsection.5.1.1}%
+\contentsline {subsubsection}{\numberline {5.1.2}기능 요약}{25}{subsubsection.5.1.2}%
+\contentsline {subsection}{\numberline {5.2}동작 흐름}{26}{subsection.5.2}%
+\contentsline {subsubsection}{\numberline {5.2.1}학습 파이프라인}{26}{subsubsection.5.2.1}%
+\contentsline {subsubsection}{\numberline {5.2.2}평가 파이프라인}{27}{subsubsection.5.2.2}%
+\contentsline {subsection}{\numberline {5.3}핵심 구성 요소 역할}{27}{subsection.5.3}%
+\contentsline {subsubsection}{\numberline {5.3.1}GenericJsonDataset}{27}{subsubsection.5.3.1}%
+\contentsline {subsubsection}{\numberline {5.3.2}Graph Building Functions}{27}{subsubsection.5.3.2}%
+\contentsline {subsubsection}{\numberline {5.3.3}Collate Function}{27}{subsubsection.5.3.3}%
+\contentsline {subsubsection}{\numberline {5.3.4}Model Selection \& Training}{27}{subsubsection.5.3.4}%
+\contentsline {subsubsection}{\numberline {5.3.5}Evaluation Functions}{28}{subsubsection.5.3.5}%
+\contentsline {subsection}{\numberline {5.4}데이터 변환}{28}{subsection.5.4}%
+\contentsline {subsubsection}{\numberline {5.4.1}JSON $\rightarrow $ PyG Graph}{28}{subsubsection.5.4.1}%
+\contentsline {subsubsection}{\numberline {5.4.2}Graph Batching}{28}{subsubsection.5.4.2}%
+\contentsline {subsection}{\numberline {5.5}모델 아키텍처}{28}{subsection.5.5}%
+\contentsline {subsubsection}{\numberline {5.5.1}GNN Model Architecture}{28}{subsubsection.5.5.1}%
+\contentsline {subsection}{\numberline {5.6}설정}{29}{subsection.5.6}%
+\contentsline {subsection}{\numberline {5.7}분석 파이프라인 통합}{29}{subsection.5.7}%
+\contentsline {section}{\numberline {6}실험 및 성능 평가}{30}{section.6}%
+\contentsline {subsection}{\numberline {6.1}실험 환경}{30}{subsection.6.1}%
+\contentsline {subsubsection}{\numberline {6.1.1}데이터셋}{30}{subsubsection.6.1.1}%
+\contentsline {subsubsection}{\numberline {6.1.2}실험 설정}{30}{subsubsection.6.1.2}%
+\contentsline {subsection}{\numberline {6.2}성능 지표}{31}{subsection.6.2}%
+\contentsline {subsubsection}{\numberline {6.2.1}전체 성능}{31}{subsubsection.6.2.1}%
+\contentsline {subsubsection}{\numberline {6.2.2}Confusion Matrix}{31}{subsubsection.6.2.2}%
+\contentsline {subsubsection}{\numberline {6.2.3}상세 성능 지표}{31}{subsubsection.6.2.3}%
+\contentsline {subsection}{\numberline {6.3}성능 분석}{32}{subsection.6.3}%
+\contentsline {subsubsection}{\numberline {6.3.1}높은 재현율의 의미}{32}{subsubsection.6.3.1}%
+\contentsline {subsubsection}{\numberline {6.3.2}오탐율 분석}{32}{subsubsection.6.3.2}%
+\contentsline {subsubsection}{\numberline {6.3.3}클래스 불균형 대응}{32}{subsubsection.6.3.3}%
+\contentsline {subsection}{\numberline {6.4}오분류 분석}{32}{subsection.6.4}%
+\contentsline {subsubsection}{\numberline {6.4.1}높은 확신도의 오분류}{32}{subsubsection.6.4.1}%
+\contentsline {subsubsection}{\numberline {6.4.2}개선 방향}{33}{subsubsection.6.4.2}%
+\contentsline {subsection}{\numberline {6.5}결론}{33}{subsection.6.5}%

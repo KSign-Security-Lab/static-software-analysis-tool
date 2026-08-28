@@ -1,0 +1,134 @@
+.container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-color: var(--background);
+  overflow: hidden;
+}
+
+.canvas {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.canvas:active {
+  cursor: grabbing;
+}
+
+.filterPanel {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  width: 250px;
+  max-height: 80vh;
+  background-color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.filterHeader {
+  padding: 1rem;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: rgba(249, 250, 251, 0.8);
+  font-size: 1rem;
+  color: var(--foreground);
+}
+
+.filterContent {
+  padding: 0.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.filterItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.filterItem:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.filterLabel {
+  font-size: 0.875rem;
+  color: var(--foreground);
+  font-family: monospace;
+}
+
+.filterCheckbox {
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .filterPanel {
+    background-color: rgba(20, 20, 20, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  }
+  .filterHeader {
+    background-color: rgba(30, 30, 30, 0.8);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  .filterItem:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+}
+
+.zoomControls {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 10;
+}
+
+.zoomButton {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--foreground);
+  transition: all 0.2s ease;
+}
+
+.zoomButton:hover {
+  background-color: rgba(240, 240, 240, 0.95);
+  transform: translateY(-1px);
+}
+
+.zoomButton:active {
+  transform: translateY(1px);
+}
+
+@media (prefers-color-scheme: dark) {
+  .zoomButton {
+    background-color: rgba(30, 30, 30, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+  .zoomButton:hover {
+    background-color: rgba(50, 50, 50, 0.95);
+  }
+}
