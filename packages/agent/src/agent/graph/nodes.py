@@ -65,6 +65,7 @@ from ..promptstore import DEFAULTS as DEFAULT_PROMPTS
 from ..promptstore import lens_prompt
 from ..remediate import build as build_remediation
 from ..remediate import propose as propose_fix
+from ..remediate import window_around
 from ..tracing import call_config
 from ..schema import (
     LENSES,
@@ -873,7 +874,9 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             explanation=finding.explanation,
             span=span,
             excerpt="\n".join(lines[span.start_line - 1 : span.end_line]),
-            context=text,
+            # Windowed, not the whole file: `input_chars()` is what the endpoint
+            # has room for, and this path was the only one not asking.
+            context=window_around(text, span, deps.config.input_chars()),
             prompt=deps.prompts["fix"],
             trace=call_config(
                 step="fix",

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.remediate import patch_set
+from agent.remediate import patch_set, window_around
 from agent.schema import Finding, Remediation, Span
 
 TWO_HOLES = """#include <string.h>
@@ -226,3 +226,92 @@ def test_the_emitted_patch_is_one_git_apply_can_take(tmp_path: Path) -> None:
     # And what git produced is what the archive would have shipped.
     for path, text in result.files.items():
         assert (tmp_path / path).read_text(encoding="utf-8") == text
+
+
+# --------------------------------------------------------------------------
+# The window the fix prompt gets, which used to be the whole file.
+# --------------------------------------------------------------------------
+#
+# Run dbd2c9e7ca62 lost 48 fix calls to `max_tokens must be at least 1, got
+# -43420` -- a 197KB source pasted whole into a 16 384-token window. Every one
+# was in one of the four largest files, and that is where most findings are.
+
+
+def _span(line: int, *, end: int | None = None, file: str = "src/big.c") -> Span:
+    return Span(file=file, start_line=line, start_column=1, end_line=end or line, end_column=1, excerpt="")
+
+
+def _numbered(count: int) -> str:
+    return "\n".join(f"line {n:04d} aaaaaaaaaaaaaaaaaaaa" for n in range(1, count + 1))
+
+
+def test_the_window_stays_inside_its_budget() -> None:
+    text = _numbered(4000)
+    window = window_around(text, _span(2000), 2_000)
+
+    assert len(window) <= 2_000 + 80  # the header naming the range
+    assert "line 2000" in window
+
+
+def test_the_lines_being_replaced_are_always_in_it() -> None:
+    """The span is what the fix replaces; a budget may not cost us that."""
+    text = _numbered(4000)
+    window = window_around(text, _span(1500, end=1512), 400)
+
+    for n in range(1500, 1513):
+        assert f"line {n:04d}" in window
+
+
+def test_it_is_centred_on_the_span_not_cut_from_the_top() -> None:
+    """A prefix cut of a 4000-line C file is the includes.
+
+    The declaration of the buffer and the check that is missing are around the
+    anchor, which is the whole reason a fix needs context at all.
+    """
+    text = _numbered(4000)
+    window = window_around(text, _span(2000), 3_000)
+
+    assert "line 1990" in window and "line 2010" in window
+    assert "line 0001" not in window
+
+
+def test_whole_lines_only() -> None:
+    """Half a statement invites the model to complete the half it can see."""
+    text = _numbered(4000)
+    window = window_around(text, _span(2000), 1_337)
+
+    body = [line for line in window.splitlines() if line.startswith("line ")]
+    assert body
+    assert all(line.endswith("aaaaaaaaaaaaaaaaaaaa") for line in body)
+
+
+def test_a_span_at_either_end_of_the_file_still_gets_context() -> None:
+    text = _numbered(200)
+    top = window_around(text, _span(1), 600)
+    bottom = window_around(text, _span(200), 600)
+
+    assert "line 0001" in top and "line 0005" in top
+    assert "line 0200" in bottom and "line 0196" in bottom
+
+
+def test_a_small_file_arrives_whole_and_unannounced() -> None:
+    """Nothing was cut, so nothing should claim it was."""
+    text = _numbered(10)
+    window = window_around(text, _span(5), 100_000)
+
+    assert window == text
+    assert "..." not in window
+
+
+def test_a_cut_file_says_so() -> None:
+    """So the model does not read a truncated file as a whole one and conclude a
+    caller never validates what it validates offscreen."""
+    window = window_around(_numbered(4000), _span(2000), 2_000)
+
+    assert window.startswith("... [src/big.c 의 ")
+
+
+def test_nothing_to_show_is_empty_rather_than_a_guess() -> None:
+    assert window_around("", _span(1), 1_000) == ""
+    assert window_around(_numbered(10), _span(5), 0) == ""
+    assert window_around(_numbered(10), _span(99), 1_000) == ""

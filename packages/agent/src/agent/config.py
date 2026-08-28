@@ -23,6 +23,7 @@ ENV_DATABASE_URL = "AGENT_DATABASE_URL"
 ENV_PROMPTS_FILE = "AGENT_PROMPTS_FILE"
 ENV_CORPUS_DIR = "AGENT_CORPUS_DIR"
 ENV_SANDBOX = "AGENT_SANDBOX"
+ENV_REASONING_EFFORT = "AGENT_REASONING_EFFORT"
 ENV_RUN_ID = "AGENT_RUN_ID"
 
 
@@ -156,6 +157,25 @@ class AgentConfig:
     # the schema emits a valid prefix until it runs out of context. Observed a
     # 0.5B spend 8048 tokens without closing the object.
     max_tokens: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOKENS", 4096))
+
+    # -- how much of that ceiling is left for the answer -----------------------
+    #
+    # `max_tokens` reads as room for the reply, and on a plain model it is. On a
+    # reasoning model it is not: the reasoning and the JSON come out of the same
+    # allowance, and the reasoning goes first. Measured on this project's own
+    # traces -- one recorded prompt replayed at the default effort spent 3657
+    # completion tokens to emit 473 characters of JSON, and 649 lens calls in
+    # run dbd2c9e7ca62 hit the 4096 ceiling without ever closing the object.
+    # The units were not analysed and the run reported itself done.
+    #
+    # `low` rather than off, because off is not a setting gpt-oss has. On 16
+    # prompts that all truncated in that run it finished every one, at a median
+    # of 1004 completion tokens against 4096 pinned, and 11 seconds a call
+    # against 24 -- so this buys accuracy and speed at once.
+    #
+    # Empty means send nothing, which is what an endpoint that has never heard
+    # of the parameter wants.
+    reasoning_effort: str = field(default_factory=lambda: os.getenv(ENV_REASONING_EFFORT, "low"))
 
     # vLLM needs --tool-call-parser for this; without it the run falls back to
     # context-only verification and says so once.

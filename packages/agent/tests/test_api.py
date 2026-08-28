@@ -1671,3 +1671,65 @@ def test_a_cancelled_run_is_not_reported_as_done(client: TestClient, monkeypatch
         _collect_events(stream, limit=6)
 
     assert client.get(f"/agent/runs/{run_id}").json()["status"] == "cancelled"
+
+
+# -- asking for a fix ---------------------------------------------------------
+#
+# `POST /runs/{id}/propose` had no test at all, which is part of why it shipped
+# sending the whole file: run dbd2c9e7ca62 could not have made this button work
+# for any finding in its four largest sources, and 85 of its 259 findings were
+# in one of them.
+
+
+def test_propose_says_there_is_no_model_in_the_reader_s_language(client: TestClient) -> None:
+    """503, not 409 -- which is why `describeError` never had a case for it and
+    the English sentence reached a Korean toast raw."""
+    run_id = _upload(client)["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fix(paths, replacement=None, excerpt="", start=1, end=1)
+
+    response = client.post(f"/agent/runs/{run_id}/propose", json={"finding_id": "f1"})
+    assert response.status_code == 503, response.text
+
+
+def test_propose_sends_a_window_not_the_whole_file(client: TestClient, monkeypatch) -> None:
+    """The prompt must be bounded by what the endpoint can hold.
+
+    A 197KB source is roughly 123 000 tokens against a 16 384 window, and vLLM
+    answers `max_tokens must be at least 1, got -43420`. Asserted on a file
+    padded past the budget, because a small one cannot tell the two apart.
+    """
+    from agent.config import AgentConfig, ENV_MODEL
+    from agent.llm import Outcome
+    from agent.schema import CandidateRemediation
+
+    padding = "\n".join(f"// filler {n:05d} ------------------------------" for n in range(4_000))
+    source = "#include <stdlib.h>\nvoid run(char *cmd) {\n  system(cmd);\n}\n" + padding + "\n"
+    run_id = _upload(client, {"src/app.c": source})["run_id"]
+    paths = _paths_for(run_id)
+    _report_with_fix(paths, replacement=None, excerpt="  system(cmd);", start=3, end=3)
+
+    monkeypatch.setenv(ENV_MODEL, "fake")
+    seen: list[str] = []
+
+    class Caller:
+        def __init__(self, config):
+            pass
+
+        def call(self, schema, system, user, trace=None):
+            seen.append(user)
+            return Outcome.of(CandidateRemediation(summary="s", detail="d", replacement="  execv(cmd, 0);"))
+
+    import agent.llm
+
+    monkeypatch.setattr(agent.llm, "StructuredCaller", Caller)
+
+    response = client.post(f"/agent/runs/{run_id}/propose", json={"finding_id": "f1"})
+    assert response.status_code == 200, response.text
+
+    budget = AgentConfig(model="fake").input_chars()
+    assert len(source) > budget * 2, "the file must exceed the budget or this asserts nothing"
+    assert seen, "the model was never asked"
+    assert len(seen[0]) < budget * 1.5
+    # What it is being asked to replace is never the thing dropped.
+    assert "system(cmd);" in seen[0]

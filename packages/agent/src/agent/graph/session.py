@@ -121,7 +121,13 @@ class InspectionSession:
         self._cache: ResultCache | None = None
         if config.cache_results and config.model:
             self._cache = ResultCache(
-                recipe_of(model=config.model, lenses=config.lenses, prompts=self.prompts),
+                recipe_of(
+                    model=config.model,
+                    lenses=config.lenses,
+                    prompts=self.prompts,
+                    reasoning_effort=config.reasoning_effort,
+                    max_tokens=config.max_tokens,
+                ),
                 config,
             )
 

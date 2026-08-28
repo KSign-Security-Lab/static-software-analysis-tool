@@ -17,10 +17,19 @@ const start = { mutate: vi.fn(), isPending: false };
 vi.mock("@/lib/run/queries", () => ({ useStartRun: () => start }));
 vi.mock("@/lib/run/stream", () => ({ useRunStream: () => ({ ensureAttached: vi.fn() }) }));
 
+let spans: unknown[] = [];
+vi.mock("@/lib/run/trace-queries", () => ({ useSpans: () => ({ data: { spans } }) }));
+
 afterEach(() => {
   start.mutate.mockReset();
+  spans = [];
   cleanup();
 });
+
+/** An llm span the way the recorder writes one, name carrying its subject. */
+function failedSpan(name: string) {
+  return { id: name, name, kind: "llm", status: "error", error: "length limit" };
+}
 
 async function show(stats: Partial<RunStats> | undefined) {
   const { default: Coverage } = await import("./Coverage");
@@ -55,9 +64,13 @@ describe("judgements that failed", () => {
     expect(alert.textContent).toContain("없다는 뜻이 아니라 못 봤다는 뜻");
   });
 
-  it("names the cause the log shouts about", async () => {
+  it("names the lever that actually moves it", async () => {
+    // Was AGENT_MAX_TOKENS, which was the wrong advice: raising the ceiling
+    // gives a reasoning model more room to reason and it spends that too.
+    // Measured on 16 prompts that all truncated -- at a lower effort every one
+    // finished, inside the ceiling they had already been given.
     await show({ failed: 1 });
-    expect(screen.getByRole("alert").textContent).toContain("AGENT_MAX_TOKENS");
+    expect(screen.getByRole("alert").textContent).toContain("AGENT_REASONING_EFFORT");
   });
 });
 
@@ -94,5 +107,41 @@ describe("both at once", () => {
     await show({ failed: 3, chunks_cached: 5, chunks_inspected: 1 });
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByText(/지난 검사 결과를 그대로 가져왔고/)).toBeInTheDocument();
+  });
+});
+
+
+describe("which units were not fully read", () => {
+  /**
+   * The count alone was all this ever said. Run dbd2c9e7ca62 left 177 of 673
+   * units short of one specialist and reported `328번의 판단이 실패` -- true,
+   * and no help in finding the code nobody looked at. `failuresByUnit` has
+   * answered this since before the banner existed and nothing imported it.
+   */
+  it("names the unit and the lens that died", async () => {
+    spans = [failedSpan("lens:memory:bn_Add"), failedSpan("lens:logic:EN_Mul")];
+    await show({ failed: 2 });
+
+    expect(screen.getByText(/끝까지 읽지 못한 단위/).textContent).toContain("2개");
+    expect(screen.getByText("bn_Add")).toBeTruthy();
+    expect(screen.getByText("EN_Mul")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("memory 분석");
+  });
+
+  it("does not count a call that a retry made good", async () => {
+    // An error followed by a success under the same name is a recovered call.
+    // Counting it said the lens both found things and never ran.
+    spans = [failedSpan("lens:memory:bn_Add"), { id: "2", name: "lens:memory:bn_Add", kind: "llm", status: "ok" }];
+    await show({ failed: 1 });
+
+    expect(screen.queryByText(/끝까지 읽지 못한 단위/)).toBeNull();
+  });
+
+  it("says nothing extra when the trace has not arrived", async () => {
+    spans = [];
+    await show({ failed: 3 });
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText(/끝까지 읽지 못한 단위/)).toBeNull();
   });
 });

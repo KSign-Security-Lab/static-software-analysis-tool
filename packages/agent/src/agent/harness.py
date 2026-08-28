@@ -69,6 +69,7 @@ TUNABLE: tuple[str, ...] = (
     "lens_tools",
     "enable_tools",
     "max_tokens",
+    "reasoning_effort",
 )
 
 

@@ -110,6 +110,67 @@ FIX_SYSTEM = """당신은 이미 확인된 취약점 하나를 실제로 고치�
 `summary` 와 `detail` 은 한국어 문장이어야 합니다."""
 
 
+def window_around(text: str, span: Span, budget: int) -> str:
+    """The lines around a span, within a character budget.
+
+    The fix prompt used to be handed the whole file. That is the one prompt path
+    in this package with no budget at all, and on a real tree it is not close:
+    `Ksign_ASN1.c` is 197KB, which is roughly 123 000 tokens against a 16 384
+    window, and the endpoint answers `max_tokens must be at least 1, got
+    -43420`. Run dbd2c9e7ca62 lost 48 fix calls that way -- every one of them in
+    one of the four largest files, and 23 of that tree's 125 files are too large
+    for the window on their own.
+
+    Centred on the span rather than cut from the top, because a fix needs what
+    surrounds the lines it replaces: the declaration of the buffer, the check
+    that is missing, the `goto err` it should jump to. A prefix cut gives the
+    top of the file, which for a 4000-line C file is the includes.
+
+    Whole lines only. Handing a model half a statement invites it to complete
+    the half it can see.
+    """
+    lines = text.splitlines()
+    if not lines or budget <= 0:
+        return ""
+
+    first = max(1, span.start_line)
+    last = min(len(lines), max(span.end_line, first))
+    if first > len(lines):
+        return ""
+
+    # The span itself is not negotiable -- it is what the fix replaces -- so it
+    # is taken first and the budget spent outward from there.
+    kept = lines[first - 1 : last]
+    used = sum(len(line) + 1 for line in kept)
+    above, below = first - 1, last  # 0-based indices of the next line each way
+
+    # Alternating, so a span near the top of a file still gets context below it
+    # instead of stopping at the file's first line with budget unspent.
+    while used < budget and (above > 0 or below < len(lines)):
+        grew = False
+        if above > 0:
+            size = len(lines[above - 1]) + 1
+            if used + size <= budget:
+                above -= 1
+                used += size
+                grew = True
+        if below < len(lines):
+            size = len(lines[below]) + 1
+            if used + size <= budget:
+                below += 1
+                used += size
+                grew = True
+        if not grew:
+            break
+
+    window = "\n".join(lines[above:below])
+    if above > 0 or below < len(lines):
+        # Said, so the model does not read a truncated file as a whole one and
+        # conclude a caller never validates what it in fact validates offscreen.
+        window = f"... [{span.file} 의 {above + 1}-{below}번 줄]\n{window}"
+    return window
+
+
 def fix_user(
     *,
     title: str,
@@ -118,14 +179,18 @@ def fix_user(
     excerpt: str,
     context: str,
 ) -> str:
-    """The brief: what is wrong, the lines to replace, and the file around them."""
+    """The brief: what is wrong, the lines to replace, and the code around them.
+
+    ``context`` is expected to be windowed already -- see :func:`window_around`.
+    Both callers budget it, because the two must agree on what the model sees.
+    """
     where = f"{span.file}:{span.start_line}-{span.end_line}"
     parts = [
         f"=== 취약점 ===\n{title}\n\n{explanation}",
         f"=== 바꿀 부분 ({where}) ===\n{excerpt}",
     ]
     if context.strip():
-        parts.append(f"=== 이 부분이 있는 파일 ===\n{context}")
+        parts.append(f"=== 이 부분이 있는 코드 ===\n{context}")
     return "\n\n".join(parts)
 
 

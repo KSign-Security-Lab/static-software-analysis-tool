@@ -1437,6 +1437,51 @@ def test_a_surviving_finding_gets_its_fix_during_the_run(indexed) -> None:
     store.close()
 
 
+def test_the_fix_prompt_is_windowed_rather_than_the_whole_file(indexed) -> None:
+    """The one prompt in this package that used to have no budget at all.
+
+    `context=text` handed `fix_user` the entire source. On a real tree that is
+    not close: run dbd2c9e7ca62 sent ~62 000 tokens at a 16 384 window and lost
+    48 fix calls to `max_tokens must be at least 1, got -43420`, every one of
+    them in one of the four largest files.
+
+    Asserted against a deliberately small budget so the bound is the budget's
+    and not the fixture's -- the sample tree would fit either way, which is
+    exactly how this went unnoticed.
+    """
+    root, store = indexed
+    # The sample tree is a kilobyte, so against it a whole file and a windowed
+    # one are the same string and this would assert nothing either way. Padded
+    # past the budget on purpose, which is the condition the real tree meets and
+    # the fixture never did.
+    padding = "\n".join(f"// filler {n:05d} ------------------------------" for n in range(4_000))
+    app = root / "app.c"
+    app.write_text(f"{app.read_text(encoding='utf-8')}\n{padding}\n", encoding="utf-8")
+    store.close()
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), store)
+
+    class Fixer(ScriptedCaller):
+        def call(self, schema, system, user, trace=None):
+            if schema is CandidateRemediation:
+                self.prompts.append((schema.__name__, user))
+                return Outcome.of(CandidateRemediation(summary="s", detail="d", replacement="  execv(cmd);"))
+            return super().call(schema, system, user, trace)
+
+    caller = Fixer(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    config = AgentConfig(model="fake", context_window=16_384)
+    _run(root, store, caller, context_window=16_384)
+
+    asked = caller.prompts_for("CandidateRemediation")
+    assert asked, "the fix was never proposed, so this asserts nothing"
+    assert len(app.read_text(encoding="utf-8")) > config.input_chars() * 2, "the file must exceed the budget"
+    for prompt in asked:
+        assert len(prompt) < config.input_chars() * 1.5
+    # The lines being replaced survive the budget -- they are what it replaces.
+    assert any("system(cmd);" in prompt for prompt in asked)
+    store.close()
+
+
 def test_a_refuted_finding_is_not_fixed(indexed) -> None:
     """Refuted findings never reach the report, so fixing them would be model
     time spent on claims nobody will read."""

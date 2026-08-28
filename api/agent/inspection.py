@@ -488,6 +488,7 @@ def run_propose(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
     from agent.llm import StructuredCaller
     from agent.remediate import build as build_remediation
     from agent.remediate import propose as propose_fix
+    from agent.remediate import window_around
 
     report = run.load_report()
     if report is None:
@@ -526,16 +527,26 @@ def run_propose(run: RunDep, request: ApplyRequest) -> Dict[str, Any]:
         explanation=finding.explanation,
         span=span,
         excerpt=excerpt,
-        context=text,
+        # The window the endpoint has room for, not the file. A finding in a
+        # 197KB source used to send ~123 000 tokens at a 16 384 window, so the
+        # button could never work for any finding in the largest files -- which
+        # is where most findings are.
+        context=window_around(text, span, config.input_chars()),
     )
     if not candidate.ok:
-        # Said rather than swallowed. A model that ran out of completion tokens
-        # mid-object is a different thing from one that judged the line
-        # unfixable, and the reader was being told the second when it was the
-        # first.
+        # Said rather than swallowed, and said in the reader's language. A model
+        # that ran out of completion tokens mid-object is a different thing from
+        # one that judged the line unfixable, and both are different from a
+        # prompt that never fitted -- which is what `(transport)` in an
+        # otherwise Korean sentence was covering up.
+        why = {
+            "too_long": "분석할 코드가 모델이 한 번에 볼 수 있는 양을 넘었습니다.",
+            "length": "모델이 답을 끝맺지 못했습니다. 더 큰 모델이 필요할 수 있습니다.",
+            "refused": "모델이 알아볼 수 없는 형식으로 답했습니다.",
+        }.get(candidate.reason or "", "모델에 연결하지 못했습니다.")
         raise HTTPException(
             status_code=503 if candidate.reason == "transport" else 409,
-            detail=f"고칠 코드를 만들지 못했습니다 ({candidate.reason}).",
+            detail=f"고칠 코드를 만들지 못했습니다. {why}",
         )
     if not (candidate.value.replacement or "").strip():
         raise HTTPException(status_code=409, detail="이 문제는 해당 줄만 바꿔서는 고칠 수 없습니다.")

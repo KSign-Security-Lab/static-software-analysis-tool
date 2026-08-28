@@ -266,6 +266,12 @@ export function describeError(err: unknown): string {
       return detail;
     case 400:
       return detail;
+    case 503:
+      // `require_model` answers 503, not 409, so the 409 branch above never
+      // fired for it and its English sentence reached the reader raw inside a
+      // Korean toast.
+      if (/model/i.test(detail)) return "모델이 설정되지 않았습니다. 설정에서 엔드포인트를 확인하세요.";
+      return detail;
     default:
       return detail;
   }

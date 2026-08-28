@@ -33,17 +33,44 @@ from .index.store import ChunkStore
 
 log = logging.getLogger(__name__)
 
-#: Bumped when what is stored changes shape. An old row under a new format is
-#: not a hit, which is cheaper than migrating something entirely rebuildable.
-FORMAT = "1"
+#: Bumped when what is stored changes shape *or* what it means. An old row under
+#: a new format is not a hit, which is cheaper than migrating something entirely
+#: rebuildable.
+#:
+#: 2: the retry that was supposed to absorb a truncated completion had never
+#: worked -- `bind` dropped the raised ceiling before the request was built --
+#: so a lens that ran out of tokens simply produced nothing, and `reduce` cached
+#: the unit anyway with whatever the surviving lenses found. Run dbd2c9e7ca62
+#: left 209 lens analyses dead that way. Those rows are not stale, they are
+#: wrong: a unit remembered as clean that nobody finished reading. The recipe
+#: cannot tell them apart, because the model, the prompts and both token
+#: settings are identical either side of the fix -- the code changed, not the
+#: configuration. So the format does the telling.
+FORMAT = "2"
 
-def recipe_of(*, model: str, lenses: Sequence[str], prompts: Mapping[str, str]) -> str:
+def recipe_of(
+    *,
+    model: str,
+    lenses: Sequence[str],
+    prompts: Mapping[str, str],
+    reasoning_effort: str = "",
+    max_tokens: int = 0,
+) -> str:
     """What a result depends on, besides the code.
 
     Everything here changes the answer, so everything here changes the key. The
     prompts especially: tuning one from the studio is how a run is *meant* to
     produce different findings for the same code, and a cache that ignored that
     would quietly serve the old ones for ever.
+
+    The two token settings are here for the same reason and were missing. They
+    do not read like they change an answer -- they read like performance -- but
+    a completion that runs out mid-object produces *no* finding, so a unit
+    analysed under a ceiling that was too small is cached as clean. Run
+    dbd2c9e7ca62 lost 209 lens analyses that way and would have served those
+    empty results to the next run over the same code. ``reasoning_effort`` is
+    the sharper of the two: at `low` the same prompts returned findings the
+    default never got far enough to report.
     """
     material = json.dumps(
         {
@@ -51,6 +78,8 @@ def recipe_of(*, model: str, lenses: Sequence[str], prompts: Mapping[str, str]) 
             "model": model,
             "lenses": sorted(lenses),
             "prompts": {name: hashlib.sha256(text.encode()).hexdigest()[:16] for name, text in sorted(prompts.items())},
+            "reasoning_effort": reasoning_effort,
+            "max_tokens": max_tokens,
         },
         sort_keys=True,
     )

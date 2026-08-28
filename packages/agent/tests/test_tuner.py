@@ -503,3 +503,54 @@ def test_a_replay_arm_is_not_evidence_about_the_config_it_tested() -> None:
     assert ordinary.run_id in counted
     assert arm.run_id not in counted, "an A/B arm must not be evidence about the config it tested"
     assert Run(arm.run_id).read_meta()["status"] == "done", "and it should still say it finished"
+
+
+# -- what a cached result is allowed to be reused for --------------------------
+
+
+def test_the_token_settings_are_part_of_a_result_s_identity() -> None:
+    """They read like performance and they are not.
+
+    A completion that runs out mid-object produces no finding, so a unit
+    analysed under a ceiling too small for it is cached as *clean*. Run
+    dbd2c9e7ca62 lost 209 lens analyses that way; without these in the key, the
+    next run over the same code would have been served those empty results and
+    called them a cache hit.
+    """
+    from agent.cache import recipe_of
+
+    base = dict(model="m", lenses=("memory",), prompts={"analyse": "a"})
+    default = recipe_of(**base, reasoning_effort="low", max_tokens=4096)
+
+    assert recipe_of(**base, reasoning_effort="medium", max_tokens=4096) != default
+    assert recipe_of(**base, reasoning_effort="low", max_tokens=8192) != default
+    # Same settings, same key -- the whole point of the cache still works.
+    assert recipe_of(**base, reasoning_effort="low", max_tokens=4096) == default
+
+
+def test_reasoning_effort_is_a_knob_that_changes_the_answer() -> None:
+    """So two runs under different efforts are not fair to compare."""
+    from agent.config import AgentConfig
+    from agent.harness import TUNABLE, fingerprint
+
+    assert "reasoning_effort" in TUNABLE
+
+    low = AgentConfig(model="m")
+    low.reasoning_effort = "low"
+    high = AgentConfig(model="m")
+    high.reasoning_effort = "high"
+    assert fingerprint(low) != fingerprint(high)
+
+
+def test_results_cached_before_the_retry_worked_are_not_reused() -> None:
+    """The recipe cannot see a code fix, so the format has to.
+
+    A lens that ran out of completion tokens produced nothing and `reduce`
+    cached the unit regardless, with only what the surviving lenses found. Those
+    rows say a unit is clean when nobody finished reading it -- and the model,
+    the prompts and both token settings are identical either side of the fix, so
+    nothing else in the key changes.
+    """
+    from agent.cache import FORMAT
+
+    assert FORMAT != "1", "bump this when a fix changes what a cached result means"
