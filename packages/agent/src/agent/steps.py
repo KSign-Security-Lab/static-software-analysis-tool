@@ -168,7 +168,7 @@ NODE_NOTES: dict[str, dict[str, Any]] = {
         "rule": "wave is empty -> __end__, otherwise -> context",
     },
     "context": {
-        "does": "Assembles one context pack per chunk in the wave -- the unit's source, its callees' notes, the file's declarations, its callers -- once, for everyone who will read it.",
+        "does": "Assembles one context pack per chunk in the wave -- the unit's source, how the things it calls are declared and what analysing them found, the file's declarations, its callers -- once, for everyone who will read it.",
         "reads": ["wave"],
         "writes": ["packs"],
         "router": "dispatch",

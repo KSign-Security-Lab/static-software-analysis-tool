@@ -522,7 +522,15 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         # sees it, so measuring the pack alone would find an oversized unit
         # already shortened and pronounce it small enough. That is the silent
         # cut this whole pass exists to replace, hiding inside the test for it.
-        if not pack.truncated and len(pack.text) <= budget:
+        #
+        # `dropped` rather than a length comparison, because the length one has
+        # stopped meaning anything: the pack is now built to `input_chars()` too,
+        # so `len(pack.text) <= budget` is true by construction and would narrow
+        # nothing. What it used to catch -- a unit whose supporting material
+        # overflowed -- is now stated outright by the pack, which is a better
+        # question anyway. Measured on the target tree, the old test fired for 8
+        # of 735 units; those are the ones this keeps.
+        if not pack.truncated and not pack.dropped:
             return {"scouted": {chunk.chunk_id: whole}, "stats": {"regions": 1}}
 
         found: list[Region] = []

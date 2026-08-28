@@ -46,7 +46,13 @@ log = logging.getLogger(__name__)
 #: cannot tell them apart, because the model, the prompts and both token
 #: settings are identical either side of the fix -- the code changed, not the
 #: configuration. So the format does the telling.
-FORMAT = "2"
+#: 3: a caller now sees how the functions it calls are declared, not only a
+#: prose note their analyst usually declined to write. Rows from before that were
+#: produced by a specialist that could not see its callees at all -- 64% of this
+#: index's call edges cross a file, and the section reached 0 of 338 analyses --
+#: so they are false negatives, not stale ones. `recipe_of` cannot tell: the
+#: model, the prompts and both token settings are identical either side.
+FORMAT = "3"
 
 def recipe_of(
     *,

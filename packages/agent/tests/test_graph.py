@@ -326,8 +326,34 @@ def test_callee_notes_are_injected_into_caller_context(indexed) -> None:
     handler_prompts = [p for p in caller.prompts_for("ChunkAnalysis") if ":: handler " in p]
     assert handler_prompts, "handler was never analysed"
     assert note in handler_prompts[0], "the callee's note did not reach its caller"
-    assert "이 단위가 부르는 것들이 하는 일" in handler_prompts[0]
+    assert "이 단위가 부르는 것들" in handler_prompts[0]
+    # The declaration travels beside the note, not instead of it.
+    assert "run_command" in handler_prompts[0]
     store.close()
+
+
+def test_a_callee_reaches_its_caller_even_with_nothing_to_say(indexed) -> None:
+    """The case that was 99% of them, and got nothing at all.
+
+    The prompt tells a specialist to leave `note` empty when it has nothing to
+    pass on, and it obliges: 4 notes across 320 analysed units on the target
+    tree. The section was gated on that note, so a caller used to be told
+    nothing whatever about a function it calls -- not even that it exists. It is
+    the declaration that carries the weight now, and a declaration is always
+    there.
+    """
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[], note="")})
+
+    _run(root, store, caller)
+
+    handler_prompts = [p for p in caller.prompts_for("ChunkAnalysis") if ":: handler " in p]
+    assert handler_prompts, "handler was never analysed"
+    section = handler_prompts[0]
+    assert "이 단위가 부르는 것들" in section, "no callee section without a note"
+    # How it is called, and where to go for the rest of it.
+    assert "void run_command(const char *arg)" in section
+    assert "app.c:" in section
 
 
 def test_notes_are_persisted_even_with_no_findings(indexed) -> None:
