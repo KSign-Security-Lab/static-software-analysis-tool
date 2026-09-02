@@ -87,8 +87,8 @@ it is recovered without loosening the match.
 ## Quickstart
 
 ```bash
-scripts/run.sh setup   # once
-scripts/run.sh up
+scripts/ssat.sh setup   # once
+scripts/ssat.sh up
 ```
 
 The first `up` asks which model, which GPUs, and where to keep the weights, then
@@ -101,13 +101,13 @@ VLLM_TP=1
 HF_HOME=/home/you/.cache/huggingface
 ```
 
-Compose reads `.env` on its own, so later runs are silent. Edit the file, or
-`scripts/run.sh up --reconfigure` to be asked again.
+Compose reads `.env` on its own. `up` shows the current config and takes `c` to
+change it; you can also edit the file, or run `scripts/ssat.sh up --reconfigure`.
 
 It then starts vLLM, reads the served model id back so `AGENT_MODEL` is never
 guessed, and runs the API and web on the host where their reloaders work. Ctrl-C
 stops those two; vLLM keeps running, because reloading weights costs minutes.
-`scripts/run.sh down` stops it.
+`scripts/ssat.sh down vllm` stops it.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |

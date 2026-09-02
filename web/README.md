@@ -50,7 +50,7 @@ produced it is exactly what resizable panes are for.
   nothing in common on screen; they still run independently, but a result is
   described the same way.
 - **Types** — `lib/agent-schema.ts` and `lib/f2a-schema.ts` are **generated** from
-  pydantic (`scripts/run.sh schema`) and a test fails on drift. Do not hand-edit.
+  pydantic (`scripts/ssat.sh schema`) and a test fails on drift. Do not hand-edit.
 - **Design tokens** — `app/theme.css`, three layers: private OKLCH ramps →
   semantic roles per theme → `@theme inline` exposing both the SSAT vocabulary
   (`bg-surface`, `text-ink-muted`) and the shadcn contract. `/dev/tokens` renders

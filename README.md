@@ -60,7 +60,7 @@ and the repo still builds.
 - A CPG backend, either:
   - **jpype** (default) — a local Joern install; point `JOERN_HOME` at its
     `joern-cli` directory. Runs in-process, no container.
-  - **docker** — the bundled Joern image (`docker compose up -d`).
+  - **docker** — the bundled Joern image (`scripts/ssat.sh up joern`).
 - Node 20+ for the web UI
 
 ## Quick start
@@ -110,17 +110,19 @@ return the SSAT pipeline's own artifacts.
 ## LLM inspection
 
 ```bash
-scripts/run.sh setup       # once
-scripts/run.sh up          # vLLM + API + web, one terminal
+scripts/ssat.sh setup      # once
+scripts/ssat.sh up         # vLLM + API + web, one terminal
 ```
 
-The first `up` asks which model, which GPUs, and where to keep the weights, and
-writes them to `.env`. Compose reads that file itself, so later runs are silent;
-edit it, or `scripts/run.sh up --reconfigure`.
+`up` shows the vLLM config and offers to start everything or just some of the
+containers. The first run asks which model, which GPUs, and where to keep the
+weights, and writes them to `.env`. Compose reads that file itself; edit it, or
+press `c` at the prompt, or run `scripts/ssat.sh up --reconfigure`.
 
-It starts vLLM, reads the served model id back so `AGENT_MODEL` is never
-guessed, and runs the API and web on the host where their reloaders work. Ctrl-C
-stops those two; vLLM keeps running, and `scripts/run.sh down` stops it.
+Choosing everything starts vLLM, reads the served model id back so `AGENT_MODEL`
+is never guessed, and runs the API and web on the host where their reloaders
+work. Ctrl-C stops those two; the containers keep running, and
+`scripts/ssat.sh down` stops them.
 
 ```bash
 agent endpoints                  # what is reachable, and what it serves
@@ -147,15 +149,25 @@ Model choice, GPU sizing, port conflicts and how to read the output are in
 
 ## Development
 
-Tasks are declared in **`[tool.tasks]` in `pyproject.toml`** — the
-`package.json` scripts block for the parts of this repo that are not npm. Open
-it to read the list; `scripts/run.sh` only dispatches, so the two cannot drift.
+`scripts/ssat.sh` is the one entry point: run it bare for a menu of both the
+container stack and the dev tasks, or name any entry as an argument.
 
 ```bash
-scripts/run.sh              # the list
-scripts/run.sh check        # everything CI runs
-scripts/run.sh demo         # vLLM + an inspection of the sample tree
+scripts/ssat.sh             # the menu
+scripts/ssat.sh check       # everything CI runs
+scripts/ssat.sh demo        # vLLM + an inspection of the sample tree
+scripts/ssat.sh status      # which containers and host processes are up
+scripts/ssat.sh logs vllm   # follow one container
 ```
+
+`up`, `down`, `delete`, `status` and `logs` take a container name — `vllm`,
+`postgres`, `joern`, `secbench` — and ask which one when you leave it out.
+`delete` removes containers only: stored runs, downloaded weights and
+SEC-bench's images are never touched.
+
+The dev tasks are declared in **`[tool.tasks]` in `pyproject.toml`** — the
+`package.json` scripts block for the parts of this repo that are not npm. The
+script only dispatches those, so the list and the commands cannot drift.
 
 Or invoke the tools directly:
 

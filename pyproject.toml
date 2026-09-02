@@ -69,12 +69,16 @@ testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/t
 # repo that are not npm -- open it to see what can be run, the same way you
 # would open package.json.
 #
-# Run one with `scripts/run.sh <name>`; run it bare to list them. Extra
+# Run one with `scripts/ssat.sh <name>`; run that bare for the menu. Extra
 # arguments are appended to the command. Comments directly above an entry are
 # shown as its description in the listing, so the two cannot drift.
 #
 # Not a Makefile: that would mean installing make to run a CLI. Not uv, which
-# has no task runner. `scripts/run.sh` is plain bash and parses this table.
+# has no task runner. `scripts/ssat.sh` is plain bash and parses this table.
+#
+# Starting and stopping containers is not here: `up`, `down`, `delete`, `status`
+# and `logs` are Compose calls with a service picker in front, so they live in
+# the script itself. `scripts/ssat.sh` lists them beside these.
 # ---------------------------------------------------------------------------
 [tool.tasks]
 # Install the Python workspace and the web dependencies
@@ -92,10 +96,6 @@ types = ".venv/bin/mypy"
 # Regenerate web/lib/agent-schema.ts from the pydantic wire models
 schema = ".venv/bin/python -m agent.schema_ts --write && .venv/bin/python -m ssat.schema_ts --write"
 
-# Start vLLM in Docker and wait until it answers
-vllm = "docker compose --profile vllm up -d --wait vllm"
-# Follow the vLLM log
-vllm-logs = "docker compose --profile vllm logs -f vllm"
 # Run an inspection (bare = interactive: endpoint, model, target)
 agent = ".venv/bin/agent"
 # Index a tree without calling a model; deterministic
@@ -112,11 +112,5 @@ web = "cd web && npm run dev"
 # Production build of the web app
 build = "cd web && npm run build"
 
-# Start everything at once: vLLM, the API and the web UI, in one terminal
-up = "scripts/up.sh"
-# Stop vLLM only -- a bare `compose down` would also stop the Joern container
-# that ssat's docker backend uses. Ctrl-C on `up` already stops the API and web.
-down = "docker compose --profile vllm rm -sf vllm"
-
 # End to end: start a server if needed, then inspect the sample tree
-demo = "docker compose --profile vllm up -d --wait vllm && AGENT_MODEL=agent .venv/bin/agent inspect -v packages/agent/tests/fixtures/sample"
+demo = "scripts/ssat.sh up vllm && AGENT_MODEL=agent .venv/bin/agent inspect -v packages/agent/tests/fixtures/sample"

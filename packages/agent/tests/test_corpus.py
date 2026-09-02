@@ -116,7 +116,7 @@ def ingested(tmp_path: Path) -> Path:
 
 
 def test_re_ingesting_an_unchanged_corpus_does_no_work(ingested: Path, monkeypatch) -> None:
-    """The property `scripts/up.sh` depends on.
+    """The property `scripts/ssat.sh up` depends on.
 
     Ingest runs on every dev start. Constructing the embedder costs about five
     seconds cold, so "is there anything to do" has to be answered before the

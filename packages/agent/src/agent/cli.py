@@ -312,7 +312,7 @@ def cmd_runs(args: argparse.Namespace) -> int:
 def cmd_corpus(args: argparse.Namespace) -> int:
     """Ingest or describe the corpus of known weaknesses. See `agent/rag/`.
 
-    `ingest` runs from `scripts/up.sh` on every start, so it has to be cheap
+    `ingest` runs from `scripts/ssat.sh up` on every start, so it has to be cheap
     when nothing has changed: sample ids are content-derived, and an unchanged
     tree never constructs the embedder at all.
     """
