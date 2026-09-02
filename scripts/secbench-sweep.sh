@@ -61,7 +61,7 @@ need docker
 
 # The model. Every instance is an inspection, so without this the sweep produces
 # a long row of identical failures.
-BASE="${AGENT_BASE_URL:-http://localhost:8001/v1}"
+BASE="${AGENT_BASE_URL:-http://localhost:8000/v1}"
 if ! curl -sf --max-time 10 "${BASE}/models" >/dev/null 2>&1; then
   red "no model answering at ${BASE}"
   red "  start one:  docker compose --profile vllm up -d --wait vllm"

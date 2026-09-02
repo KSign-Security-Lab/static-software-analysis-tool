@@ -140,7 +140,7 @@ def _interactive(config: AgentConfig) -> int:
 
     endpoint = _pick_endpoint()
     if endpoint is None:
-        _err("no vLLM server is answering on port 8001 or 8000.")
+        _err("no vLLM server is answering on port 8000 or 8001.")
         print("Start one with:  docker compose --profile vllm up -d --wait vllm", file=sys.stderr)
         return 2
 
@@ -534,7 +534,7 @@ def cmd_endpoints(args: argparse.Namespace) -> int:
         for model in endpoint.models:
             print(f"  {model}")
     if not endpoints:
-        print("no vLLM server answering on port 8001 or 8000")
+        print("no vLLM server answering on port 8000 or 8001")
         print("start one with: docker compose --profile vllm up -d --wait vllm")
 
     trace = tracing_status()

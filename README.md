@@ -95,7 +95,7 @@ The input path is positional. Every subcommand also takes `-o/--output` and
 ## Web UI and API
 
 ```bash
-scripts/dev-api.sh          # FastAPI on :8000 with auto-reload
+scripts/ssat.sh api         # FastAPI on :8001 with auto-reload
 cd web && npm run dev       # Next.js on :3000
 ```
 

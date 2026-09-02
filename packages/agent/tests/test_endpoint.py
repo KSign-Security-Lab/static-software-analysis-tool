@@ -45,14 +45,14 @@ def _models(*ids: str) -> dict[str, object]:
 
 
 def test_list_models_returns_the_served_ids(mock_get) -> None:
-    mock_get({"http://localhost:8001/v1/models": _models("agent", "other")})
-    assert list_models("http://localhost:8001/v1") == ["agent", "other"]
+    mock_get({"http://localhost:8000/v1/models": _models("agent", "other")})
+    assert list_models("http://localhost:8000/v1") == ["agent", "other"]
 
 
 def test_trailing_slash_does_not_double_up(mock_get) -> None:
-    seen = mock_get({"http://localhost:8001/v1/models": _models("agent")})
-    assert list_models("http://localhost:8001/v1/") == ["agent"]
-    assert seen == ["http://localhost:8001/v1/models"]
+    seen = mock_get({"http://localhost:8000/v1/models": _models("agent")})
+    assert list_models("http://localhost:8000/v1/") == ["agent"]
+    assert seen == ["http://localhost:8000/v1/models"]
 
 
 def test_an_unreachable_endpoint_is_empty_not_an_exception(mock_get) -> None:
@@ -87,25 +87,25 @@ def test_only_model_is_none_when_the_choice_is_ambiguous(mock_get) -> None:
 
 
 def test_discover_skips_dead_candidates_and_keeps_order(mock_get) -> None:
-    mock_get({"http://localhost:8000/v1/models": _models("second")})
+    mock_get({"http://localhost:8001/v1/models": _models("second")})
     found = discover()
-    assert [e.base_url for e in found] == ["http://localhost:8000/v1"]
+    assert [e.base_url for e in found] == ["http://localhost:8001/v1"]
 
 
 def test_discover_returns_every_live_candidate(mock_get) -> None:
     mock_get(
         {
-            "http://localhost:8001/v1/models": _models("first"),
-            "http://localhost:8000/v1/models": _models("second"),
+            "http://localhost:8000/v1/models": _models("first"),
+            "http://localhost:8001/v1/models": _models("second"),
         }
     )
     assert [e.models[0] for e in discover()] == ["first", "second"]
 
 
-def test_the_script_port_is_probed_before_vllms_default() -> None:
-    """8000 belongs to the SSAT API, so the compose vllm service publishes 8001."""
-    assert DEFAULT_CANDIDATES[0].endswith(":8001/v1")
-    assert DEFAULT_CANDIDATES[1].endswith(":8000/v1")
+def test_vllms_default_port_is_probed_first() -> None:
+    """vLLM keeps 8000, its own default; the SSAT API moved to 8001."""
+    assert DEFAULT_CANDIDATES[0].endswith(":8000/v1")
+    assert DEFAULT_CANDIDATES[1].endswith(":8001/v1")
 
 
 def test_no_ollama_port_is_probed() -> None:
@@ -126,17 +126,17 @@ def _served(model: str, window: int | None) -> dict[str, object]:
 def test_the_window_is_read_from_the_endpoint_rather_than_assumed(mock_get) -> None:
     """Every budget in this package was a character count invented against a
     window nobody had read."""
-    mock_get({"http://localhost:8001/v1/models": _served("agent", 16384)})
-    assert context_window("http://localhost:8001/v1", "agent") == 16384
+    mock_get({"http://localhost:8000/v1/models": _served("agent", 16384)})
+    assert context_window("http://localhost:8000/v1", "agent") == 16384
 
 
 def test_an_endpoint_that_does_not_say_is_none_not_a_guess(mock_get) -> None:
     """None means "it did not say", which is different from a small window."""
-    mock_get({"http://localhost:8001/v1/models": _served("agent", None)})
-    assert context_window("http://localhost:8001/v1", "agent") is None
+    mock_get({"http://localhost:8000/v1/models": _served("agent", None)})
+    assert context_window("http://localhost:8000/v1", "agent") is None
 
-    mock_get({"http://localhost:8001/v1/models": _served("other", 16384)})
-    assert context_window("http://localhost:8001/v1", "agent") is None, "a different model's window is not ours"
+    mock_get({"http://localhost:8000/v1/models": _served("other", 16384)})
+    assert context_window("http://localhost:8000/v1", "agent") is None, "a different model's window is not ours"
 
     mock_get({})
     assert context_window("http://localhost:9999/v1", "agent") is None
@@ -167,8 +167,8 @@ def test_a_tiny_window_reads_as_cramped_rather_than_as_nothing() -> None:
 
 
 def test_the_window_is_asked_for_once_and_remembered(mock_get) -> None:
-    seen = mock_get({"http://localhost:8001/v1/models": _served("agent", 16384)})
-    config = AgentConfig(model="agent", base_url="http://localhost:8001/v1", context_window=0)
+    seen = mock_get({"http://localhost:8000/v1/models": _served("agent", 16384)})
+    config = AgentConfig(model="agent", base_url="http://localhost:8000/v1", context_window=0)
 
     assert config.resolve_window() == 16384
     assert config.resolve_window() == 16384

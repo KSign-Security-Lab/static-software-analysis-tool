@@ -5,6 +5,7 @@
 #   scripts/ssat.sh              the menu
 #   scripts/ssat.sh up           vLLM, Postgres, the API and the web UI
 #   scripts/ssat.sh up vllm      start named containers and nothing else
+#   scripts/ssat.sh api          the API alone, on :8001, with auto-reload
 #   scripts/ssat.sh down vllm    stop containers; `delete` also removes them
 #   scripts/ssat.sh status       what is running
 #   scripts/ssat.sh logs vllm    follow a container's log
@@ -28,7 +29,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # Overridable so the tests can point the dispatcher at a manifest of their own
 # and prove that no task is hard-coded here.
 MANIFEST="${SSAT_MANIFEST:-pyproject.toml}"
-API_PORT="${API_PORT:-8000}"
+API_PORT="${API_PORT:-8001}"
 WEB_PORT="${WEB_PORT:-3000}"
 
 info() { printf '\033[36m%s\033[0m\n' "$*"; }
@@ -144,39 +145,44 @@ pick_targets() {
 # vLLM configuration
 # ---------------------------------------------------------------------------
 
-# id | label | approx GiB | tool-call parser | gpus needed
+# id | label | approx GiB | tool-call parser | reasoning parser | gpus needed
 #
 # The parser matters: vLLM refuses tool calling without one for the family, and
 # the wrong one breaks it silently. `vllm serve --help=all` lists all 33.
 # Every id here was checked against the Hugging Face API. The list is a starting
 # point, not a whitelist -- "something else" takes any id.
+#
+# The reasoning parser is a separate flag and mostly empty: only a model that
+# emits its thinking in-band needs one. Qwen3.8 does, in <think> tags, and
+# without `qwen3` that text arrives as the answer.
 MODELS=(
-  "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ|Qwen2.5-Coder 32B, 4-bit -- code specialist|19|hermes|1"
-  "Qwen/Qwen2.5-Coder-14B-Instruct|Qwen2.5-Coder 14B, FP16|28|hermes|1"
-  "mistralai/Devstral-Small-2507|Devstral Small 24B -- built for code agents|48|mistral|2"
-  "openai/gpt-oss-20b|gpt-oss 20B, MXFP4|13|openai|1"
-  "openai/gpt-oss-120b|gpt-oss 120B, MXFP4|61|openai|2"
-  "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct|DeepSeek-Coder V2 Lite 16B MoE|32|deepseek_v3|1"
-  "meta-llama/Llama-3.1-8B-Instruct|Llama 3.1 8B (gated: needs HF_TOKEN)|16|llama3_json|1"
-  "zai-org/GLM-4.5-Air|GLM-4.5 Air 106B MoE|60|glm45|2"
-  "ibm-granite/granite-3.3-8b-instruct|Granite 3.3 8B|16|granite|1"
-  "Qwen/Qwen2.5-0.5B-Instruct|Qwen2.5 0.5B -- plumbing test only, finds nothing|1|hermes|1"
+  "Qwen/Qwen3.8-27B-FP8|Qwen3.8 27B, FP8 -- thinking; needs an sm89+ card|31|qwen3_coder|qwen3|1"
+  "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ|Qwen2.5-Coder 32B, 4-bit -- code specialist|19|hermes||1"
+  "Qwen/Qwen2.5-Coder-14B-Instruct|Qwen2.5-Coder 14B, FP16|28|hermes||1"
+  "mistralai/Devstral-Small-2507|Devstral Small 24B -- built for code agents|48|mistral||2"
+  "openai/gpt-oss-20b|gpt-oss 20B, MXFP4|13|openai||1"
+  "openai/gpt-oss-120b|gpt-oss 120B, MXFP4|61|openai||2"
+  "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct|DeepSeek-Coder V2 Lite 16B MoE|32|deepseek_v3||1"
+  "meta-llama/Llama-3.1-8B-Instruct|Llama 3.1 8B (gated: needs HF_TOKEN)|16|llama3_json||1"
+  "zai-org/GLM-4.5-Air|GLM-4.5 Air 106B MoE|60|glm45||2"
+  "ibm-granite/granite-3.3-8b-instruct|Granite 3.3 8B|16|granite||1"
+  "Qwen/Qwen2.5-0.5B-Instruct|Qwen2.5 0.5B -- plumbing test only, finds nothing|1|hermes||1"
 )
 
 configure() {
   info "these answers go to .env; change them later with: scripts/ssat.sh up --reconfigure"
   echo
 
-  local i=0 id label size par need
+  local i=0 id label size par reas need
   for entry in "${MODELS[@]}"; do
-    IFS='|' read -r id label size par need <<<"$entry"
+    IFS='|' read -r id label size par reas need <<<"$entry"
     i=$((i + 1))
     printf '  %2d) %-48s ~%3s GiB  %s\n' "$i" "$label" "$size" \
       "$([[ $need -gt 1 ]] && echo '(2 GPUs)' || echo '')"
   done
   printf '  %2d) something else (any Hugging Face id)\n\n' "$((i + 1))"
 
-  local pick model parser needs=1
+  local pick model parser reasoner needs=1
   pick=$(ask "Model" "1")
   if [[ "$pick" == "$((i + 1))" ]]; then
     model=$(ask "Hugging Face id" "")
@@ -188,8 +194,14 @@ configure() {
     echo "           kimi_k2 minimax internlm seed_oss xlam  (see: vllm serve --help=all)"
     echo
     parser=$(ask "Tool-call parser" "hermes")
+    echo
+    echo "  A model that thinks in-band needs a reasoning parser too, or its"
+    echo "  thinking is returned as the answer. Leave blank if it does not."
+    echo "  Options: qwen3 deepseek_r1 glm45 granite mistral openai_gptoss"
+    echo
+    reasoner=$(ask "Reasoning parser (blank for none)" "")
   else
-    IFS='|' read -r model _ _ parser needs <<<"${MODELS[$((pick - 1))]}"
+    IFS='|' read -r model _ _ parser reasoner needs <<<"${MODELS[$((pick - 1))]}"
   fi
   [[ -n "$model" ]] || die "no model given"
 
@@ -219,6 +231,7 @@ configure() {
 # Edit freely, or re-run: scripts/ssat.sh up --reconfigure
 VLLM_MODEL=$model
 VLLM_TOOL_PARSER=$parser
+VLLM_REASONING_PARSER=$reasoner
 VLLM_GPUS=$gpus
 VLLM_TP=$tp
 HF_HOME=$cache
@@ -231,8 +244,9 @@ show_config() {
   [[ -f .env ]] || return 0
   # shellcheck disable=SC1091
   (set -a; . ./.env; set +a
-   printf '\n  \033[1mvLLM\033[0m  %s  \033[90m(parser %s, GPU %s, tp %s)\033[0m\n' \
-     "${VLLM_MODEL:-unset}" "${VLLM_TOOL_PARSER:-hermes}" "${VLLM_GPUS:-0}" "${VLLM_TP:-1}"
+   printf '\n  \033[1mvLLM\033[0m  %s  \033[90m(tools %s, reasoning %s, GPU %s, tp %s)\033[0m\n' \
+     "${VLLM_MODEL:-unset}" "${VLLM_TOOL_PARSER:-hermes}" "${VLLM_REASONING_PARSER:-none}" \
+     "${VLLM_GPUS:-0}" "${VLLM_TP:-1}"
    printf '        \033[90mweights in %s\033[0m\n' "${HF_HOME:-$HOME/.cache/huggingface}")
 }
 
@@ -257,6 +271,50 @@ check_port() {
   printf '  kill it with:  kill %s\n  or use another port:  %s=NNNN scripts/ssat.sh up\n' \
     "$pid" "$([[ $name == api ]] && echo API_PORT || echo WEB_PORT)" >&2
   exit 1
+}
+
+# AGENT_MODEL has to be the id the server reports, not the Hugging Face path the
+# weights came from -- `--served-model-name` decides it, and a wrong one produces
+# plausible nonsense rather than an error. So ask the endpoint. An AGENT_MODEL
+# already in the environment is an explicit choice and wins.
+#
+# python3 rather than sed, for a reason worth recording: a sed over `"id"`
+# matches the *last* one on the line, and vLLM nests a `permission` array whose
+# entries have ids too -- so it confidently exported `modelperm-9bd057f2461ad393`
+# as the model name.
+discover_model() {
+  [[ -n "${AGENT_MODEL:-}" ]] && return 0
+  : "${AGENT_BASE_URL:=http://localhost:${VLLM_PORT:-8000}/v1}"
+  export AGENT_BASE_URL
+  local served
+  served=$(curl -fsS --max-time 3 "${AGENT_BASE_URL}/models" 2>/dev/null |
+    python3 -c "import sys,json;print(json.load(sys.stdin)['data'][0]['id'])" 2>/dev/null) || true
+  [[ -n "$served" ]] || return 1
+  export AGENT_MODEL="$served"
+}
+
+# The one uvicorn line. `up` runs it alongside vLLM and the web app; `api` runs
+# it on its own. Two copies of this drifted apart once, each carrying a fix the
+# other was missing, which is why it lives in exactly one place now.
+#
+# --reload-dir, or the watcher takes the whole tree: artifacts/ churns during a
+# scan and every write restarted the server mid-run. These are the packages the
+# API imports, not only the two it started with -- `packages/agent` was missing,
+# so an edit to the inspection graph left the server running the previous one,
+# which looks exactly like a fix that did not work.
+#
+# --timeout-graceful-shutdown, or `--reload` is a trap. A reload waits for open
+# requests to finish, and the progress stream does not finish: it ends when its
+# run ends, and a tab left open on a finished run never delivers that. So every
+# edit to a watched file hung the server with the port still listening and every
+# request timing out, and the only way out was killing the worker by hand.
+api_command() {
+  echo ".venv/bin/uvicorn api.main:app --host 0.0.0.0 --port $API_PORT" \
+       "--reload --timeout-graceful-shutdown 2" \
+       "--reload-dir packages/ssat/src/ssat" \
+       "--reload-dir packages/agent/src/agent" \
+       "--reload-dir packages/graphify/src/graphify" \
+       "--reload-dir api"
 }
 
 # A container left running from a previous model would be reused silently, so
@@ -315,7 +373,7 @@ start_containers() {
 start_everything() {
   # shellcheck disable=SC1091
   set -a; . ./.env; set +a
-  local vllm_port="${VLLM_PORT:-8001}"
+  local vllm_port="${VLLM_PORT:-8000}"
 
   local current
   current=$(running_model)
@@ -341,11 +399,12 @@ start_everything() {
   echo "  follow it with: scripts/ssat.sh logs vllm"
   docker compose --profile vllm up -d --wait vllm
 
-  # AGENT_MODEL must be the id the server reports, so ask instead of guessing.
-  AGENT_MODEL=$(curl -s "http://localhost:${vllm_port}/v1/models" |
-    python3 -c "import sys,json;d=json.load(sys.stdin)['data'];print(d[0]['id'])")
-  export AGENT_MODEL
-  export AGENT_BASE_URL="http://localhost:${vllm_port}/v1"
+  # `unset` first: this just started the server from .env, so its answer is the
+  # authority. An AGENT_MODEL left over from a previous model would otherwise
+  # win and name something that is no longer loaded.
+  unset AGENT_MODEL
+  AGENT_BASE_URL="http://localhost:${vllm_port}/v1"
+  discover_model || die "the model server at $AGENT_BASE_URL did not answer /models"
   export NEXT_PUBLIC_API_PORT="$API_PORT"
 
   # The API does not run without Postgres. `--wait` blocks on the healthcheck
@@ -359,12 +418,7 @@ start_everything() {
   # cannot run.
   .venv/bin/agent corpus ingest || echo "  corpus ingest failed; search_corpus will find nothing"
 
-  # --timeout-graceful-shutdown, or `--reload` is a trap. A reload waits for open
-  # requests to finish, and the progress stream does not finish: it ends when its
-  # run ends, and a tab left open on a finished run never delivers that. So every
-  # edit to a watched file hung the server with the port still listening and every
-  # request timing out, and the only way out was killing the worker by hand.
-  start_host_process api 35 ".venv/bin/uvicorn api.main:app --host 0.0.0.0 --port $API_PORT --reload --timeout-graceful-shutdown 2"
+  start_host_process api 35 "$(api_command)"
   start_host_process web 34 "cd web && npm run dev -- --port $WEB_PORT"
 
   printf '\n  \033[1mready\033[0m  web http://localhost:%s/inspect   api :%s   model %s\n\n' \
@@ -428,6 +482,24 @@ action_up() {
 # ---------------------------------------------------------------------------
 # Stack actions other than up
 # ---------------------------------------------------------------------------
+
+# The API alone, in the foreground, for when the model server and the web app
+# are already running and only this is being edited.
+#
+# Not fatal without a model: the server starts and says so. It answers
+# `configured: false` and refuses scans with a 503, which is confusing to meet
+# for the first time at the button, so it is said here instead.
+action_api() {
+  check_port "$API_PORT" api
+  if discover_model; then
+    info "AGENT_MODEL=$AGENT_MODEL (from $AGENT_BASE_URL)"
+  else
+    warn "no model endpoint at $AGENT_BASE_URL -- scans are refused until AGENT_MODEL is set"
+  fi
+  # Word-split on purpose: api_command emits one flat argument list.
+  # shellcheck disable=SC2046
+  exec $(api_command)
+}
 
 action_status() {
   info "containers"
@@ -542,6 +614,7 @@ run_task() {
 
 STACK_ACTIONS=(
   "up|start vLLM, Postgres, the API and the web UI"
+  "api|the API alone, on :8001, with auto-reload"
   "down|stop containers"
   "delete|stop and remove containers"
   "status|what is running right now"

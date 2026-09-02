@@ -8,7 +8,7 @@
 
 import { ownerHeaders } from "@/lib/run/whoami";
 
-const API_PORT = process.env.NEXT_PUBLIC_API_PORT || "8000";
+const API_PORT = process.env.NEXT_PUBLIC_API_PORT || "8001";
 
 /**
  * Resolved at call time, not module load: the page may be opened on localhost,

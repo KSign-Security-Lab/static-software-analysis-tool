@@ -95,12 +95,14 @@ is mostly other people's.
 
 ```bash
 JOERN_HOME=/usr/bin/joern/joern-cli \
-  uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --app-dir .
+  uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 --app-dir .
 ```
 
-For development use `scripts/dev-api.sh`, which runs uvicorn `--reload` watching
-`packages/{ssat,agent,graphify}/src` and `api`. Postgres is required and is not
-behind a compose profile: the API does not start without it.
+For development use `scripts/ssat.sh api`, which runs uvicorn `--reload` watching
+`packages/{ssat,agent,graphify}/src` and `api`, and asks the model server which
+model it serves so a scan is not refused with `configured: false`. `scripts/ssat.sh up`
+starts the same server alongside vLLM and the web app. Postgres is required and is
+not behind a compose profile: the API does not start without it.
 
 CORS is open so the Next.js dev server (localhost or tailnet) can call it.
 

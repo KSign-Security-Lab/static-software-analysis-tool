@@ -1,7 +1,7 @@
 """Talking to the model server about itself.
 
 ``AGENT_MODEL`` has to be the id the server reports, not the Hugging Face path
-it was loaded from -- ``Qwen/Qwen2.5-Coder-32B-Instruct`` versus whatever
+it was loaded from -- ``Qwen/Qwen3.8-27B-FP8`` versus whatever
 ``--served-model-name`` set. Getting that wrong is the usual first failure, and
 the fix is to ask the server rather than to remember.
 
@@ -18,11 +18,12 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-# 8001 is what the compose vllm service publishes; 8000 is vLLM's own
-# default, which collides with the SSAT API.
+# 8000 is vLLM's own default and what the compose vllm service publishes; the
+# SSAT API moved to 8001 to leave it free. 8001 stays on the list behind it, so
+# a server left over from when the two were the other way round is still found.
 DEFAULT_CANDIDATES: tuple[str, ...] = (
-    "http://localhost:8001/v1",
     "http://localhost:8000/v1",
+    "http://localhost:8001/v1",
 )
 
 PROBE_TIMEOUT = 3.0

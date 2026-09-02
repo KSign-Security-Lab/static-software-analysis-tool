@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .schema import LENSES, Lens
 
-# 8001, not vLLM's default 8000, which the SSAT API owns.
-DEFAULT_BASE_URL = "http://localhost:8001/v1"
+# vLLM's own default. The SSAT API moved to 8001 to leave it free.
+DEFAULT_BASE_URL = "http://localhost:8000/v1"
 
 # Empty on purpose: a wrong model produces plausible nonsense, so unset is an
 # error rather than a surprise.
@@ -172,6 +172,13 @@ class AgentConfig:
     # prompts that all truncated in that run it finished every one, at a median
     # of 1004 completion tokens against 4096 pinned, and 11 seconds a call
     # against 24 -- so this buys accuracy and speed at once.
+    #
+    # Against Qwen3.8 on vLLM the only usable values are `low` and `medium`.
+    # Two schemas disagree and the request has to satisfy both: vLLM's OpenAI
+    # body accepts `low|medium|high`, the model's chat template accepts
+    # `low|medium|xhigh`. `xhigh` -- the model's own default -- is rejected by
+    # vLLM before the template sees it, and `high` passes vLLM only to be
+    # refused by the template. Measured against 0.17.0, not inferred.
     #
     # Empty means send nothing, which is what an endpoint that has never heard
     # of the parameter wants.

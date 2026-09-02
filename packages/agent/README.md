@@ -95,11 +95,17 @@ The first `up` asks which model, which GPUs, and where to keep the weights, then
 writes the answers to `.env`:
 
 ```
-VLLM_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
+VLLM_MODEL=Qwen/Qwen3.8-27B-FP8
+VLLM_TOOL_PARSER=qwen3_coder
+VLLM_REASONING_PARSER=qwen3
 VLLM_GPUS=0
 VLLM_TP=1
 HF_HOME=/home/you/.cache/huggingface
 ```
+
+The default is Qwen3.8-27B at FP8: about 31 GiB of weights, so one 48 GiB card
+with `VLLM_TP=1`. FP8 wants sm89 or newer — on an Ampere card vLLM dequantises
+to bf16 and the model no longer fits, so pick a GPU accordingly.
 
 Compose reads `.env` on its own. `up` shows the current config and takes `c` to
 change it; you can also edit the file, or run `scripts/ssat.sh up --reconfigure`.
@@ -115,10 +121,11 @@ stops those two; vLLM keeps running, because reloading weights costs minutes.
 | `VLLM_GPUS` | asked when there is more than one | Device ids, e.g. `0,1` |
 | `VLLM_TP` | `1` | Tensor-parallel size; `2` with two GPUs |
 | `HF_HOME` | asked on first run | **Where weights are downloaded to** |
-| `VLLM_TOOL_PARSER` | chosen with the model | Tool-call parser for the family |
+| `VLLM_TOOL_PARSER` | chosen with the model | Tool-call parser; must match the model family |
+| `VLLM_REASONING_PARSER` | chosen with the model | Only for models that think in-band; blank passes no flag |
 | `VLLM_MAX_LEN` | `16384` | Must clear `AGENT_CONTEXT_CHARS` in tokens |
-| `VLLM_PORT` | `8001` | Host port; 8000 is the API |
-| `VLLM_TOOL_PARSER` | set with the model | Must match the model family |
+| `VLLM_MAX_SEQS` | `32` | Concurrent sequences; also caps CUDA-graph capture |
+| `VLLM_PORT` | `8000` | Host port, vLLM's own default; the API is on 8001 |
 
 vLLM runs in Docker because the host install cannot work: vllm 0.17 against
 torch 2.4, which predates `torch.library.infer_schema`, and this workspace is on
@@ -136,7 +143,7 @@ docker compose --profile vllm rm -sf vllm
 ### Doing it by hand
 
 ```bash
-export AGENT_BASE_URL=http://localhost:8001/v1
+export AGENT_BASE_URL=http://localhost:8000/v1
 export AGENT_MODEL=agent          # must match `curl $AGENT_BASE_URL/models`
 
 agent index   path/to/src         # deterministic, no model calls
@@ -287,7 +294,7 @@ count means the prompt is drifting; `-v` prints every rejected anchor.
 ### From the browser
 
 ```bash
-scripts/dev-api.sh                # FastAPI on :8000
+scripts/ssat.sh api               # FastAPI on :8001
 cd web && npm run dev             # Next.js on :3000
 ```
 
@@ -330,6 +337,13 @@ Tool calling needs server support: vLLM rejects it unless started with
 The compose service sets `--tool-call-parser` already; override it with
 `VLLM_TOOL_PARSER` for a different model family.
 
+`--reasoning-parser` is the separate case. A model that thinks in-band — Qwen3.8
+does, and has thinking on by default — returns that thinking as `content` unless
+vLLM is told how to split it out, which leaves guided decoding reading prose
+where the JSON should be. `VLLM_REASONING_PARSER` supplies it; blank means the
+flag is not passed at all, which is right for gpt-oss, whose format vLLM handles
+on its own.
+
 Without it the run verifies from context alone, says so once, and continues.
 That is a supported mode, not a broken one — most claims are decidable from the
 context pack. Set `AGENT_TOOLS=0` to force it off.
@@ -345,7 +359,7 @@ AGENT_RUN_ID=<run> agent-mcp                # stdio
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_BASE_URL` | `http://localhost:8001/v1` | OpenAI-compatible endpoint |
+| `AGENT_BASE_URL` | `http://localhost:8000/v1` | OpenAI-compatible endpoint |
 | `AGENT_MODEL` | *(none — required)* | Model id the endpoint serves |
 | `AGENT_DATABASE_URL` | `postgresql+psycopg://ssat:ssat@localhost:5432/ssat` | Where runs live |
 | `AGENT_CONTEXT_CHARS` | `24000` | Context-pack budget per chunk |

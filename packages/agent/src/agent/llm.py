@@ -199,7 +199,15 @@ class StructuredCaller:
         # `deepseek-reasoner` in an unrelated timeout message is not an endpoint
         # objecting to a parameter, and dropping the setting on that would make
         # every completion afterwards longer for no reason.
-        if "reasoning_effort" not in str(err):
+        #
+        # Two spellings, because the rejection can come from either of two
+        # layers. vLLM's request schema names the field (`reasoning_effort`);
+        # a chat template that refuses the *value* writes it as prose --
+        # Qwen3.8 answers `Unexpected reasoning effort high`. Without the
+        # second spelling that one is not recognised, and every call for the
+        # rest of the run fails instead of continuing without the ceiling.
+        text = str(err)
+        if "reasoning_effort" not in text and "reasoning effort" not in text:
             return False
         log.warning(
             "%s does not accept reasoning_effort; continuing without it. Completions on a "

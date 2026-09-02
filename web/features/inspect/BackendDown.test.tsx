@@ -57,7 +57,7 @@ describe("when the backend cannot be reached", () => {
     // The address matters: the API host is derived from the page's hostname, so
     // the usual cause is a URL that is right for the machine serving the page
     // and wrong for the one reading it.
-    expect(alert.textContent).toContain(":8000");
+    expect(alert.textContent).toContain(":8001");
     expect(alert.textContent).toContain("연결할 수 없습니다");
   });
 

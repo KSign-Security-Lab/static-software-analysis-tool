@@ -182,6 +182,31 @@ def test_an_endpoint_that_rejects_reasoning_effort_is_asked_once(config) -> None
     assert fresh._effort_supported
 
 
+def test_a_template_that_refuses_the_effort_value_is_recognised(config) -> None:
+    """The rejection can come from the chat template rather than the request
+    schema, and it words it as prose. Qwen3.8 on vLLM answers `Unexpected
+    reasoning effort high` -- no underscore -- for a value vLLM itself accepts.
+    Missing that spelling failed every call for the rest of the run instead of
+    continuing without the ceiling."""
+    config.reasoning_effort = "high"
+    llm = FakeLLM([Answer(text="ok")])
+    caller = StructuredCaller(config, llm=llm)
+
+    import agent.llm as llm_module
+
+    original = llm_module.make_llm
+    llm_module.make_llm = lambda cfg, *, reasoning_effort=None: llm
+    try:
+        dropped = caller._drop_effort_if_rejected(
+            RuntimeError("Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.")
+        )
+    finally:
+        llm_module.make_llm = original
+
+    assert dropped
+    assert not caller._effort_supported
+
+
 def test_a_model_too_small_gives_up_and_says_why(config) -> None:
     llm = FakeLLM([_length_error(), _length_error(), _length_error(), _length_error()])
     outcome = StructuredCaller(config, llm=llm).call(Answer, "sys", "usr")

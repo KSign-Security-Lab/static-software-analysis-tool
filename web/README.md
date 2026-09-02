@@ -60,7 +60,7 @@ produced it is exactly what resizable panes are for.
 
 ```bash
 docker compose up -d postgres      # the API does not start without it
-scripts/dev-api.sh                 # :8000
+scripts/ssat.sh api                # :8001
 cd web && npm install && npm run dev   # :3000
 ```
 
@@ -68,7 +68,7 @@ Override the backend with `NEXT_PUBLIC_API_URL` (see `.env.local.example`). Over
 Tailscale, set that and `ALLOWED_DEV_ORIGINS` to your tailnet IP:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://100.x.y.z:8000 ALLOWED_DEV_ORIGINS=100.x.y.z npm run dev
+NEXT_PUBLIC_API_URL=http://100.x.y.z:8001 ALLOWED_DEV_ORIGINS=100.x.y.z npm run dev
 ```
 
 ## Scripts

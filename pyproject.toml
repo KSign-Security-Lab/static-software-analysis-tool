@@ -105,8 +105,6 @@ endpoints = ".venv/bin/agent endpoints"
 # Serve the MCP tool surface over stdio (needs AGENT_RUN_ID)
 mcp = ".venv/bin/agent-mcp"
 
-# FastAPI on :8000 with auto-reload
-api = "scripts/dev-api.sh"
 # Next.js dev server on :3000
 web = "cd web && npm run dev"
 # Production build of the web app
