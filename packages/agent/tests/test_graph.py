@@ -83,7 +83,16 @@ class ScriptedCaller:
     #: Set by tests that want the gather step to return something.
     gathered: str = ""
 
-    def gather(self, system: str, user: str, session: Any, budget: int, trace: Any = None, allowed: Any = None) -> str:
+    def gather(
+        self,
+        system: str,
+        user: str,
+        session: Any,
+        budget: int,
+        trace: Any = None,
+        allowed: Any = None,
+        cancelled: Any = None,
+    ) -> str:
         self.prompts.append(("gather", user))
         self.gather_calls.append((session, budget))
         self.traces.append(trace)
@@ -1606,3 +1615,47 @@ def test_a_run_nobody_cancels_finishes_normally(indexed, tmp_path: Path) -> None
         session.start()
         assert session.stopped is False
         assert session.report().stats.chunks_inspected > 0
+
+
+def test_a_cancelled_wave_issues_no_further_model_calls(indexed, tmp_path: Path) -> None:
+    """The nodes ask too, not only the frame boundary.
+
+    Checking between super-steps stops the graph taking new ones; it does not
+    stop the nodes of the wave already dispatched, and each of those is a model
+    call -- up to `max_concurrency` of them, plus `gather`'s sequential tool
+    loop inside one node. So 중단 was followed by a whole wave of requests the
+    reader was still being billed for and nobody was waiting for, which is most
+    of why stopping did not feel like stopping.
+
+    Asserted as a count rather than a wall clock: the flag trips as soon as the
+    first call has been made, so every node entered after that must return
+    without calling anything.
+    """
+    # A wave wide enough, and every specialist on, so one super-step really does
+    # dispatch a crowd. At `wave_width=1` with a single lens the frame boundary
+    # already catches everything and this would pass without the node checking
+    # anything -- which is the run this is here to distinguish itself from.
+    config = AgentConfig(
+        model="fake",
+        enable_tools=False,
+        lenses=LENSES,
+        wave_width=4,
+        triage=False,
+    )
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+
+    def once_it_has_called() -> bool:
+        return len(caller.prompts) >= 1
+
+    with _session(indexed, tmp_path, caller=caller, config=config, cancelled=once_it_has_called) as session:
+        session.start()
+        assert session.stopped is True
+
+    _, store = indexed
+    units = len([c for c in store.chunks()])
+    # The whole wave times five specialists is what the reader used to pay for
+    # after pressing 중단. A couple of calls already in flight is not the same
+    # order of magnitude, and the bound is deliberately generous about which of
+    # them had started.
+    assert len(caller.prompts) < units * len(LENSES)
+    assert len(caller.prompts) <= 2

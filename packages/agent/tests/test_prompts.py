@@ -148,7 +148,7 @@ def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyP
             self.systems.append(system)
             return Outcome.failed("refused")
 
-        def gather(self, system, user, session, budget, trace=None):  # noqa: ANN001
+        def gather(self, system, user, session, budget, trace=None, allowed=None, cancelled=None):  # noqa: ANN001
             return ""
 
     caller = Recording()

@@ -19,7 +19,7 @@ import {
   uploadArchive,
   uploadSource,
 } from "@/lib/api/runs";
-import type { CloneRequest, UploadResult } from "@/lib/api/types";
+import type { CloneRequest, RunSummary, UploadResult } from "@/lib/api/types";
 import { fromAgent, type UiFinding } from "@/lib/model/finding";
 import { keys } from "@/lib/query/keys";
 import { useSelectedFinding } from "@/lib/run/selection";
@@ -56,11 +56,30 @@ export function useAgentHealth() {
   });
 }
 
-export function useRun(runId: string | null) {
+/**
+ * The stored run row.
+ *
+ * Nothing on the inspect surface polls by default -- the event stream is how it
+ * learns things. ``pollMs`` is for the two states where the stream cannot be
+ * trusted to say: a stop that has been accepted but not yet finished, and a
+ * scan this tab is not attached to. Both end in one frame that is published
+ * in-process, never replayed, and swallowed if malformed -- miss it and the
+ * strip spins for ever with nothing left that would read the truth again.
+ *
+ * The function form exists because the answer depends on the row: it is handed
+ * whatever the query currently holds, which is not available to the caller
+ * until after this hook has returned.
+ */
+export function useRun(
+  runId: string | null,
+  pollMs?: number | ((row: RunSummary | undefined) => number | false),
+) {
   return useQuery({
     queryKey: keys.summary(runId ?? ""),
     queryFn: ({ signal }) => fetchRun(runId!, { signal }),
     enabled: enabled(runId),
+    refetchInterval:
+      typeof pollMs === "function" ? (query) => pollMs(query.state.data) : (pollMs ?? false),
   });
 }
 
@@ -260,12 +279,18 @@ export function useStartRun(runId: string | null, ensureAttached: () => Promise<
         });
         return;
       }
+      // Answered by the server and read by nobody, so the optimistic status
+      // below went in either way: a start that started nothing was
+      // indistinguishable from one that did, and hid a run this tab is not
+      // attached to. The provider's recovery poll picks that run up.
+      if (result.already_running) {
+        toast.info("이미 검사가 진행 중입니다", { description: "진행 상황을 다시 불러옵니다." });
+        void client.invalidateQueries({ queryKey: keys.summary(runId!) });
+        return;
+      }
       client.setQueryData(keys.summary(runId!), (previous: unknown) =>
         previous ? { ...previous, status: "inspecting", error: undefined } : previous,
       );
-      window.setTimeout(() => {
-        void client.invalidateQueries({ queryKey: keys.summary(runId!) });
-      }, 5000);
     },
     onError: (error) => toast.error("검사를 시작할 수 없습니다", { description: describeError(error) }),
   });

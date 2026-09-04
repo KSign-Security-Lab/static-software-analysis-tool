@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import io
 import json
+import queue
+import threading
+import time
 import zipfile
 from pathlib import Path
 from typing import Any, Iterator
@@ -556,14 +559,22 @@ def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient, m
     assert watched.claimed is True
 
 
-def test_reclaiming_a_channel_drops_the_last_attempt(client: TestClient) -> None:
-    """Replaying the previous attempt's events would describe work about to be
-    redone, and its finished flag would end the new stream immediately."""
+def test_the_last_frame_of_the_previous_run_survives_a_restart(client: TestClient) -> None:
+    """Reclaiming used to drain the listener queues, and must not.
+
+    A start landing inside the reader's one-second poll threw away the previous
+    run's unread `run_finished` -- so the tab never learned that run had ended,
+    and `cancelling` stayed set on a surface with no way to clear it. Queues are
+    FIFO: the tail of the run that ended arrives ahead of the new run's frames,
+    which is the order the reducer expects.
+
+    `commands` still drains. A stale abort would misfire on the new worker.
+    """
     from api.agent.channels import RunChannel
 
     channel = RunChannel()
     with channel.listen() as events:
-        channel.publish({"event": "stale", "data": {}})
+        channel.publish({"event": "run_finished", "data": {}})
         channel.commands.put({"action": "resume"})
         channel.finished.set()
         channel.waiting.set()
@@ -571,9 +582,315 @@ def test_reclaiming_a_channel_drops_the_last_attempt(client: TestClient) -> None
 
         channel.reclaim()
 
+        assert events.get_nowait()["event"] == "run_finished"
         assert events.empty() and channel.commands.empty()
     assert not channel.finished.is_set() and not channel.waiting.is_set()
     assert channel.error is None and channel.claimed is True
+
+
+def test_two_starts_landing_together_put_one_worker_on_the_run(client: TestClient) -> None:
+    """The check and the take are one step, and they were two.
+
+    `/inspect` asked `_live_channel` and spawned several lines later, with a
+    traversal-order computation in between. Two requests landing in that window
+    both passed and both spawned, sharing a store and a thread id while the
+    second reset the debug record the first was writing. The web makes it easy:
+    four independent start buttons whose pending flags do not compose.
+    """
+    import threading
+
+    from api.agent.channels import RunChannel
+
+    channel = RunChannel()
+    taken: list[bool] = []
+    ready = threading.Barrier(8)
+
+    def race() -> None:
+        ready.wait()
+        taken.append(channel.claim())
+
+    threads = [threading.Thread(target=race) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert taken.count(True) == 1, "more than one worker claimed the run"
+    assert channel.live is True
+
+
+def test_a_start_on_a_run_already_in_flight_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`already_running` is the answer, not a second worker."""
+    import api.agent.channels as channels
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+    run_id = _upload(client)["run_id"]
+    channels._channel(run_id).claimed = True
+
+    body = client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).json()
+    assert body["already_running"] is True
+
+
+class _Ordinary:
+    """A session that starts, finds nothing and finishes."""
+
+    stopped = False
+    interrupted = False
+
+    def __init__(self, **_kwargs: object) -> None:
+        return None
+
+    def start(self, **_kwargs: object) -> None:
+        return None
+
+    def resume(self, **_kwargs: object) -> None:
+        return None
+
+    def report(self):  # noqa: ANN202 - a stand-in for the real session
+        from agent.schema import Report
+
+        return Report(run_id="r")
+
+    def close(self) -> None:
+        return None
+
+
+def test_a_stream_opened_before_the_start_survives_the_last_runs_finish(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The headline. 검사 시작 after a finished run streamed to nobody.
+
+    Nothing clears `finished` when a run ends -- only the *next* start does, in
+    `reclaim`. So a stream attached between two runs read a set flag about the
+    wrong run and closed itself a second later, and the client does not
+    reconnect after a clean close. Every frame of the run then started went to
+    an empty listener set, and the strip sat on 범위를 정하는 중 until the page
+    was reloaded.
+
+    The start is on a thread because the stream is read on this one, which is
+    the shape a browser is in too. It is late on purpose: a second is what the
+    old reader waited before giving up.
+    """
+    import threading
+
+    import api.agent.channels as channels
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+    monkeypatch.setattr("api.agent.inspection.STREAM_START_GRACE_SECONDS", 10.0)
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", _Ordinary)
+    run_id = _upload(client)["run_id"]
+
+    # Exactly the state the next 검사 시작 arrives in.
+    channel = channels._channel(run_id)
+    channel.claimed = True
+    channel.finished.set()
+
+    def start_late() -> None:
+        client.post(f"/agent/runs/{run_id}/inspect", json={"force": True})
+
+    timer = threading.Timer(1.5, start_late)
+    timer.start()
+    try:
+        with client.stream("GET", f"/agent/runs/{run_id}/events") as stream:
+            events = _collect_events(stream, limit=8)
+    finally:
+        timer.cancel()
+
+    assert events[0] != "stream_closed", "the stream closed on the last run's flag"
+    assert "run_started" in events, events
+
+
+def test_a_stream_on_a_run_nobody_starts_does_not_hang_for_ever(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other side of the latch.
+
+    The studio opens the stream when a run is selected, long before anyone
+    presses start, and `finished` is never set on a channel no worker touched --
+    so that response and its listener queue used to be held for the life of the
+    process.
+    """
+    monkeypatch.setattr("api.agent.inspection.STREAM_START_GRACE_SECONDS", 1.0)
+    run_id = _upload(client)["run_id"]
+
+    with client.stream("GET", f"/agent/runs/{run_id}/events") as stream:
+        events = _collect_events(stream, limit=4)
+
+    assert events == ["stream_closed"], events
+
+
+def test_a_worker_that_dies_before_it_starts_still_ends_the_run(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opening the store was above the handler, and one blip wedged the run.
+
+    `claim` has already been taken by the time the thread runs, so a failure
+    there left the channel claimed and unfinished for the life of the process:
+    every later start answered `already_running`, `/cancel` set a flag nobody
+    read, `DELETE` refused, and no stream on the run ever ended.
+    """
+    import api.agent.channels as channels
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+
+    run_id = _upload(client)["run_id"]
+    channel = channels._channel(run_id)
+
+    def boom(self: object) -> None:
+        raise RuntimeError("the database went away")
+
+    # After the upload, which indexes through a real store of its own.
+    monkeypatch.setattr("agent.runs.Run.store", boom)
+
+    assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
+    assert channel.finished.wait(2.0), "a worker that died left the run claimed"
+    assert client.get(f"/agent/runs/{run_id}").json()["status"] == "failed"
+    # And the run is startable again, rather than wedged behind `already_running`.
+    assert channel.live is False
+
+
+def test_a_store_that_fails_to_close_still_ends_the_run(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One close raising used to skip every close after it, and the flag.
+
+    `store.close()` was called before `spans.close()` and before
+    `channel.finished.set()`, in a `finally` that nothing caught -- so a failure
+    there stranded both the span store and every stream on the run.
+    """
+    import api.agent.channels as channels
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+    closed: list[str] = []
+
+    class BadStore:
+        def clear_results(self) -> None:
+            return None
+
+        def close(self) -> None:
+            closed.append("store")
+            raise RuntimeError("the connection is gone")
+
+    class Spans:
+        def clear(self) -> None:
+            return None
+
+        def close(self) -> None:
+            closed.append("spans")
+
+    run_id = _upload(client)["run_id"]
+    channel = channels._channel(run_id)
+
+    # After the upload, which indexes through a real store of its own.
+    monkeypatch.setattr("agent.runs.Run.store", lambda self: BadStore())
+    monkeypatch.setattr("agent.runs.Run.spans", lambda self: Spans())
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", _Ordinary)
+
+    assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
+    assert channel.finished.wait(2.0), "a failing close stranded the run"
+    # The tail, because `reset_debug` opens and closes a span store of its own.
+    assert closed[-2:] == ["store", "spans"], closed
+
+
+def test_an_ordinary_stop_is_reported_as_aborted(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`stopped` was computed one line above the event and not used.
+
+    `aborted` was only ever true for a worker parked at a breakpoint and told to
+    abort, and the surface this serves sets no breakpoints -- so pressing 중단
+    never fired the 실행이 중단되었습니다 toast.
+    """
+    import api.agent.channels as channels
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+
+    class CancelledMidRun(_Ordinary):
+        stopped = True
+
+        def __init__(self, **kwargs: object) -> None:
+            self._run_id = str(kwargs.get("run_id"))
+
+        def start(self, **_kwargs: object) -> None:
+            channels._channel(self._run_id).cancelled.set()
+
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", CancelledMidRun)
+    run_id = _upload(client)["run_id"]
+    channel = channels._channel(run_id)
+
+    with channel.listen() as events:
+        assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
+        assert channel.finished.wait(2.0)
+        frames = []
+        while True:
+            try:
+                frames.append(events.get_nowait())
+            except queue.Empty:
+                break
+
+    finished = [frame for frame in frames if frame["event"] == "run_finished"]
+    assert finished and finished[0]["data"]["aborted"] is True, frames
+
+
+def test_shutdown_stops_workers_rather_than_orphaning_them(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A daemon thread killed where it stands leaves a mess behind.
+
+    The session never closes, so its MCP subprocess is orphaned, and the row
+    stays `inspecting` for the *next* boot to mark failed -- where cancelling
+    ends it as `cancelled` with what it found, which is what 중단 already does.
+
+    Its own client, because the fixture owns the lifespan and this test is about
+    what happens on the way out of one.
+    """
+    import api.agent.channels as channels
+    from api.main import app
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+    closed: list[str] = []
+    running = threading.Event()
+
+    class Blocking(_Ordinary):
+        def __init__(self, **kwargs: object) -> None:
+            self._cancelled = kwargs.get("cancelled")
+
+        def start(self, **_kwargs: object) -> None:
+            running.set()
+            # What a wave in flight looks like from here: it returns when asked.
+            while not self._cancelled():  # type: ignore[operator]
+                time.sleep(0.01)
+
+        def close(self) -> None:
+            closed.append("session")
+
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", Blocking)
+
+    with TestClient(app) as client:
+        run_id = _upload(client)["run_id"]
+        assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
+        assert running.wait(2.0), "the worker never started"
+        channel = channels._channel(run_id)
+        assert channel.live is True
+
+    assert channel.cancelled.is_set(), "shutdown killed the worker instead of stopping it"
+    assert channel.finished.wait(2.0)
+    assert closed == ["session"], "the session was never closed, so its subprocess is orphaned"
+
+
+def test_a_channel_nobody_is_on_is_forgotten(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_channels` was keyed by run id and never emptied.
+
+    A GET on `/events` allocates one for any run, so merely viewing runs grew
+    the dict by an object with its queues, events and listener set. A live
+    channel is never swept: the worker holds it, and `/cancel` finds it here.
+    """
+    import api.agent.channels as channels
+
+    monkeypatch.setattr(channels, "CHANNEL_IDLE_SECONDS", -1.0)
+    channels._channel("watched-and-left")
+    working = channels._channel("still-working")
+    working.claimed = True
+
+    # Any later lookup sweeps.
+    channels._channel("someone-else")
+
+    assert "watched-and-left" not in channels._channels
+    assert "still-working" in channels._channels
 
 
 def test_every_listener_gets_every_event(client: TestClient) -> None:
@@ -1671,6 +1988,130 @@ def test_a_cancelled_run_is_not_reported_as_done(client: TestClient, monkeypatch
         _collect_events(stream, limit=6)
 
     assert client.get(f"/agent/runs/{run_id}").json()["status"] == "cancelled"
+
+
+def test_a_cancelled_run_finishes_instead_of_parking_at_a_breakpoint(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stop button, through the worker rather than around it.
+
+    A cancelled session breaks out of the graph with work still queued, so
+    `_refresh` reads a non-empty `next` and `interrupted` is true -- which is
+    indistinguishable, at this level, from a run parked at a breakpoint. The
+    worker believed that: it wrote STATUS_INTERRUPTED, emitted `run_interrupted`
+    and blocked in `_await_command` for thirty minutes waiting to be told what
+    to do by somebody who had already said stop. The report was not saved and
+    the status was not written until that expired, which is what "중단 does
+    nothing" was.
+
+    `Stopped` above could not catch it: its `interrupted` is False, so it never
+    entered the loop at all.
+
+    The timeout is shortened rather than trusted, so a regression fails in a
+    second instead of hanging the suite for half an hour.
+    """
+    import api.agent.channels as channels
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+    monkeypatch.setattr("api.agent.inspection.INTERRUPT_TIMEOUT_SECONDS", 5.0)
+
+    class CancelledMidWave:
+        """A session stopped with work still on the queue."""
+
+        stopped = True
+        interrupted = True
+        next_nodes = ["plan"]
+        checkpoint_id = "cp"
+
+        def __init__(self, **kwargs: object) -> None:
+            self._run_id = str(kwargs.get("run_id"))
+
+        def start(self, **_kwargs: object) -> None:
+            # What pressing 중단 in the middle of a wave does.
+            channels._channel(self._run_id).cancelled.set()
+
+        def resume(self, **_kwargs: object) -> None:
+            return None
+
+        def report(self):  # noqa: ANN202 - a stand-in for the real session
+            from agent.schema import Report
+
+            return Report(run_id="r")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", CancelledMidWave)
+    run_id = _upload(client)["run_id"]
+    channel = channels._channel(run_id)
+
+    # Attached before the worker starts: `publish` drops events that have no
+    # listener, so collecting after the fact would be a race, not an assertion.
+    with channel.listen() as events:
+        assert client.post(f"/agent/runs/{run_id}/inspect").status_code == 200
+        # Comfortably inside the shortened park, nowhere near the real one.
+        assert channel.finished.wait(2.0), "a cancelled run parked instead of finishing"
+        seen = []
+        while True:
+            try:
+                seen.append(events.get_nowait()["event"])
+            except queue.Empty:
+                break
+
+    assert "run_interrupted" not in seen, "a cancelled run was reported as parked at a breakpoint"
+    assert "run_finished" in seen
+    assert client.get(f"/agent/runs/{run_id}").json()["status"] == "cancelled"
+
+
+def test_stopping_a_run_does_not_stop_every_later_run_on_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`reclaim` clears the stop, and it did not.
+
+    `_channel` caches one channel per run id for the life of the process, so a
+    run that had been cancelled once kept a set flag for ever: every later
+    inspection of it broke at the very first frame and finished immediately with
+    nothing inspected. Stopping a scan appeared to break that run permanently.
+    """
+    import api.agent.channels as channels
+
+    monkeypatch.setenv(ENV_MODEL, "agent")
+    started: list[str] = []
+
+    class Ordinary:
+        stopped = False
+        interrupted = False
+
+        def __init__(self, **kwargs: object) -> None:
+            self._cancelled = kwargs.get("cancelled")
+
+        def start(self, **_kwargs: object) -> None:
+            # What the graph asks before it does anything at all.
+            started.append("cancelled" if self._cancelled() else "running")  # type: ignore[operator]
+
+        def report(self):  # noqa: ANN202 - a stand-in for the real session
+            from agent.schema import Report
+
+            return Report(run_id="r")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("api.agent.inspection.InspectionSession", Ordinary)
+    run_id = _upload(client)["run_id"]
+
+    channel = channels._channel(run_id)
+    channel.claimed = True
+    assert client.post(f"/agent/runs/{run_id}/cancel").status_code == 200
+    assert channel.cancelled.is_set()
+    # That worker has now exited, which is the state the next 검사 실행 arrives
+    # in -- and it arrives at this same cached channel object.
+    channel.finished.set()
+
+    assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
+    assert channel.finished.wait(2.0)
+
+    assert started == ["running"], "a later run inherited the last stop"
 
 
 # -- asking for a fix ---------------------------------------------------------

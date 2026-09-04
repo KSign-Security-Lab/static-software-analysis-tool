@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { watchRun } from "@/lib/api/events";
 import type { Report } from "@/lib/api/types";
+import { isScanning } from "@/lib/inspect/stage";
 import { InvalidationQueue } from "@/lib/query/invalidation";
 import { keys, recordedKeys } from "@/lib/query/keys";
 import { useRun } from "./queries";
@@ -42,11 +43,35 @@ export interface RunStream {
    */
   ensureAttached: () => Promise<void>;
   dismissRefusal: () => void;
+  /**
+   * Say that 중단 has been accepted, so the surface stops claiming the scan is
+   * simply carrying on.
+   *
+   * Here rather than derived from the run row, because the row still says
+   * `inspecting` -- correctly: the wave in flight is still finishing. This is
+   * the one fact only the tab that pressed the button knows.
+   */
+  markCancelling: () => void;
+  /**
+   * Take that claim back, because the server did not accept the stop.
+   *
+   * A 409 is easy to get: press 중단 in the window between the worker's last
+   * frame and its `finally`. Nothing cleared the flag afterwards, so 중단 was
+   * disabled for the rest of the run and a 1s poll sat behind it.
+   */
+  clearCancelling: () => void;
 }
 
 const StreamContext = createContext<RunStream | null>(null);
 
 const ATTACH_CEILING_MS = 2000;
+
+/** How often the row is asked while the surface believes a scan it cannot see. */
+const RECOVERY_POLL_MS = 2000;
+
+/** The re-attach backoff: the usual reason for not being attached is a dead server. */
+const REATTACH_MIN_MS = 1000;
+const REATTACH_MAX_MS = 15_000;
 
 export function RunStreamProvider({ runId, children }: { runId: string | null; children: ReactNode }) {
   const client = useQueryClient();
@@ -60,8 +85,10 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
   const invalidations = useMemo(() => new InvalidationQueue(client), [client]);
 
   const resolveWaiters = useCallback(() => {
-    for (const resolve of waiting.current) resolve();
+    // Swapped before calling: a waiter that removes itself must not race this.
+    const pending = waiting.current;
     waiting.current = [];
+    for (const resolve of pending) resolve();
   }, []);
 
   const attach = useCallback(
@@ -79,7 +106,12 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
           // to the truth is to read it.
           if (dropped.current) {
             dropped.current = false;
-            invalidations.add(keys.run(id));
+            // The row always; the report only once the run is over. `keys.run`
+            // is a prefix of `keys.findings`, and re-reading the report mid-scan
+            // is the one thing `onChunkFinished` below says never to do.
+            invalidations.add(keys.summary(id), ...recordedKeys(id));
+            const row = client.getQueryData<{ status?: string }>(keys.summary(id));
+            if (row?.status !== "inspecting") invalidations.add(keys.findings(id));
             invalidations.flush();
           }
         },
@@ -177,8 +209,10 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
         onDropped: () => {
           // A laptop that slept, or a restarted API. The events in the gap are
           // gone for good, but the server rebuilds from disk -- so re-reading
-          // is what makes this recoverable at all.
-          invalidations.add(keys.run(id));
+          // is what makes this recoverable at all. Re-attaching is the effect
+          // below: a clean close never reconnects on its own.
+          dropped.current = true;
+          invalidations.add(keys.summary(id));
           invalidations.flush();
         },
 
@@ -215,7 +249,15 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
   // What the run record says, for the one fact the stream cannot tell a tab
   // that arrived late. Only ever read when nothing has been heard: once an
   // event lands, the stream is ahead of anything REST would say.
-  const record = useRun(runId).data;
+  //
+  // Polled in exactly two states, and the row decides both: a stop that has been
+  // accepted but not yet finished, and a scan this tab is not attached to.
+  // `attached` is a claim this tab makes; the row is the truth, and every race
+  // in this file ends with the two disagreeing.
+  const record = useRun(runId, (row) => {
+    if (live.cancelling) return 1000;
+    return isScanning({ run: row, live }) && !live.attached ? RECOVERY_POLL_MS : false;
+  }).data;
   const parked = record?.parked;
   // Memoised: `?? []` is a fresh array every render, which would re-run the
   // effect below forever.
@@ -223,7 +265,44 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
     () => (record?.status === "inspecting" ? (record.progress?.next ?? []) : null),
     [record],
   );
-  const heard = live.revision > 0 || live.active || live.finished;
+  // Whether anything has been heard about the run that is live *now*. It used
+  // to include `revision` and `finished`, which are facts about the last run on
+  // this id -- so a second run whose stream was lost could never be adopted, and
+  // the surface sat on the previous run's ending while the new one worked.
+  const heard = live.active || live.interrupted;
+
+  // Attached is a claim this tab makes; the row is the truth. This is where
+  // every race in this file ends up, so it re-reads and re-attaches on its own.
+  const stalled = Boolean(runId) && isScanning({ run: record, live }) && !live.attached;
+
+  useEffect(() => {
+    if (!runId || !stalled) return;
+    // The chain reschedules itself rather than the effect re-running: `attach`
+    // changes no state, so nothing would have re-run it and the retry fired
+    // exactly once. `tries` living in the effect means the next stall starts
+    // from the short wait -- a successful open clears `stalled` and this with it.
+    let stop = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(
+        () => {
+          if (stop) return;
+          tries += 1;
+          // The gap is unreplayable, so whatever comes back has to be re-read.
+          dropped.current = true;
+          attach(runId);
+          schedule();
+        },
+        Math.min(REATTACH_MIN_MS * 2 ** tries, REATTACH_MAX_MS),
+      );
+    };
+    schedule();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [runId, stalled, attach]);
 
   useEffect(() => {
     if (!runId || heard) return;
@@ -243,8 +322,17 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
     // React 19 StrictMode double-invokes effects, so this has to tolerate
     // being called twice; the waiter list is drained by whichever open wins.
     await new Promise<void>((resolve) => {
-      waiting.current.push(resolve);
-      setTimeout(resolve, ATTACH_CEILING_MS);
+      // Removed on the way out, and it was not: the ceiling resolved the promise
+      // and left the waiter on the list, which grew for the life of the tab.
+      const timer = setTimeout(() => {
+        waiting.current = waiting.current.filter((each) => each !== waiter);
+        resolve();
+      }, ATTACH_CEILING_MS);
+      const waiter = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      waiting.current.push(waiter);
     });
   }, [runId, attach]);
 
@@ -255,6 +343,8 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
       phase: phaseOf(live),
       ensureAttached,
       dismissRefusal: () => dispatch({ type: "dismiss_refusal" }),
+      markCancelling: () => dispatch({ type: "cancelling" }),
+      clearCancelling: () => dispatch({ type: "cancel_failed" }),
     }),
     [runId, live, ensureAttached],
   );

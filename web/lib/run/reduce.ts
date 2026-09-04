@@ -68,6 +68,20 @@ export interface RunLive {
    * has, so this cannot mean "finished" -- it means the agent has been here.
    */
   scanned: Set<string>;
+  /**
+   * Somebody pressed 중단 and the server has accepted it.
+   *
+   * A separate flag rather than a phase, because the run is still running: a
+   * 200 from the cancel endpoint means the flag was set, not that the work has
+   * stopped. Nodes already dispatched are still returning, and their findings
+   * still arrive and are still worth keeping. Without this the surface said
+   * "검사를 중단했습니다" in the past tense and then went on advancing the
+   * progress bar, which is the whole of why stop did not feel like stopping.
+   *
+   * Cleared by `finished`, `failed` and `reset` -- the run's own account of
+   * having ended -- never by a timer.
+   */
+  cancelling: boolean;
   /** Whether an EventSource is currently open. */
   attached: boolean;
   /** Bumped whenever the stored history changed, so views can key off it. */
@@ -88,6 +102,7 @@ export const IDLE: RunLive = {
   wave: null,
   inflight: new Map(),
   scanned: new Set(),
+  cancelling: false,
   attached: false,
   revision: 0,
 };
@@ -106,6 +121,10 @@ export type RunAction =
   /** Where the run already was when this tab arrived. See `adopted`, below. */
   | { type: "adopted"; running: string[] }
   | { type: "resumed" }
+  /** 중단 was accepted. The run has not stopped yet; it has been told to. */
+  | { type: "cancelling" }
+  /** 중단 was refused or never arrived. The claim this tab was making is false. */
+  | { type: "cancel_failed" }
   | { type: "refused"; event: RefusedEvent }
   | { type: "dismiss_refusal" }
   | { type: "finished"; event: FinishedEvent }
@@ -120,15 +139,31 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
     case "attached":
       return state.attached === action.open ? state : { ...state, attached: action.open };
 
+    case "cancelling":
+      // Nothing else changes. `running`, `inflight` and the counters stay
+      // exactly as they are, because they are still true -- the wave is still
+      // finishing. Only the claim the surface makes about it changes.
+      return state.cancelling ? state : { ...state, cancelling: true };
+
+    case "cancel_failed":
+      // The 409 is easy to hit: press 중단 in the window between the worker's
+      // last frame and its `finally`. Left set, `cancelling` disabled 중단 for
+      // ever and held a 1s poll of the run row open behind it.
+      return state.cancelling ? { ...state, cancelling: false } : state;
+
     case "run_started":
+      // Everything describing the last run goes, and it did not. `cancelling`
+      // above all: stop, then start, and the strip kept a disabled 중단하는 중
+      // with no way to press stop again. `chunk` and `wave` too -- the bar
+      // resumed at the previous run's fraction until the first chunk landed.
       return {
-        ...state,
-        active: true,
-        finished: false,
-        error: null,
-        refusal: null,
+        ...IDLE,
+        visited: new Set(),
         inflight: new Map(),
         scanned: new Set(),
+        attached: state.attached,
+        active: true,
+        revision: state.revision + 1,
       };
 
     /**
@@ -256,6 +291,7 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
         inflight: new Map(),
         active: false,
         finished: true,
+        cancelling: false,
         revision: state.revision + 1,
       };
 
@@ -266,6 +302,7 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
         interrupted: false,
         inflight: new Map(),
         active: false,
+        cancelling: false,
         error: action.event.error,
         revision: state.revision + 1,
       };

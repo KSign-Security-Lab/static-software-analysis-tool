@@ -292,9 +292,7 @@ def test_replan_may_only_emit_events(tmp_path: Path) -> None:
 
     class Planner:
         def call(self, schema, system, user, trace=None):  # noqa: ANN001
-            return Outcome.of(
-                PlanRevision(changes=[PlanChange(kind="skip", target=order[0], reason="생성된 코드")])
-            )
+            return Outcome.of(PlanRevision(changes=[PlanChange(kind="skip", target=order[0], reason="생성된 코드")]))
 
     deps = NodeDeps(
         store=store,
@@ -308,6 +306,40 @@ def test_replan_may_only_emit_events(tmp_path: Path) -> None:
     assert set(written) <= {"stats"}, "replan must not write traversal channels"
     assert "pending" not in written and "wave" not in written
     assert plan.summary()["skipped"] == 1
+
+
+def test_a_cancelled_run_does_not_call_the_planner(tmp_path: Path) -> None:
+    """`replan` was the last model-calling node with no cancellation check.
+
+    It runs between the end of a wave and the start of the next, which is
+    exactly where a stop lands -- so 중단 on an advisory run still paid for one
+    more planning call, and the plan it revised was for a run that was over.
+    """
+    from agent.graph.nodes import NodeDeps, make_nodes
+
+    store = _indexed(tmp_path)
+    plan = PlanStore(store.run_id)
+    plan.seed(store.order())
+
+    class Planner:
+        called = 0
+
+        def call(self, schema, system, user, trace=None):  # noqa: ANN001
+            Planner.called += 1
+            raise AssertionError("the planner was asked after the run was cancelled")
+
+    deps = NodeDeps(
+        store=store,
+        config=AgentConfig(model="fake", planning="advisory"),
+        caller=Planner(),  # type: ignore[arg-type]
+        files={},
+        plan=plan,
+        cancelled=lambda: True,
+    )
+    written = make_nodes(deps)["replan"]({"confirmed": []})  # type: ignore[arg-type]
+
+    assert written == {}
+    assert Planner.called == 0
 
 
 def test_an_advisory_run_replays_from_its_event_log(tmp_path: Path) -> None:

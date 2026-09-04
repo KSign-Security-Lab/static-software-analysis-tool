@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from agent.config import AgentConfig
 from agent.graph.session import InspectionSession, ParallelStep
+from agent.index import ChunkStore
 from agent.runs import (
     STATUS_CANCELLED,
     STATUS_DONE,
@@ -33,11 +34,13 @@ from agent.runs import (
     Run,
 )
 from agent.schema import Report
+from agent.trace import SpanStore
 
 from .channels import (
     INTERRUPT_TIMEOUT_SECONDS,
     SSE_KEEPALIVE_SECONDS,
     SSE_POLL_SECONDS,
+    STREAM_START_GRACE_SECONDS,
     RunChannel,
     _channel,
     _live_channel,
@@ -114,12 +117,6 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
     the run is not over -- it is waiting. The session stays open across the wait
     so the MCP subprocess and the chunk store are still there when it carries on.
     """
-    config = AgentConfig()
-    store = run.store()
-    if order.fresh:
-        # Two attempts interleaved in one history read as one incoherent run.
-        run.reset_debug()
-    spans = run.spans()
 
     def emit(event: str, payload: dict[str, Any]) -> None:
         # Where the run has got to, on disk, for tabs that were not listening.
@@ -136,7 +133,20 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
         channel.publish({"event": event, "data": payload})
 
     session: InspectionSession | None = None
+    store: ChunkStore | None = None
+    spans: SpanStore | None = None
     try:
+        # Inside the try, and they were not: each touches the database, and one
+        # raising killed the thread above the handler -- leaving the channel
+        # claimed and unfinished for the life of the process, which answers every
+        # later /inspect with `already_running` and never ends a stream.
+        config = AgentConfig()
+        store = run.store()
+        if order.fresh:
+            # Two attempts interleaved in one history read as one incoherent run.
+            run.reset_debug()
+        spans = run.spans()
+
         config.require_model()
         if order.force:
             store.clear_results()
@@ -165,7 +175,18 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
             session.resume(values=order.resume_values, checkpoint_id=order.resume_from)
 
         aborted = False
-        while session.interrupted and not aborted:
+        # `cancelled` is in the condition, and it is the whole of the stop
+        # button working. A cancelled session breaks out of the graph with work
+        # still queued, so `_refresh` reads a non-empty `next` and
+        # `session.interrupted` is true -- indistinguishable, here, from a run
+        # parked at a breakpoint. This loop used to believe that: it wrote
+        # STATUS_INTERRUPTED, emitted `run_interrupted`, and blocked in
+        # `_await_command` for INTERRUPT_TIMEOUT_SECONDS -- thirty minutes --
+        # for an answer nobody was going to send, because `cancel_inspection`
+        # only queues an abort for a worker that is *already* waiting. The
+        # report was not saved and STATUS_CANCELLED was not written until that
+        # timeout expired, which is what "the stop button does nothing" was.
+        while session.interrupted and not aborted and not channel.cancelled.is_set():
             # Recorded, not only emitted. The event stream is in-process and
             # cannot be replayed, so a tab opened -- or reloaded -- while the
             # run sits at a breakpoint never hears about it, and would offer to
@@ -204,7 +225,9 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
         )
         emit(
             "run_finished",
-            {"run_id": run.run_id, "findings": len(report.findings), "aborted": aborted},
+            # `stopped` too, and it was computed above and unused: an ordinary
+            # 중단 is not an abort at a breakpoint, so the surface heard nothing.
+            {"run_id": run.run_id, "findings": len(report.findings), "aborted": aborted or stopped},
         )
     except Exception as err:  # noqa: BLE001 - the failure is reported, not raised into the loop
         log.exception("inspection failed for run %s", run.run_id)
@@ -212,10 +235,16 @@ def _inspect_worker(run: Run, channel: RunChannel, order: WorkOrder) -> None:
         run.set_status(STATUS_FAILED, error=str(err), parked=None, progress=None)
         channel.publish({"event": "run_failed", "data": {"error": str(err)}})
     finally:
-        if session is not None:
-            session.close()
-        store.close()
-        spans.close()
+        # Each on its own: `store.close()` raising used to skip `spans.close()`
+        # and the `finished` below, which strands every stream on this run. The
+        # session first, so the MCP subprocess goes before the stores it reads.
+        for closing in (session, store, spans):
+            if closing is None:
+                continue
+            try:
+                closing.close()
+            except Exception:  # noqa: BLE001 - a failed close must not strand the run
+                log.exception("closing %s for run %s", type(closing).__name__, run.run_id)
         channel.waiting.clear()
         channel.finished.set()
 
@@ -244,16 +273,29 @@ def _validate_breakpoints(names: List[str]) -> List[str]:
     return list(dict.fromkeys(names))
 
 
-def _spawn(run: Run, order: WorkOrder) -> RunChannel:
-    """Put a worker on the run, reusing the channel anyone is already watching."""
+def _spawn(run: Run, order: WorkOrder) -> RunChannel | None:
+    """Put a worker on the run, or None if one is already on it.
+
+    Reuses the channel anyone is already watching. `claim` is what makes the
+    None possible: the check and the take are one step, so two requests landing
+    together cannot both spawn.
+    """
     channel = _channel(run.run_id)
-    channel.reclaim()
-    threading.Thread(
+    if not channel.claim():
+        return None
+    worker = threading.Thread(
         target=_inspect_worker,
         args=(run, channel, order),
         name=f"inspect-{run.run_id}",
         daemon=True,
-    ).start()
+    )
+    channel.worker = worker
+    try:
+        worker.start()
+    except BaseException:
+        # A thread that never started must not leave the run claimed for ever.
+        channel.finished.set()
+        raise
     return channel
 
 
@@ -307,15 +349,21 @@ def start_inspection(run: RunDep, request: InspectRequest | None = None) -> Dict
     except RuntimeError as err:
         raise HTTPException(status_code=503, detail=str(err)) from err
 
-    _spawn(
-        run,
-        WorkOrder(
-            breakpoints=breakpoints,
-            breakpoints_after=after,
-            force=options.force,
-            values=options.values,
-        ),
-    )
+    # A lost claim is somebody else's start, landing in the same moment as this
+    # one. The same answer as the pre-check above, decided where it is atomic.
+    if (
+        _spawn(
+            run,
+            WorkOrder(
+                breakpoints=breakpoints,
+                breakpoints_after=after,
+                force=options.force,
+                values=options.values,
+            ),
+        )
+        is None
+    ):
+        return {"run_id": run.run_id, "status": STATUS_INSPECTING, "already_running": True}
     return {
         "run_id": run.run_id,
         "status": STATUS_INSPECTING,
@@ -352,19 +400,23 @@ def resume_inspection(run: RunDep, request: ResumeRequest | None = None) -> Dict
     if not run.checkpoints():
         raise HTTPException(status_code=409, detail="this run has no history to resume from")
 
-    _spawn(
-        run,
-        WorkOrder(
-            breakpoints=_validate_breakpoints(options.breakpoints),
-            breakpoints_after=_validate_breakpoints(options.breakpoints_after),
-            resume_from=options.checkpoint_id,
-            resume_values=options.values,
-            # Said outright rather than inferred from the values: "re-run from
-            # here" writes nothing, and a resume that clears the history it is
-            # resuming from would be worse than useless.
-            resuming=True,
-        ),
-    )
+    if (
+        _spawn(
+            run,
+            WorkOrder(
+                breakpoints=_validate_breakpoints(options.breakpoints),
+                breakpoints_after=_validate_breakpoints(options.breakpoints_after),
+                resume_from=options.checkpoint_id,
+                resume_values=options.values,
+                # Said outright rather than inferred from the values: "re-run from
+                # here" writes nothing, and a resume that clears the history it is
+                # resuming from would be worse than useless.
+                resuming=True,
+            ),
+        )
+        is None
+    ):
+        raise HTTPException(status_code=409, detail="this run is already in flight")
     return {"run_id": run.run_id, "resumed": True, "worker": "new"}
 
 
@@ -409,19 +461,33 @@ async def run_events(run: RunDep) -> StreamingResponse:
         # so a second tab watching the same run no longer takes frames away
         # from the first one.
         with channel.listen() as events:
-            idle = 0.0
+            # Which run this reader is here for, rather than whether a flag is
+            # set. Nothing clears `finished` when a run ends, so a stream opened
+            # between two runs used to close on the previous one's flag about a
+            # second after attaching -- and the client does not reconnect after a
+            # clean close, so the run it had just asked for streamed to nobody.
+            watching = channel.live
+            idle = waited = 0.0
             while True:
                 try:
                     message = await asyncio.to_thread(events.get, True, SSE_POLL_SECONDS)
                 except queue.Empty:
-                    if channel.finished.is_set():
+                    if channel.live:
+                        watching = True
+                    elif watching:
                         break
+                    else:
+                        # Nobody has started one yet. Bounded, or a tab watching
+                        # a run that is never started holds this open for ever.
+                        waited += SSE_POLL_SECONDS
+                        if waited >= STREAM_START_GRACE_SECONDS:
+                            break
                     idle += SSE_POLL_SECONDS
                     if idle >= SSE_KEEPALIVE_SECONDS:
                         idle = 0.0
                         yield ": keep-alive\n\n"
                     continue
-                idle = 0.0
+                idle = waited = 0.0
                 yield f"event: {message['event']}\ndata: {json.dumps(message['data'])}\n\n"
 
         yield f"event: stream_closed\ndata: {json.dumps({'run_id': run.run_id})}\n\n"

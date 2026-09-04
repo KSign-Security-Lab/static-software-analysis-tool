@@ -7,6 +7,7 @@ import { describeError } from "@/lib/api/client";
 import { cancelRun } from "@/lib/api/control";
 import { downloadArchive, previewPatch, pushBranch, savePatch } from "@/lib/api/patch";
 import { keys } from "@/lib/query/keys";
+import { useRunStream } from "@/lib/run/stream";
 
 /**
  * Getting the bucket out of the browser.
@@ -83,16 +84,40 @@ export function usePushBranch(runId: string | null) {
  * Invalidates the run rather than patching a status in: the worker decides what
  * the run becomes -- `cancelled`, with whatever it had found -- and guessing that
  * here would show a state the server may not agree with.
+ *
+ * The tense is the point. A 200 from this endpoint means the stop was
+ * *accepted*: the flag is set, and the nodes already dispatched are still
+ * returning. `control.ts` writes that caution down for starting a run and it
+ * was never applied here, so the toast said 중단했습니다 in the past tense while
+ * the progress bar went on advancing and findings went on arriving -- which is
+ * what "the stop button does nothing" looked like from the outside, even once
+ * the server was doing exactly the right thing.
+ *
+ * `markCancelling` is what stops the rest of the surface claiming otherwise;
+ * `finished` clears it, so the run's own account is always what wins.
  */
 export function useCancelRun(runId: string | null) {
   const client = useQueryClient();
+  const { markCancelling, clearCancelling } = useRunStream();
   return useMutation({
     mutationFn: () => cancelRun(runId!),
+    onMutate: () => markCancelling(),
     onSuccess: () => {
-      toast.info("검사를 중단했습니다", { description: "그때까지 찾은 것은 그대로 남습니다." });
-      void client.invalidateQueries({ queryKey: keys.run(runId!) });
+      toast.info("검사를 중단하는 중입니다", {
+        description: "지금 하던 분석만 끝내고 멈춥니다. 그때까지 찾은 것은 그대로 남습니다.",
+      });
+      // The row, not the run. `keys.run` is a prefix of `keys.findings`, and
+      // re-reading the report mid-scan is the one thing `stream.tsx` says never
+      // to do -- the scan has not stopped yet, it has only been told to.
+      void client.invalidateQueries({ queryKey: keys.summary(runId!) });
       void client.invalidateQueries({ queryKey: keys.runs() });
     },
-    onError: (error) => toast.error("검사를 중단할 수 없습니다", { description: describeError(error) }),
+    onError: (error) => {
+      // A 409 means the server has already ended it. Left set, the optimistic
+      // flag above disables 중단 for ever and holds a 1s poll open behind it.
+      clearCancelling();
+      void client.invalidateQueries({ queryKey: keys.summary(runId!) });
+      toast.error("검사를 중단할 수 없습니다", { description: describeError(error) });
+    },
   });
 }

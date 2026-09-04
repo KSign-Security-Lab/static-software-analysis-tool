@@ -69,8 +69,30 @@ export function stageOf({ run, live, hasFindings }: StageInput): Stage {
  * has attached. Either is enough.
  */
 export function isScanning({ run, live }: Pick<StageInput, "run" | "live">): boolean {
+  // A row that says the run is over ends it, whatever the stream last said.
+  // `live.active` is only ever cleared by a `run_finished` frame, and that frame
+  // is published in-process, never replayed, and dropped outright if it arrives
+  // malformed -- so a tab that missed it would spin for ever on a run the server
+  // finished minutes ago. The stream is ahead of the row only while it is
+  // attached; detached, the last frame received is merely the last that arrived,
+  // and the provider is polling the row precisely because of that.
+  if (!live.attached && run && run.status !== "inspecting") return false;
   if (live.active && !live.finished) return true;
   return run?.status === "inspecting";
+}
+
+/**
+ * A run that stopped short and has somewhere to go.
+ *
+ * `stageOf` sends these to results, correctly -- there is a partial report to
+ * read -- and results had no way to start anything: `Intake` owns 검사 시작 and
+ * never renders, `ScanStrip` unmounted with `isScanning`, and `Coverage` is null
+ * unless the run wasted calls. So a stop was a dead end for the run it stopped,
+ * and so was a reload on a run parked at a breakpoint.
+ */
+export function isStopped({ run, live }: Pick<StageInput, "run" | "live">): boolean {
+  if (isScanning({ run, live })) return false;
+  return run?.status === "cancelled" || run?.status === "interrupted";
 }
 
 /**
@@ -100,6 +122,10 @@ const PHASE_LABEL: Record<string, string> = {
 
 export function phaseOf(live: RunLive): string | null {
   if (!live.active || live.finished) return null;
+  // Ahead of everything else, including the node names. Once 중단 has been
+  // accepted, what the run is *doing* is finishing -- naming the specialist it
+  // happens to be inside would read as work still being started.
+  if (live.cancelling) return "중단하는 중";
   if (live.interrupted) return "중단점에서 멈춤";
   // Several nodes genuinely run at once -- a wave screens in parallel. The
   // furthest-along one reads better than a list, and the list is on the graph.

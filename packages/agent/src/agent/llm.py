@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
-from typing import Any, Generic, Literal, Sequence, TypeVar
+from typing import Any, Callable, Generic, Literal, Sequence, TypeVar
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -120,6 +121,11 @@ class StructuredCaller:
 
     def __init__(self, config: AgentConfig, llm: ChatOpenAI | None = None) -> None:
         self.config = config
+        # One caller is shared by every node in a wave, so up to
+        # AGENT_MAX_CONCURRENCY threads read these four while one may be
+        # rewriting them. The lock covers the transitions below; readers take a
+        # snapshot rather than holding it across a request.
+        self._lock = threading.Lock()
         self.llm = llm if llm is not None else make_llm(config)
         # Remembered after first success so later calls skip the probe.
         self._method: StructuredMethod | None = None
@@ -146,7 +152,9 @@ class StructuredCaller:
         Copying the model puts the ceiling in ``_default_params``, where
         ``with_structured_output`` cannot lose it.
         """
-        llm = self.llm if headroom is None else self.llm.model_copy(update={"max_tokens": headroom})
+        with self._lock:
+            current = self.llm
+        llm = current if headroom is None else current.model_copy(update={"max_tokens": headroom})
         return llm.with_structured_output(schema, method=method)
 
     def _headroom(self, err: LengthFinishReasonError, prompt: str, system: str) -> int | None:
@@ -193,8 +201,10 @@ class StructuredCaller:
         again. An endpoint either supports the parameter or does not, so this
         fires at most once per run.
         """
-        if not self._effort_supported:
-            return False
+        # Read before the text match so the common path takes the lock once.
+        with self._lock:
+            if not self._effort_supported:
+                return False
         # The parameter's own name, not merely the word: a model called
         # `deepseek-reasoner` in an unrelated timeout message is not an endpoint
         # objecting to a parameter, and dropping the setting on that would make
@@ -209,14 +219,19 @@ class StructuredCaller:
         text = str(err)
         if "reasoning_effort" not in text and "reasoning effort" not in text:
             return False
-        log.warning(
-            "%s does not accept reasoning_effort; continuing without it. Completions on a "
-            "reasoning model may run out of tokens mid-object as a result.",
-            self.config.base_url,
-        )
-        self._effort_supported = False
-        self.llm = make_llm(self.config, reasoning_effort="")
-        self._method = None
+        with self._lock:
+            # Checked again under the lock: sixteen threads can meet the same 400,
+            # and rebuilding the model once is the point of "at most once per run".
+            if not self._effort_supported:
+                return True
+            log.warning(
+                "%s does not accept reasoning_effort; continuing without it. Completions on a "
+                "reasoning model may run out of tokens mid-object as a result.",
+                self.config.base_url,
+            )
+            self._effort_supported = False
+            self.llm = make_llm(self.config, reasoning_effort="")
+            self._method = None
         return True
 
     def call(
@@ -228,7 +243,9 @@ class StructuredCaller:
     ) -> Outcome[ModelT]:
         """One structured call, as a value or a reason. ``trace`` is inert when tracing is off."""
         messages = [("system", system), ("human", user)]
-        methods: tuple[StructuredMethod, ...] = (self._method,) if self._method else STRUCTURED_METHODS
+        with self._lock:
+            pinned = self._method
+        methods: tuple[StructuredMethod, ...] = (pinned,) if pinned else STRUCTURED_METHODS
         last: FailureReason = "transport"
 
         for method in methods:
@@ -299,7 +316,7 @@ class StructuredCaller:
                         last = "transport"
                         continue
                     if isinstance(result, schema):
-                        self._method = method
+                        self._remember(method)
                         return Outcome.of(result)
                     last = "refused"
                     continue
@@ -313,15 +330,20 @@ class StructuredCaller:
                 last = "transport"
                 continue
             if isinstance(result, schema):
-                self._method = method
+                self._remember(method)
                 return Outcome.of(result)
             log.warning("structured call via %s returned %s, not %s", method, type(result), schema.__name__)
             last = "refused"
 
         # A remembered method that has started failing should not stay pinned.
-        if self._method is not None:
+        with self._lock:
             self._method = None
         return Outcome.failed(last)
+
+    def _remember(self, method: StructuredMethod) -> None:
+        """Pin the method that worked, so later calls skip the probe."""
+        with self._lock:
+            self._method = method
 
     def gather(
         self,
@@ -331,6 +353,7 @@ class StructuredCaller:
         budget: int,
         trace: RunnableConfig | None = None,
         allowed: Sequence[str] | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> str:
         """Let the model call tools; return a transcript.
 
@@ -338,6 +361,13 @@ class StructuredCaller:
         separate guided-decoding call, so tool calling is not also responsible
         for schema conformance. Returns "" when tools are unusable, which
         degrades verification to context-only rather than failing the run.
+
+        ``cancelled`` is asked before each round trip, because this is the one
+        place where a single node makes several sequential model calls: a caller
+        that checked once on the way in can still be four requests from
+        returning. What was gathered before the stop is returned rather than
+        discarded -- a partial transcript is no worse than the empty one this
+        returns when tools are unavailable.
         """
         if not self.tools_available or budget <= 0:
             return ""
@@ -362,6 +392,8 @@ class StructuredCaller:
         transcript: list[str] = []
 
         for _ in range(budget):
+            if cancelled is not None and cancelled():
+                break
             try:
                 reply = bound.invoke(messages, config=trace)
             except Exception as err:  # noqa: BLE001
@@ -387,10 +419,12 @@ class StructuredCaller:
 
     def _disable_tools(self, err: object) -> None:
         """Off for the rest of the run, once, with a reason."""
-        if self.tools_available:
+        with self._lock:
+            if not self.tools_available:
+                return
             self.tools_available = False
-            log.warning(
-                "tool calling is unavailable on this endpoint, verifying from context only. "
-                "vLLM needs --tool-call-parser for the model family. (%s)",
-                str(err)[:200],
-            )
+        log.warning(
+            "tool calling is unavailable on this endpoint, verifying from context only. "
+            "vLLM needs --tool-call-parser for the model family. (%s)",
+            str(err)[:200],
+        )

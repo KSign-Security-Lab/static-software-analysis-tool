@@ -169,6 +169,11 @@ class InspectionSession:
             prompts=self.prompts,
             subsystems=_subsystems(store),
             plan=self.plan,
+            # The same question `_stream` asks between frames, asked one level
+            # down. Between frames stops the graph taking new super-steps; in
+            # the nodes it stops the wave already dispatched from spending a
+            # model call each on work nobody is waiting for.
+            cancelled=self._cancelled,
         )
 
         # The agent consumes its own MCP server. Opened for the whole session so

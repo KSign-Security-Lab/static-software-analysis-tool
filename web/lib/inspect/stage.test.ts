@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RunStatus, RunSummary } from "@/lib/api/types";
 import { IDLE, type RunLive } from "@/lib/run/reduce";
-import { isScanning, phaseOf, progressOf, stageOf } from "./stage";
+import { isScanning, isStopped, phaseOf, progressOf, stageOf } from "./stage";
 
 function run(status: RunStatus): RunSummary {
   return {
@@ -78,7 +78,16 @@ describe("stageOf", () => {
 
 describe("isScanning", () => {
   it("is true from the stream before the row has caught up", () => {
-    expect(isScanning({ run: run("indexed"), live: live({ active: true }) })).toBe(true);
+    // Attached, which is what makes the stream worth believing over the row.
+    expect(isScanning({ run: run("indexed"), live: live({ active: true, attached: true }) })).toBe(true);
+  });
+
+  it("stops believing a detached stream once the row says the run is over", () => {
+    // The stream leads the row only while it is open. Detached, the last frame
+    // received is merely the last that arrived -- and a run adopted from the row
+    // keeps `active` set with nothing left that would ever clear it.
+    expect(isScanning({ run: run("done"), live: live({ active: true }) })).toBe(false);
+    expect(isScanning({ run: run("cancelled"), live: live({ active: true }) })).toBe(false);
   });
 
   it("is true from the row before the stream has attached", () => {
@@ -138,5 +147,55 @@ describe("progressOf", () => {
     expect(progressOf(at).fraction).toBe(1);
     const odd = live({ chunk: { id: "c", remaining: 9, total: 4 } });
     expect(odd.chunk && progressOf(odd).done).toBe(0);
+  });
+});
+
+describe("a scan that has been told to stop", () => {
+  it("says so, ahead of whichever specialist it is inside", () => {
+    // The run is still executing a node. Naming it would read as work being
+    // started, which is the opposite of what the reader just asked for.
+    expect(phaseOf(live({ active: true, running: ["injection"], cancelling: true }))).toBe("중단하는 중");
+  });
+
+  it("does not offer the breakpoint wording instead", () => {
+    // A cancelled session comes back with work still queued, so it can arrive
+    // here looking interrupted. It is not parked; it is stopping.
+    expect(phaseOf(live({ active: true, interrupted: true, cancelling: true }))).toBe("중단하는 중");
+  });
+
+  it("keeps reading as scanning until something confirms it ended", () => {
+    expect(isScanning({ run: run("inspecting"), live: live({ active: true, cancelling: true }) })).toBe(true);
+  });
+
+  it("stops when the row says it stopped, even if the stream never said so", () => {
+    // `active` is only ever cleared by a `run_finished` frame, and that frame is
+    // in-process, never replayed, and dropped outright if malformed. A tab that
+    // missed it used to spin for ever on a run the server had already finished.
+    expect(isScanning({ run: run("cancelled"), live: live({ active: true, cancelling: true }) })).toBe(false);
+  });
+
+  it("still trusts the stream when no stop is outstanding and it is attached", () => {
+    expect(isScanning({ run: run("cancelled"), live: live({ active: true, attached: true }) })).toBe(true);
+  });
+});
+
+describe("isStopped", () => {
+  it("is true for a run that stopped short", () => {
+    // Both send `stageOf` to results, and results had nothing that could start
+    // anything: the strip unmounted with `isScanning` and took 이어서 with it.
+    expect(isStopped({ run: run("cancelled"), live: live() })).toBe(true);
+    expect(isStopped({ run: run("interrupted"), live: live() })).toBe(true);
+  });
+
+  it("is false while the scan is still going", () => {
+    expect(isStopped({ run: run("inspecting"), live: live() })).toBe(false);
+    expect(isStopped({ run: run("cancelled"), live: live({ active: true, attached: true }) })).toBe(false);
+  });
+
+  it("is false for a run that ended on its own, or never began", () => {
+    for (const status of ["done", "indexed", "failed"] as const) {
+      expect(isStopped({ run: run(status), live: live() })).toBe(false);
+    }
+    expect(isStopped({ run: undefined, live: live() })).toBe(false);
   });
 });

@@ -288,3 +288,100 @@ describe("adopting a run that was already going", () => {
     expect(finished.running).toEqual([]);
   });
 });
+
+describe("cancelling", () => {
+  // 중단 accepted is not 중단 done. A 200 from the cancel endpoint means the flag
+  // was set; the nodes already dispatched are still returning, and the surface
+  // used to claim otherwise while their findings went on arriving.
+  it("does not stop the run or throw away what is in flight", () => {
+    const state = run([
+      { type: "run_started", event: { run_id: "r1", files_indexed: 1, files_skipped: 0, chunks: 2, links: 1 } },
+      { type: "node_started", event: node("injection") },
+      started("c1", "app.c", 3, 4),
+      { type: "cancelling" },
+    ]);
+
+    expect(state.cancelling).toBe(true);
+    // Still true, and still the truth: the wave is finishing.
+    expect(state.active).toBe(true);
+    expect(state.finished).toBe(false);
+    expect(state.running).toEqual(["injection"]);
+    expect(state.chunk).not.toBeNull();
+  });
+
+  it("keeps findings that land after the button was pressed", () => {
+    const state = run([
+      { type: "run_started", event: { run_id: "r1", files_indexed: 1, files_skipped: 0, chunks: 2, links: 1 } },
+      { type: "cancelling" },
+      finished("c1", "app.c"),
+    ]);
+
+    expect(state.cancelling).toBe(true);
+    expect(state.scanned.has("app.c")).toBe(true);
+  });
+
+  it("is cleared by the run's own account of having ended", () => {
+    const cancelling = run([{ type: "run_started", event: { run_id: "r1", files_indexed: 1, files_skipped: 0, chunks: 2, links: 1 } }, { type: "cancelling" }]);
+
+    expect(reduceRun(cancelling, { type: "finished", event: { run_id: "r1", findings: 2, aborted: true } }).cancelling).toBe(false);
+    expect(reduceRun(cancelling, { type: "failed", event: { error: "boom" } }).cancelling).toBe(false);
+    expect(reduceRun(cancelling, { type: "reset" }).cancelling).toBe(false);
+  });
+
+  it("is idempotent, so pressing twice changes nothing", () => {
+    const once = run([{ type: "cancelling" }]);
+    expect(reduceRun(once, { type: "cancelling" })).toBe(once);
+  });
+
+  it("is cleared by a stop the server refused", () => {
+    // The 409 is easy to get: press 중단 between the worker's last frame and its
+    // `finally`. Left set, the flag disabled 중단 for the rest of the run.
+    const cancelling = run([{ type: "cancelling" }]);
+    expect(reduceRun(cancelling, { type: "cancel_failed" }).cancelling).toBe(false);
+  });
+
+  it("does not disturb a run nobody asked to stop", () => {
+    const going = run([START]);
+    expect(reduceRun(going, { type: "cancel_failed" })).toBe(going);
+  });
+});
+
+const START: RunAction = {
+  type: "run_started",
+  event: { run_id: "r1", files_indexed: 1, files_skipped: 0, chunks: 2, links: 1 },
+};
+
+describe("starting a second run on the same id", () => {
+  it("clears a stop that never landed", () => {
+    // Stop, then start: the strip kept a disabled 중단하는 중 with no way to
+    // press stop again, and a 1s poll of the run row open behind it for ever.
+    const state = run([START, { type: "cancelling" }, START]);
+
+    expect(state.cancelling).toBe(false);
+    expect(state.active).toBe(true);
+  });
+
+  it("does not resume the last run's progress bar", () => {
+    const state = run([
+      START,
+      { type: "wave_started", event: { chunks: ["c1"], remaining: 4 } },
+      started("c1", "app.c", 3, 4),
+      { type: "checkpoint", event: { checkpoint_id: "cp", step: 2, node: "plan", next: ["context"] } },
+      { type: "finished", event: { run_id: "r1", findings: 1, aborted: false } },
+      START,
+    ]);
+
+    expect(state.chunk).toBeNull();
+    expect(state.wave).toBeNull();
+    expect(state.queued).toEqual([]);
+    expect(state.running).toEqual([]);
+    expect(state.checkpointId).toBeNull();
+    expect(state.finished).toBe(false);
+    expect(state.error).toBeNull();
+  });
+
+  it("keeps the attachment, which is a fact about the socket and not the run", () => {
+    const attached = run([{ type: "attached", open: true }, START]);
+    expect(attached.attached).toBe(true);
+  });
+});

@@ -26,6 +26,7 @@ TypeScript, by edge label. Those are a different thing from the ``/ast`` and
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, cast
@@ -41,25 +42,38 @@ from ssat.types.cpg import CPGRoot
 
 from agent.runs import abandon_live_runs
 
+from .agent.channels import drain
 from .agent import router as agent_router
 from .bench import router as bench_router
 
 log = logging.getLogger(__name__)
 
 
+#: How long shutdown waits for in-flight workers to stop before leaving them.
+SHUTDOWN_GRACE_SECONDS = 10.0
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Close the books on runs this process cannot possibly own.
+    """Close the books on runs this process cannot possibly own, both ways.
 
     An inspection lives on a worker thread here and streams over an in-process
     channel, so anything still recorded as running when we start belongs to a
     process that is gone. Saying so once at startup is the difference between a
     dead run reading as failed and it reading as "실행 중" for ever.
+
+    On the way out, stopping beats being killed. The threads are daemons, so
+    shutdown would otherwise end them mid-frame: the session never closes, its
+    MCP subprocess is orphaned, and the run is left for the *next* boot to mark
+    failed -- where cancelling ends it as `cancelled` with what it found.
     """
     abandoned = abandon_live_runs()
     if abandoned:
         log.info("marked %d abandoned run(s) as failed: %s", len(abandoned), ", ".join(abandoned))
     yield
+    stopped = await asyncio.to_thread(drain, SHUTDOWN_GRACE_SECONDS)
+    if stopped:
+        log.info("stopped %d in-flight run(s) on shutdown: %s", len(stopped), ", ".join(stopped))
 
 
 app = FastAPI(title="SSAT API", version="2.0.0", lifespan=lifespan)

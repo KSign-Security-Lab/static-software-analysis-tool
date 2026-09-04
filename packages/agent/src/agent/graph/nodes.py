@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Mapping, Any, Protocol, Sequence
+from typing import Callable, Mapping, Any, Protocol, Sequence
 
 from langgraph.types import Command, Send
 
@@ -150,6 +150,19 @@ class NodeDeps:
     # that decides traversal -- see `_plan_mark`. None outside a session, which
     # is what the one-shot tests build.
     plan: Any = None
+    # Asked at the top of every node that would call a model: has somebody said
+    # stop?
+    #
+    # The session already checks between LangGraph frames, which stops the graph
+    # entering new super-steps. It does not stop the nodes of the wave already
+    # dispatched, and each of those is a model call -- up to `max_concurrency`
+    # of them, plus `gather`'s sequential tool loop inside one node. So a reader
+    # who pressed 중단 watched the whole wave finish. Checked here, a cancelled
+    # run issues no further requests and ends once the ones in flight return.
+    #
+    # Defaults to never-cancelled: the one-shot tests and the CLI build `NodeDeps`
+    # directly and have nothing to ask.
+    cancelled: Callable[[], bool] = lambda: False
     # One assembled pack per chunk, for this run. Four specialists and a
     # verifier all want the same one; building it is deterministic and cheap,
     # but not free, and doing it five times says something untrue about the
@@ -293,6 +306,13 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         """
         pending = list(state.get("pending", []))
 
+        # A stopped run takes no further wave. An empty wave is what `has_work`
+        # already reads as "done", so the graph ends the way finishing the queue
+        # ends it rather than being torn out from under itself -- and `pending`
+        # is handed back untouched, so the checkpoint still says what was left.
+        if deps.cancelled():
+            return {**clear_wave(), "pending": pending, "wave": [], "current": None}
+
         # Advisory only. In `computed` mode the plan is written and never read,
         # so this is the one line that decides whether the run follows the index
         # or the index-plus-events -- and it is a fold either way, which is what
@@ -367,7 +387,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         computed order exactly as it was, which is the mode this run would have
         been in anyway -- so there is nothing to fail *to*.
         """
-        if deps.plan is None:
+        if deps.plan is None or deps.cancelled():
             return {}
 
         remaining = [
@@ -392,8 +412,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             return {"stats": {"failed": 1}}
 
         events = [
-            PlanEvent(kind=change.kind, target=change.target, reason=change.reason)
-            for change in outcome.value.changes
+            PlanEvent(kind=change.kind, target=change.target, reason=change.reason) for change in outcome.value.changes
         ]
         applied = deps.plan.record(events)
         if applied:
@@ -417,7 +436,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         screening call timed out.
         """
         chunk = _chunk(state)
-        if chunk is None:
+        if chunk is None or deps.cancelled():
             return {}
 
         outcome = deps.caller.call(
@@ -504,7 +523,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         a screening call came back empty is the one outcome worth avoiding.
         """
         chunk = _chunk(state)
-        if chunk is None:
+        if chunk is None or deps.cancelled():
             return {}
 
         whole = [{"start_line": chunk.start_line, "end_line": chunk.end_line}]
@@ -573,7 +592,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         def node(state: Any) -> dict[str, Any]:
             chunk = _chunk(state)
-            if chunk is None:
+            if chunk is None or deps.cancelled():
                 return {}
 
             region = _region_of(state, chunk)
@@ -601,6 +620,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                         symbol=chunk.symbol,
                         subject=f"{chunk.symbol} 조회",
                     ),
+                    cancelled=deps.cancelled,
                 )
 
             outcome = deps.caller.call(
@@ -758,7 +778,12 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         raised_by = state.get("lens")
 
         gathered = ""
-        if deps.tools is not None:
+        # Cancelled means no lookups, but it still hands the claim on. Returning
+        # `Command(goto=[])` here would leave `verify` with nothing to rule on,
+        # and `reduce` reads a missing verdict as a refutation -- so stopping a
+        # run would *delete* findings it had already located and written down.
+        # A stop must cost coverage, never results.
+        if deps.tools is not None and not deps.cancelled():
             gathered = deps.caller.gather(
                 deps.prompts["gather"],
                 gather_user(finding, deps.pack_for(chunk)),
@@ -775,6 +800,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     subject=_finding_subject(finding),
                     lens=raised_by,
                 ),
+                cancelled=deps.cancelled,
             )
 
         return Command(
@@ -799,6 +825,25 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             return {}
 
         finding = Finding.model_validate(payload)
+
+        # A stopped run rules on nothing further, and says so rather than
+        # staying silent. Silence here is read by `reduce` as a refutation, so
+        # pressing 중단 would quietly delete every finding whose verifier had not
+        # been reached yet. This is the same standing a died verify call gets --
+        # neither confirmed nor refuted -- and it reaches the report as
+        # 취약 후보 instead of vanishing from it.
+        if deps.cancelled():
+            return {
+                "verdicts": [
+                    {
+                        "finding_id": finding.id,
+                        "refuted": False,
+                        "verified": False,
+                        "confidence": 0.0,
+                    }
+                ]
+            }
+
         pack = deps.pack_for(chunk)
         raised_by = state.get("lens")
         # Whatever `gather` turned up, carried in the Send rather than through a
@@ -866,6 +911,10 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         a finding it has already proved.
         """
         if (finding.remediation.replacement or "").strip():
+            return None
+        # A fix is the optional part of a finding, so a stop skips it rather than
+        # spending a model call the reader has just said they do not want.
+        if deps.cancelled():
             return None
         text = _file_text(deps.files, finding.primary.file)
         if text is None:

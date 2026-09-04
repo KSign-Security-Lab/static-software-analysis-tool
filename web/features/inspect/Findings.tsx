@@ -36,11 +36,14 @@ export default function Findings({
   findings,
   stats,
   scanning = false,
+  stopped = false,
 }: {
   findings: UiFinding[];
   stats?: RunStats;
   /** A scan is still running, so this list is growing and not yet complete. */
   scanning?: boolean;
+  /** A scan stopped short. The strip stays, because it owns the way to resume. */
+  stopped?: boolean;
 }) {
   const [runId] = useRunId();
   const [order] = useSort();
@@ -78,7 +81,7 @@ export default function Findings({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {scanning && <ScanStrip />}
+      {(scanning || stopped) && <ScanStrip />}
       {/* Above both columns: it is a statement about the whole report, and a
           reader who takes the list at face value is the person it is for. */}
       <Coverage stats={stats} />

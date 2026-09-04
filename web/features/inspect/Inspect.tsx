@@ -7,7 +7,7 @@ import Findings from "@/features/inspect/Findings";
 import Intake from "@/features/inspect/Intake";
 import RunBar from "@/features/inspect/RunBar";
 import { reconcile } from "@/lib/inspect/bucket";
-import { isScanning, stageOf } from "@/lib/inspect/stage";
+import { isScanning, isStopped, stageOf } from "@/lib/inspect/stage";
 import { fromAgent } from "@/lib/model/finding";
 import { useFindings, useRun } from "@/lib/run/queries";
 import { useRunStream } from "@/lib/run/stream";
@@ -26,13 +26,18 @@ import { useRunId } from "@/lib/run/use-run-id";
  */
 export default function Inspect() {
   const [runId] = useRunId();
+  const { live } = useRunStream();
+  // Not polled here: the provider owns that, and owning it in two places meant
+  // two rules for when the row is worth asking for. See `stream.tsx`.
   const run = useRun(runId);
   const report = useFindings(runId);
-  const { live } = useRunStream();
 
   const findings = useMemo(() => fromAgent(report.data?.findings), [report.data]);
   const stage = stageOf({ run: run.data, live, hasFindings: findings.length > 0 });
   const scanning = isScanning({ run: run.data, live });
+  // The strip stays for a run that stopped short: it is the only place with a
+  // way to carry it on, and results has nowhere else to put one.
+  const stopped = isStopped({ run: run.data, live });
 
   // Ticks for findings the report no longer has, dropped as soon as the report
   // says so. A re-scan gives every changed finding a new id -- they are derived
@@ -60,7 +65,7 @@ export default function Inspect() {
       <BackendDown />
       {stage === "intake" && <Intake run={run.data} />}
       {stage === "results" && (
-        <Findings findings={findings} stats={report.data?.stats} scanning={scanning} />
+        <Findings findings={findings} stats={report.data?.stats} scanning={scanning} stopped={stopped} />
       )}
     </>
   );

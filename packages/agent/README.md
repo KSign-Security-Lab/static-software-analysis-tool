@@ -436,3 +436,13 @@ a second run over unchanged code reuses what the first concluded — that is wha
   blessing it would launder unverified ones.
 - **Nothing applies a fix.** `Remediation.diff` is display-only and there is no
   write endpoint. That is the seam a future "fix now" would attach to.
+- **Stopping costs coverage, never results.** 중단 sets a flag the graph reads
+  between frames *and* every node reads before it calls a model, so a cancelled
+  run issues no new requests and ends once the ones in flight return — one
+  request, not the whole wave of `wave_width × lenses`. It cannot abort a
+  request already on the wire: a blocking `invoke` is not cancellable from
+  another thread, so the honest promise is seconds, not instant, and the UI says
+  중단하는 중 rather than claiming past tense. Everything already reduced is
+  saved, and a claim whose verifier was never reached survives as an unverified
+  candidate rather than being read as refuted — the run is `cancelled`, never
+  `done`, because `done` says the tree was read.
