@@ -17,6 +17,21 @@ from agent import promptstore
 from agent.promptstore import DEFAULTS, NAMES, UnknownPrompt
 
 
+def test_triage_offers_every_lens_that_exists() -> None:
+    """A lens the screen never names is a lens that almost never runs.
+
+    `crypto` was declared, given a scope and wired into the graph, and left out
+    of the triage prompt -- so `triage` filtered it out of every list the model
+    produced, and it ran only when the screen returned nothing or failed. The
+    class of bug, not the instance: this fails for the next lens too.
+    """
+    from agent.prompts import TRIAGE_SYSTEM
+    from agent.schema import LENSES
+
+    missing = [lens for lens in LENSES if f"- {lens}:" not in TRIAGE_SYSTEM]
+    assert not missing, f"triage never offers: {missing}"
+
+
 def test_nothing_saved_means_the_shipped_prompts(tmp_path: Path) -> None:
     path = tmp_path / "prompts.json"
 
@@ -114,6 +129,7 @@ def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyP
     from agent.runs import new_run
     from conftest import read_tree
     from agent.index import ChunkStore, build_index
+
     path = tmp_path / "prompts.json"
     monkeypatch.setenv(ENV_PROMPTS_FILE, str(path))
     promptstore.save(path, "lens:memory", "Report only command injection.")

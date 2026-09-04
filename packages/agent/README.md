@@ -37,12 +37,12 @@ validation" — and that note is injected into every caller's context. Taint
 crosses chunk boundaries without the whole tree ever entering one prompt. This
 is what the cross-chunk metadata is for.
 
-**Four narrow analysts, not one broad one.** A single prompt asked to hold
-memory safety, injection, access control and resource lifetime in mind at once
-skims all four. Each specialist gets one family of defect, is told to leave the
-others alone, and runs at the same time as its peers — so recall goes up and the
-wall clock does not. A cheap screening call in front of them decides which of
-the four a unit has earned; it is biased to say yes, because a false positive
+**Five narrow analysts, not one broad one.** A single prompt asked to hold
+memory safety, injection, access control, cryptographic use and resource
+lifetime in mind at once skims all five. Each specialist gets one family of
+defect, is told to leave the others alone, and runs at the same time as its
+peers — so recall goes up and the wall clock does not. A cheap screening call in
+front of them decides which of the five a unit has earned; it is biased to say yes, because a false positive
 there costs one analysis and a false negative loses a vulnerability. Chunks that
 share a call depth cannot need each other's notes, so a *wave* of them goes at
 once. `AGENT_WAVE_WIDTH`, `AGENT_MAX_CONCURRENCY`, `AGENT_LENSES` and
@@ -62,7 +62,7 @@ clock, because a batching endpoint answers eight requests in not much longer
 than one. And the default spends what that bought on 2.3× as many calls rather
 than on finishing sooner — which is how it turned up an unbounded `memcpy` the
 single generalist prompt walked past in every run. Triage is what keeps the bill
-down: it sent an average of 1.6 specialists per chunk, not four.
+down: it sent an average of 1.6 specialists per chunk, not five.
 
 **The model quotes source; the server locates it.** Models get line numbers
 wrong, so a finding carries `anchor_text` — the exact offending text — and
@@ -205,7 +205,7 @@ trade — no interconnect cost, and it can be the faster one.
 This used to be less of a constraint than it is now. The loop issued one request
 at a time — callees before callers, so notes propagate — which kept batch size at
 1 and made the missing NVLink barely matter. It no longer does: a wave of chunks
-times four specialists puts up to `AGENT_MAX_CONCURRENCY` requests in flight at
+times five specialists puts up to `AGENT_MAX_CONCURRENCY` requests in flight at
 once, which is what continuous batching is for and what makes the endpoint's
 throughput rather than its latency the number that matters. Two independent
 single-GPU servers behind one address now buy something real.
@@ -369,7 +369,7 @@ AGENT_RUN_ID=<run> agent-mcp                # stdio
 | `AGENT_MAX_TOOL_CALLS` | `4` | Tool calls allowed per finding |
 | `AGENT_WAVE_WIDTH` | `4` | Chunks inspected at once, at one call depth |
 | `AGENT_MAX_CONCURRENCY` | `16` | Ceiling on requests actually in flight |
-| `AGENT_LENSES` | *(all four)* | Comma-separated: `memory,injection,access,logic` |
+| `AGENT_LENSES` | *(all five)* | Comma-separated: `memory,injection,access,crypto,logic` |
 | `AGENT_TRIAGE` | `1` | Screen each chunk before the specialists; `0` runs them all |
 
 ## Layout
@@ -386,7 +386,7 @@ src/agent/
   schema_ts.py     generates web/lib/agent-schema.ts
   locate.py        anchor_text -> real span, or nothing
   context.py       context packs, assembled from the index
-  prompts.py       triage, the four specialists, and the refute prompt
+  prompts.py       triage, the five specialists, and the refute prompt
   promptstore.py   prompts tuned against a trace, read at run time
   llm.py           the one place a model is called
   graph/           LangGraph nodes, fan-out and wiring
