@@ -57,10 +57,10 @@ def _collect_ids_from_flatten(graph: TemplateFlattenedGraph) -> List[int]:
     return ids
 
 
-def _build_template_artifacts(root: CPGRoot) -> Dict[str, Any]:
+def _build_template_artifacts(root: CPGRoot, *, replace_macro: bool = True) -> Dict[str, Any]:
     """Build template artifacts from CPG root."""
     extractor = TemplateExtractor()
-    converter = TemplateConverter()
+    converter = TemplateConverter(replace_macro=replace_macro)
     post_processor = PostProcessor()
     planation_tool = PlanationTool(
         [
@@ -152,11 +152,15 @@ def generate_cpg_from_file(
     )
 
 
-def generate_template(cpg: CPGRoot) -> List[TemplateNodes]:
-    """Generate template from CPG."""
+def generate_template(cpg: CPGRoot, *, replace_macro: bool = True) -> List[TemplateNodes]:
+    """Generate template from CPG.
+
+    ``replace_macro`` is what the CLI's ``--no-replace-macro`` turns off; see
+    :func:`ssat.template.converter._macro_expansion` for what it folds.
+    """
     export_data = cpg.get("export", {})
     validate_cpg_root([export_data])
-    artifacts = _build_template_artifacts(cpg)
+    artifacts = _build_template_artifacts(cpg, replace_macro=replace_macro)
     result: List[TemplateNodes] = artifacts["templateResult"]
     return result
 
@@ -218,9 +222,11 @@ def analyze_template(
     return results
 
 
-def analyze_cpg(cpg: CPGRoot, *, source: str = "", skip_main: bool = True) -> List[FunctionGraphs]:
+def analyze_cpg(
+    cpg: CPGRoot, *, source: str = "", skip_main: bool = True, replace_macro: bool = True
+) -> List[FunctionGraphs]:
     """Run the whole chain: CPG -> template -> per-function AST + DFG."""
-    return analyze_template(generate_template(cpg), source=source, skip_main=skip_main)
+    return analyze_template(generate_template(cpg, replace_macro=replace_macro), source=source, skip_main=skip_main)
 
 
 def generate_ast(template: List[TemplateNodes]) -> List[IASTResult]:

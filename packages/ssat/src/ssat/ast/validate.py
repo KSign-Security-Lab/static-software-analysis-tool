@@ -15,10 +15,14 @@ class IASTFeatureModel(BaseModel):
     in_loop: int
     is_loop: int
     ctx_guard_strength: int
-    ctx_upper_bound_norm: int
+    # Fractions, not counts: the extractor divides. Declared `int` until a bound
+    # actually resolved, which never happened while every macro comparison read
+    # as unbounded -- 0.0 coerces to an int and 1/256 does not, so the first
+    # resolvable bound failed validation here instead of being reported.
+    ctx_upper_bound_norm: float
     is_buffer_decl: int
     buffer_size_state: int
-    buffer_size_norm: int
+    buffer_size_norm: float
     call_sem_cat_id: int
     call_flag_danger_unbounded: int
     call_flag_len_linked_to_dst: int

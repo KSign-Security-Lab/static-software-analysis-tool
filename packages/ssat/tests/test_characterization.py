@@ -128,3 +128,32 @@ def test_call_return_value_edges_are_emitted():
         if str(edge[2].get("debug", {}).get("var_key", "")).startswith("$ret@")
     ]
     assert ret_edges, "no call return-value edges produced"
+
+
+@pytest.mark.parametrize("fixture", all_fixtures(), ids=_fixture_id)
+def test_no_external_method_stub_debris(fixture):
+    """A template holds one TranslationUnit and nothing else.
+
+    Joern stubs every function it never sees a body for -- library calls, the
+    ``<operator>.*`` family, and macros -- as a METHOD carrying only ``p1..pn``
+    parameters typed ``ANY`` and an empty block. Those used to reach the output:
+    the converter's passthrough dropped the METHOD but promoted its children, so
+    a 15-line file produced 52 roots, all but one of them debris. The stubs are
+    discarded at conversion now (``_is_external_stub``); this pins that they stay
+    gone, both beside the TranslationUnit and inside it.
+    """
+    template = build_template(fixture)
+
+    assert [n.get("nodeType") for n in template] == ["TranslationUnit"], (
+        f"{fixture.name} produced roots besides the TranslationUnit"
+    )
+
+    def stub_params(node, depth=0):
+        found = []
+        if node.get("nodeType") == "ParameterDeclaration" and node.get("type") == "ANY":
+            found.append(node.get("name"))
+        for child in node.get("children") or []:
+            found.extend(stub_params(child, depth + 1))
+        return found
+
+    assert not [p for n in template for p in stub_params(n)], f"{fixture.name} still carries ANY-typed stub parameters"

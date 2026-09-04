@@ -11,10 +11,12 @@ class IASTFeature(TypedDict):
     in_loop: int
     is_loop: int
     ctx_guard_strength: int
-    ctx_upper_bound_norm: int
+    #: Fraction. See the note in :mod:`ssat.ast.validate`.
+    ctx_upper_bound_norm: float
     is_buffer_decl: int
     buffer_size_state: int
-    buffer_size_norm: int
+    #: Fraction, as above.
+    buffer_size_norm: float
     call_sem_cat_id: int
     call_flag_danger_unbounded: int
     call_flag_len_linked_to_dst: int

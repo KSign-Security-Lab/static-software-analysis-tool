@@ -1532,6 +1532,12 @@ class ASTExtractor:
         """
         매크로 상수(#define NAME …)가 호출처럼 모델링된 특이 케이스를 식별.
         특징: Call/UDC 노드의 ParameterList/ArgumentList 아래에 CompoundStatement가 바로 자식으로 존재.
+
+        A fresh template no longer contains this shape -- the converter folds it
+        into its expansion. Kept for the ones that do: `artifacts.py`'s
+        `process_template_file` reads `*_template.json` written by earlier runs,
+        and skipping the pseudo-call is what those need. Same for the sibling
+        check in `dfg/extractor.py`.
         """
         if not isinstance(node, dict):
             return False
@@ -1614,68 +1620,13 @@ class ASTExtractor:
         # callers annotated `-> str`.
         return default
 
-    def _is_macro_const_call(self, node: Any) -> bool:
-        """UserDefinedCall + ParameterList + CompoundStatement + Literal… pattern -> macro constant."""
-        if not isinstance(node, dict) or (node.get("nodeType") != "UserDefinedCall"):
-            return False
-        kids = node.get("children") or []
-        if not kids:
-            return False
-        plist = kids[0] if isinstance(kids[0], dict) and kids[0].get("nodeType") == "ParameterList" else None
-        if not plist:
-            return False
-        # find CompoundStatement with only literals (or nested trivial nodes)
-        stack = [plist]
-        while stack:
-            n = stack.pop()
-            if not isinstance(n, dict):
-                continue
-            if n.get("nodeType") == "CompoundStatement":
-                # consider macro-constant if it has a Literal descendant
-                for ch in n.get("children") or []:
-                    if isinstance(ch, dict) and ch.get("nodeType") in {
-                        "Literal",
-                        "StringLiteral",
-                        "IntegerLiteral",
-                        "CharacterLiteral",
-                    }:
-                        return True
-            for ch in n.get("children") or []:
-                if isinstance(ch, dict):
-                    stack.append(ch)
-        return False
-
-    def _macro_literal(self, node: Any) -> Any:
-        """Return the first Literal node under the macro call node; else None."""
-        if not isinstance(node, dict):
-            return None
-        # accept UserDefinedCall and its ParameterList subtree
-        root = node
-        if node.get("nodeType") == "UserDefinedCall":
-            kids = node.get("children") or []
-            root = kids[0] if kids and isinstance(kids[0], dict) else node
-        stack = [root]
-        while stack:
-            n = stack.pop()
-            if not isinstance(n, dict):
-                continue
-            if n.get("nodeType") in {"Literal", "StringLiteral", "IntegerLiteral", "CharacterLiteral"}:
-                return n
-            for ch in n.get("children") or []:
-                if isinstance(ch, dict):
-                    stack.append(ch)
-        return None
-
-    def _resolve_macro_like_expr(self, node: Any) -> Any:
-        """If node is a macro-constant call, return its literal node; otherwise original node."""
-        try:
-            if isinstance(node, dict) and node.get("nodeType") == "UserDefinedCall" and self._is_macro_const_call(node):
-                lit = self._macro_literal(node)
-                if isinstance(lit, dict):
-                    return lit
-        except Exception:
-            pass
-        return node
+    # `_is_macro_const_call`, `_macro_literal` and `_resolve_macro_like_expr`
+    # lived here, unreferenced: a resolver that would have read a macro's value
+    # out of the pseudo-call, and the two predicates it needed. The template now
+    # folds the pseudo-call into its expansion before any of this is reached
+    # (see `ssat.template.converter._macro_expansion`), so the value arrives as
+    # an ordinary Literal and there is nothing left to resolve. Deleted rather
+    # than kept: three ways to recognise the same shape is how they drifted.
 
     # -------------------------------------------------
     # DFGExtractor에도 있는 Helper 함수

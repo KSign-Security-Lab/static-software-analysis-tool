@@ -44,6 +44,11 @@ COMMANDS: dict[str, tuple[str, str, str]] = {
     ),
 }
 
+#: Stages that build a Template, and so are the ones `--replace-macro` means
+#: anything to. Not `cpg`, which is Joern's own work and where the flag used to
+#: sit doing nothing, and not `f2a`, which reads the CPG and never a Template.
+TEMPLATE_STAGES: frozenset[str] = frozenset({"template", "ast", "template-functions", "dfg", "full"})
+
 
 @dataclass
 class CliOptions:
@@ -120,16 +125,24 @@ class CliParser:
                     "-f", "--format", default="graphson", help="Export format (dot, graphson, graphml, ...)"
                 )
                 subparser.add_argument(
-                    "--replace-macro", action="store_true", default=True, help="Replace macros in source files"
-                )
-                subparser.add_argument(
-                    "--no-replace-macro", dest="replace_macro", action="store_false", help="Skip macro replacement"
-                )
-                subparser.add_argument(
                     "--copy-source", action="store_true", help="Copy original source files alongside CPG output"
                 )
             else:
                 subparser.add_argument("--workers", default="1", help="Parallel workers (CPG generation only)")
+
+            if name in TEMPLATE_STAGES:
+                subparser.add_argument(
+                    "--replace-macro",
+                    action="store_true",
+                    default=True,
+                    help="Fold a #define use into the expansion Joern inlined under it",
+                )
+                subparser.add_argument(
+                    "--no-replace-macro",
+                    dest="replace_macro",
+                    action="store_false",
+                    help="Leave macro uses as the pseudo-calls the CPG models them as",
+                )
 
     def parse(self, argv: Optional[List[str]] = None) -> CliOptions:
         """Parse command line arguments."""

@@ -1,6 +1,7 @@
 """Main entry point for SSAT CLI."""
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -128,24 +129,27 @@ def process_single_file(
 
         result: Any = None
 
+        # `--no-replace-macro` was parsed and dropped on the floor until now.
+        macro = options.replace_macro
+
         if options.mode == "cpg":
             result = cpg
         elif options.mode == "template":
-            result = generate_template(cpg)
+            result = generate_template(cpg, replace_macro=macro)
         elif options.mode == "ast":
-            result = generate_ast(generate_template(cpg))
+            result = generate_ast(generate_template(cpg, replace_macro=macro))
         elif options.mode == "dfg":
-            result = generate_dfg(generate_template(cpg))
+            result = generate_dfg(generate_template(cpg, replace_macro=macro))
         elif options.mode == "full":
             # One pass: AST and DFG for each function, in the schema the GNN reads.
             result = [
                 training_record(fn, include_template=False, include_label=True)
-                for fn in analyze_cpg(cpg, source=str(file_path))
+                for fn in analyze_cpg(cpg, source=str(file_path), replace_macro=macro)
             ]
         elif options.mode == "template-functions":
             from ssat.utils import get_functions_from_template
 
-            template = generate_template(cpg)
+            template = generate_template(cpg, replace_macro=macro)
             result = get_functions_from_template(template)
         elif options.mode == "f2a":
             # F2-A consumes a CPG directly (see ssat.f2a).
@@ -213,6 +217,12 @@ def main() -> None:
     options = parser.parse()
 
     logger = SimpleLogger(options.debug)
+
+    # Joern's banners and per-pass chatter are captured, not discarded (see
+    # ssat.cpg.embedded); they are replayed through the logging module. Without
+    # a handler that goes nowhere, so --debug is what makes them reachable.
+    if options.debug:
+        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(name)s: %(message)s")
 
     logger.info("Static Software Analysis Tool (SSAT) v2.4.3")
     logger.info(f"Mode: {options.mode}")

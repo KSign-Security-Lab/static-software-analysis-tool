@@ -923,6 +923,11 @@ class DFGExtractor:
                     └─ ParameterList
                         └─ CompoundStatement
                             └─ Literal "127.0.0.1"
+
+            A fresh template no longer has this shape: the converter folds the
+            pseudo-call into its expansion, so the literal above arrives in its
+            place and is collected normally. Kept for templates written to disk
+            before that -- see `ast/extractor.py::_is_macro_constant_call`.
             """
             if not isinstance(n, dict) or n.get("nodeType") != "UserDefinedCall":
                 return False

@@ -57,6 +57,76 @@ from .type_wrapper import binary_unary_type_wrapper
 logger = logging.getLogger(__name__)
 
 
+def _macro_expansion(children: List["TemplateNodes"]) -> Optional["TemplateNodes"]:
+    """The expansion Joern inlined under a macro use, or None for a real call.
+
+    Joern runs no preprocessor. It models ``#define X 512`` as an external METHOD
+    and every *use* of X as a CALL, hanging the expansion under the use site as
+    an ordinary AST subtree -- so a macro reaches us looking like a call whose
+    argument list contains a block::
+
+        UserDefinedCall X
+        └─ ParameterList
+           └─ CompoundStatement        <- the expansion
+              └─ Literal 512
+
+    A function-like macro is the same shape with the actual arguments beside the
+    block, already substituted *into* it by Joern::
+
+        UserDefinedCall COPY(dst, src)
+        └─ ParameterList
+           ├─ PointerDereference dst   <- also inside the block
+           ├─ PointerDereference src
+           └─ CompoundStatement
+              └─ StandardLibCall strcpy(dst, src)
+
+    The expansion is therefore the whole meaning of the node, and the arguments
+    beside it are either copies of what it already holds or -- for a macro that
+    drops a parameter -- an expression C never evaluates. Returning it lets a
+    macro bound read as the number it is, and a macro-wrapped ``strcpy`` reach
+    the sink tables under its real name.
+
+    Structure decides this, never ``code == "<empty>"``: that string also marks
+    an empty function body in :meth:`TemplateConverter._handle_method`, and a
+    statement cannot appear in a real argument list, so the block is the tell.
+    """
+    blocks = [
+        child
+        for child in children
+        if isinstance(child, dict) and child.get("nodeType") == TemplateNodeTypes.CompoundStatement
+    ]
+    if len(blocks) != 1:
+        return None
+    inner = [node for node in (blocks[0].get("children") or []) if isinstance(node, dict)]
+    if len(inner) != 1:
+        return None
+    return inner[0]
+
+
+def _is_external_stub(is_external: Any, block: Optional[TreeNode]) -> bool:
+    """A METHOD Joern invented for a body it never saw.
+
+    Every call without a definition in the translation unit gets one: library
+    functions, the ``<operator>.*`` family Joern synthesises for the language's
+    own operators, and macros, which it models as methods because it runs no
+    preprocessor. A stub holds nothing but ``p1..pn`` parameters typed ``ANY``
+    and an empty block, and the fallback in :meth:`TemplateConverter._handle_method`
+    used to hand both to :func:`_passthrough_node` -- which drops the METHOD but
+    promotes its children, landing them beside the TranslationUnit for library
+    and operator stubs (Joern hangs those off a detached NAMESPACE_BLOCK) and
+    *inside* it for a macro (hung off the file). Nothing is lost by deleting
+    them: a call's real arguments live on the CALL, and a macro's meaning is the
+    expansion inlined at its uses (see :func:`_macro_expansion`).
+
+    Testing the body, not just ``IS_EXTERNAL``, bounds the deletion to subtrees
+    that provably hold nothing else -- a stub that ever arrives with one is
+    still converted.
+    """
+    if not is_external:
+        return False
+    return block is None or not block.get("children")
+
+
 def _passthrough_node(node: TreeNode, children: List[TemplateNodes]) -> TemplateNodes:
     """Fallback conversion: keep the raw CPG node, convert its children.
 
@@ -131,9 +201,15 @@ CallReturnTypes = Union[
 class TemplateConverter:
     """Converts CPG trees to template nodes."""
 
-    def __init__(self) -> None:
-        """Initialize converter."""
+    def __init__(self, replace_macro: bool = True) -> None:
+        """Initialize converter.
+
+        ``replace_macro`` folds a macro use into the expansion Joern inlined
+        beneath it. See :func:`_macro_expansion`. Off leaves the pseudo-call in
+        place, which is the shape templates written before this existed have.
+        """
         self.call_collection: List[str] = []
+        self.replace_macro = replace_macro
 
     def convert_tree(self, nodes: List[TreeNode]) -> List[TemplateNodes]:
         """Convert an array of root nodes into TemplateNodes[], skipping undefined conversions."""
@@ -246,10 +322,20 @@ class TemplateConverter:
         if node_name.startswith("<operator>."):
             return self._handle_call_operators(node)
 
+        children = self._converted_children(node.get("children", []))
+
+        # A macro use is not a call, whatever the CPG labels it. Folded before
+        # the wrapper below is built, so the expansion keeps its own id and no
+        # synthetic ParameterList is minted for a node that is not one.
+        if self.replace_macro:
+            expansion = _macro_expansion(children)
+            if expansion is not None:
+                return cast(CallReturnTypes, expansion)
+
         param_list_wrapper: IParameterList = {
             "nodeType": TemplateNodeTypes.ParameterList,
             "id": random_int_with_length(len(str(node.get("id", ""))) + 3) if node.get("id") else -999,
-            "children": self._converted_children(node.get("children", [])),
+            "children": children,
         }
 
         is_standard_lib = node_name in STANDARD_LIB_CALLS
@@ -728,6 +814,9 @@ class TemplateConverter:
                 "returnType": signature_str.split("(")[0] if "(" in signature_str else signature_str,
                 "children": [param_list] + non_func_param_children,
             }
+
+        if _is_external_stub(is_external_val, first_block):
+            return None
 
         # Fallback
         return _passthrough_node(node, self._converted_children(children))
