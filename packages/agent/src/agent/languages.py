@@ -32,14 +32,52 @@ class LanguageSpec:
     import_nodes: frozenset[str]
     #: Node types that define a type at file scope.
     type_definition_nodes: frozenset[str] = frozenset()
+    #: Keywords that make a definition invisible outside its own file.
+    #:
+    #: For `reach`: a unit nothing in the tree calls is only *unreachable* if
+    #: nothing outside the tree could call it either. In C that is `static`; in
+    #: Java and C# it is `private`. Empty where the grammar has no such keyword,
+    #: which is not the same as "everything is visible" -- see `file_local_prefix`.
+    file_local_keywords: frozenset[str] = frozenset()
+    #: A leading string on the *symbol* that means the same thing by convention.
+    #:
+    #: Python has no private keyword and a leading underscore is what the
+    #: language actually uses; Go decides export by the case of the first letter,
+    #: which `file_local_lowercase` covers instead. Empty means neither applies.
+    file_local_prefix: str = ""
+    #: Whether a lower-case initial means unexported. Go, and only Go.
+    file_local_lowercase: bool = False
 
     def is_definition(self, node_type: str) -> bool:
         return node_type in self.definition_nodes
+
+    def is_file_local(self, symbol: str, declaration: str) -> bool:
+        """Whether this definition can be called from outside its own file.
+
+        Given the symbol and the first line or so of its declaration, because
+        that is what the index keeps: a real visibility analysis would need a
+        second parse, and every rule below is a keyword or a naming convention
+        that is decided on that line. Conservative on purpose -- saying "not
+        local" costs a finding the weaker label `unreferenced`, and saying
+        "local" wrongly would hide one.
+        """
+        if self.file_local_keywords:
+            words = set(declaration.replace("(", " ").split())
+            if self.file_local_keywords & words:
+                return True
+        if self.file_local_prefix and symbol.startswith(self.file_local_prefix):
+            # Dunder methods are called by the interpreter, not by name.
+            if not symbol.startswith("__"):
+                return True
+        if self.file_local_lowercase and symbol[:1].islower():
+            return True
+        return False
 
 
 _SPECS: tuple[LanguageSpec, ...] = (
     LanguageSpec(
         name="c",
+        file_local_keywords=frozenset({"static"}),
         definition_nodes=frozenset({"function_definition"}),
         call_nodes=frozenset({"call_expression"}),
         type_nodes=frozenset({"type_identifier"}),
@@ -48,6 +86,7 @@ _SPECS: tuple[LanguageSpec, ...] = (
     ),
     LanguageSpec(
         name="cpp",
+        file_local_keywords=frozenset({"static"}),
         definition_nodes=frozenset({"function_definition"}),
         call_nodes=frozenset({"call_expression"}),
         type_nodes=frozenset({"type_identifier", "qualified_identifier"}),
@@ -56,6 +95,7 @@ _SPECS: tuple[LanguageSpec, ...] = (
     ),
     LanguageSpec(
         name="java",
+        file_local_keywords=frozenset({"private"}),
         definition_nodes=frozenset({"method_declaration", "constructor_declaration"}),
         call_nodes=frozenset({"method_invocation", "object_creation_expression"}),
         type_nodes=frozenset({"type_identifier"}),
@@ -64,6 +104,7 @@ _SPECS: tuple[LanguageSpec, ...] = (
     ),
     LanguageSpec(
         name="python",
+        file_local_prefix="_",
         definition_nodes=frozenset({"function_definition"}),
         call_nodes=frozenset({"call"}),
         type_nodes=frozenset(),
@@ -80,6 +121,7 @@ _SPECS: tuple[LanguageSpec, ...] = (
     ),
     LanguageSpec(
         name="typescript",
+        file_local_keywords=frozenset({"private"}),
         definition_nodes=frozenset({"function_declaration", "method_definition", "generator_function_declaration"}),
         call_nodes=frozenset({"call_expression", "new_expression"}),
         type_nodes=frozenset({"type_identifier"}),
@@ -88,6 +130,7 @@ _SPECS: tuple[LanguageSpec, ...] = (
     ),
     LanguageSpec(
         name="go",
+        file_local_lowercase=True,
         definition_nodes=frozenset({"function_declaration", "method_declaration"}),
         call_nodes=frozenset({"call_expression"}),
         type_nodes=frozenset({"type_identifier"}),
@@ -104,6 +147,7 @@ _SPECS: tuple[LanguageSpec, ...] = (
     ),
     LanguageSpec(
         name="csharp",
+        file_local_keywords=frozenset({"private"}),
         definition_nodes=frozenset({"method_declaration", "constructor_declaration"}),
         call_nodes=frozenset({"invocation_expression", "object_creation_expression"}),
         type_nodes=frozenset({"identifier"}),

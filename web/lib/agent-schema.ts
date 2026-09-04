@@ -27,6 +27,18 @@ export interface Finding {
   /** Survived the adversarial refute pass. */
   verified: boolean;
   lens?: "memory" | "injection" | "access" | "crypto" | "logic" | null;
+  reach?: Reach | null;
+}
+
+export interface Reach {
+  /** live: reachable from an entry point. unreferenced: nothing here calls it, but something outside could. unreachable: nothing calls it and nothing outside its file can. excluded: test, example or generated code. unknown: the index could not decide. */
+  state: "live" | "unreferenced" | "unreachable" | "excluded" | "unknown";
+  /** Units in this tree that call it. */
+  callers: number;
+  /** Shortest distance from an entry point; null if not reached. */
+  hops?: number | null;
+  /** 한국어로 쓴 근거. 라벨을 믿지 않고 확인할 수 있도록. */
+  why?: string[];
 }
 
 export interface Remediation {

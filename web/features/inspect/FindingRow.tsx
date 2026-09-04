@@ -1,9 +1,10 @@
 "use client";
 
 import { Checkbox } from "@/components/ui/checkbox";
+import { LivenessBadge } from "@/components/panel/liveness";
 import { Verdict } from "@/components/panel/verdict";
 import { isFixable } from "@/lib/inspect/filter";
-import { SEVERITY_DOT, SEVERITY_LABEL, standingOf, type UiFinding } from "@/lib/model/finding";
+import { SEVERITY_DOT, SEVERITY_LABEL, livenessOf, standingOf, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,6 +35,7 @@ export default function FindingRow({
   onOpen?: () => void;
 }) {
   const standing = standingOf(finding);
+  const liveness = livenessOf(finding);
 
   return (
     <div
@@ -83,6 +85,9 @@ export default function FindingRow({
         </span>
       </button>
 
+      {liveness && (
+        <LivenessBadge liveness={liveness} why={finding.reach?.why ?? []} className="mt-px shrink-0" />
+      )}
       {standing && <Verdict standing={standing} confidence={finding.confidence} className="mt-px shrink-0" />}
     </div>
   );

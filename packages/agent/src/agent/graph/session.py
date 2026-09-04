@@ -19,6 +19,7 @@ from typing import Any, Callable, Mapping, Sequence
 from ..cache import ResultCache, recipe_of
 from ..config import AgentConfig
 from ..harness import record as record_config
+from ..index.reach import stamp as stamp_reach
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..mcp.client import ALL_TOOLS, ToolSession, open_session
@@ -459,9 +460,17 @@ class InspectionSession:
         """
         raw = self._values.get("stats") or {}
         stats = RunStats(**{k: v for k, v in raw.items() if k in RunStats.model_fields})
+        # Stamped here rather than stored on the finding. `results` is keyed by
+        # chunk id alone and reused across runs, so a cached payload carries an
+        # earlier run's tree with it -- and reachability is a fact about *this*
+        # tree. Read from this index every time it is reported, which costs a
+        # dictionary lookup and cannot go stale.
         report = Report(
             run_id=self.run_id,
-            findings=[Finding.model_validate(payload) for payload in self.store.findings()],
+            findings=[
+                Finding.model_validate(payload)
+                for payload in stamp_reach(self.store.findings(), self.store.reach())
+            ],
             stats=stats,
         )
         report.findings = report.sorted_findings()

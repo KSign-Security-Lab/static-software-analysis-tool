@@ -6,8 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Toggle } from "@/components/ui/toggle";
-import { byCwe, byFile, bySeverity, byStanding, isEmpty, type Facets } from "@/lib/inspect/filter";
-import { SEVERITY_DOT, SEVERITY_LABEL, STANDING_LABEL, type Severity, type Standing } from "@/lib/model/finding";
+import { byCwe, byFile, byLiveness, bySeverity, byStanding, isEmpty, type Facets } from "@/lib/inspect/filter";
+import {
+  LIVENESS_LABEL,
+  SEVERITY_DOT,
+  SEVERITY_LABEL,
+  STANDING_LABEL,
+  type Liveness,
+  type Severity,
+  type Standing,
+} from "@/lib/model/finding";
 import { SORTS, useSort } from "@/lib/run/selection";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +55,7 @@ export default function FilterBar({
 }) {
   const [order, setOrder] = useSort();
 
-  function toggleIn<T extends string>(key: "severity" | "cwe" | "file" | "standing", value: T) {
+  function toggleIn<T extends string>(key: "severity" | "cwe" | "file" | "standing" | "liveness", value: T) {
     const next = new Set(facets[key] as Set<string>);
     if (next.has(value)) next.delete(value);
     else next.add(value);
@@ -58,6 +66,7 @@ export default function FilterBar({
   const cwes = byCwe(findings).slice(0, 8);
   const files = byFile(findings).slice(0, 8);
   const standings = byStanding(findings);
+  const livenesses = byLiveness(findings);
   const filtered = !isEmpty(facets);
 
   return (
@@ -127,6 +136,21 @@ export default function FilterBar({
           </Facet>
         ))}
 
+        {/* After standing, because it answers a different question about the
+            same row: standing is whether the claim held, this is whether the
+            code runs. Neither refines the other. */}
+        {livenesses.map(({ value, count }) => (
+          <Facet
+            key={value}
+            on={facets.liveness.has(value)}
+            onClick={() => toggleIn<Liveness>("liveness", value)}
+            count={count}
+            label={`${LIVENESS_LABEL[value]}만 보기`}
+          >
+            {LIVENESS_LABEL[value]}
+          </Facet>
+        ))}
+
         {cwes.map(({ value, count }) => (
           <Facet
             key={value}
@@ -171,6 +195,7 @@ const EMPTY = {
   cwe: new Set<string>(),
   file: new Set<string>(),
   standing: new Set<Standing>(),
+  liveness: new Set<Liveness>(),
   query: "",
 };
 

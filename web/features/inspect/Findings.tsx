@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, ShieldCheck } from "lucide-react";
+import { ChevronRight, Search, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/workbench/PanelShell";
@@ -13,11 +13,12 @@ import FindingRow from "@/features/inspect/FindingRow";
 import { NO_FACETS, apply, sort, type Facets } from "@/lib/inspect/filter";
 import { setMany, toggle, useBucket } from "@/lib/inspect/bucket";
 import type { RunStats } from "@/lib/api/types";
-import { type UiFinding } from "@/lib/model/finding";
+import { isFolded, type UiFinding } from "@/lib/model/finding";
 import { useSort } from "@/lib/run/selection";
 import { useOpenFinding } from "@/lib/run/queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import { useSelection } from "@/lib/run/selection";
+import { cn } from "@/lib/utils";
 
 /**
  * The report, and one finding open beside it.
@@ -52,13 +53,31 @@ export default function Findings({
   const ticked = useBucket(runId);
   const [facets, setFacets] = useState<Facets>(NO_FACETS);
 
+  const [unfolded, setUnfolded] = useState(false);
+
   const shown = useMemo(() => sort(apply(findings, facets), order), [findings, facets, order]);
   const tickedSet = useMemo(() => new Set(ticked), [ticked]);
+
+  /**
+   * The rows a reader works through first, and the ones that can wait.
+   *
+   * Split, never filtered: a finding in code nothing calls is still a finding,
+   * dead code gets revived, and the index cannot see a call made through a
+   * function pointer. So the folded half stays in the list, stays in the counts,
+   * and stays one click away -- what changes is only which half is in front of
+   * the reader.
+   *
+   * Not applied while a facet asks for those states directly. Somebody who has
+   * just clicked 도달 불가 should not have their whole result folded away.
+   */
+  const asked = facets.liveness.size > 0;
+  const front = useMemo(() => (asked ? shown : shown.filter((each) => !isFolded(each))), [shown, asked]);
+  const back = useMemo(() => (asked ? [] : shown.filter(isFolded)), [shown, asked]);
 
   if (findings.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        {scanning && <ScanStrip />}
+        {(scanning || stopped) && <ScanStrip />}
         <Coverage stats={stats} />
         <div className="mx-auto w-full max-w-2xl px-6 py-10">
           {/* "없습니다" would be a claim about the code. While a scan is running
@@ -104,7 +123,7 @@ export default function Findings({
         />
 
         <ul className="min-h-0 flex-1 divide-y divide-line overflow-auto">
-          {shown.map((finding) => (
+          {front.map((finding) => (
             <li key={finding.id}>
               <FindingRow
                 finding={finding}
@@ -115,6 +134,35 @@ export default function Findings({
               />
             </li>
           ))}
+
+          {back.length > 0 && (
+            <li>
+              <button
+                type="button"
+                onClick={() => setUnfolded((was) => !was)}
+                className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-2xs text-ink-faint hover:bg-surface-2"
+                aria-expanded={unfolded}
+              >
+                <ChevronRight className={cn("size-3 shrink-0 transition-transform", unfolded && "rotate-90")} />
+                트리에서 도달 불가 {back.length}건
+                <span className="text-ink-faint/70">· {unfolded ? "접기" : "펼치기"}</span>
+              </button>
+            </li>
+          )}
+
+          {unfolded &&
+            back.map((finding) => (
+              <li key={finding.id}>
+                <FindingRow
+                  finding={finding}
+                  selected={open?.id === finding.id}
+                  ticked={tickedSet.has(finding.id)}
+                  onTick={() => runId && toggle(runId, finding.id)}
+                  onOpen={() => select({ kind: "finding", id: finding.id })}
+                />
+              </li>
+            ))}
+
           {shown.length === 0 && (
             <li className="px-3 py-6 text-xs text-ink-faint">
               이 조건에 맞는 것이 없습니다. 위에서 조건을 지우면 다시 보입니다.

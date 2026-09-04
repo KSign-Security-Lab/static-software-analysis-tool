@@ -12,10 +12,12 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Iterable, Mapping, Sequence
 
+from ..config import AgentConfig
 from ..languages import spec_for_path
 from .chunk import Chunk, chunk_source
 from .links import Link, resolve_links
 from .order import call_levels, inspection_order
+from .reach import compute as compute_reach
 from .store import ChunkStore
 
 log = logging.getLogger(__name__)
@@ -124,6 +126,11 @@ def _persist(store: ChunkStore, chunks: Sequence[Chunk], indexed: int, skipped: 
     # Written here rather than worked out per run: it is a property of the tree,
     # and it is what tells the inspection which chunks may go at once.
     store.set_levels(call_levels(chunks, links))
+    # Here for the same reason levels are: it is a property of the tree, decided
+    # by exactly this data, and a derived fact somebody has to remember to
+    # refresh is a stale one. No model, no network -- the call graph is already
+    # resolved two lines up.
+    store.set_reach(compute_reach(chunks, links, AgentConfig().entry_points))
     _write_knowledge_graph(store)
     return IndexResult(files_indexed=indexed, files_skipped=skipped, chunks=len(chunks), links=len(links))
 

@@ -1,7 +1,9 @@
 import {
   SEVERITY_ORDER,
+  livenessOf,
   sortFindings,
   standingOf,
+  type Liveness,
   type Severity,
   type Standing,
   type UiFinding,
@@ -27,6 +29,12 @@ export interface Facets {
   cwe: Set<string>;
   file: Set<string>;
   standing: Set<Standing>;
+  /**
+   * Whether the code runs. A second axis beside `standing`, not a refinement of
+   * it: a finding can be 취약 확인 and 도달 불가 at the same time, and that pair
+   * is the one a reader most wants to be able to pick out.
+   */
+  liveness: Set<Liveness>;
   /** Matched against the title, the CWE and the path. Case-insensitive. */
   query: string;
 }
@@ -36,6 +44,7 @@ export const NO_FACETS: Facets = {
   cwe: new Set(),
   file: new Set(),
   standing: new Set(),
+  liveness: new Set(),
   query: "",
 };
 
@@ -45,6 +54,7 @@ export function isEmpty(facets: Facets): boolean {
     facets.cwe.size === 0 &&
     facets.file.size === 0 &&
     facets.standing.size === 0 &&
+    facets.liveness.size === 0 &&
     facets.query.trim() === ""
   );
 }
@@ -66,6 +76,10 @@ export function matches(finding: UiFinding, facets: Facets): boolean {
   if (facets.standing.size > 0) {
     const standing = standingOf(finding);
     if (standing === null || !facets.standing.has(standing)) return false;
+  }
+  if (facets.liveness.size > 0) {
+    const liveness = livenessOf(finding);
+    if (liveness === null || !facets.liveness.has(liveness)) return false;
   }
   return matchesQuery(finding, facets.query);
 }
@@ -156,6 +170,23 @@ export function byFile(findings: UiFinding[]): (Tally<string> & { worst: Severit
   return [...counts.entries()]
     .sort((a, b) => SEVERITY_ORDER[a[1].worst] - SEVERITY_ORDER[b[1].worst] || a[0].localeCompare(b[0]))
     .map(([value, { count, worst }]) => ({ value, count, worst }));
+}
+
+/**
+ * How many findings sit in code of each kind.
+ *
+ * Ordered by how much of a reader's attention each deserves rather than
+ * alphabetically -- the two at the end are the ones the list folds away by
+ * default, and a chip row that buried 실행 경로 between them would undo that.
+ */
+export function byLiveness(findings: UiFinding[]): Tally<Liveness>[] {
+  const counts = new Map<Liveness, number>();
+  for (const finding of findings) {
+    const liveness = livenessOf(finding);
+    if (liveness) counts.set(liveness, (counts.get(liveness) ?? 0) + 1);
+  }
+  const order: Liveness[] = ["live", "unreferenced", "unknown", "unreachable", "excluded"];
+  return order.filter((each) => counts.has(each)).map((value) => ({ value, count: counts.get(value) ?? 0 }));
 }
 
 export function byStanding(findings: UiFinding[]): Tally<Standing>[] {

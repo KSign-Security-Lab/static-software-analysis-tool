@@ -1,4 +1,4 @@
-import type { Finding as AgentFinding } from "@/lib/agent-schema";
+import type { Finding as AgentFinding, Reach as AgentReach } from "@/lib/agent-schema";
 import { buildDecisions, type Decision } from "@/lib/decision";
 import type { F2AResult } from "@/lib/types";
 
@@ -100,6 +100,19 @@ export interface UiFinding {
   confidence: number;
   /** Agent only: survived the refute pass. Null where the notion does not apply. */
   verified: boolean | null;
+  /**
+   * Whether the unit this was found in is reached, in the tree that was scanned.
+   *
+   * A second axis, orthogonal to `severity` and to `verified`: severity is what
+   * happens if it is exploited, standing is whether the claim held up, and this
+   * is whether the code runs at all. A reader told us a real defect in a
+   * never-called helper is not the same news as one in a request handler, and
+   * used to have to work that out by hand for every row.
+   *
+   * Null where nothing answered -- an F2-A finding, a finding in a file chunk,
+   * or a run indexed before this existed. Null is not a state; it is no state.
+   */
+  reach: AgentReach | null;
   /** The engine's own object, for the detail panel to render natively. */
   raw: Decision | AgentFinding;
 }
@@ -165,6 +178,9 @@ export function fromF2A(result: F2AResult | null | undefined, file: string): UiF
         mergedIds: [],
         confidence: d.confidence,
         verified: null,
+        // The structural engine works over a CPG rather than the agent's units,
+        // so it has nothing to answer this with.
+        reach: null,
         raw: d,
       };
     });
@@ -237,13 +253,14 @@ function eachAgent(findings: AgentFinding[] | null | undefined): UiFinding[] {
     mergedIds: [],
     confidence: f.confidence,
     verified: f.verified,
+    reach: f.reach ?? null,
     raw: f,
   }));
 }
 
 /** Same claim, same place: the identity two readings of one problem share. */
 function claimKey(finding: UiFinding): string {
-  return [finding.title, finding.cwe ?? "", finding.primary.file, finding.primary.startLine].join(" ");
+  return [finding.title, finding.cwe ?? "", finding.primary.file, finding.primary.startLine].join("\u0000");
 }
 
 /**
@@ -374,6 +391,41 @@ export const STANDING_LABEL: Record<Standing, string> = {
 
 /** Refuted claims never reach a report, so this only ever appears in the record. */
 export const REFUTED_LABEL = "취약 미검출";
+
+/**
+ * Whether the code a finding sits in runs.
+ *
+ * Deliberately not called `standing`: that word is taken, one line up, for what
+ * verification made of the claim. Two orthogonal axes sharing a name would make
+ * both unreadable -- a finding can be 취약 확인 and 도달 불가 at once, and that
+ * combination is exactly the one worth being able to say.
+ *
+ * Nothing here hides a row. `unreachable` groups and folds; it never filters, and
+ * it never touches severity. Dead code is revived, the index cannot see calls
+ * through function pointers, and a scan is usually one directory rather than a
+ * program -- so this is a label a reader can act on, not a verdict.
+ */
+export type Liveness = "live" | "unreferenced" | "unreachable" | "excluded" | "unknown";
+
+export function livenessOf(finding: { reach: AgentReach | null }): Liveness | null {
+  return (finding.reach?.state as Liveness | undefined) ?? null;
+}
+
+export const LIVENESS_LABEL: Record<Liveness, string> = {
+  live: "실행 경로",
+  unreferenced: "참조 없음",
+  unreachable: "도달 불가",
+  excluded: "시험·예제 코드",
+  unknown: "판단 불가",
+};
+
+/** The two the reader is normally not reading first. */
+export const FOLDED_LIVENESS: readonly Liveness[] = ["unreachable", "excluded"];
+
+export function isFolded(finding: { reach: AgentReach | null }): boolean {
+  const liveness = livenessOf(finding);
+  return liveness !== null && FOLDED_LIVENESS.includes(liveness);
+}
 
 export const SEVERITY_LABEL: Record<Severity, string> = {
   critical: "치명적",

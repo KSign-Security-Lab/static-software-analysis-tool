@@ -36,6 +36,7 @@ function finding(over: Partial<UiFinding> = {}): UiFinding {
     mergedIds: [],
     confidence: 0.9,
     verified: true,
+    reach: null,
     raw: {} as UiFinding["raw"],
     ...over,
   };

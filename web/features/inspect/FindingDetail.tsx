@@ -3,6 +3,7 @@
 import { MousePointerClick } from "lucide-react";
 
 import { CodeBlock } from "@/components/panel/code-block";
+import { LivenessBadge } from "@/components/panel/liveness";
 import { Verdict } from "@/components/panel/verdict";
 import { EmptyState } from "@/components/workbench/PanelShell";
 import Evidence from "@/features/inspect/Evidence";
@@ -12,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   SEVERITY_DOT,
   SEVERITY_LABEL,
+  livenessOf,
   standingOf,
   type UiFinding,
 } from "@/lib/model/finding";
@@ -40,6 +42,7 @@ export default function FindingDetail({ finding }: { finding: UiFinding | undefi
   }
 
   const standing = standingOf(finding);
+  const liveness = livenessOf(finding);
 
   return (
     <section className="min-h-0 overflow-auto bg-surface">
@@ -64,6 +67,7 @@ export default function FindingDetail({ finding }: { finding: UiFinding | undefi
               </Badge>
             )}
             {standing && <Verdict standing={standing} confidence={finding.confidence} />}
+            {liveness && <LivenessBadge liveness={liveness} why={finding.reach?.why ?? []} />}
           </div>
           <p className="font-mono text-2xs text-ink-faint">
             {finding.primary.file}:{finding.primary.startLine}

@@ -206,6 +206,28 @@ class Remediation(BaseModel):
     replacement: str | None = None
 
 
+class Reach(BaseModel):
+    """Whether the unit a finding sits in is reached, in this tree.
+
+    A second axis, and deliberately not folded into `severity`. Severity is what
+    happens if this is exploited; reach is whether the path exists in the code
+    as indexed. Merging them makes both unreadable, and it is the same argument
+    the README makes for not merging the run counts into one number.
+
+    Server-owned, like the id and the span: no model is asked, and no model is
+    shown it. See `index/reach.py` for why that is not a detail.
+    """
+
+    state: Literal["live", "unreferenced", "unreachable", "excluded", "unknown"] = Field(
+        description="live: reachable from an entry point. unreferenced: nothing here calls it, but "
+        "something outside could. unreachable: nothing calls it and nothing outside its file can. "
+        "excluded: test, example or generated code. unknown: the index could not decide."
+    )
+    callers: int = Field(description="Units in this tree that call it.")
+    hops: int | None = Field(default=None, description="Shortest distance from an entry point; null if not reached.")
+    why: list[str] = Field(default_factory=list, description="한국어로 쓴 근거. 라벨을 믿지 않고 확인할 수 있도록.")
+
+
 class Finding(BaseModel):
     """One verified vulnerability, ready to render as a lint marker."""
 
@@ -232,6 +254,12 @@ class Finding(BaseModel):
     #: Optional because a finding from a run recorded before this existed has no
     #: honest answer, and `null` says so where a default lens would lie.
     lens: Lens | None = None
+    #: Whether this unit is reached, in the tree this run indexed.
+    #:
+    #: Optional for the reason `lens` is: a run recorded before this existed has
+    #: no honest answer, and `null` says so where a default would lie. Also null
+    #: for a finding in a file chunk, where the question does not apply.
+    reach: Reach | None = None
 
     def sort_key(self) -> tuple[int, str, int, str]:
         """Most severe first, then position. Stable report order."""
@@ -310,6 +338,7 @@ EXPORTED_MODELS: tuple[type[BaseModel], ...] = (
     Span,
     Evidence,
     Remediation,
+    Reach,
     Finding,
     RunStats,
     Report,

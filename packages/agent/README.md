@@ -291,6 +291,68 @@ be found in the file, so it was discarded rather than pointed at a guessed
 line -- a small model will often produce prose there instead of code. A high
 count means the prompt is drifting; `-v` prints every rejected anchor.
 
+### Whether the code runs
+
+A reviewer looked at a finding and said: that is real as a pattern, and it is
+dead code. Both halves were true, and the report had no way to say the second
+one -- a finding in a never-called `static` helper and one in a request handler
+arrived looking identical, so the distinction got re-derived by hand once per
+finding.
+
+`index/reach.py` answers it from the call graph `links.py` already resolves. No
+model call, no new pass over the tree.
+
+| state | meaning |
+| --- | --- |
+| `live` | reachable from an entry point |
+| `unreferenced` | nothing here calls it, but something outside the tree could |
+| `unreachable` | nothing calls it, and nothing outside its own file can |
+| `excluded` | test, example or generated code |
+| `unknown` | the index could not decide |
+
+Three properties are load-bearing.
+
+**It never suppresses anything.** Reach is a label, not a filter. The web folds
+`unreachable` and `excluded` into a collapsed group with a count on it; every
+finding stays in the list, in the counts, and one click away, and no severity
+changes. Dead code gets revived, and a finding deleted for being unreachable is
+gone from a report nobody will re-read.
+
+**No model is shown it.** Not triage, not the specialists, not `verify`.
+`verify` defaults to refuting when uncertain, so telling it "this is dead code"
+would *delete* real findings rather than label them. Reach is a fact about the
+tree, so it sits with the id and the span on the server's side of the line
+`schema.py` draws, and two runs over one tree stay comparable.
+
+**Saying `unreachable` is the hard part.** Zero callers does not mean dead here:
+`links.py` deliberately leaves function pointers and macro-generated calls
+unresolved, `MAX_AMBIGUITY` drops over-loaded names, and an uploaded tree is
+usually one directory rather than a program. So a unit earns `unreachable` only
+if nothing in the tree calls it *and* the language says nothing outside its own
+file could -- and not even then if its name appears anywhere as a value, which
+is what a callback table looks like. That case is `unknown`.
+
+`agent index` prints it, because it is deterministic and therefore checkable
+without a model:
+
+```
+$ agent index packages/agent/tests/fixtures/reach
+reach: live 2  unknown 1  unreachable 1  unreferenced 1
+  unknown      store.c:43 store_payload_via_table  (이름이 값으로 쓰인 곳이 있음 ...)
+  unreachable  store.c:33 store_payload_dead  (파일 밖에서 부를 수 없는 선언 · ...)
+```
+
+`tests/fixtures/reach/` is four units holding the *same* unbounded `memcpy` and
+differing only in whether anything reaches them -- including the trap, a static
+function registered in a callback table, which must come back `unknown` and not
+`unreachable`. Kept separate from `fixtures/sample/`, which scores
+exploitability and whose counts are quoted above.
+
+By default a unit nothing in the tree calls but something outside could seeds
+the walk without being called live itself, so a library gets a sensible answer
+with no configuration. `AGENT_ENTRY_POINTS=handle_*` is for when the framework
+is what calls the handlers.
+
 ### From the browser
 
 ```bash
@@ -371,6 +433,7 @@ AGENT_RUN_ID=<run> agent-mcp                # stdio
 | `AGENT_MAX_CONCURRENCY` | `16` | Ceiling on requests actually in flight |
 | `AGENT_LENSES` | *(all five)* | Comma-separated: `memory,injection,access,crypto,logic` |
 | `AGENT_TRIAGE` | `1` | Screen each chunk before the specialists; `0` runs them all |
+| `AGENT_ENTRY_POINTS` | *(none)* | Symbol globs that are entry points whatever the call graph says, e.g. `handle_*` |
 
 ## Layout
 
@@ -381,6 +444,7 @@ src/agent/
     chunk.py       tree-sitter -> chunks
     links.py       symbol resolution -> edges
     order.py       topological order, call depth, waves
+    reach.py       whether a unit is reached, from the same call graph
     store.py       chunks, links, notes, findings, scoped to one run
   schema.py        the contract: model-facing and wire schemas
   schema_ts.py     generates web/lib/agent-schema.ts

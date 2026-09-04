@@ -63,6 +63,21 @@ def _env_lenses(name: str) -> tuple[Lens, ...]:
     return picked or LENSES
 
 
+def _env_globs(name: str) -> tuple[str, ...]:
+    """A comma-separated list of symbol patterns, or nothing.
+
+    Empty is the useful default, not a fallback: `reach` treats any unit nothing
+    in the tree calls but something outside could as a candidate entry point, so
+    a library gets a sensible answer with no configuration. This is for the case
+    where the operator knows better -- a service whose entry points are its
+    handlers and whose exported helpers are not.
+    """
+    raw = os.getenv(name)
+    if not raw:
+        return ()
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 #: Postgres, not a directory. A run used to be seven artifacts under
 #: ``artifacts/agent-runs/<id>/`` held together by a path convention; it is one
 #: row with everything cascading off it now. The default points at the
@@ -214,6 +229,12 @@ class AgentConfig:
     # The screening pass in front of the specialists. Off means every chunk gets
     # every lens, which is thorough, slow, and occasionally what you want.
     triage: bool = field(default_factory=lambda: os.getenv("AGENT_TRIAGE", "1") != "0")
+
+    # Symbol patterns (fnmatch) that are entry points whatever the call graph
+    # says -- `handle_*`, `main`, a framework's naming convention. Read once at
+    # index time, and only by `index/reach.py`; nothing about what gets analysed
+    # depends on it.
+    entry_points: tuple[str, ...] = field(default_factory=lambda: _env_globs("AGENT_ENTRY_POINTS"))
 
     # -- who decides what gets looked at next ---------------------------------
     #

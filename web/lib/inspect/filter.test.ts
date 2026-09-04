@@ -12,6 +12,7 @@ import {
   fixableCount,
   isEmpty,
   isFixable,
+  byLiveness,
   matches,
   sort,
   type Facets,
@@ -34,6 +35,7 @@ function finding(over: Partial<UiFinding> & { id: string }): UiFinding {
     mergedIds: [],
     confidence: 0.5,
     verified: null,
+    reach: null,
     raw: {} as UiFinding["raw"],
     ...over,
   };
@@ -203,5 +205,45 @@ describe("fixability", () => {
     expect(fixableCount(rows, ["a", "b"])).toBe(1);
     expect(fixableCount(rows, new Set(["a", "c"]))).toBe(2);
     expect(fixableCount(rows, [])).toBe(0);
+  });
+});
+
+describe("liveness", () => {
+  const reach = (state: string) => ({ state, callers: 0, hops: null, why: [] }) as UiFinding["reach"];
+
+  it("is a second axis, not a refinement of standing", () => {
+    // A finding can be 취약 확인 and 도달 불가 at once, and that pair is exactly
+    // the one worth being able to pick out.
+    const both = finding({ id: "1", verified: true, reach: reach("unreachable") });
+
+    expect(matches(both, facets({ standing: new Set(["confirmed" as const]) }))).toBe(true);
+    expect(matches(both, facets({ liveness: new Set(["unreachable" as const]) }))).toBe(true);
+    expect(
+      matches(both, facets({ standing: new Set(["confirmed" as const]), liveness: new Set(["live" as const]) })),
+    ).toBe(false);
+  });
+
+  it("excludes a finding nothing answered for, when asked about liveness", () => {
+    // Null is not a state, it is no state -- an F2-A finding, or a run indexed
+    // before reach existed.
+    expect(matches(finding({ id: "1", reach: null }), facets({ liveness: new Set(["live" as const]) }))).toBe(false);
+  });
+
+  it("has no opinion until somebody clicks one", () => {
+    expect(matches(finding({ id: "1", reach: null }), NO_FACETS)).toBe(true);
+  });
+
+  it("counts each kind over the whole report, worst-attention-first", () => {
+    const rows = [
+      finding({ id: "1", reach: reach("live") }),
+      finding({ id: "2", reach: reach("unreachable") }),
+      finding({ id: "3", reach: reach("unreachable") }),
+      finding({ id: "4", reach: null }),
+    ];
+
+    expect(byLiveness(rows)).toEqual([
+      { value: "live", count: 1 },
+      { value: "unreachable", count: 2 },
+    ]);
   });
 });

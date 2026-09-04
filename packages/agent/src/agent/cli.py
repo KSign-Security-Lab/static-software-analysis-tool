@@ -268,11 +268,33 @@ def cmd_index(args: argparse.Namespace) -> int:
     store = run.store()
     try:
         order = store.order()
+        reach = store.reach()
+        chunks = {c.chunk_id: c for c in store.chunks()}
     finally:
         store.close()
 
     print(f"run {run.run_id}: {json.dumps(result.as_dict())}")
     print(f"inspection order: {len(order)} chunks (callees before callers)")
+
+    # Printed because it is deterministic and therefore checkable without a
+    # model -- the same reason the order above is printed. `unreachable` and
+    # `unknown` are listed by name: they are the two the report folds away and
+    # the two whose rule is worth being able to disagree with on real code.
+    if reach:
+        tally: dict[str, int] = {}
+        for entry in reach.values():
+            state = str(entry.get("state", "unknown"))
+            tally[state] = tally.get(state, 0) + 1
+        summary = "  ".join(f"{state} {count}" for state, count in sorted(tally.items()))
+        print(f"reach: {summary}")
+        for chunk_id, entry in sorted(reach.items(), key=lambda kv: str(kv[1].get("state"))):
+            if entry.get("state") not in {"unreachable", "unknown"}:
+                continue
+            chunk = chunks.get(chunk_id)
+            if chunk is None:
+                continue
+            why = " · ".join(str(reason) for reason in entry.get("why") or ())
+            print(f"  {entry['state']:12} {chunk.file}:{chunk.start_line} {chunk.symbol}  ({why})")
     return 0
 
 

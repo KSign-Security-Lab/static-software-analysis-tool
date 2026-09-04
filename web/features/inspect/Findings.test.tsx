@@ -48,6 +48,7 @@ function finding(over: Partial<UiFinding> & { id: string }): UiFinding {
     mergedIds: [],
     confidence: 0.5,
     verified: true,
+    reach: null,
     raw: {} as UiFinding["raw"],
     ...over,
   };
@@ -157,5 +158,61 @@ describe("the bucket tray", () => {
     // code is not the last one just because it was appended last.
     await userEvent.click(screen.getByRole("checkbox", { name: /문제 prose/ }));
     expect(screen.getByText(/패치 없는 것/)).toBeInTheDocument();
+  });
+});
+
+describe("code that does not run", () => {
+  // The reader's objection, made into a list behaviour: a real defect in a
+  // never-called helper is not the same news as one in a request handler. It is
+  // folded, never hidden -- dead code is revived, and the index cannot see a
+  // call made through a function pointer.
+  const reach = (state: string, why: string[] = []) =>
+    ({ state, callers: 0, hops: null, why }) as UiFinding["reach"];
+
+  function mixed() {
+    return [
+      finding({ id: "1", title: "살아 있는 것" }),
+      finding({ id: "2", title: "도달 못 하는 것", reach: reach("unreachable", ["파일 밖에서 부를 수 없는 선언"]) }),
+      finding({ id: "3", title: "시험 코드", reach: reach("excluded") }),
+    ];
+  }
+
+  it("keeps the reachable ones in front and folds the rest away", async () => {
+    show(mixed());
+
+    expect(await screen.findByText("살아 있는 것")).toBeTruthy();
+    expect(screen.queryByText("도달 못 하는 것")).toBeNull();
+    expect(screen.queryByText("시험 코드")).toBeNull();
+  });
+
+  it("says how many it folded, rather than quietly dropping them", async () => {
+    show(mixed());
+    expect(await screen.findByText(/트리에서 도달 불가 2건/)).toBeTruthy();
+  });
+
+  it("shows them on one click", async () => {
+    show(mixed());
+    await userEvent.click(await screen.findByText(/트리에서 도달 불가 2건/));
+
+    expect(screen.getByText("도달 못 하는 것")).toBeTruthy();
+    expect(screen.getByText("시험 코드")).toBeTruthy();
+  });
+
+  it("does not fold away the very thing a reader just asked to see", async () => {
+    // Clicking 도달 불가 and getting an empty list with a "2건 folded" button
+    // would be the filter arguing with itself.
+    show(mixed());
+    await userEvent.click(await screen.findByText("도달 불가"));
+
+    expect(screen.getByText("도달 못 하는 것")).toBeTruthy();
+    expect(screen.queryByText(/트리에서 도달 불가 2건/)).toBeNull();
+  });
+
+  it("counts every finding in the facets, folded or not", async () => {
+    show(mixed());
+    // The chip row is built from the whole report, so the folded half is still
+    // counted -- a reader must not have to unfold to find out what is there.
+    expect(await screen.findByText("도달 불가")).toBeTruthy();
+    expect(screen.getByText("시험·예제 코드")).toBeTruthy();
   });
 });

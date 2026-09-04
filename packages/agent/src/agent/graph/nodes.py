@@ -48,6 +48,7 @@ from ..context import ContextPack, build_context
 from ..ids import finding_id, normalize_cwe
 from ..index.chunk import FILE_CHUNK_KIND, Chunk, line_windows
 from ..index.order import wave as pick_wave
+from ..index.reach import stamp as stamp_reach
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..locate import locate_anchor
@@ -1003,6 +1004,12 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         confirmed: list[dict[str, Any]] = []
         inspected = 0
+        # Read once for the wave, and used only for what is *shown*. What is
+        # stored, cached and handed to `replan` stays unstamped: `results` is
+        # keyed by chunk id alone and replayed into later runs over other trees,
+        # so a reach written into the payload would be one tree's answer served
+        # for another's. `Session.report` stamps the same way at the same cost.
+        reach = deps.store.reach()
         for chunk_id in state.get("wave", []):
             chunk = deps.store.chunk(chunk_id)
             if chunk is None:
@@ -1023,7 +1030,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     "chunk_id": chunk_id,
                     "file": chunk.file,
                     "symbol": chunk.symbol,
-                    "findings": found,
+                    "findings": stamp_reach(found, reach),
                     "stats": _tally(state, inspected),
                 },
             )

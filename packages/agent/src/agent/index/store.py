@@ -149,6 +149,10 @@ class ChunkStore:
         """Which chunks may be inspected together. See :func:`agent.index.order.call_levels`."""
         self.set_meta("levels", json.dumps(levels, sort_keys=True))
 
+    def set_reach(self, reach: dict[str, Any]) -> None:
+        """Whether each unit is reached. See :func:`agent.index.reach.compute`."""
+        self.set_meta("reach", json.dumps(reach, sort_keys=True))
+
     def set_meta(self, key: str, value: str) -> None:
         """Index metadata, on the run row.
 
@@ -266,6 +270,20 @@ class ChunkStore:
         if raw is None:
             return {}
         parsed: dict[str, int] = json.loads(raw)
+        return parsed
+
+    def reach(self) -> dict[str, Any]:
+        """Chunk id to reachability, empty for an index written before it existed.
+
+        Empty is a supported answer, not a broken one: every finding then
+        carries `reach: null`, which reads as "not asked" rather than as a
+        claim. Same shape as `levels` for the same reason -- it is a property of
+        the tree, written once at index time.
+        """
+        raw = self.get_meta("reach")
+        if raw is None:
+            return {}
+        parsed: dict[str, Any] = json.loads(raw)
         return parsed
 
     def chunk(self, chunk_id: str) -> Chunk | None:
