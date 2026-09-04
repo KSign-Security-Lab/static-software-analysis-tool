@@ -92,6 +92,13 @@ ssat f2a                 CPG           -> OCPP evidence candidates
 The input path is positional. Every subcommand also takes `-o/--output` and
 `--backend {jpype,docker}`; `--workers` parallelises CPG generation only.
 
+The five stages that build a Template also take `--no-replace-macro`. Joern runs
+no preprocessor: it models a `#define` as a function and each use of it as a
+call, inlining the expansion beneath the use site. By default that pseudo-call
+is folded into its expansion, so `if (len < MAX)` carries a real bound and a
+macro-wrapped `strcpy` is attributed to `strcpy`. The flag leaves the
+pseudo-call in place, which is the shape templates written before this produced.
+
 ## Web UI and API
 
 ```bash
