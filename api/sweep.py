@@ -1,21 +1,3 @@
-"""Starting the sweep from the surface, and surviving everything that would stop it.
-
-A sweep is two hundred instances at roughly half an hour each. Nobody watches
-that, so the only honest way to offer it from a web page is to make the run
-outlive the page: its own session, its own process group, its own log, and a
-pidfile that a later request -- in another browser, on another day, after the
-API has reloaded a dozen times -- can find it by.
-
-What this does *not* do is run the sweep in the API. A subprocess is the whole
-point: uvicorn's reloader kills its children on every code change, and a sweep
-that died because somebody saved a file would be worse than no button at all.
-
-What it runs is `agent bench sweep` -- the same command you would start in
-tmux. That already checks its preconditions, logs as it goes and resumes where
-it stopped, so there is nothing here worth reimplementing, and two
-implementations of "run the sweep" would drift.
-"""
-
 from __future__ import annotations
 
 import json
@@ -30,55 +12,26 @@ from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
-
-#: The repository root, from this file.
 ROOT = Path(__file__).resolve().parent.parent
-
-#: The sweep, run through this interpreter rather than a console script: the API
-#: is already inside the venv, and `sys.executable` cannot name the wrong one.
 SWEEP_ARGV = (sys.executable, "-m", "agent.cli", "bench", "sweep")
-
-#: How much of the log the surface gets. Enough to see the current instance and
-#: what went wrong before it, not enough to make polling expensive.
 TAIL_BYTES = 16_000
 TAIL_LINES = 40
-
-#: The sweep colours its own output, and the codes reach the file because it
-#: tees what it is given. Harmless in a terminal, literal in a browser.
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
-#: `bench: [7/200] njs.cve-2022-32414`, which the runner writes per instance.
 _POSITION = re.compile(r"bench: \[(\d+)/(\d+)\] (\S+)")
-
-#: Lines that are the sweep's own machinery talking to itself. The MCP server
-#: logs a request per tool call, which at three thousand tool calls an hour
-#: would be the entire tail.
 _NOISE = (
     "Processing request of type",
     "server.py:",
     "HTTP Request:",
-    # The second line of the MCP server's two-line format, which arrives on its
-    # own and is otherwise indistinguishable from content.
     "CallToolRequest",
     "ListToolsRequest",
-    # A langchain response object printed whole. The warning line above it
-    # already says what went wrong; this is its argument.
     "additional_kwargs=",
 )
 
-#: Long enough for a filename and a reason, short enough that one langchain
-#: response dump cannot become the whole panel.
 LINE_CHARS = 240
 
 
 def _paths() -> tuple[Path, Path, Path]:
-    """`(pidfile, log, boot)` under whatever `SECB_ROOT` says.
-
-    Imported here rather than at module scope for the same reason the dataset
-    reader does it: the sweep's package is not part of the request path, and an
-    import at the top would make that untrue in the import graph even though
-    nothing calls it.
-    """
     from agent.bench.config import BenchConfig
 
     root = BenchConfig().root
@@ -93,11 +46,6 @@ def _read_pidfile(pidfile: Path) -> dict[str, Any] | None:
 
 
 def _alive(pid: int) -> bool:
-    """Whether `pid` is still the sweep, rather than whatever inherited its number.
-
-    A pidfile can outlive its process by days, and pids are reused. Signal 0
-    says something is there; the cmdline says it is ours.
-    """
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError):
@@ -105,13 +53,11 @@ def _alive(pid: int) -> bool:
     try:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
     except OSError:
-        # No procfs. Signal 0 succeeding is the best this platform offers.
         return True
     return "agent.cli" in cmdline and "sweep" in cmdline
 
 
 def _tail(path: Path) -> list[str]:
-    """The end of the log, minus the parts that are the agent talking to itself."""
     try:
         with path.open("rb") as handle:
             handle.seek(0, os.SEEK_END)
@@ -121,9 +67,6 @@ def _tail(path: Path) -> list[str]:
     except OSError:
         return []
 
-    # The first line is dropped only when the seek landed inside one. On a file
-    # shorter than the window it is whole, and dropping it lost the only line a
-    # freshly-started run had.
     raw = text.splitlines()[1:] if start > 0 else text.splitlines()
     lines = [_ANSI.sub("", line).rstrip() for line in raw]
     kept = [line for line in lines if line.strip() and not any(n in line for n in _NOISE)]
@@ -131,7 +74,6 @@ def _tail(path: Path) -> list[str]:
 
 
 def _position(lines: list[str]) -> tuple[str | None, int | None, int | None]:
-    """`(instance, position, total)` from the last progress line, if there is one."""
     for line in reversed(lines):
         found = _POSITION.search(line)
         if found:
@@ -140,25 +82,15 @@ def _position(lines: list[str]) -> tuple[str | None, int | None, int | None]:
 
 
 def status() -> dict[str, Any]:
-    """What the sweep is doing, readable by anyone who opens the page.
-
-    Everything here comes off disk, so it is the same answer in every browser
-    and after every restart. There is no in-process state to lose.
-    """
     pidfile, logfile, bootfile = _paths()
     record = _read_pidfile(pidfile)
     running = bool(record) and _alive(int(record.get("pid", -1)))
     lines = _tail(logfile)
     if not running:
-        # Anything the sweep said before it took over its own logging, which is
-        # the only window where a failure would otherwise vanish.
         lines += [f"[시작 실패] {line}" for line in _tail(bootfile)]
     instance, position, total = _position(lines)
 
     if not running and record:
-        # It stopped. Whether it finished or died is in the log, and saying
-        # which is better than an empty panel: "끝났습니다" over a log ending in
-        # a traceback would be the page lying about its own run.
         record = {**record, "ended": True}
 
     return {
@@ -176,31 +108,11 @@ def status() -> dict[str, Any]:
 
 
 def start(instances: list[str] | None = None, split: str = "cve", resume: bool = True) -> dict[str, Any]:
-    """Launch the sweep detached, and record where it went.
-
-    `instances` narrows it to a chosen few, which is how a two-day job becomes
-    a twenty-minute one: the runner already reads `SECB_INSTANCES`, it simply
-    had no way to be told. `resume=False` goes with an explicit selection --
-    picking an instance that already has a result and watching it be skipped
-    is not what anyone means by choosing it.
-
-    `start_new_session` is the load-bearing argument: it puts the sweep in its
-    own session and process group, so it does not die with the API worker that
-    spawned it, and so stopping it later can signal the whole group rather than
-    only the process that is waiting on docker.
-    """
     pidfile, logfile, bootfile = _paths()
     record = _read_pidfile(pidfile)
     if record and _alive(int(record.get("pid", -1))):
         raise RuntimeError("이미 돌고 있습니다")
 
-    # Appended, never truncated: a sweep is resumable and the log of the run
-    # that crashed is how you find out why.
-    #
-    # This doubles as the disk check. `df` answers from the superblock and goes
-    # on reporting hundreds of free gigabytes after a filesystem has aborted its
-    # journal, so "is there room" and "does it work" are different questions and
-    # only the second one matters here.
     try:
         logfile.parent.mkdir(parents=True, exist_ok=True)
         handle = logfile.open("a", encoding="utf-8")
@@ -210,24 +122,12 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
         raise RuntimeError(f"{logfile.parent} 에 쓸 수 없습니다 — 디스크를 확인하세요: {err}") from err
 
     env = {**os.environ}
-    # Spawned from a service, PATH can be short of the things the sweep checks
-    # for first. Adding rather than replacing, so a configured PATH still wins.
     env["PATH"] = env.get("PATH", "") + ":/usr/local/bin:/usr/bin:/bin"
 
-    # The sweep's knobs are all environment variables by design, so an order
-    # from the page is three of them rather than a second way to configure it.
     env["SECB_SPLIT"] = split
     env["SECB_INSTANCES"] = ",".join(instances or ())
     env["SECB_RESUME"] = "1" if resume else "0"
 
-    # Discarded, not written to the log. The sweep tees its own output into the
-    # log *and* through to whatever it inherited, so pointing this at the same
-    # file wrote every line twice.
-    #
-    # stderr goes to its own small file instead: once the sweep has redirected
-    # its descriptors, its stderr is teed too, so this only ever catches what
-    # was said before logging started -- which is exactly the output that would
-    # otherwise be lost.
     boot = bootfile.open("w", encoding="utf-8")
     try:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
@@ -246,8 +146,6 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
     written = {
         "pid": process.pid,
         "started_at": time.time(),
-        # Recorded so the panel can say what this run is, in a browser that did
-        # not start it.
         "split": split,
         "instances": list(instances or ()),
     }
@@ -257,13 +155,6 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
 
 
 def stop() -> dict[str, Any]:
-    """Ask the sweep to stop, and let it finish the instance it is on.
-
-    SIGTERM to the group rather than the pid, because the work that has to stop
-    is in the docker children as much as in the process itself. Resumable, so
-    this costs the instance in flight and nothing else -- which is what makes it
-    safe to offer as a button.
-    """
     pidfile, _, _ = _paths()
     record = _read_pidfile(pidfile)
     if not record or not _alive(int(record.get("pid", -1))):
@@ -275,8 +166,6 @@ def stop() -> dict[str, Any]:
     except (ProcessLookupError, PermissionError) as err:
         raise RuntimeError(f"중지하지 못했습니다: {err}") from err
 
-    # It has a moment to put the current instance down before the surface is
-    # told it stopped; the status is read fresh either way.
     for _ in range(20):
         if not _alive(pid):
             break

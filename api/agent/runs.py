@@ -1,5 +1,3 @@
-"""Creating, listing and deleting runs."""
-
 from __future__ import annotations
 
 from agent.runs import STATUS_FAILED, STATUS_INDEXING, iter_all_files
@@ -37,23 +35,11 @@ router = APIRouter()
 
 @router.get("/runs")
 def get_runs(owner: OwnerDep) -> Dict[str, Any]:
-    """Every run, most recently touched first, labelled by its files.
-
-    Filtered to whoever the browser says it is. Not a permission check --
-    see `owner_of` -- it is what stops a shared list being mostly other
-    people's runs, which is the state it was in.
-    """
     return {"runs": list_runs(owner=owner)}
 
 
 @router.delete("/runs/{run_id}")
 def remove_run(run: RunDep) -> Dict[str, Any]:
-    """Delete a run and everything in it.
-
-    Trying things out leaves workspaces behind, and a list full of abandoned
-    ones is worse than useless. A run in flight is refused rather than pulled
-    out from under its worker.
-    """
     if _live_channel(run.run_id) is not None:
         raise HTTPException(status_code=409, detail="this run is in flight; stop it first")
 
@@ -65,21 +51,12 @@ def remove_run(run: RunDep) -> Dict[str, Any]:
 
 @router.post("/runs")
 async def create_run(owner: OwnerDep, files: List[UploadFile] = File(...)) -> Dict[str, Any]:
-    """Upload source and index it.
-
-    Accepts either a single ``.zip`` or a set of individual files. Indexing runs
-    here rather than in the background because it is seconds, not minutes, and
-    the editor needs the file list before it can render anything.
-    """
     if not files:
         raise HTTPException(status_code=400, detail="no files uploaded")
 
     run = new_run(owner=owner)
     try:
         if len(files) == 1 and (files[0].filename or "").lower().endswith(".zip"):
-            # A real file only because `zipfile` wants a seekable path. It
-            # is scratch: read, stored as rows, and gone before the request
-            # ends -- the run itself never touches the filesystem.
             with tempfile.TemporaryDirectory() as tmp:
                 archive = Path(tmp) / "upload.zip"
                 archive.write_bytes(await files[0].read())
@@ -92,9 +69,6 @@ async def create_run(owner: OwnerDep, files: List[UploadFile] = File(...)) -> Di
         raise HTTPException(status_code=400, detail=str(err)) from err
 
     if not tree.files:
-        # Three different things to say, because they send the reader somewhere
-        # different: nothing arrived, everything that arrived was unreadable, or
-        # the project is simply not in a language this can analyse.
         if tree.seen == 0:
             detail = "올린 파일이 없습니다."
         elif tree.skipped:
@@ -110,12 +84,6 @@ async def create_run(owner: OwnerDep, files: List[UploadFile] = File(...)) -> Di
 
 
 def _origin_of(files: List[UploadFile], written: int) -> Origin:
-    """What to call an upload in the run list.
-
-    A zip is named by its archive, a tree by how much of it there is. Neither is
-    a git remote, so `kind` says so and the patch surface knows not to offer a
-    push it has nowhere to send.
-    """
     first = (files[0].filename or "") if files else ""
     if len(files) == 1 and first.lower().endswith(".zip"):
         return Origin(kind="zip", label=first)
@@ -123,17 +91,6 @@ def _origin_of(files: List[UploadFile], written: int) -> Origin:
 
 
 def _indexed(run: Run, tree: Tree, origin: Origin, owner: str | None) -> Dict[str, Any]:
-    """Index a populated run and describe it back.
-
-    Shared by both intake routes so a repository and a zip cannot end up
-    differently indexed, or differently described, for no reason a reader could
-    see -- including what each passed over, and which earlier runs already hold
-    this exact code.
-
-    `skipped` is carried on `meta` as well as returned, because the reason a file
-    is missing from a later patch archive has to survive the request that decided
-    it. A reader downloading the tree a week later still gets to know.
-    """
     run.set_status(STATUS_INDEXING)
     store = run.store()
     try:
@@ -156,38 +113,20 @@ def _indexed(run: Run, tree: Tree, origin: Origin, owner: str | None) -> Dict[st
         "files": sorted(iter_all_files(run)),
         "origin": origin.as_dict(),
         "intake": intake,
-        # Answered here rather than left for the page to ask, because the answer
-        # decides whether this upload should be started at all. Indexing first is
-        # deliberate: it is seconds, and the summary the screen shows beside the
-        # question comes out of it.
         "matches": runs_with_same_tree(run, owner),
     }
 
 
 class CloneRequest(BaseModel):
-    """A repository to fetch, and optionally which branch or tag of it."""
-
     url: str
     ref: str | None = None
 
 
 @router.post("/runs/git")
 def create_run_from_git(owner: OwnerDep, request: CloneRequest) -> Dict[str, Any]:
-    """Clone a repository and index it.
-
-    Synchronous like the upload route, and for the same reason: the page cannot
-    show anything until the file list exists. A shallow clone of a normal
-    repository is seconds.
-
-    The remote is recorded on the run -- URL, ref and the exact commit -- because
-    that is what makes a patch from this run pushable later. Without the commit
-    a push would have to guess what the fix was computed against.
-    """
     run = new_run(owner=owner)
     try:
         with tempfile.TemporaryDirectory(prefix="ssat-clone-") as tmp:
-            # Scratch, like the zip: the checkout is read into rows and gone
-            # before the request ends. The run never touches the filesystem.
             cloned = clone(request.url, request.ref, Path(tmp) / "repo")
             tree = read_tree(cloned.root)
             run.put_files(tree.files)
@@ -195,8 +134,6 @@ def create_run_from_git(owner: OwnerDep, request: CloneRequest) -> Dict[str, Any
         run.set_status(STATUS_FAILED, error=str(err))
         raise HTTPException(status_code=400, detail=str(err)) from err
     except GitError as err:
-        # The remote's answer, not ours. 502 rather than 500: we reached out and
-        # something upstream said no.
         run.set_status(STATUS_FAILED, error=str(err))
         raise HTTPException(status_code=502, detail=str(err)) from err
 
@@ -211,17 +148,9 @@ def create_run_from_git(owner: OwnerDep, request: CloneRequest) -> Dict[str, Any
 
 
 def _reindex(run: Run) -> Dict[str, int]:
-    """Rebuild the index after the tree changed.
-
-    Cheap to do on every edit and necessary for correctness: the chunk store is
-    what the inspection walks. Chunk ids are content-derived, so re-inspecting
-    afterwards only pays for the chunks that actually changed.
-    """
     store = run.store()
     try:
         store.clear_index()
-        # Writes the knowledge graph beside the index too -- it is derived from
-        # exactly this and goes stale with exactly this.
         result = build_index(run.file_contents(), store)
     finally:
         store.close()
@@ -232,9 +161,4 @@ def _reindex(run: Run) -> Dict[str, int]:
 
 @router.get("/runs/{run_id}")
 def run_detail(run: RunDep) -> Dict[str, Any]:
-    """One run, described the way the list describes them.
-
-    The trace view shows a single run rather than a list, so this is where its
-    heading comes from: which files, what status, when it last did anything.
-    """
     return describe_run(run)
