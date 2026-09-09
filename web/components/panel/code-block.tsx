@@ -4,24 +4,15 @@ import { useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** Lines shown before the rest has to be asked for. */
 const CLAMP_LINES = 6;
 const CLAMP_CHARS = 400;
 
-/**
- * A block of text long enough to bury what comes after it.
- *
- * Clamped rather than folded: the first lines are on screen and the rest is one
- * click away. There were three of these -- a prompt, a tool result, a patch --
- * with three thresholds and three ways of saying how much was left.
- */
 export function CodeBlock({
   text,
   mono = true,
   className,
 }: {
   text: string;
-  /** Off for prose: an explanation in a monospace column reads as data. */
   mono?: boolean;
   className?: string;
 }) {
@@ -53,12 +44,6 @@ export function CodeBlock({
   );
 }
 
-/**
- * A line of numbers about something, in the one shape they take everywhere.
- *
- * The run tally, a step's cost and a unit's total were three renderings of "some
- * facts, separated by dots, quiet".
- */
 export function Meta({ parts, className }: { parts: (string | false | null | undefined)[]; className?: string }) {
   const kept = parts.filter(Boolean) as string[];
   if (kept.length === 0) return null;

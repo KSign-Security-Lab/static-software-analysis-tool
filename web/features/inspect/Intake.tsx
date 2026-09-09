@@ -16,30 +16,9 @@ import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
 
-/**
- * Give the tool some code, and press one button.
- *
- * Three ways in, because the three are genuinely different acts: a folder on
- * this machine, an archive somebody sent, and a repository that lives
- * elsewhere. Only the last of the three needs anything typed, and only the last
- * makes a push possible later -- which is why the origin is recorded rather than
- * inferred.
- *
- * Uploading and starting are deliberately two steps and not one. Indexing tells
- * you how much there is, and "1,204 files, 8,900 units" is the one moment to
- * find out you dropped `node_modules` -- before spending minutes and tokens on
- * it rather than after.
- */
 export default function Intake({ run }: { run: RunSummary | undefined }) {
   const [runId, setRunId] = useRunId();
   const [uploaded, setUploaded] = useState<UploadResult | null>(null);
-  /**
-   * An upload whose code has been scanned before, until the reader answers.
-   *
-   * Separate from `uploaded` because dismissing the question must not un-upload
-   * the tree: 새로 검사 keeps the run and starts it, and the summary below stays
-   * exactly as it was.
-   */
   const [duplicate, setDuplicate] = useState<UploadResult | null>(null);
   const upload = useUpload();
   const archive = useUploadArchive();
@@ -47,30 +26,15 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
   const health = useAgentHealth();
   const [over, setOver] = useState(0);
 
-  // The run row is the truth once it exists; `uploaded` is only what this tab
-  // just did, and it carries the one thing the row does not: how much was read.
   const indexed = uploaded?.run_id === runId ? uploaded : null;
 
   function accept(result: UploadResult) {
     setUploaded(result);
     setRunId(result.run_id);
-    // Asked before anything is started, because the answer decides whether it
-    // should be. See `DuplicateDialog`.
     if (result.matches.length > 0) setDuplicate(result);
   }
 
-  /**
-   * A drop anywhere on this screen, whatever tab is showing.
-   *
-   * It used to be the 폴더 tab's zone alone, so dropping a `.zip` -- onto a screen
-   * whose middle tab is literally 압축 파일 -- did nothing at all, and dropping a
-   * folder while that tab was open did nothing either. What was dropped is
-   * knowable, so the tabs are for *picking* and the drop decides for itself.
-   */
   async function drop(transfer: DataTransfer) {
-    // A second drop while the first is still being read would create a second
-    // run and leave the first orphaned -- and a big tree takes long enough that
-    // dropping again is the natural thing to try.
     if (busy) return;
     const dropped = await filesFromDrop(transfer);
     if (dropped.length === 0) return;
@@ -81,15 +45,11 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
     );
   }
 
-  // Includes the clone: it is the slowest of the three and the one most likely
-  // to be pressed twice.
   const busy = upload.isPending || archive.isPending || clone.isPending;
 
   return (
     <div
       className="min-h-0 flex-1 overflow-auto"
-      // Depth-counted: `dragleave` fires on every child the pointer crosses, so
-      // a boolean flickers off over the very text describing the zone.
       onDragEnter={(event) => {
         event.preventDefault();
         setOver((n) => n + 1);
@@ -102,9 +62,6 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
         void drop(event.dataTransfer);
       }}
     >
-      {/* At the container, not inside a tab. The drop is handled for the whole
-          screen, so the affordance has to be too -- dragging over the git tab
-          worked and looked like nothing, which reads as a dead zone. */}
       <div
         className={cn(
           "mx-auto w-full max-w-2xl rounded-xl px-6 py-10 transition-colors",
@@ -162,9 +119,6 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
         </Tabs>
         )}
 
-        {/* Above the intake tabs, not beside the button: uploading still works
-            without a model, and the reader should know before they choose a
-            folder that the scan itself will not run. */}
         <ModelMissing health={health.data} />
 
         {runId && <Ready run={run} indexed={indexed} configured={health.data?.configured ?? true} />}
@@ -174,8 +128,6 @@ export default function Intake({ run }: { run: RunSummary | undefined }) {
     </div>
   );
 }
-
-/* -- the three ways in -------------------------------------------------------- */
 
 function FolderIntake({
   onDone,
@@ -207,8 +159,6 @@ function FolderIntake({
         ref={picker}
         type="file"
         multiple
-        // Non-standard and the only way to pick a directory. React needs these
-        // spelled as attributes; there is no typed prop for either.
         {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
         className="hidden"
         onChange={(event) => {
@@ -324,14 +274,6 @@ function GitIntake({
   );
 }
 
-/**
- * Reading and parsing, which is not instant and used to look like nothing.
- *
- * The upload response comes back *after* the server has chunked and linked the
- * whole tree -- indexing is synchronous so the next screen has a file list to
- * render -- so on a real project this is seconds of a spinner inside a button
- * while the rest of the screen still invited another folder.
- */
 function Reading({ kind }: { kind: "upload" | "clone" }) {
   return (
     <div className="mt-6 grid place-items-center gap-3 rounded-lg border border-line bg-surface px-6 py-12 text-center">
@@ -344,8 +286,6 @@ function Reading({ kind }: { kind: "upload" | "clone" }) {
     </div>
   );
 }
-
-/* -- what arrived, and the one button ----------------------------------------- */
 
 function Ready({
   run,
@@ -397,9 +337,6 @@ function Ready({
           )}
           <Button
             className="mt-3"
-            // Not disabled for a missing model without saying why -- the strip
-            // above says it, and a button that is grey for an unstated reason is
-            // worse than one that explains itself.
             disabled={!runId || start.isPending || stats?.chunks === 0 || !configured}
             onClick={() => start.mutate({})}
           >
@@ -412,17 +349,7 @@ function Ready({
   );
 }
 
-/**
- * Files intake passed over, and what that costs.
- *
- * Said rather than done quietly, because it has a consequence the reader would
- * otherwise meet much later: a skipped file is not stored, so it will not be in
- * a patched-source download either. The alternative was refusing the whole
- * upload over one generated artifact, which cost them every other file.
- */
 function Skipped({ skipped }: { skipped: IntakeSkip[] }) {
-  // Grouped by reason, because the two are different facts about the tree and a
-  // mixed list of ten paths says neither.
   const groups = (["too_large", "binary"] as const)
     .map((reason) => ({ reason, rows: skipped.filter((each) => each.reason === reason) }))
     .filter((group) => group.rows.length > 0);
@@ -465,7 +392,6 @@ const SKIP_WHY: Record<IntakeSkip["reason"], string> = {
     "이미지나 실행 파일처럼 텍스트가 아닌 것은 읽지 않습니다. 그대로 담아 두면 ‘수정된 소스’ 를 내려받을 때 깨진 파일이 나오기 때문에, 아예 넣지 않습니다.",
 };
 
-/** MB below a megabyte reads as `0MB`, which looks like a bug rather than a size. */
 function size(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)}MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`;

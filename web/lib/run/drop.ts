@@ -1,20 +1,5 @@
-/**
- * A dropped folder, as a list of files with the paths they had in it.
- *
- * `<input type="file" webkitdirectory>` sets `webkitRelativePath` on everything
- * it hands over, and `uploadSource` reads it. A drop does not: the `File`
- * objects that come out of a `DataTransfer` know their own name and nothing
- * about the directory they were in, so dropping a tree uploaded a flat pile of
- * basenames -- and two `main.c` in two directories collided into one.
- *
- * The entries API is the only way to walk what was dropped. It is prefixed
- * (`webkitGetAsEntry`) in every engine that has it, and standardised nowhere,
- * which is why the types below are declared here rather than imported.
- */
-
 export interface DroppedFile {
   file: File;
-  /** Relative to the drop, e.g. `src/net/handler.c`. */
   path: string;
 }
 
@@ -28,23 +13,9 @@ interface FileSystemEntryLike {
   };
 }
 
-/** Refuse to walk for ever: a dropped `node_modules` is not a scan target. */
 const MAX_FILES = 20_000;
 const MAX_DEPTH = 32;
 
-/**
- * Directories not worth reading off the reader's disk.
- *
- * The comment above has said `node_modules` is not a scan target since this file
- * was written, and nothing acted on it: the walk read every object in `.git` into
- * browser memory, uploaded it, and the server discarded it -- which is most of
- * why dropping a real project was slow enough to look broken.
- *
- * Must stay a **subset** of `SKIP_DIRS` in `packages/agent/src/agent/files.py`.
- * Skipping something the server would have kept makes files vanish silently;
- * keeping something the server discards only costs bandwidth. So when the two
- * drift, drift this way.
- */
 const SKIP_DIRS = new Set([
   ".git",
   ".hg",
@@ -69,13 +40,6 @@ function fileOf(entry: FileSystemEntryLike): Promise<File | null> {
   return new Promise((resolve) => entry.file!(resolve, () => resolve(null)));
 }
 
-/**
- * One directory's entries.
- *
- * `readEntries` returns at most a hundred at a time and signals the end with an
- * empty batch, so a single call silently truncates any directory bigger than
- * that -- which is the sort of bug that only shows up on somebody else's repo.
- */
 async function entriesOf(entry: FileSystemEntryLike): Promise<FileSystemEntryLike[]> {
   const reader = entry.createReader?.();
   if (!reader) return [];
@@ -92,7 +56,6 @@ async function entriesOf(entry: FileSystemEntryLike): Promise<FileSystemEntryLik
 
 async function walk(entry: FileSystemEntryLike, prefix: string, out: DroppedFile[], depth: number): Promise<void> {
   if (out.length >= MAX_FILES || depth > MAX_DEPTH) return;
-  // Before the path is built, so the directory is never descended into.
   if (entry.isDirectory && SKIP_DIRS.has(entry.name)) return;
   const path = prefix ? `${prefix}/${entry.name}` : entry.name;
 
@@ -110,22 +73,6 @@ async function walk(entry: FileSystemEntryLike, prefix: string, out: DroppedFile
   }
 }
 
-/**
- * What was dropped, with paths.
- *
- * `dataTransfer.items` has to be read synchronously -- it is emptied as soon as
- * the drop handler returns -- so every entry is taken out first and only then
- * walked. Falls back to `dataTransfer.files` where the entries API is missing,
- * which loses directory structure but still accepts a handful of dropped files.
- */
-/**
- * Whether a drop is a single archive rather than a tree.
- *
- * A bare `.zip` goes to the archive endpoint and a tree goes to the multipart
- * one, so the drop handler has to tell them apart -- and one `.zip` *inside* a
- * dropped folder is a tree with one file in it, not an archive upload. Hence the
- * path check: a bare drop has no directory in front of its name.
- */
 export function isArchiveDrop(dropped: DroppedFile[]): boolean {
   if (dropped.length !== 1) return false;
   const only = dropped[0];

@@ -1,27 +1,10 @@
 import type * as Monaco from "monaco-editor";
 
-/**
- * Monaco, in the SSAT palette.
- *
- * Both editors were hardcoded to `vs-dark`, so the editor stayed dark inside a
- * light page -- a dark slab in the middle of a white workbench.
- *
- * Monaco takes literal colours in a theme object; it cannot read a CSS
- * variable. And the palette is OKLCH, which Monaco's parser does not accept
- * either. So the tokens are resolved through `getComputedStyle` -- the browser
- * converts them to a form it will take -- and the theme is rebuilt whenever
- * `data-theme` changes.
- */
-
 const THEME_NAME = "ssat";
 
-/** A CSS custom property as something Monaco will accept. */
 function resolve(styles: CSSStyleDeclaration, token: string, fallback: string): string {
   const value = styles.getPropertyValue(token).trim();
   if (!value) return fallback;
-  // Monaco wants #rrggbb. getComputedStyle gives us rgb()/oklab() depending on
-  // the browser, so anything that is not already hex goes through a canvas,
-  // which is the one converter every browser agrees on.
   if (value.startsWith("#")) return value;
   return toHex(value) ?? fallback;
 }
@@ -56,22 +39,9 @@ export function defineTheme(monaco: typeof Monaco): string {
   monaco.editor.defineTheme(THEME_NAME, {
     base: dark ? "vs-dark" : "vs",
     inherit: true,
-    /**
-     * Seven rules coloured four things and left the rest at Monaco's defaults,
-     * so a C file came out mostly one shade of grey with occasional violet.
-     * Preprocessor lines, function names and operators -- the three things the
-     * eye actually uses to find its way down a page of C -- were all
-     * `identifier` or unstyled.
-     *
-     * Monaco's C tokenizer is coarse and emits scopes it does not document, so
-     * these are ordered general to specific: a longer scope wins, and the broad
-     * ones are the floor rather than the answer.
-     */
     rules: [
       { token: "comment", foreground: faint.slice(1), fontStyle: "italic" },
       { token: "keyword", foreground: alt.slice(1) },
-      // `#include`, `#define`. They are the loudest lines in a C file and they
-      // were the same colour as the code under them.
       { token: "keyword.directive", foreground: danger.slice(1) },
       { token: "keyword.directive.include", foreground: danger.slice(1) },
       { token: "string", foreground: ok.slice(1) },
@@ -90,9 +60,6 @@ export function defineTheme(monaco: typeof Monaco): string {
       "editorLineNumber.foreground": faint,
       "editorLineNumber.activeForeground": ink,
       "editorGutter.background": bg,
-      // A band, not an outline. `lineHighlightBorder` draws a hairline box round
-      // the caret's line, which at this contrast is invisible against the gutter
-      // rule -- so nothing marked where you were. The reference fills it.
       "editor.lineHighlightBackground": band,
       "editor.lineHighlightBorder": "#00000000",
       "editorIndentGuide.background1": line,
@@ -110,12 +77,6 @@ export function defineTheme(monaco: typeof Monaco): string {
   return THEME_NAME;
 }
 
-/**
- * Keep the theme in step with the attribute.
- *
- * next-themes flips `data-theme` on <html>; nothing tells Monaco, so it has to
- * watch. Returns a teardown.
- */
 export function followTheme(monaco: typeof Monaco, apply: (name: string) => void): () => void {
   const update = () => apply(defineTheme(monaco));
   update();

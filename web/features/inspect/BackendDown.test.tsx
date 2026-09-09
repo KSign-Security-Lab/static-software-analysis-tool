@@ -5,19 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import BackendDown from "./BackendDown";
 
-/**
- * A dead backend has to look different from an empty one.
- *
- * Everything on this surface is the server's, so when it cannot be reached every
- * part of the page renders as an absence -- no scans, no findings, nothing to
- * patch -- and an absence is indistinguishable from an answer. 지난 검사 was
- * literally saying "아직 검사한 것이 없습니다" to somebody whose server was down.
- *
- * Driven through a stubbed `fetch` rather than a seeded cache, so the whole path
- * is under test: the failure, the `ApiError` the client wraps it in, the hook
- * that reads `offline`, and the strip.
- */
-
 const original = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = original;
@@ -54,9 +41,6 @@ describe("when the backend cannot be reached", () => {
     show();
 
     const alert = await waitFor(() => screen.getByRole("alert"));
-    // The address matters: the API host is derived from the page's hostname, so
-    // the usual cause is a URL that is right for the machine serving the page
-    // and wrong for the one reading it.
     expect(alert.textContent).toContain(":8001");
     expect(alert.textContent).toContain("연결할 수 없습니다");
   });
@@ -86,14 +70,11 @@ describe("when the backend is answering", () => {
   it("says nothing at all", async () => {
     answers({ runs: [] });
     show();
-    // Give the query a chance to settle before asserting an absence.
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("stays quiet for a failure that is not a connectivity failure", async () => {
-    // A 404 for one run is not the server being gone, and a banner across the
-    // top saying it is would send the reader after the wrong thing.
     answers({ detail: "unknown run: abc" }, 404);
     show();
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
@@ -101,8 +82,6 @@ describe("when the backend is answering", () => {
   });
 
   it("stays quiet for a malformed answer, which is a server bug and not a dead one", async () => {
-    // An empty 200 makes `r.runs` throw a plain TypeError rather than an
-    // `ApiError`, and the strip is deliberately only about reachability.
     answers(undefined);
     show();
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());

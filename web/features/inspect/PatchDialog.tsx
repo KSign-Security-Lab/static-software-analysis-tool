@@ -22,19 +22,6 @@ import { useProposeFix, useRun } from "@/lib/run/queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import { wireId } from "@/lib/model/finding";
 
-/**
- * What the bucket amounts to, before any of it leaves.
- *
- * The preview is asked for first, always, and the refusals are the reason. Three
- * of the four have something the reader can do about them -- write code for an
- * advice-only finding, untick one of two overlapping ones, re-scan a moved
- * anchor -- and a download that quietly contained seven of ten fixes would have
- * told them none of that.
- *
- * The three outputs are deliberately not three dialogs. They are the same
- * selection, and which one somebody wants depends on what they are going to do
- * next: review it, build it, or ship it.
- */
 export default function PatchDialog({
   open,
   onOpenChange,
@@ -52,8 +39,6 @@ export default function PatchDialog({
   const archive = useDownloadArchive(runId);
   const [result, setResult] = useState<PatchPreview | null>(null);
 
-  // Asked once per opening, and again whenever the selection changes underneath
-  // -- which it does when a fix is proposed from inside this dialog.
   const key = ticked.join(",");
   useEffect(() => {
     if (!open || !runId || ticked.length === 0) return;
@@ -64,7 +49,6 @@ export default function PatchDialog({
     return () => {
       live = false;
     };
-    // `preview` is a stable mutation object; including it would re-run per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, runId, key]);
 
@@ -138,13 +122,6 @@ export default function PatchDialog({
   );
 }
 
-/**
- * What did not make it, grouped by why.
- *
- * Grouped rather than listed per finding, because the answer is per reason: one
- * of them is a button, one is "untick something", one is "scan again". A flat
- * list of ten rows each with its own sentence buries that.
- */
 function Skipped({ skipped, findings }: { skipped: PatchSkip[]; findings: UiFinding[] }) {
   const [runId] = useRunId();
   const propose = useProposeFix(runId);
@@ -195,7 +172,6 @@ function Skipped({ skipped, findings }: { skipped: PatchSkip[]; findings: UiFind
   );
 }
 
-/** Each refusal, and what the reader can do about it. */
 const REASON: Record<SkipReason, { title: string; why: string }> = {
   no_replacement: {
     title: "고칠 코드가 없습니다",

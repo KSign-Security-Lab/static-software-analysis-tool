@@ -3,14 +3,6 @@
 import { Badge } from "@/components/ui/badge";
 import { isTruncated } from "@/lib/api/types";
 
-/**
- * A recorded input or output, including the ones the store had to cut short.
- *
- * The trace store clips a payload at 20,000 characters and writes
- * `{_truncated, _chars, preview}` in its place. Nothing rendered that shape
- * before, so the pane JSON-stringified the wrapper and showed the reader
- * `{"_truncated":true,...}` instead of the text.
- */
 export function Payload({ value, className }: { value: unknown; className?: string }) {
   if (value === null || value === undefined) return <p className="text-2xs text-ink-faint">없음</p>;
 
@@ -29,13 +21,6 @@ export function Payload({ value, className }: { value: unknown; className?: stri
   return <pre className={className}>{text}</pre>;
 }
 
-/**
- * The prompt as recorded, whichever shape it was.
- *
- * A chat call writes `{messages:[{role,content}]}`; a completion writes
- * `{prompts:[string]}`. Both are real -- the recorder chooses by which
- * LangChain callback fired.
- */
 export function promptOf(inputs: unknown): { system: string; user: string } {
   if (!inputs || typeof inputs !== "object") return { system: "", user: "" };
   const record = inputs as { messages?: { role?: string; content?: string }[]; prompts?: string[] };

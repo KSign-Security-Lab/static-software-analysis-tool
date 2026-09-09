@@ -37,14 +37,6 @@ const LABEL: Record<ViewKey, string> = {
   "pipeline-dfg": "DFG (파이프라인)",
 };
 
-/**
- * What the front end actually built out of the source.
- *
- * Two vocabularies that both say "AST" and "DFG", so the picker groups them
- * apart. The CPG views are Joern's own graph projected by edge label; the
- * pipeline views are the SSAT extractor's statement-level output. Reading one
- * as the other is the mistake this grouping exists to prevent.
- */
 export default function ExtractPane() {
   const cpg = useCpgSource();
   const [view, setView] = useQueryState("view", parseAsString.withDefault("ast").withOptions({ history: "replace" }));
@@ -73,8 +65,6 @@ export default function ExtractPane() {
     if (method !== "all") {
       built = key === "cg" ? scopeCallGraph(built, method) : scopeToMethod(built, parsed, method);
     }
-    // Folding operators, literals and blocks is what keeps a real CPG legible;
-    // the reducers reconnect the edges across whatever they remove.
     if (simplify) built = contract(built, (node) => !isNoise(node));
     return built;
   }, [isPipeline, functions, method, parsed, key, simplify]);

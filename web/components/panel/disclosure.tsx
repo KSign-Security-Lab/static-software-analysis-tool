@@ -5,19 +5,6 @@ import { ChevronRight } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
-/**
- * A row that opens.
- *
- * There were five of these: a `Fold` for asides, three near-identical row
- * triggers at the file, unit and step levels of the run tree, and another in the
- * dock -- each with its own chevron, its own hover, and its own idea of how far
- * to indent what it revealed. They drifted the way five copies do, and the tree
- * ended up with three different left rhythms stacked inside each other.
- *
- * `tone` is the only thing that varies, because the levels genuinely differ in
- * weight: a file heads a group, a step is one line of a list, an aside is
- * something you are being told you may ignore.
- */
 export function Disclosure({
   open,
   onOpenChange,
@@ -30,7 +17,6 @@ export function Disclosure({
   open?: boolean;
   onOpenChange?: (next: boolean) => void;
   label: React.ReactNode;
-  /** Pushed to the right of the trigger: an outcome, a count, a cost. */
   aside?: React.ReactNode;
   tone?: "group" | "row" | "aside";
   className?: string;

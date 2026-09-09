@@ -5,25 +5,11 @@ import { Payload } from "@/features/trace/Payload";
 import { Badge } from "@/components/ui/badge";
 import type { Exchange } from "@/lib/trace/process";
 
-/**
- * One recorded call, as it happened.
- *
- * Read-only, and that is the whole change from what was here before: this used
- * to be the prompt studio, with a replay button and an editable system prompt.
- * Tuning a prompt from a browser is gone with the endpoints it used -- it belongs
- * to `agent.tuner`, which replays a recorded run before it proposes anything,
- * which a PUT from a page could not do.
- *
- * What is left is the part a reader of a finding actually wants: what it was
- * asked, what it called, and what it said.
- */
 export default function Call({ exchange }: { exchange: Exchange }) {
   return (
     <div className="mt-1 mb-2 ml-5 space-y-2 rounded-md border border-line bg-field px-2.5 py-2">
       {exchange.attempts > 1 && (
         <p className="text-2xs text-ink-faint">
-          {/* Not a retry to be alarmed about: a structured call falls back to a
-              second method, and `gather` is a loop by design. */}
           모델 호출 {exchange.attempts}회
           {exchange.retried > 0 && ` · 다시 시도 ${exchange.retried}회`}
         </p>
@@ -69,9 +55,6 @@ export default function Call({ exchange }: { exchange: Exchange }) {
 
       {exchange.offered.length > 0 && (
         <p className="flex flex-wrap gap-1">
-          {/* What it was allowed to call, whether or not it did. A specialist
-              that could have read more source and chose not to is a different
-              thing from one that was never offered the option. */}
           {exchange.offered.map((tool) => (
             <Badge key={tool.name} variant="outline" className="font-mono text-2xs font-normal text-ink-faint">
               {tool.name}

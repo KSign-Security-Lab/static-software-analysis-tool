@@ -1,5 +1,3 @@
-// Sample sources for the testing web. These mirror the F2-A test fixtures.
-
 export interface Sample {
   id: string;
   label: string;

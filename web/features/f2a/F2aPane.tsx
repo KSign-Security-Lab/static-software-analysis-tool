@@ -14,14 +14,6 @@ import JsonLens from "./JsonLens";
 
 const LENSES = ["code", "report", "json"] as const;
 
-/**
- * F2-A: does an untrusted field reach a dangerous sink, and which handler owns it.
- *
- * The centre is the same editor the agent surface uses, with the same markers
- * -- the two engines answer the same question about the same code, so a result
- * from either is read the same way. The report and the raw JSON are lenses
- * over the same selection rather than separate pages.
- */
 export default function F2aPane() {
   const cpg = useCpgSource();
   const [selectedId, setSelectedId] = useSelectedFinding();
@@ -36,9 +28,6 @@ export default function F2aPane() {
   );
   const selected = useMemo(() => findings.find((each) => each.id === selectedId) ?? null, [findings, selectedId]);
 
-  // Once analysed, the editor shows what was compiled rather than what has
-  // been typed since -- markers that point at line 30 of a different text are
-  // worse than no markers.
   const readOnly = cpg.analyzed !== null && cpg.analyzed !== "";
   const value = readOnly ? cpg.analyzed! : cpg.text;
 

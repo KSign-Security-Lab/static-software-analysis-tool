@@ -10,14 +10,6 @@ import { buildDecisions, type Decision } from "@/lib/decision";
 import type { F2AResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/**
- * F2-A's verdicts, with the evidence for each.
- *
- * `lib/decision.ts` is unchanged -- it already turns the pipeline's ten lists
- * into something a person can read, in Korean, from controlled enums. This is
- * only the rendering.
- */
-
 const TONE: Record<string, string> = {
   suspect: "text-danger",
   warn: "text-warn",
@@ -26,13 +18,6 @@ const TONE: Record<string, string> = {
   none: "text-ink-faint",
 };
 
-/**
- * Its own map, not `ROLE_TONE` from lib/model/finding: these are `TraceStep`
- * roles from lib/decision (`source | step | sink`), not `EvidenceRole`.
- *
- * `step` is deliberately absent -- it takes the fallback below. The
- * `propagation` key predates the `step` naming and can never match.
- */
 const ROLE_TONE: Record<string, string> = {
   source: "border-l-warn",
   sink: "border-l-danger",
@@ -211,8 +196,6 @@ export default function EvidenceReport({ result }: { result: F2AResult }) {
             <AlertTriangle className="size-3" />
             이 분석의 한계
           </h4>
-          {/* Stated, not hidden: the pipeline knows what it could not see, and
-              a verdict read without them is read wrong. */}
           <ul className="space-y-0.5 text-2xs leading-relaxed text-ink-muted">
             {result.limitations.map((limitation, index) => (
               <li key={index}>{limitation}</li>

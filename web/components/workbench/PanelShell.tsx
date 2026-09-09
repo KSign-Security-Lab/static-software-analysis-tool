@@ -1,12 +1,5 @@
 import { cn } from "@/lib/utils";
 
-/**
- * A titled region inside a panel: a thin header strip and a scrolling body.
- *
- * Every panel in the workbench has the same anatomy, and the height of that
- * header being identical everywhere is most of what makes the layout read as
- * one application rather than four.
- */
 export function PanelShell({
   title,
   note,
@@ -26,19 +19,6 @@ export function PanelShell({
     <section className={cn("flex h-full min-h-0 flex-col bg-surface", className)}>
       {(title || actions) && (
         <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line px-2.5">
-          {/* Not uppercase. Korean has no case, so it only ever shouted the
-              Latin ones -- and it cost the title the shape a reader scans by.
-
-              `min-w-0`, not `shrink-0`: a title that refuses to shrink pushes
-              the actions off the end of the panel instead of truncating, which
-              is what a finding's title did to its own verdict badge in the
-              narrow 상세 pane. `truncate` needs to be allowed to bite.
-
-              The note yields first, and by a wide margin -- it is the aside, and
-              with both shrinking evenly a three-character title came out as
-              `탐...` next to a note nobody needed. Flex will not take an item
-              below its content width without `min-w-0`, so the note collapses to
-              nothing before the title gives up a character. */}
           {title && <h2 className="min-w-0 truncate text-xs font-semibold text-ink-strong">{title}</h2>}
           {note && <span className="min-w-0 shrink-[100] truncate text-2xs text-ink-faint">{note}</span>}
           {actions && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
@@ -49,15 +29,6 @@ export function PanelShell({
   );
 }
 
-/**
- * A panel with nothing in it yet, and what would put something there.
- *
- * Anchored to the top rather than centred. These panels are as tall as the
- * window, so centring put one grey sentence at the vertical middle of eight
- * hundred empty pixels -- which reads as a void with a caption rather than as
- * a panel waiting for input. Against the top it reads as a placeholder, and
- * the eye finds it where it looks for everything else.
- */
 export function EmptyState({
   icon: Icon,
   title,
@@ -78,7 +49,6 @@ export function EmptyState({
   );
 }
 
-/** Not built yet. Says which commit fills it in, so it reads as staging. */
 export function Placeholder({ what }: { what: string }) {
   return (
     <div className="grid h-full place-items-center p-6 text-center">

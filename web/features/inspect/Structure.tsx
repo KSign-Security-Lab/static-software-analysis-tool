@@ -8,18 +8,6 @@ import { useClaimTrail } from "@/lib/run/claim-trail";
 import { useGraphShape, useSpans } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
 
-/**
- * The path this claim took through the agent, drawn.
- *
- * Scoped to one finding, which is the difference between this and the canvas it
- * replaces. That one drew the whole graph with the whole run painted on it, in a
- * pane that had to be big enough to be legible -- and answered a question nobody
- * had, because the graph is the same graph every time. What varies per finding is
- * which way through it the claim came, and that is what `path` lights.
- *
- * No breakpoints and nothing to click into. Interrupting a run at a node was the
- * studio's, and the node inspector it opened is the step list above this.
- */
 export default function Structure({ finding }: { finding: UiFinding }) {
   const [runId] = useRunId();
   const shape = useGraphShape();
@@ -27,9 +15,6 @@ export default function Structure({ finding }: { finding: UiFinding }) {
   const trail = useClaimTrail(finding);
   const [expanded, setExpanded] = useState(false);
 
-  // The nodes this claim actually went through, in order. A specialist lens is
-  // a node like any other, so an injection finding lights `injection` and not
-  // the other four.
   const path = useMemo(
     () => [...new Set(trail.map((each) => each.node).filter((node): node is string => Boolean(node)))],
     [trail],
@@ -41,11 +26,6 @@ export default function Structure({ finding }: { finding: UiFinding }) {
 
   return (
     <div className="space-y-1 px-2.5 py-2">
-      {/* `relative` is load-bearing. `StepGraph` is `absolute inset-0` on
-          purpose -- it takes its size from a positioned ancestor rather than
-          from a percentage of an indefinite flex height -- so without this the
-          canvas resolves against the viewport and draws itself across the whole
-          window, over the findings list, leaving this box empty. */}
       <div className="relative h-[26rem] overflow-hidden rounded-md border border-line">
         <StepGraph
           shape={shape.data}
@@ -56,10 +36,6 @@ export default function Structure({ finding }: { finding: UiFinding }) {
           selected={null}
           onSelect={() => undefined}
           onInterrupt={() => undefined}
-          // Top-to-bottom, not left-to-right. A node is 160px wide and the
-          // pipeline is eleven ranks deep, so `LR` in a 500px column draws the
-          // whole thing at 40px a node -- present and unreadable. `TB` spends
-          // the column's width on one rank at a time, which is what it has.
           direction="TB"
           path={path.length > 0 ? path : null}
           expanded={expanded}

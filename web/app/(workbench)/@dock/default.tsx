@@ -3,14 +3,6 @@ import { PanelBottom } from "lucide-react";
 import DockTabs from "@/components/workbench/DockTabs";
 import { EmptyState } from "@/components/workbench/PanelShell";
 
-/**
- * For surfaces with no bottom panel of their own: 추출 and 스테이지.
- *
- * It used to render two staging placeholders reading 준비 중, one of them a
- * "문제" tab on screens that do not look for problems. Both surfaces start
- * with this pane collapsed now (see layout-cookie.ts), so this is what is
- * behind ⌘J rather than what anyone is shown.
- */
 export default function DockDefault() {
   return (
     <DockTabs

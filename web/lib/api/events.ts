@@ -1,23 +1,6 @@
 import { seg, streamUrl } from "./client";
 import type { Finding, IndexStats } from "./types";
 
-/**
- * The run's event stream.
- *
- * Server-sent events, one channel per run, in-process on the server and *not*
- * replayable: a page opened mid-run has missed everything before it attached.
- * So REST stays the source of truth and this is only a signal to re-read.
- *
- * Two things about the server that shape every caller:
- *
- *  - It ends the stream when a run finishes. Starting another run has to
- *    reattach first, or the second run executes with nobody listening.
- *  - Every listener now gets its own queue server-side, so a second tab no
- *    longer takes frames away from the first. One EventSource per tab is still
- *    the rule -- two streams in one tab would double every patch this module
- *    applies to the cache -- which is why it is only used by the run provider.
- */
-
 export interface RunStartedEvent extends IndexStats {
   run_id: string;
 }
@@ -27,7 +10,6 @@ export interface WaveEvent {
 }
 export interface ChunkStartedEvent {
   chunk_id: string;
-  /** Null for a chunk the index no longer has, which is not worth crashing over. */
   file: string | null;
   symbol: string | null;
   remaining: number;
@@ -70,7 +52,6 @@ export interface FailedEvent {
   error: string;
 }
 
-/** Every event the backend emits. Thirteen; the old clients handled 7 and 4. */
 export interface RunHandlers {
   onOpen?: () => void;
   onRunStarted?: (event: RunStartedEvent) => void;
@@ -82,20 +63,11 @@ export interface RunHandlers {
   onCheckpoint?: (event: CheckpointEvent) => void;
   onInterrupted?: (event: InterruptEvent) => void;
   onResumed?: () => void;
-  /** A state edit at a fan-out step. Handled nowhere before this rewrite. */
   onResumeRefused?: (event: RefusedEvent) => void;
   onFinished?: (event: FinishedEvent) => void;
   onFailed?: (event: FailedEvent) => void;
   onClosed?: () => void;
-  /** The socket dropped rather than the server closing it. */
   onDropped?: () => void;
-  /**
-   * The connection failed and the browser is retrying by itself.
-   *
-   * Reported rather than left to EventSource, because the retry is invisible:
-   * the last events received stay on screen and a run whose server has gone
-   * away reads as still running, for as long as anyone watches it.
-   */
   onRetrying?: () => void;
 }
 
@@ -127,15 +99,11 @@ export function watchRun(runId: string, handlers: RunHandlers): () => void {
       try {
         callback(JSON.parse((message as MessageEvent<string>).data));
       } catch {
-        /* a malformed frame must not take the stream down with it */
       }
     });
   }
 
   source.addEventListener("stream_closed", () => {
-    // The server ends the response normally when a run finishes. Left alone,
-    // EventSource would treat that as a drop and reconnect -- and any GET
-    // creates a channel, so the reconnect would sit there holding an idle one.
     closedByServer = true;
     source.close();
     handlers.onClosed?.();
@@ -148,9 +116,6 @@ export function watchRun(runId: string, handlers: RunHandlers): () => void {
       handlers.onDropped?.();
       return;
     }
-    // CONNECTING: the browser retries on its own, so there is nothing to do
-    // about the socket -- but somebody has to say so, or the view keeps
-    // showing the last frame it got as though it were current.
     handlers.onRetrying?.();
   };
 

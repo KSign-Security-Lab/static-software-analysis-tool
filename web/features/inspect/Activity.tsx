@@ -9,23 +9,6 @@ import { useRunStream } from "@/lib/run/stream";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
 
-/**
- * What is happening, while it happens.
- *
- * A scan is minutes long and used to show a phase and a bar, which is
- * indistinguishable from a hang once you have watched it for two of them. All of
- * this was already on the wire and had nowhere to be shown: the stream names the
- * nodes executing and the units they hold, and the span table records every tool
- * call.
- *
- * Three questions, in the order they get asked: who is working, on what, and
- * what did they reach for. The names are the ones the structure drawing and a
- * finding's 판단 과정 use, so watching this teaches the vocabulary for reading the
- * result afterwards.
- *
- * Spans rather than a poll: the stream invalidates them on every node event, so
- * this refreshes as the run moves.
- */
 export default function Activity() {
   const [runId] = useRunId();
   const { live } = useRunStream();
@@ -35,9 +18,6 @@ export default function Activity() {
   const inflight = filesInFlight(live);
   const scanned = filesScanned(live);
   const tools = recentTools(spans.data?.spans ?? []);
-  // A tab that joined mid-scan missed every `chunk_started` before it attached,
-  // so `inflight` is routinely empty while the run is plainly working. What it
-  // does know is which chunks have finished since.
   const reading = inflight.length > 0;
   const files = reading ? inflight : scanned.slice(0, 6);
 

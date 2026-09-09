@@ -1,7 +1,3 @@
-// Verifies the browser-side CPG extraction against a real Joern export
-// (the F2-A fixture). This is the frontend-unique logic: parsing GraphSON and
-// projecting the AST/CG/DFG/CFG views by edge label.
-
 import { readFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -24,7 +20,6 @@ describe("CPG extraction", () => {
     const cpg = parseCpg(loadCpg());
     expect(cpg.nodes.size).toBeGreaterThan(100);
     expect(cpg.edges.length).toBeGreaterThan(500);
-    // properties are unwrapped from the VertexProperty->List shape
     const methods = [...cpg.nodes.values()].filter((n) => n.label === "METHOD");
     const names = methods.map((m) => m.name);
     expect(names).toContain("handle_update_firmware");

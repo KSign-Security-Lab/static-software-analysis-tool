@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useDeferredLayout } from "./use-deferred-layout";
 
-/** Frames run when we say so, because the whole point of this hook is *when*. */
 let frames: Array<() => void>;
 let observed: Array<() => void>;
 
@@ -37,12 +36,6 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("useDeferredLayout", () => {
   it("lays out when asked, with no resize to prompt it", () => {
-    // The regression. An editor is laid out by its own constructor and thereafter
-    // only when the observer reports a change -- and attaching the observer
-    // delivers its one guaranteed notification *before* the async-loaded editor
-    // exists, so that layout hit a null ref. Nothing else ever asked, the
-    // container never changes size by itself, and the editor stayed 5x5 pixels in
-    // a 920x491 pane until the pane was dragged.
     const layout = vi.fn();
     const { result } = renderHook(() => useDeferredLayout(layout));
 
@@ -64,7 +57,6 @@ describe("useDeferredLayout", () => {
   });
 
   it("coalesces a burst into one layout", () => {
-    // A drag emits an observation per frame and Monaco's layout is not cheap.
     const layout = vi.fn();
     const { result } = renderHook(() => useDeferredLayout(layout));
     result.current.observe(document.createElement("div"));
@@ -78,8 +70,6 @@ describe("useDeferredLayout", () => {
   });
 
   it("lays out again after the frame has run", () => {
-    // The coalescing must not latch: a pane dragged, released and dragged again
-    // has to lay out twice.
     const layout = vi.fn();
     const { result } = renderHook(() => useDeferredLayout(layout));
 
@@ -92,8 +82,6 @@ describe("useDeferredLayout", () => {
   });
 
   it("calls the newest layout, not the one it was mounted with", () => {
-    // Held in a ref so the observer can be attached once; a stale callback would
-    // lay out an editor that has since been replaced.
     const first = vi.fn();
     const second = vi.fn();
     const { result, rerender } = renderHook(({ layout }) => useDeferredLayout(layout), {

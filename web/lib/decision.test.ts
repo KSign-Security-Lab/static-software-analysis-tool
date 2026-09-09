@@ -3,23 +3,6 @@ import { describe, expect, it } from "vitest";
 import { buildDecisions } from "@/lib/decision";
 import type { ActionIdentifierView, F2AResult, HandlerResolution } from "@/lib/types";
 
-/**
- * The F2-A result model, as `lib/decision.ts` builds it.
- *
- * These moved out of components/ResultCard.test.tsx when that component was
- * replaced. They were never really about the rendering: they assert that a
- * pipeline status becomes an analysis-specific verdict, and that a
- * resolution's evidence records become a numbered trace -- the translation the
- * whole F2-A surface depends on, which no longer has a component to hide in.
- */
-
-/**
- * A full ActionIdentifierView from a partial one.
- *
- * The server always sends every field -- the generated schema says so, which is
- * what caught these fixtures being written against the old hand-mirrored types.
- * The fixtures still name only what the assertions care about.
- */
 const actionId = (over: Partial<ActionIdentifierView> = {}): ActionIdentifierView => ({
   protocol_string: null,
   symbol: null,
@@ -167,8 +150,6 @@ describe("buildDecisions (handler resolutions → common result model)", () => {
   const decisions = buildDecisions(baseResult({ handler_resolutions: resolutions }));
 
   it("emits one decision per action, per-candidate for AMBIGUOUS, sorted", () => {
-    // RESOLVED(1) + AMBIGUOUS(2 candidates) + UNRESOLVED(1) = 4, in status order.
-    // Verdicts use analysis-specific terms, not generic status names.
     expect(decisions.map((d) => d.verdict)).toEqual([
       "핸들러 확인",
       "복수 후보",
@@ -176,16 +157,14 @@ describe("buildDecisions (handler resolutions → common result model)", () => {
       "판정 불가",
     ]);
     expect(decisions.every((d) => d.kind === "handler")).toBe(true);
-    // resolved reads as a non-security "info" state, not green/red
     expect(decisions[0].tone).toBe("info");
   });
 
   it("builds a numbered trace from the resolution evidence records", () => {
     const resolved = decisions[0];
-    expect(resolved.trace.length).toBe(4); // registrar chain
+    expect(resolved.trace.length).toBe(4);
     expect(resolved.trace[0].role).toBe("source");
-    expect(resolved.trace[3].role).toBe("sink"); // HANDLER_REF
-    // UNRESOLVED has no candidate → no trace
+    expect(resolved.trace[3].role).toBe("sink");
     const unresolved = decisions[3];
     expect(unresolved.trace.length).toBe(0);
   });

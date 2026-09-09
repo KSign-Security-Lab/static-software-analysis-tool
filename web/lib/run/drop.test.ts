@@ -2,17 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { filesFromDrop, isArchiveDrop } from "./drop";
 
-/**
- * A dropped tree, walked back into paths.
- *
- * The whole reason this module exists is that a `File` out of a drop has lost
- * the directory it came from -- `webkitRelativePath` is empty -- so the paths
- * asserted below are the entire point. jsdom implements neither the entries API
- * nor `DataTransfer`, so both are stood up here in the shape the spec describes:
- * entries handed over synchronously, directories read in batches, and an empty
- * batch meaning the end.
- */
-
 interface Entry {
   isFile: boolean;
   isDirectory: boolean;
@@ -30,7 +19,6 @@ function file(name: string, text = ""): Entry {
   };
 }
 
-/** Reads at most `batch` entries per call, the way a real reader does. */
 function dir(name: string, children: Entry[], batch = 100): Entry {
   return {
     isFile: false,
@@ -74,8 +62,6 @@ describe("filesFromDrop", () => {
   });
 
   it("reads a directory past the first batch", async () => {
-    // `readEntries` returns at most a hundred at a time and one call would
-    // silently truncate -- a bug that only appears on somebody else's repo.
     const many = Array.from({ length: 250 }, (_, index) => file(`f${index}.c`));
     const dropped = await filesFromDrop(transfer([dir("big", many)]));
 
@@ -108,10 +94,6 @@ describe("filesFromDrop", () => {
 
 describe("what is not worth reading off somebody's disk", () => {
   it("does not descend into the directories the server discards anyway", async () => {
-    // The comment above `MAX_FILES` has said `node_modules` is not a scan target
-    // since this file was written, and nothing acted on it: every object in
-    // `.git` was read into browser memory, uploaded, and thrown away. That is
-    // most of why dropping a real project was slow enough to look broken.
     const dropped = await filesFromDrop(
       transfer([
         dir("proj", [
@@ -128,8 +110,6 @@ describe("what is not worth reading off somebody's disk", () => {
   });
 
   it("does not mistake a file for a directory of the same name", async () => {
-    // `build` as a *file* is somebody's shell script, and dropping it should
-    // upload it. Only directories are skipped.
     const dropped = await filesFromDrop(transfer([dir("proj", [file("build")])]));
     expect(dropped.map((each) => each.path)).toEqual(["proj/build"]);
   });
@@ -147,8 +127,6 @@ describe("isArchiveDrop", () => {
   });
 
   it("treats a zip inside a dropped folder as a tree with one file in it", async () => {
-    // Not an archive upload: the reader dropped a directory, and expanding the
-    // one file in it server-side would be answering a question nobody asked.
     const dropped = await filesFromDrop(transfer([dir("proj", [file("inner.zip")])]));
     expect(dropped.map((each) => each.path)).toEqual(["proj/inner.zip"]);
     expect(isArchiveDrop(dropped)).toBe(false);

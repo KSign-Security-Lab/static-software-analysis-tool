@@ -6,15 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RunStatus, RunSummary } from "@/lib/api/types";
 import { IDLE, type RunLive } from "@/lib/run/reduce";
 
-/**
- * The strip has three faces, and it used to have one.
- *
- * Its *mount* carried the meaning "something is happening", so a stopped run
- * lost it -- along with the only 이어서 and 중단 on the surface. `Intake` owns
- * 검사 시작 and never renders on results, so a stop was a dead end for the run
- * it stopped.
- */
-
 const cancel = { mutate: vi.fn(), isPending: false };
 const start = { mutate: vi.fn(), isPending: false };
 const resume = { mutate: vi.fn(), isPending: false };
@@ -62,8 +53,6 @@ describe("a scan in flight", () => {
   });
 
   it("says the connection dropped rather than spinning through it", async () => {
-    // Not attached is not the same as not running. The last frame received used
-    // to sit on screen under a spinner as though it were current.
     await show("inspecting", { active: true, attached: false });
 
     expect(screen.getByText(/연결이 끊겼습니다/)).toBeTruthy();
@@ -83,8 +72,6 @@ describe("a scan that stopped short", () => {
 
     expect(screen.getByText("중단했습니다")).toBeTruthy();
     screen.getByRole("button", { name: /이어서 검사/ }).click();
-    // `/inspect` is the resume for a cancelled run: chunk ids are content
-    // derived, so what it left undone is exactly what `uninspected()` returns.
     expect(start.mutate).toHaveBeenCalledWith({});
     expect(resume.mutate).not.toHaveBeenCalled();
 
@@ -93,8 +80,6 @@ describe("a scan that stopped short", () => {
   });
 
   it("resumes a parked run from its checkpoint instead", async () => {
-    // `/inspect` would not do: the worker is waiting to be told what to do, and
-    // the checkpoint is the whole point of having stopped there.
     await show("interrupted");
 
     expect(screen.getByText("중단점에서 멈춰 있습니다")).toBeTruthy();

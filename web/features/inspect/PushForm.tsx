@@ -11,19 +11,6 @@ import type { Origin, PushResult } from "@/lib/api/types";
 import { usePushBranch } from "@/lib/inspect/queries";
 import { useRunId } from "@/lib/run/use-run-id";
 
-/**
- * Put the fix on a branch of the repository it came from.
- *
- * Only reachable for a run that was cloned, because only then is there a remote
- * and a base commit. The server clones that commit again and applies the patch
- * there, so a remote that has moved since the scan produces a refusal rather
- * than a force-push -- see `agent/vcs.push`.
- *
- * The token is the awkward part and the copy does not pretend otherwise. This
- * service has no login, so there is no account to hang a stored credential on;
- * a per-request token that is never written down is the version of this that
- * cannot outlive the request. Saying so is part of asking for it.
- */
 export default function PushForm({
   origin,
   findingIds,
@@ -82,8 +69,6 @@ export default function PushForm({
         void push
           .mutateAsync({ findingIds, branch: branch.trim(), token: token.trim(), openPullRequest: pr && github })
           .then((next) => {
-            // Cleared the moment it has been used. It was only ever in this
-            // component's state and this request's body.
             setToken("");
             setResult(next);
           });

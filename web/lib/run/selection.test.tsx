@@ -5,19 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { idOf, useSelection, useSort, type Selection } from "./selection";
 
-/**
- * One selection at a time, and the one exception to it.
- *
- * Several params could be set at once -- `finding`, `span`, and once `node` and
- * `cp` too -- each written by whichever pane owned it. Nothing on screen could
- * then state what the detail column was showing, and clearing one left the
- * others set. "Exactly one" has to be a property of the hook rather than a
- * convention its callers follow, which is what these pin.
- *
- * The exception is a call, which is a *step of* the open finding rather than an
- * alternative to it, so selecting one deliberately keeps `?finding=`.
- */
-
 afterEach(cleanup);
 
 function Harness({ next }: { next: Selection }) {
@@ -62,8 +49,6 @@ describe("reading the selection", () => {
   });
 
   it("prefers the call when both are set, because it is the narrower reading", () => {
-    // The ordinary state while reading 판단 과정: the finding stays open and one
-    // of its steps is being read.
     show({ finding: "agent:f1", span: "span-gather" });
     expect(screen.getByTestId("kind").textContent).toBe("call");
   });
@@ -71,8 +56,6 @@ describe("reading the selection", () => {
 
 describe("selecting", () => {
   it("keeps the finding open when a call inside it is selected", async () => {
-    // A call is only ever interesting as a step in an argument, so opening one
-    // must not cost the reader the claim it belongs to.
     const onUrlUpdate = vi.fn();
     show({ finding: "agent:f1" }, { kind: "call", id: "span-gather" }, onUrlUpdate);
 
@@ -83,7 +66,6 @@ describe("selecting", () => {
   });
 
   it("drops an open call when a different finding is selected", async () => {
-    // The step belonged to the finding being left behind.
     const onUrlUpdate = vi.fn();
     show({ finding: "agent:f1", span: "span-gather" }, { kind: "finding", id: "agent:f2" }, onUrlUpdate);
 
@@ -94,7 +76,6 @@ describe("selecting", () => {
   });
 
   it("leaves everything else in the URL alone", async () => {
-    // The run and the sort are not the selection.
     const onUrlUpdate = vi.fn();
     show({ run: "abc", sort: "file" }, { kind: "finding", id: "agent:f1" }, onUrlUpdate);
 

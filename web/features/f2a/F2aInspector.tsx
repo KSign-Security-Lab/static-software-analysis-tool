@@ -17,7 +17,5 @@ export default function F2aInspector() {
   );
   const selected = useMemo(() => findings.find((each) => each.id === selectedId) ?? null, [findings, selectedId]);
 
-  // No knowledge graph here: that is indexed per agent run, and the structural
-  // line has no chunk ids to join on.
   return <FindingInspector finding={selected} onNavigate={() => undefined} />;
 }

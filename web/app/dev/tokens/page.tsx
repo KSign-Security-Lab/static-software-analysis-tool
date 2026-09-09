@@ -24,25 +24,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-/**
- * Dev-only: every vendored primitive, in both themes, side by side.
- *
- * The token mapping in theme.css cannot be reviewed on paper -- `--color-accent`
- * meaning "hover grey" to shadcn and "brand teal" to us is the kind of thing
- * that only looks wrong. This page is where it gets looked at, before forty
- * components depend on it.
- *
- * It also proves the `@theme inline` choice: the two panels below are the same
- * markup under a nested `data-theme`, and they only differ if utilities resolve
- * their roles at the element rather than once at :root.
- *
- * Delete this route when the workbench is done.
- */
-
-// Every class below is written out in full. Tailwind scans for literal
-// strings, so a template like `bg-${name}` generates nothing at all -- and the
-// swatch would silently render transparent, which is exactly the failure this
-// page exists to catch.
 const SSAT_ROLES: [string, string][] = [
   ["bg", "bg-bg"],
   ["surface", "bg-surface"],

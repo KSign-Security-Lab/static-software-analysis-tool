@@ -37,8 +37,6 @@ describe("quickFixes", () => {
     const { actions } = quickFixes({} as never, model, [finding()], at(6));
 
     expect(actions).toHaveLength(1);
-    // The summary line only: `remediation` is summary and detail joined, and a
-    // paragraph in a menu item is a menu item nobody can read.
     expect(actions[0].title).toBe("이대로 고치기 · cap 을 버퍼 크기로 제한한다.");
     expect(actions[0].kind).toBe("quickfix");
     const edit = actions[0].edit!.edits[0] as never as { textEdit: { text: string; range: { startLineNumber: number } } };
@@ -58,8 +56,6 @@ describe("quickFixes", () => {
   });
 
   it("says nothing for a finding that has advice and no code", () => {
-    // A lightbulb that opened onto a paragraph would be a lightbulb that lied
-    // about having a fix.
     expect(quickFixes({} as never, model, [finding({ replacement: null })], at(6)).actions).toHaveLength(0);
   });
 });

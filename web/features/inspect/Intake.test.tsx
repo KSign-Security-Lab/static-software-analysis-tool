@@ -3,19 +3,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Reading and parsing is not instant, and used to look like nothing.
- *
- * The upload response comes back *after* the server has chunked and linked the
- * whole tree -- indexing is synchronous so the next screen has a file list -- so
- * on a real project this is seconds during which the only sign of life was a
- * spinner inside one button, while the rest of the screen still invited another
- * folder. Dropping again there creates a second run and orphans the first.
- *
- * The mutations are stubbed rather than driven, because what is under test is
- * what the screen does *while* one is in flight.
- */
-
 const pending = { isPending: true, mutateAsync: vi.fn(), mutate: vi.fn() };
 const idle = { isPending: false, mutateAsync: vi.fn(), mutate: vi.fn() };
 
@@ -59,8 +46,6 @@ describe("while nothing is in flight", () => {
 
 describe("while a tree is being read", () => {
   it("replaces the pickers rather than leaving them greyed", async () => {
-    // A folder picker that is grey for an unstated reason is worse than one that
-    // is gone and replaced by what is actually happening.
     state.upload = pending;
     await show();
 

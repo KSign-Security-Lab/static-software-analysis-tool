@@ -2,19 +2,6 @@ import type { Finding as AgentFinding, Reach as AgentReach } from "@/lib/agent-s
 import { buildDecisions, type Decision } from "@/lib/decision";
 import type { F2AResult } from "@/lib/types";
 
-/**
- * One finding shape for both engines.
- *
- * The structural line (F2-A over a CPG) and the LLM agent answer the same
- * question about the same code and used to have nothing in common on screen:
- * different pages, different components, different vocabulary. They still run
- * independently -- nothing here couples them -- but once a result exists it is
- * described the same way, so one list, one set of editor markers and one detail
- * panel serve both.
- *
- * This is a view model. Neither backend shape changes.
- */
-
 export type Engine = "structural" | "agent";
 
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
@@ -47,14 +34,6 @@ export interface Evidence {
 export interface UiFinding {
   id: string;
   engine: Engine;
-  /**
-   * The unit this was found in, for the agent engine.
-   *
-   * Carried because it is the join to the knowledge graph: a node's id *is* a
-   * chunk id, which is what lets the structure map be painted with severity
-   * rather than being a picture beside the findings. The structural engine has
-   * no equivalent, so it is null there.
-   */
   chunkId: string | null;
   severity: Severity;
   title: string;
@@ -63,57 +42,13 @@ export interface UiFinding {
   explanation: string;
   evidence: Evidence[];
   remediation: string | null;
-  /**
-   * The code that replaces `primary`, when the run produced any.
-   *
-   * Separate from `remediation`, which is prose. This is what the editor's quick
-   * fix splices and what the apply endpoint writes; a finding with advice and no
-   * replacement must not be offered as something that can be fixed.
-   */
   replacement: string | null;
-  /**
-   * The fix as a patch, when the agent could name one for these exact lines.
-   *
-   * Computed server-side from the resolved span and the replacement, so what is
-   * shown is what applying would do rather than something the model wrote about
-   * it. Null means it said it could not fix this in place -- which is an answer,
-   * not a gap.
-   */
   diff: string | null;
-  /**
-   * Every unit this same claim came out of, and every id it was filed under.
-   *
-   * The chunker makes a unit of each file's top-level declarations *and* a unit
-   * of each function in it, so a problem inside a function is looked at twice
-   * and reported twice -- same title, same CWE, same line, two `chunk_id`s. The
-   * list showed both, identical, with nothing to tell them apart, which reads
-   * as the tool being confused rather than as two readings agreeing.
-   *
-   * Merged into one row by `mergeFindings`. `chunkIds` is what the 과정 surface
-   * scopes by, and having more than one is why a cached unit no longer strands
-   * it; `mergedIds` keeps the ids the dropped copies had so a link to one of
-   * them still opens the row.
-   */
   chunkIds: string[];
   mergedIds: string[];
-  /** 0-1. F2-A reports its own confidence; the agent reports the verify pass's. */
   confidence: number;
-  /** Agent only: survived the refute pass. Null where the notion does not apply. */
   verified: boolean | null;
-  /**
-   * Whether the unit this was found in is reached, in the tree that was scanned.
-   *
-   * A second axis, orthogonal to `severity` and to `verified`: severity is what
-   * happens if it is exploited, standing is whether the claim held up, and this
-   * is whether the code runs at all. A reader told us a real defect in a
-   * never-called helper is not the same news as one in a request handler, and
-   * used to have to work that out by hand for every row.
-   *
-   * Null where nothing answered -- an F2-A finding, a finding in a file chunk,
-   * or a run indexed before this existed. Null is not a state; it is no state.
-   */
   reach: AgentReach | null;
-  /** The engine's own object, for the detail panel to render natively. */
   raw: Decision | AgentFinding;
 }
 
@@ -126,11 +61,6 @@ function toLine(value: string | number | undefined): number {
   return Number.isFinite(n) && (n as number) > 0 ? (n as number) : 0;
 }
 
-/**
- * F2-A confidence is a 0-1 score, but it is not a severity: the pipeline does
- * not rank findings. Mapping the score is the honest option -- inventing
- * "critical" for something the engine never called critical would be worse.
- */
 function severityFromConfidence(confidence: number): Severity {
   if (confidence >= 0.85) return "high";
   if (confidence >= 0.6) return "medium";
@@ -138,7 +68,6 @@ function severityFromConfidence(confidence: number): Severity {
   return "info";
 }
 
-/** F2-A decisions -> the shared shape. Only vulnerability results become findings. */
 export function fromF2A(result: F2AResult | null | undefined, file: string): UiFinding[] {
   if (!result) return [];
   return buildDecisions(result)
@@ -169,50 +98,23 @@ export function fromF2A(result: F2AResult | null | undefined, file: string): UiF
         explanation: d.overview,
         evidence,
         remediation: d.remediation.join("\n") || null,
-        // F2-A reports advice, never code.
         replacement: null,
         diff: null,
-        // No chunks: the structural engine works over a CPG rather than over
-        // the agent's units, so it has no equivalent to scope 과정 by.
         chunkIds: [],
         mergedIds: [],
         confidence: d.confidence,
         verified: null,
-        // The structural engine works over a CPG rather than the agent's units,
-        // so it has nothing to answer this with.
         reach: null,
         raw: d,
       };
     });
 }
 
-/** Agent findings -> the shared shape. Already close; mostly renaming. */
-/**
- * The id the producing engine knows a finding by.
- *
- * View-model ids are prefixed with their engine so that two engines' findings can
- * share one list without colliding -- and anything talking *back* to an engine
- * has to take the prefix off again. It did not, so both `이대로 고치기` and
- * `고칠 코드 만들기` posted `agent:0a6b…` to an API that only knows `0a6b…` and
- * got `unknown finding` every time.
- *
- * This is the second time the prefix has been missed in a round trip; the first
- * was `?finding=` matching nothing, silently. One function now, so the next
- * caller has something to reach for.
- */
 export function wireId(id: string): string {
   const at = id.indexOf(":");
   return at === -1 ? id : id.slice(at + 1);
 }
 
-/**
- * The agent's findings, as the shared shape, with duplicate claims merged.
- *
- * Merging here rather than at each call site: the list, the editor's markers,
- * the detail panel and both sides of a run comparison all come through this
- * function, and a row that is one problem in the list and two markers in the
- * gutter would be worse than either.
- */
 export function fromAgent(findings: AgentFinding[] | null | undefined): UiFinding[] {
   return mergeFindings(eachAgent(findings));
 }
@@ -258,19 +160,10 @@ function eachAgent(findings: AgentFinding[] | null | undefined): UiFinding[] {
   }));
 }
 
-/** Same claim, same place: the identity two readings of one problem share. */
 function claimKey(finding: UiFinding): string {
   return [finding.title, finding.cwe ?? "", finding.primary.file, finding.primary.startLine].join("\u0000");
 }
 
-/**
- * How useful a copy is, when two describe the same problem.
- *
- * A fix that can be applied beats one that can only be described, and a longer
- * evidence trail beats a shorter one -- the copies are not identical inside
- * even when their rows read the same, because each was produced by reading a
- * different unit.
- */
 function richness(finding: UiFinding): number {
   return (
     (finding.diff ? 8 : 0) +
@@ -280,17 +173,6 @@ function richness(finding: UiFinding): number {
   );
 }
 
-/**
- * One row per claim, however many units reported it.
- *
- * The richest copy represents the group and the rest contribute what only they
- * have: their unit, so 과정 can scope to whichever of them this run actually
- * recorded, and their id, so an old link still lands on the row.
- *
- * Order is preserved -- the first copy's position is the group's -- because
- * `sortFindings` is what decides order and it should not be second-guessed by
- * a merge that ran before it.
- */
 export function mergeFindings(findings: UiFinding[]): UiFinding[] {
   const groups = new Map<string, UiFinding[]>();
   for (const finding of findings) {
@@ -339,12 +221,6 @@ export function countByFile(findings: UiFinding[]): Map<string, FileCount> {
   return counts;
 }
 
-/**
- * The same tally, keyed by unit rather than file.
- *
- * What paints the structure map: node ids are chunk ids, so this joins
- * straight onto them.
- */
 export function countByChunk(findings: UiFinding[]): Map<string, FileCount> {
   const counts = new Map<string, FileCount>();
   for (const f of findings) {
@@ -359,26 +235,8 @@ export function countByChunk(findings: UiFinding[]): Map<string, FileCount> {
   return counts;
 }
 
-/**
- * What verification made of a claim.
- *
- * Three states, and the third was invisible. A finding over
- * `max_verify_per_chunk` is stored `verified: false, confidence 0.3` -- never put
- * to a verifier at all -- and the list showed it exactly like one that had been
- * checked and held. Neither confirmed nor refuted is its own answer and now says
- * so.
- *
- * The words are compounds rather than sentences. `반박을 견딤` was a literal
- * rendering of "withstood refutation": accurate about the mechanism, and not
- * something anybody says.
- */
 export type Standing = "confirmed" | "candidate";
 
-/**
- * Null is not a third state, it is no state: F2-A findings never go near a
- * verifier, so a badge saying anything about verification would be inventing a
- * step that does not exist for them.
- */
 export function standingOf(finding: { verified: boolean | null }): Standing | null {
   if (finding.verified === null) return null;
   return finding.verified ? "confirmed" : "candidate";
@@ -389,22 +247,8 @@ export const STANDING_LABEL: Record<Standing, string> = {
   candidate: "취약 후보",
 };
 
-/** Refuted claims never reach a report, so this only ever appears in the record. */
 export const REFUTED_LABEL = "취약 미검출";
 
-/**
- * Whether the code a finding sits in runs.
- *
- * Deliberately not called `standing`: that word is taken, one line up, for what
- * verification made of the claim. Two orthogonal axes sharing a name would make
- * both unreadable -- a finding can be 취약 확인 and 도달 불가 at once, and that
- * combination is exactly the one worth being able to say.
- *
- * Nothing here hides a row. `unreachable` groups and folds; it never filters, and
- * it never touches severity. Dead code is revived, the index cannot see calls
- * through function pointers, and a scan is usually one directory rather than a
- * program -- so this is a label a reader can act on, not a verdict.
- */
 export type Liveness = "live" | "unreferenced" | "unreachable" | "excluded" | "unknown";
 
 export function livenessOf(finding: { reach: AgentReach | null }): Liveness | null {
@@ -419,7 +263,6 @@ export const LIVENESS_LABEL: Record<Liveness, string> = {
   unknown: "판단 불가",
 };
 
-/** The two the reader is normally not reading first. */
 export const FOLDED_LIVENESS: readonly Liveness[] = ["unreachable", "excluded"];
 
 export function isFolded(finding: { reach: AgentReach | null }): boolean {
@@ -435,14 +278,6 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
   info: "정보",
 };
 
-/**
- * Severity colour as Tailwind classes.
- *
- * Five components carried their own byte-identical copy of the dot map. The
- * index type stays `string` because not every caller has narrowed its severity
- * yet -- `KnowledgeNodeData.severity` is `string | null` -- while `satisfies`
- * still requires every severity to appear, so adding one cannot be missed here.
- */
 export const SEVERITY_DOT: Record<string, string> = {
   critical: "bg-sev-critical",
   high: "bg-sev-high",
@@ -472,14 +307,6 @@ export const ROLE_LABEL: Record<EvidenceRole, string> = {
   context: "참고",
 };
 
-/**
- * Evidence role as a left-border colour.
- *
- * For `EvidenceRole` only. `features/f2a/EvidenceReport.tsx` draws the same kind
- * of stripe but over `TraceStep.role` from `lib/decision`, whose vocabulary is
- * `source | step | sink` -- a different set, so it keeps its own map rather than
- * sharing one that cannot describe `step`.
- */
 export const ROLE_TONE: Record<string, string> = {
   source: "border-l-warn",
   propagation: "border-l-line-3",
@@ -488,7 +315,6 @@ export const ROLE_TONE: Record<string, string> = {
   context: "border-l-line-2",
 } satisfies Record<EvidenceRole, string>;
 
-/** monaco.MarkerSeverity: Hint=1, Info=2, Warning=4, Error=8. */
 export function markerSeverity(severity: Severity): number {
   if (severity === "critical" || severity === "high") return 8;
   if (severity === "medium") return 4;

@@ -9,10 +9,6 @@ import { PanelShell } from "@/components/workbench/PanelShell";
 import { SAMPLES } from "@/lib/samples";
 import { useCpgSource } from "./provider";
 
-/**
- * Where a CPG comes from: a bundled sample, a file, or whatever is in the
- * editor. Shared by F2-A and extraction, which both start the same way.
- */
 export default function SourcePane() {
   const cpg = useCpgSource();
   const input = useRef<HTMLInputElement>(null);

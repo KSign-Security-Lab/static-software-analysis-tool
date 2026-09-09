@@ -14,14 +14,6 @@ import { describeError, post } from "@/lib/api/client";
 import { useCpgSource } from "../cpg/provider";
 import { stageFor } from "./stages";
 
-/**
- * One stage, called alone, with whatever it returned.
- *
- * Request and response in the same panel rather than split across slots: this
- * is a debug tool for the moment a stage misbehaves, and the two halves are
- * read together. Deliberately raw output -- a rendering that interprets it is
- * exactly what you do not want when you are checking what it actually said.
- */
 export default function StagesPane() {
   const cpg = useCpgSource();
   const [stageKey] = useQueryState("stage", parseAsString.withDefault("cpg-jpype"));

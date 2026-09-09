@@ -5,15 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunHandlers } from "@/lib/api/events";
 import type { RunStatus, RunSummary } from "@/lib/api/types";
 
-/**
- * The provider's recovery policy, not the browser's.
- *
- * `EventSource` is mocked rather than driven: jsdom has none, and what is worth
- * pinning is the decision to re-open, which is this file's and not the socket's.
- * A clean `stream_closed` never reconnects on its own -- that is correct, and it
- * is why a run whose stream was lost used to sit on screen for ever.
- */
-
 const attached: RunHandlers[] = [];
 const closers: ReturnType<typeof vi.fn>[] = [];
 
@@ -59,9 +50,6 @@ async function mount(status: RunStatus) {
 
 describe("a scan the tab is not attached to", () => {
   it("re-opens the stream rather than waiting to be told", async () => {
-    // The row says the run is going and no `open` ever arrives -- the shape of
-    // both a dropped socket and a stream the server closed on the previous
-    // run's `finished` flag a second after this one attached.
     await mount("inspecting");
     expect(attached).toHaveLength(1);
 
@@ -79,7 +67,6 @@ describe("a scan the tab is not attached to", () => {
     });
     const afterFirst = attached.length;
 
-    // The second wait is twice the first, so nothing happens at +1.1s again.
     await act(async () => {
       vi.advanceTimersByTime(1100);
     });
@@ -118,9 +105,6 @@ describe("a run that is not going", () => {
 
 describe("ensureAttached", () => {
   it("does not leave its waiter behind when the ceiling wins", async () => {
-    // The 2s ceiling resolved the promise and left the resolver on the list,
-    // which then grew for the life of the tab and was called on every later
-    // open. Asserted through the re-attach path, which is what drains it.
     await mount("inspecting");
 
     await act(async () => {
@@ -130,7 +114,6 @@ describe("ensureAttached", () => {
       attached[attached.length - 1].onOpen?.();
     });
 
-    // An open after a re-attach must not throw on a stale resolver.
     expect(attached.length).toBeGreaterThan(1);
   });
 });

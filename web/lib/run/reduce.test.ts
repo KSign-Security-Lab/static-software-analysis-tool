@@ -14,7 +14,6 @@ const finished = (chunk_id: string, file: string): RunAction => ({
   event: { chunk_id, file, symbol: "f", findings: [], stats: {} },
 });
 
-/** Fold a sequence of events, the way the stream delivers them. */
 function run(actions: RunAction[], from: RunLive = IDLE): RunLive {
   return actions.reduce(reduceRun, from);
 }
@@ -27,8 +26,6 @@ describe("node_started / node_finished", () => {
   });
 
   it("counts parallel instances rather than deduplicating them", () => {
-    // Four `injection` tasks start and finish independently. A Set here would
-    // make the node stop looking busy as soon as the first one returned.
     const state = run([
       { type: "node_started", event: node("injection") },
       { type: "node_started", event: node("injection") },
@@ -115,9 +112,6 @@ describe("resume_refused", () => {
   });
 
   it("does not move the run", () => {
-    // The server emits this and goes straight back to waiting at the same
-    // checkpoint. Anything that looked like progress here would be a lie --
-    // which is why the stream deliberately invalidates nothing for it.
     const paused = run([{ type: "interrupted", event: { run_id: "r", next: ["locate"], checkpoint_id: "c9" } }]);
     const after = run([refusal], paused);
     expect(after.checkpointId).toBe("c9");
@@ -154,8 +148,6 @@ describe("progress", () => {
 
 describe("which files are being read", () => {
   it("holds a file until every chunk of it has come back", () => {
-    // Two functions of one file in the same wave. The file is still being read
-    // after the first returns, and a set of file names could not say that.
     const half = run([started("a", "net.c"), started("b", "net.c"), finished("a", "net.c")]);
     expect(scanningFiles(half)).toEqual(new Set(["net.c"]));
 
@@ -231,8 +223,6 @@ describe("phaseOf", () => {
 });
 
 describe("phaseFor", () => {
-  // The case this exists for: `?run=` on a finished run. The stream has heard
-  // nothing, so `phaseOf` says idle -- which read as 검사 전 over a full report.
   it.each([
     ["done", "finished"],
     ["inspecting", "running"],
@@ -250,7 +240,6 @@ describe("phaseFor", () => {
   );
 
   it("lets the stream win whenever it is saying anything", () => {
-    // A record fetched before the run started would otherwise talk over it.
     expect(phaseFor("running", "done")).toBe("running");
     expect(phaseFor("finished", "inspecting")).toBe("finished");
   });
@@ -262,8 +251,6 @@ describe("phaseFor", () => {
 
 describe("adopting a run that was already going", () => {
   it("reads as running, with the queued nodes in flight", () => {
-    // A tab that opened mid-run heard no `run_started` and no `node_started`.
-    // Without this it shows an idle run: 검사 실행 enabled, canvas empty.
     const state = reduceRun(IDLE, { type: "adopted", running: ["injection", "memory"] });
 
     expect(phaseOf(state)).toBe("running");
@@ -272,8 +259,6 @@ describe("adopting a run that was already going", () => {
   });
 
   it("is still running when the step is between checkpoints", () => {
-    // No node names yet -- `starting` rather than `idle`, which is what keeps
-    // the button disabled.
     expect(phaseOf(reduceRun(IDLE, { type: "adopted", running: [] }))).toBe("starting");
   });
 
@@ -290,9 +275,6 @@ describe("adopting a run that was already going", () => {
 });
 
 describe("cancelling", () => {
-  // 중단 accepted is not 중단 done. A 200 from the cancel endpoint means the flag
-  // was set; the nodes already dispatched are still returning, and the surface
-  // used to claim otherwise while their findings went on arriving.
   it("does not stop the run or throw away what is in flight", () => {
     const state = run([
       { type: "run_started", event: { run_id: "r1", files_indexed: 1, files_skipped: 0, chunks: 2, links: 1 } },
@@ -302,7 +284,6 @@ describe("cancelling", () => {
     ]);
 
     expect(state.cancelling).toBe(true);
-    // Still true, and still the truth: the wave is finishing.
     expect(state.active).toBe(true);
     expect(state.finished).toBe(false);
     expect(state.running).toEqual(["injection"]);
@@ -334,8 +315,6 @@ describe("cancelling", () => {
   });
 
   it("is cleared by a stop the server refused", () => {
-    // The 409 is easy to get: press 중단 between the worker's last frame and its
-    // `finally`. Left set, the flag disabled 중단 for the rest of the run.
     const cancelling = run([{ type: "cancelling" }]);
     expect(reduceRun(cancelling, { type: "cancel_failed" }).cancelling).toBe(false);
   });
@@ -353,8 +332,6 @@ const START: RunAction = {
 
 describe("starting a second run on the same id", () => {
   it("clears a stop that never landed", () => {
-    // Stop, then start: the strip kept a disabled 중단하는 중 with no way to
-    // press stop again, and a 1s poll of the run row open behind it for ever.
     const state = run([START, { type: "cancelling" }, START]);
 
     expect(state.cancelling).toBe(false);

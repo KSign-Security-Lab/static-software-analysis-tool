@@ -9,18 +9,6 @@ import { useDataset, useDatasetId, useInstanceId } from "@/lib/bench/queries";
 import { OUTCOME_DOT, OUTCOME_LABEL } from "@/lib/bench/types";
 import { cn } from "@/lib/utils";
 
-/**
- * One instance: where it broke, under what, and the way into the run.
- *
- * 검사에서 열기 is the reason this is a workbench surface rather than a static
- * report. A failure you cannot open is a number you cannot act on -- the whole
- * trace is already recorded, and this is one link away from it.
- *
- * The link is built here by hand. `hrefFor`/`carries` in perspectives.ts is the
- * rail's mechanism: it copies params off the *current* URL into the target's
- * declared list, and this surface's URL never holds `run=`. Reaching for it
- * would produce a link to 검사 with no run on it.
- */
 export default function InstanceDetail() {
   const [datasetId] = useDatasetId();
   const [instanceId] = useInstanceId();

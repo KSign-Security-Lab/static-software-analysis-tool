@@ -1,107 +1,49 @@
 import type { RunLive } from "@/lib/run/reduce";
 import type { RunSummary } from "@/lib/api/types";
 
-/**
- * Which of the two screens 검사 is on.
- *
- * There were three. "Scanning" was a page for waiting -- a phase, a bar and a
- * growing list -- which then swapped for a *different* page the moment the run
- * ended, discarding the reader's scroll position and filters along with it. The
- * findings stream in during the scan, so the results page can simply be the
- * scanning page with a strip on it. A run in flight is not a different place.
- *
- * Derived rather than stored: a stage held in React would be a second source of
- * truth next to the run's own status, and the two would disagree exactly when it
- * mattered -- a reload mid-scan, a shared `?run=` link, a run this tab did not
- * start.
- */
-
 export type Stage = "intake" | "results";
 
 export interface StageInput {
   run: RunSummary | undefined;
   live: RunLive;
-  /** Whether the report has any findings yet, from the findings query. */
   hasFindings: boolean;
 }
 
 export function stageOf({ run, live, hasFindings }: StageInput): Stage {
-  // No run at all: nothing has been given to the tool yet.
   if (!run) return "intake";
 
-  // The stream is authoritative while it is open, because it is ahead of the
-  // row: a run this tab has just started still reads `indexed` for a moment.
   if (live.active && !live.finished) return "results";
 
   switch (run.status) {
     case "created":
     case "indexing":
-      // Uploaded and still being read. Intake owns this: it is the screen with
-      // somewhere to put "reading 1,204 files".
       return "intake";
     case "indexed":
-      // Indexed and never started. Intake, because the button to start is there
-      // and there is nothing yet to put on a results page.
       return "intake";
     case "inspecting":
-      // Running, with or without this tab attached to the stream.
       return "results";
     case "interrupted":
     case "cancelled":
     case "done":
       return "results";
     case "failed":
-      // A run that died having already reported something still has something
-      // to show. One that died with nothing has only the error, and the place
-      // that renders an error next to a retry is intake.
       return hasFindings ? "results" : "intake";
     default:
       return "intake";
   }
 }
 
-/**
- * Whether the scan is still going, from either side.
- *
- * The stream and the row disagree in both directions and briefly: a tab that has
- * just pressed start has a live stream while the row still says `indexed`, and a
- * tab that arrives mid-run has a row saying `inspecting` before its EventSource
- * has attached. Either is enough.
- */
 export function isScanning({ run, live }: Pick<StageInput, "run" | "live">): boolean {
-  // A row that says the run is over ends it, whatever the stream last said.
-  // `live.active` is only ever cleared by a `run_finished` frame, and that frame
-  // is published in-process, never replayed, and dropped outright if it arrives
-  // malformed -- so a tab that missed it would spin for ever on a run the server
-  // finished minutes ago. The stream is ahead of the row only while it is
-  // attached; detached, the last frame received is merely the last that arrived,
-  // and the provider is polling the row precisely because of that.
   if (!live.attached && run && run.status !== "inspecting") return false;
   if (live.active && !live.finished) return true;
   return run?.status === "inspecting";
 }
 
-/**
- * A run that stopped short and has somewhere to go.
- *
- * `stageOf` sends these to results, correctly -- there is a partial report to
- * read -- and results had no way to start anything: `Intake` owns 검사 시작 and
- * never renders, `ScanStrip` unmounted with `isScanning`, and `Coverage` is null
- * unless the run wasted calls. So a stop was a dead end for the run it stopped,
- * and so was a reload on a run parked at a breakpoint.
- */
 export function isStopped({ run, live }: Pick<StageInput, "run" | "live">): boolean {
   if (isScanning({ run, live })) return false;
   return run?.status === "cancelled" || run?.status === "interrupted";
 }
 
-/**
- * A sentence for where the scan is, or null when nothing is running.
- *
- * The graph's node names are the honest answer to "what is it doing" and they
- * are also jargon (`triage`, `scout`, `reduce`), so they are translated once,
- * here, rather than leaking into the progress screen.
- */
 const PHASE_LABEL: Record<string, string> = {
   plan: "다음에 읽을 단위를 고르는 중",
   replan: "계획을 다시 세우는 중",
@@ -122,13 +64,8 @@ const PHASE_LABEL: Record<string, string> = {
 
 export function phaseOf(live: RunLive): string | null {
   if (!live.active || live.finished) return null;
-  // Ahead of everything else, including the node names. Once 중단 has been
-  // accepted, what the run is *doing* is finishing -- naming the specialist it
-  // happens to be inside would read as work still being started.
   if (live.cancelling) return "중단하는 중";
   if (live.interrupted) return "중단점에서 멈춤";
-  // Several nodes genuinely run at once -- a wave screens in parallel. The
-  // furthest-along one reads better than a list, and the list is on the graph.
   for (const node of ["verify", "reduce", "gather", "locate"]) {
     if (live.running.includes(node)) return PHASE_LABEL[node];
   }
@@ -139,17 +76,9 @@ export function phaseOf(live: RunLive): string | null {
 export interface Progress {
   done: number;
   total: number;
-  /** 0-1, or null when the total is not known yet. */
   fraction: number | null;
 }
 
-/**
- * How much of the tree has been read.
- *
- * From the chunk counter on the stream rather than from files: a file is several
- * units and nothing on the wire says how many, so a per-file bar would stall at
- * whatever fraction the first file happened to be.
- */
 export function progressOf(live: RunLive): Progress {
   const chunk = live.chunk;
   if (!chunk || chunk.total <= 0) return { done: 0, total: 0, fraction: null };

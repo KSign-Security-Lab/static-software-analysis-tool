@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { looksLikeCpg, parseCpg, unwrapCpgDocument } from "./cpg";
 
-/**
- * Opening a CPG JSON is the old web/ app's primary input, restored after the
- * merge dropped it. The file can arrive in either wrapper depending on what
- * produced it, so the tolerance is pinned here rather than left to a try.
- */
-
 const GRAPHSON = {
   "@type": "tinker:graph",
   "@value": {

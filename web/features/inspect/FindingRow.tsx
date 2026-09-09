@@ -7,19 +7,6 @@ import { isFixable } from "@/lib/inspect/filter";
 import { SEVERITY_DOT, SEVERITY_LABEL, livenessOf, standingOf, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
-/**
- * One finding, as a row.
- *
- * Shared by the live list during a scan and the table afterwards, because they
- * are the same rows -- a reader who started reading at thirty seconds should not
- * have to re-learn the layout when the scan ends. The tick is what differs, and
- * it is a prop rather than a branch on the stage.
- *
- * The severity dot carries the alarm and nothing else competes with it: the
- * standing badge is deliberately uncoloured (see `components/panel/verdict`),
- * because two marks both trying to say how worried to be is how a list stops
- * being scannable.
- */
 export default function FindingRow({
   finding,
   selected = false,
@@ -29,7 +16,6 @@ export default function FindingRow({
 }: {
   finding: UiFinding;
   selected?: boolean;
-  /** Omit to render a row that cannot be put in the bucket. */
   ticked?: boolean;
   onTick?: () => void;
   onOpen?: () => void;
@@ -51,8 +37,6 @@ export default function FindingRow({
             checked={ticked}
             onCheckedChange={onTick}
             aria-label={`${finding.title} 담기`}
-            // A finding with only advice can still be ticked: the dialog offers
-            // to make code for it. Refusing the tick would hide that door.
           />
         </span>
       )}
@@ -78,8 +62,6 @@ export default function FindingRow({
           <span className="min-w-0 truncate">
             {finding.primary.file}:{finding.primary.startLine}
           </span>
-          {/* Says nothing when there is a patch, because that is the expected
-              case and a badge on every row is a badge nobody reads. */}
           {!isFixable(finding) && <span className="shrink-0 text-warn">패치 없음</span>}
           {finding.chunkIds.length > 1 && <span className="shrink-0">{finding.chunkIds.length}회 보고</span>}
         </span>

@@ -25,19 +25,6 @@ const SORT_LABEL: Record<(typeof SORTS)[number], string> = {
   confidence: "확신 높은 것부터",
 };
 
-/**
- * Narrowing the list, and saying how much of it is left.
- *
- * Every count is over the *whole* report rather than over what is currently
- * shown. A control whose number changes when you press it cannot tell you what
- * pressing it would do -- and these double as the summary of the run, so a
- * severity count that shrank as you filtered would stop being the answer to
- * "how bad is this".
- *
- * Facets are toggles rather than a single-select because the real questions are
- * plural: "critical and high", "these two files". An empty set means no opinion,
- * so nothing is excluded until something is pressed.
- */
 export default function FilterBar({
   findings,
   shown,
@@ -136,9 +123,6 @@ export default function FilterBar({
           </Facet>
         ))}
 
-        {/* After standing, because it answers a different question about the
-            same row: standing is whether the claim held, this is whether the
-            code runs. Neither refines the other. */}
         {livenesses.map(({ value, count }) => (
           <Facet
             key={value}
@@ -173,8 +157,6 @@ export default function FilterBar({
             label={`${value}만 보기`}
             mono
           >
-            {/* The basename. A full path is most of the row's width and the
-                distinguishing part is at the end of it. */}
             {value.split("/").pop()}
           </Facet>
         ))}
@@ -213,13 +195,6 @@ function Facet({
   dot?: string;
   count: number;
   mono?: boolean;
-  /**
-   * What pressing it does, for a screen reader.
-   *
-   * The visible text is the value alone -- `치명적`, `CWE-78` -- which reads as a
-   * label rather than as a control, and collides with the severity a row
-   * announces for its own dot. Naming it as a filter fixes both.
-   */
   label: string;
   children: React.ReactNode;
 }) {

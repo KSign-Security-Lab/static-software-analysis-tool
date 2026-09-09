@@ -3,14 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { RunStatus, RunSummary } from "@/lib/api/types";
 import { bestMatch, duplicateOf, summarise } from "./duplicate";
 
-/**
- * What to offer for a run that already holds the uploaded code.
- *
- * Getting this wrong means offering to resume something finished, or to open
- * something that never ran -- both of which read as the tool not knowing what it
- * has.
- */
-
 function run(over: Partial<RunSummary> & { status: RunStatus }): RunSummary {
   return {
     run_id: "r1",
@@ -28,19 +20,15 @@ describe("duplicateOf", () => {
   });
 
   it("carries on a run that stopped part-way", () => {
-    // Only the unread units cost anything: `plan` pops whatever is already
-    // marked inspected.
     expect(duplicateOf(run({ status: "failed" })).action).toBe("resume");
     expect(duplicateOf(run({ status: "cancelled" })).action).toBe("resume");
   });
 
   it("tells a parked run apart, because it is a different endpoint", () => {
-    // `/resume` steers the waiting worker; `/inspect` would start a second one.
     expect(duplicateOf(run({ status: "interrupted" })).action).toBe("unpark");
   });
 
   it("offers to watch a run that is already going", () => {
-    // Starting another would do the same work twice.
     expect(duplicateOf(run({ status: "inspecting" })).action).toBe("watch");
   });
 
@@ -61,8 +49,6 @@ describe("duplicateOf", () => {
 
 describe("summarise", () => {
   it("says what was found only for a run that finished", () => {
-    // "0건" on an unfinished run reads as "this code is clean" when it may
-    // simply never have got there.
     expect(summarise(run({ status: "done", findings: 3 }))).toContain("3건 발견");
     expect(summarise(run({ status: "done", findings: 0 }))).toContain("발견된 것 없음");
     expect(summarise(run({ status: "failed", findings: 0 }))).not.toContain("발견");
@@ -84,9 +70,6 @@ describe("summarise", () => {
 
 describe("bestMatch", () => {
   it("prefers a finished run over a more recent unstarted one", () => {
-    // The flaw this exists for: run against real history, the newest match was
-    // a tree somebody uploaded and never scanned, so the dialog offered to
-    // start it while two runs with actual findings sat behind it.
     const chosen = bestMatch([
       run({ status: "indexed", run_id: "newer-empty", updated_at: 200 }),
       run({ status: "done", run_id: "older-done", updated_at: 100 }),

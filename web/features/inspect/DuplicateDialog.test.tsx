@@ -6,15 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RunStatus, RunSummary, UploadResult } from "@/lib/api/types";
 
-/**
- * "This code has been scanned before" — asked, rather than discovered afterwards.
- *
- * The offer depends on how the earlier run ended, and getting that wrong means
- * offering to resume something finished or to open something that never ran. The
- * other half is bookkeeping: taking the earlier run must delete the upload that
- * just happened, or 지난 검사 fills with unstarted duplicates of one tree.
- */
-
 const startMatch = { mutateAsync: vi.fn().mockResolvedValue({}), isPending: false, reset: vi.fn() };
 const startFresh = { mutateAsync: vi.fn().mockResolvedValue({}), isPending: false, reset: vi.fn() };
 const resume = { mutateAsync: vi.fn().mockResolvedValue({}), isPending: false };
@@ -95,8 +86,6 @@ describe("taking the earlier run", () => {
   });
 
   it("carries on one that stopped part-way, without force", async () => {
-    // `plan` skips every unit already marked inspected, so carrying on is cheap
-    // -- and `force` would throw that away and redo the lot.
     await show(match("cancelled"));
     await userEvent.click(screen.getByRole("button", { name: /이어서 검사/ }));
 
@@ -104,7 +93,6 @@ describe("taking the earlier run", () => {
   });
 
   it("uses the resume endpoint for a parked one", async () => {
-    // `/inspect` would start a second worker beside the one still waiting.
     await show(match("interrupted"));
     await userEvent.click(screen.getByRole("button", { name: /이어서 검사/ }));
 
@@ -133,8 +121,6 @@ describe("taking the earlier run", () => {
     ["indexed", /그 검사 시작/],
     ["inspecting", /진행 중인 검사 보기/],
   ] as const)("always deletes the upload that just happened (%s)", async (status, label) => {
-    // It was never started and its tree is byte-identical to the one being
-    // opened, so keeping it would fill 지난 검사 with duplicates of one thing.
     await show(match(status));
     await userEvent.click(screen.getByRole("button", { name: label }));
 
@@ -144,8 +130,6 @@ describe("taking the earlier run", () => {
 
 describe("scanning it again anyway", () => {
   it("starts the fresh run with force, and keeps it", async () => {
-    // Without `force` this would re-serve the very cache the dialog just
-    // described and finish in seconds having called no model.
     const dismiss = await show(match("done"));
     await userEvent.click(screen.getByRole("button", { name: /새로 검사/ }));
 

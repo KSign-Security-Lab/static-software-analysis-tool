@@ -15,20 +15,6 @@ import {
 } from "@/lib/bench/types";
 import { cn } from "@/lib/utils";
 
-/**
- * The number, and everything that has to be true for it to be a number.
- *
- * In the corner and small, deliberately. The list beside it is the page; this
- * is the footnote the list earns. A score rendered large at the top makes every
- * conversation about the score, and the failure taxonomy -- which is the part
- * you can act on -- becomes decoration beneath it.
- *
- * The two kinds never share an axis and never share a word. 고정 코퍼스 is what
- * we tune against, so its number measures our iteration; SEC-bench is held out,
- * so its number measures us. Averaging them, or even columning them, invites
- * the move that ends the held-out set: read a low number, tune until it rises,
- * and it is no longer measuring anything.
- */
 export default function Scoreboard() {
   const [datasetId] = useDatasetId();
   const view = useDataset(datasetId);
@@ -58,7 +44,6 @@ export default function Scoreboard() {
         <p className="rounded-md border border-warn/40 bg-warn-wash px-3 py-2 text-xs text-warn">{view.data.problem}</p>
       )}
       <Progress view={view.data} />
-      {/* Only the SEC-bench splits have a sweep to run; the corpus is a directory. */}
       {dataset.split && <Sweep dataset={dataset} instances={view.data.instances} />}
       <Breakdown view={view.data} />
 
@@ -78,18 +63,8 @@ export default function Scoreboard() {
   );
 }
 
-/**
- * How much of the set has been attempted at all.
- *
- * The list shows what the sweep recorded, which on a set of two hundred is four
- * rows for two days. Without this the page reads as a complete result over four
- * instances instead of the opening of a long run, and the 200 in the blurb has
- * nothing to connect to.
- */
 function Progress({ view }: { view: DatasetView }) {
   const total = view.dataset.total || view.instances.length;
-  // Rows are the whole split now, so a row is not an attempt: the unrun ones
-  // are listed too, which is the point.
   const attempted = view.instances.filter((i) => i.outcome !== "not_run").length;
   if (!total || attempted >= total) return null;
 
@@ -108,18 +83,6 @@ function Progress({ view }: { view: DatasetView }) {
   );
 }
 
-/**
- * Where it broke, and how much of it broke that way.
- *
- * The page's actual subject, given the width. The list on the left says which
- * instances; this says which *kind* is thick, which is the question the whole
- * ordering of this surface exists to answer -- and it is the thing you act on,
- * where the score is the thing you report.
- *
- * Only the stages this dataset can reach, and 안 돌림 is left out: it is the
- * size of the remaining work, not a way of failing, and at 90 of 100 it would
- * flatten every real bar to nothing.
- */
 function Breakdown({ view }: { view: DatasetView }) {
   const stages: Outcome[] = [...view.dataset.stages, "solved"];
   const counted = view.instances.filter((i) => !["not_run", "awaiting_score", "harness_error"].includes(i.outcome));
@@ -155,12 +118,6 @@ function Breakdown({ view }: { view: DatasetView }) {
   );
 }
 
-/**
- * A score, or a sentence saying why there is not one.
- *
- * Never a dash. Every refusal names the missing piece, because "—" and "0%"
- * look alike at a glance and mean opposite things.
- */
 function ScoreCard({ dataset, score }: { dataset: Dataset; score: Score }) {
   if (!score.available) {
     return (
@@ -183,14 +140,11 @@ function ScoreCard({ dataset, score }: { dataset: Dataset; score: Score }) {
     <div className="w-56 shrink-0 rounded-md border border-line bg-surface-2 p-3">
       <p className="text-2xs text-ink-faint">{dataset.score_label}</p>
       <p className="pt-0.5 font-mono text-2xl text-ink-strong">{Math.round(score.value * 100)}%</p>
-      {/* The three that make it a score rather than a decoration. */}
       <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 pt-2 text-2xs">
         <dt className="text-ink-faint">통과</dt>
         <dd className="font-mono text-ink-muted">
           {score.solved} / {score.scored}
         </dd>
-        {/* Right family and right id are different claims. Folding them into
-            one number would hide the looser half behind the stricter word. */}
         <dt className="text-ink-faint">정확</dt>
         <dd className="font-mono text-ink-muted">
           {score.exact}
@@ -204,9 +158,6 @@ function ScoreCard({ dataset, score }: { dataset: Dataset; score: Score }) {
         <dd className="truncate font-mono text-ink-muted">{score.config_hash}</dd>
         <dt className="text-ink-faint">제외</dt>
         <dd className="font-mono text-ink-muted">{score.excluded}</dd>
-        {/* Not a failure of the agent, so not in the denominator — and said
-            out loud, because a denominator that shrank quietly is the thing
-            this page exists to make impossible. */}
         <dt className="text-ink-faint">실행 실패</dt>
         <dd className="font-mono text-ink-muted">{score.harness}</dd>
       </dl>
@@ -219,14 +170,6 @@ function ScoreCard({ dataset, score }: { dataset: Dataset; score: Score }) {
   );
 }
 
-/**
- * Published numbers, and the ones that are not numbers yet.
- *
- * Reported, never reproduced — we did not run these. A baseline missing its
- * model or its citation renders as 출처 대기 rather than as a figure: the model
- * is most of what is being compared, and the one part of this page that is
- * supposed to be trustworthy for not being ours is the last place to guess.
- */
 function Baselines({ dataset }: { dataset: Dataset }) {
   return (
     <section>

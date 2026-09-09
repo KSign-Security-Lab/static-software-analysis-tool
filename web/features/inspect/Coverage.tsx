@@ -12,40 +12,10 @@ import { useSpans } from "@/lib/run/trace-queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import { failuresByUnit } from "@/lib/trace/failures";
 
-/**
- * How much of this report this scan actually produced.
- *
- * Two facts, both already in `stats` and neither on screen, and both answering
- * the same question: is the list below what the code contains, or what this run
- * happened to look at?
- *
- * `failed` counts model calls that produced nothing usable. The commonest cause
- * is not a model too small for the schema, which is what this used to say: on a
- * reasoning model the reasoning and the JSON come out of one allowance and the
- * reasoning goes first, so the object is cut off having barely started. Run
- * dbd2c9e7ca62 spent 3657 completion tokens to emit 473 characters of JSON.
- * `nodes.py` is explicit that the unit was then NOT analysed by that lens, and
- * records why it matters: a real buffer overflow was lost exactly this way when
- * `memory` died on the limit while `injection` succeeded, so the unit looked
- * fully read and was not.
- *
- * Which is why the count alone was never enough. `failuresByUnit` reads the same
- * spans and says *which* units lost *which* lens -- it was written, tested, and
- * imported by nothing until now.
- *
- * `chunks_cached` counts units served from an earlier run. That is a feature --
- * a chunk id is content-derived and the cache is keyed by the recipe too, so a
- * hit means the same code under the same model and prompts -- but a scan of a
- * re-uploaded tree finishing in five seconds with no model called is startling
- * when nothing says so. It reads as the tool having resumed something.
- */
 export default function Coverage({ stats }: { stats: RunStats | undefined }) {
   const [runId] = useRunId();
   const { ensureAttached } = useRunStream();
   const start = useStartRun(runId, ensureAttached);
-  // Which units, not just how many calls. `failuresByUnit` has existed and been
-  // tested since this banner was written and nothing ever imported it, so a run
-  // that left 177 of 673 units partly unread said only `328번의 판단이 실패`.
   const { data: trace } = useSpans(runId);
   const blind = useMemo(() => failuresByUnit(trace?.spans ?? []), [trace]);
 

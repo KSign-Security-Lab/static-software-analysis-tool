@@ -12,20 +12,6 @@ import { wireId, type UiFinding } from "@/lib/model/finding";
 import { useFile, useProposeFix } from "@/lib/run/queries";
 import { useRunId } from "@/lib/run/use-run-id";
 
-/**
- * The fix, as the change it would make.
- *
- * Two renderings of one diff and they are not redundant. The unified patch is
- * four lines in a column and answers "what changes" at a glance; the side-by-side
- * is for a fix long enough that a `-` and its `+` land rows apart, which is where
- * a `<pre>` stops being readable. The second is behind a button because it loads
- * Monaco.
- *
- * A finding with advice and no code gets a button instead. That is not a gap to
- * apologise for: the specialist proposes a fix only when it fits the lines the
- * anchor resolved to, and often it does not -- so the honest offer is to go and
- * ask for one.
- */
 export default function FixPatch({ finding }: { finding: UiFinding }) {
   const [runId] = useRunId();
   const propose = useProposeFix(runId);
@@ -57,13 +43,6 @@ export default function FixPatch({ finding }: { finding: UiFinding }) {
   );
 }
 
-/**
- * The replacement on its own, when the server computed no diff.
- *
- * Reachable for a fix that arrived from `/propose` in a report the run then
- * re-saved -- the diff is built from the file as it was read, and a finding
- * whose file could not be re-read has the code but not the comparison.
- */
 function PlainReplacement({ finding }: { finding: UiFinding }) {
   return (
     <pre className="overflow-x-auto rounded-md border border-line bg-field p-2 font-mono text-2xs leading-relaxed text-ok">
@@ -72,15 +51,6 @@ function PlainReplacement({ finding }: { finding: UiFinding }) {
   );
 }
 
-/**
- * The file before and after, side by side.
- *
- * Splices in the browser purely to *show* it. Nothing is written from here and
- * nothing downloadable is built from it -- the patch that leaves is the one the
- * server splices, so a disagreement between this and that would be a display
- * bug rather than a corrupted file. Which is why `lib/inspect/splice` is allowed
- * to be the simpler, unchecked version.
- */
 function SideBySide({ finding }: { finding: UiFinding }) {
   const [runId] = useRunId();
   const file = useFile(runId, finding.primary.file);

@@ -4,15 +4,6 @@ import type { TraceSpan } from "@/lib/api/types";
 import { IDLE, type RunLive } from "@/lib/run/reduce";
 import { activeAgents, filesInFlight, filesScanned, nodeLabel, recentTools } from "./agents";
 
-/**
- * Turning what the stream says into what a reader can watch.
- *
- * A scan is minutes of nothing visible, so the value here is that the names are
- * the *same* names the structure drawing and 판단 과정 use -- a reader who learns
- * one recognises the other. Which is why these are borrowed from `CODE_ROLE` and
- * `roleOf` rather than coined, and why the test pins that rather than the strings.
- */
-
 const live = (over: Partial<RunLive> = {}): RunLive => ({ ...IDLE, ...over });
 
 function span(over: Partial<TraceSpan> & { id: string; seq: number }): TraceSpan {
@@ -48,7 +39,6 @@ describe("nodeLabel", () => {
   });
 
   it("bridges a lens, which is a node here and a step everywhere else", () => {
-    // `roleOf` speaks `lens:memory`; the graph calls the same thing `memory`.
     expect(nodeLabel("memory")).toBe("memory 분석");
     expect(nodeLabel("injection")).toBe("injection 분석");
   });
@@ -60,8 +50,6 @@ describe("nodeLabel", () => {
 
 describe("activeAgents", () => {
   it("reports every node running, because several genuinely are", () => {
-    // A wave screens in parallel and the specialists are dispatched together;
-    // one name would have shown whichever event arrived last.
     const agents = activeAgents(live({ running: ["triage", "memory", "injection"] }));
     expect(agents.map((a) => a.label)).toEqual(["선별", "memory 분석", "injection 분석"]);
     expect(agents.map((a) => a.lens)).toEqual([false, true, true]);
@@ -69,10 +57,6 @@ describe("activeAgents", () => {
   });
 
   it("counts repeats instead of listing them twice", () => {
-    // The graph fans out with `Send`, so one node genuinely runs several times
-    // at once. Two rows both reading `건너뛰기 skip` look like a rendering fault,
-    // and keying a list by a name that repeats *is* one -- React reported
-    // duplicate keys for exactly this.
     const agents = activeAgents(live({ running: ["skip", "skip", "gather", "skip"] }));
     expect(agents).toEqual([
       { node: "skip", label: "건너뛰기", lens: false, count: 3 },
@@ -87,8 +71,6 @@ describe("activeAgents", () => {
 
 describe("filesInFlight", () => {
   it("lists each file once, however many of its units are being read", () => {
-    // Keyed by unit on purpose: a wave is often two functions of one file, and a
-    // set of files could only be added to.
     const at = live({
       inflight: new Map([
         ["c1", "src/app.c"],
@@ -111,8 +93,6 @@ describe("filesScanned", () => {
   });
 
   it("is what a tab that joined late has instead of inflight", () => {
-    // The stream cannot be replayed, so every `chunk_started` before the tab
-    // attached is gone -- but the chunks that have *finished* since are known.
     const at = live({ inflight: new Map(), scanned: new Set(["src/app.c"]) });
     expect(filesInFlight(at)).toEqual([]);
     expect(filesScanned(at)).toEqual(["src/app.c"]);

@@ -1,25 +1,5 @@
 import { Network, ScanSearch, ShieldCheck, TerminalSquare, Trophy, type LucideIcon } from "lucide-react";
 
-/**
- * The five surfaces, declared once.
- *
- * The rail reads this, so a route cannot be added in one place and forgotten in
- * another -- and `carries` names the params that must survive a switch, which is
- * what stops the rail dropping `?run=` on the way past.
- *
- * Two shells, one list. 검사 left the workbench: it is a flow -- give code, read
- * findings, take a patch -- and a four-pane IDE is the wrong shape for a flow.
- * The four research surfaces stayed, because comparing a graph against the code
- * that produced it is exactly what resizable panes are for. `panes` and `chrome`
- * are the workbench's fields and 검사 answers both with nothing.
- *
- * 트레이스 was a sixth until it turned out not to be a place. What it held now
- * belongs to the finding it explains: 판단 과정 and 에이전트 구조 are the last two
- * sections of a finding's detail, closed until asked for. They were two of four
- * centre tabs competing with the code for width, which is why neither was ever
- * read -- the reader had to leave the finding to look at its own reasoning.
- */
-
 export type PerspectiveId = "agent" | "f2a" | "extract" | "stages" | "bench";
 
 export interface Perspective {
@@ -28,46 +8,10 @@ export interface Perspective {
   label: string;
   note: string;
   icon: LucideIcon;
-  /** Search params that follow you into this perspective, if they are set. */
   carries: readonly string[];
-  /**
-   * The panes this surface actually has.
-   *
-   * The title bar offered a fold for all three everywhere, so on 스테이지 --
-   * which has neither a bottom panel nor an inspector -- two of the three
-   * buttons unfolded a pane whose only content was a sentence explaining that
-   * this screen does not have one. A control that reveals its own apology.
-   *
-   * `defaultLayoutFor` in layout-cookie.ts sizes the absent ones to 0; this is
-   * the same fact said where the chrome can read it.
-   */
   panes: readonly ("side" | "dock" | "inspector")[];
-  /**
-   * Whether this surface wants the title bar above it.
-   *
-   * 검사 does not. The bar was `SSAT │ 검사 │ 1,270px of nothing │ 사용법 ▣▣▣`
-   * at 1600, with a second 36px run strip under it, and between them they cost
-   * 72px of permanent chrome for information that is transient (the phase, the
-   * coverage), post-hoc (tokens, duration) or pressed once a run (검사 실행,
-   * the run selector). Moving those pieces around never helped because none of
-   * them wanted to be permanent; they are inside the regions that use them now.
-   *
-   * The rail carries what is genuinely global, so nothing is lost -- see
-   * `ActivityBar`'s foot.
-   */
   chrome: boolean;
-  /**
-   * What this surface answers, in one sentence.
-   *
-   * Five tools share one shell and they look alike from the outside -- the
-   * same rail, the same four panels. Which question each one answers is the
-   * thing an icon cannot say.
-   */
   purpose: string;
-  /**
-   * How to use it, in order. Named after the controls actually on screen, so
-   * following it is a matter of reading rather than of guessing.
-   */
   steps: readonly string[];
 }
 
@@ -79,9 +23,6 @@ export const PERSPECTIVES: readonly Perspective[] = [
     note: "코드를 올려 취약점을 찾고, 고칠 것만 골라 패치를 받습니다",
     icon: ScanSearch,
     carries: ["run"],
-    // Neither. This surface has its own shell -- see app/(inspect) -- and the
-    // workbench never renders it, so a pane list or a title bar here would be
-    // describing a layout that does not exist.
     panes: [],
     chrome: false,
     purpose:
@@ -133,11 +74,6 @@ export const PERSPECTIVES: readonly Perspective[] = [
     label: "벤치마크",
     note: "공개 벤치마크에서 어디까지 하고 어디서 깨지는지 봅니다",
     icon: Trophy,
-    // This surface's own state, and only that. `carries` is the *rail's*
-    // mechanism -- `hrefFor` copies these off the current URL when you switch
-    // *into* bench -- so it has nothing to do with opening an instance's run.
-    // That link is built by hand in `InstanceDetail` from `instance.run_id`,
-    // because this surface's URL never holds a `run=` to carry.
     carries: ["dataset", "instance"],
     panes: ["side", "inspector"],
     chrome: false,
@@ -178,18 +114,6 @@ export function perspective(id: PerspectiveId): Perspective {
   return found;
 }
 
-/**
- * Which perspective a path belongs to.
- *
- * Longest match wins, so `/extract/stages` is 스테이지 rather than the 추출
- * view that merely shares its prefix.
- *
- * Takes a nullable path because every caller hands it `usePathname()` directly,
- * and that returns `null` outside a router -- which threw
- * `Cannot read properties of null` from three call sites rather than answering
- * "no perspective", which is the honest answer to "where am I" when nobody
- * knows.
- */
 export function perspectiveFor(pathname: string | null | undefined): Perspective | undefined {
   if (!pathname) return undefined;
   let best: Perspective | undefined;
@@ -200,7 +124,6 @@ export function perspectiveFor(pathname: string | null | undefined): Perspective
   return best;
 }
 
-/** A link into `id`, carrying across whichever of its params are currently set. */
 export function hrefFor(id: PerspectiveId, params?: URLSearchParams | null): string {
   const target = perspective(id);
   if (!params) return target.href;

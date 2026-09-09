@@ -5,13 +5,6 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 
-/**
- * The raw result.
- *
- * Deliberately a <pre> and not a collapsible tree: this exists for checking
- * what the pipeline actually emitted, and a tree that hides half of it by
- * default is the opposite of that.
- */
 export default function JsonLens({ value }: { value: unknown }) {
   const text = JSON.stringify(value, null, 2);
 

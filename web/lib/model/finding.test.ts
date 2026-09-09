@@ -5,12 +5,6 @@ import type { F2AResult } from "@/lib/types";
 import raw from "./__fixture.f2a.json";
 import { countByFile, fromAgent, fromF2A, sortFindings, type UiFinding } from "./finding";
 
-/**
- * The two engines are not coupled, but once a result exists it is described the
- * same way so one list and one set of markers serve both. These pin that
- * mapping -- the F2-A side against a payload the real pipeline produced.
- */
-
 const f2a = raw as unknown as F2AResult;
 
 function agentFinding(over: Partial<AgentFinding> = {}): AgentFinding {
@@ -136,13 +130,6 @@ describe("both engines in one list", () => {
 });
 
 describe("merging duplicate claims", () => {
-  /**
-   * The chunker makes a unit of each file's top-level declarations *and* a unit
-   * of each function in it, so a problem inside a function is looked at twice
-   * and reported twice: same title, same CWE, same line, two `chunk_id`s. A real
-   * run against `main.c` produced exactly that -- two CWE-78 rows at main.c:6,
-   * identical on screen, with nothing to tell them apart.
-   */
   const twice = (over: Partial<AgentFinding> = {}) => [
     agentFinding({ id: "a", chunk_id: "file-chunk" }),
     agentFinding({ id: "b", chunk_id: "fn-chunk", ...over }),
@@ -156,7 +143,6 @@ describe("merging duplicate claims", () => {
   });
 
   it("says how many units agreed, rather than repeating the row", () => {
-    // What the extra copy is worth: corroboration, not noise.
     expect(fromAgent(twice())[0].mergedIds).toHaveLength(1);
   });
 
@@ -174,7 +160,6 @@ describe("merging duplicate claims", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].id).toBe("agent:b");
     expect(merged[0].diff).toBe("@@ -1 +1 @@");
-    // The one that lost still lends its id, so a link to it resolves.
     expect(merged[0].mergedIds).toEqual(["agent:a"]);
   });
 
@@ -187,7 +172,6 @@ describe("merging duplicate claims", () => {
   });
 
   it("does not merge the same claim at two different lines", () => {
-    // Two calls to the same unsafe function are two problems to fix.
     const elsewhere = [
       agentFinding({ id: "a", chunk_id: "c1" }),
       agentFinding({

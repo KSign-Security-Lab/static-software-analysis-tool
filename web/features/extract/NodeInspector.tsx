@@ -4,13 +4,6 @@ import { Boxes } from "lucide-react";
 import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 import { useCpgSource } from "../cpg/provider";
 
-/**
- * What the extraction produced, in numbers.
- *
- * Not a per-node property sheet: the graph nodes already carry their label and
- * text, and a panel that repeats them adds a click without adding an answer.
- * What is not visible on the canvas is the shape of the whole thing.
- */
 export default function NodeInspector() {
   const cpg = useCpgSource();
   const f2a = cpg.response?.f2a;

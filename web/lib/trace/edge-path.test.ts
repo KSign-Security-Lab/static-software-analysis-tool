@@ -8,22 +8,17 @@ describe("roundedPath", () => {
   });
 
   it("eases a bend instead of mitring it", () => {
-    // The shape dagre hands back for an edge that steps across a rank.
     const d = roundedPath([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 80 }], 10);
     expect(d).toBe("M 0,0 L 40,0 Q 50,0 50,10 L 50,80");
   });
 
   it("clamps the radius to half the shorter segment", () => {
-    // Two bends 12px apart with a 10px radius would each eat 10px of a 12px
-    // segment and cross the line they are smoothing.
     const d = roundedPath([{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 12, y: 12 }, { x: 60, y: 12 }], 10);
     expect(d).toContain("L 6,0 Q 12,0 12,6");
     expect(d).toContain("L 12,6 Q 12,12 18,12");
   });
 
   it("drops a repeated point rather than dividing by zero on it", () => {
-    // dagre emits these where a route enters and leaves a dummy node at one
-    // coordinate.
     const d = roundedPath([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 40 }], 10);
     expect(d).toBe("M 0,0 L 40,0 Q 50,0 50,10 L 50,40");
     expect(d).not.toContain("NaN");
@@ -37,7 +32,6 @@ describe("roundedPath", () => {
       { x: 120, y: 60 },
       { x: 120, y: 10 },
     ];
-    // Four segments, so three eased corners.
     expect(roundedPath(points).match(/Q/g)).toHaveLength(3);
   });
 

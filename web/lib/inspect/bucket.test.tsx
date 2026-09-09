@@ -47,9 +47,6 @@ describe("the ticked set", () => {
   });
 
   it("keeps runs apart", () => {
-    // A finding id is content-derived, so the same id in another run is the same
-    // claim about different code. Carrying ticks across would build a patch
-    // nobody asked for.
     render(<Ticks runId="r1" />);
     act(() => toggle("r1", "shared"));
     act(() => toggle("r2", "shared"));
@@ -73,7 +70,6 @@ describe("surviving a reload", () => {
   it("reads them back when the module has forgotten", () => {
     window.sessionStorage.setItem("ssat.bucket.r1", JSON.stringify(["f1", "f2"]));
     render(<Ticks runId="r1" />);
-    // Triaging a real scan is minutes of decisions held in nothing but ticks.
     expect(screen.getByRole("status").textContent).toBe("f1,f2");
   });
 
@@ -98,9 +94,6 @@ describe("surviving a reload", () => {
 
 describe("reconcile", () => {
   it("drops ticks the report no longer has", () => {
-    // The ordinary way this happens is a re-scan: ids are content-derived, so a
-    // finding that was fixed comes back under a different id -- and a stale tick
-    // would be counted in the tray and then refused by the server.
     render(<Ticks runId="r1" />);
     act(() => setMany("r1", ["stays", "gone"], true));
     act(() => reconcile("r1", ["stays", "new"]));

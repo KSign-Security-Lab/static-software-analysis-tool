@@ -10,19 +10,6 @@ import type { UiFinding } from "@/lib/model/finding";
 import { keys } from "@/lib/query/keys";
 import Findings from "./Findings";
 
-/**
- * The report as a working list.
- *
- * What is worth pinning here is not the rendering -- `FindingRow` covers that --
- * but the two behaviours that make the list usable on a real scan: the facet
- * counts are over the whole report rather than over what is currently shown, and
- * an empty report is a result rather than an error.
- *
- * A run *is* in the URL, because the bucket is keyed by it and no run means no
- * ticks. The queries it enables are seeded into the cache instead of mocked, so
- * nothing reaches the network and nothing has to pretend to be `fetch`.
- */
-
 const RUN = "r1";
 
 afterEach(cleanup);
@@ -56,16 +43,11 @@ function finding(over: Partial<UiFinding> & { id: string }): UiFinding {
 
 function show(findings: UiFinding[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  // Seeded, not stubbed: the components read through the same hooks they do in
-  // the app, and a cache hit is indistinguishable from a served response.
   client.setQueryData(keys.findings(RUN), { schema_version: "1", run_id: RUN, findings: [], stats: {} });
   client.setQueryData(keys.summary(RUN), { run_id: RUN, status: "done", files: [], file_count: 0, updated_at: 0, started: true });
   return render(
     <NuqsTestingAdapter searchParams={{ run: RUN }}>
       <QueryClientProvider client={client}>
-        {/* `Coverage` offers a forced re-scan, and starting a run must attach the
-            stream first -- the server ends it when a run finishes, so a second
-            run would otherwise execute with nobody listening. */}
         <RunStreamProvider runId={null}>
           <Findings findings={findings} />
         </RunStreamProvider>
@@ -92,7 +74,6 @@ describe("the list", () => {
     show(ROWS);
     const titles = screen.getAllByRole("button").map((b) => b.textContent ?? "");
     expect(titles.find((t) => t.includes("문제 crit"))).toBeTruthy();
-    // The critical row precedes both low ones in the DOM.
     const all = screen.getByRole("list").textContent ?? "";
     expect(all.indexOf("문제 crit")).toBeLessThan(all.indexOf("문제 low-a"));
   });
@@ -115,8 +96,6 @@ describe("filtering", () => {
   });
 
   it("leaves the facet counts alone while filtering", async () => {
-    // A control whose number changes when you press it cannot say what pressing
-    // it would do -- and these double as the summary of the run.
     show(ROWS);
     await userEvent.click(screen.getByRole("button", { name: "치명적만 보기" }));
     expect(screen.getByRole("button", { name: "낮음만 보기" }).textContent).toContain("2");
@@ -151,21 +130,13 @@ describe("the bucket tray", () => {
   });
 
   it("names how many of the ticks carry no code", async () => {
-    // The number the patch will actually contain, said before the dialog rather
-    // than discovered from a shorter file than expected.
     show([...ROWS, finding({ id: "prose", replacement: null })]);
-    // By name, not by position: rows are sorted worst-first, so the row with no
-    // code is not the last one just because it was appended last.
     await userEvent.click(screen.getByRole("checkbox", { name: /문제 prose/ }));
     expect(screen.getByText(/패치 없는 것/)).toBeInTheDocument();
   });
 });
 
 describe("code that does not run", () => {
-  // The reader's objection, made into a list behaviour: a real defect in a
-  // never-called helper is not the same news as one in a request handler. It is
-  // folded, never hidden -- dead code is revived, and the index cannot see a
-  // call made through a function pointer.
   const reach = (state: string, why: string[] = []) =>
     ({ state, callers: 0, hops: null, why }) as UiFinding["reach"];
 
@@ -199,8 +170,6 @@ describe("code that does not run", () => {
   });
 
   it("does not fold away the very thing a reader just asked to see", async () => {
-    // Clicking 도달 불가 and getting an empty list with a "2건 folded" button
-    // would be the filter arguing with itself.
     show(mixed());
     await userEvent.click(await screen.findByText("도달 불가"));
 
@@ -210,8 +179,6 @@ describe("code that does not run", () => {
 
   it("counts every finding in the facets, folded or not", async () => {
     show(mixed());
-    // The chip row is built from the whole report, so the folded half is still
-    // counted -- a reader must not have to unfold to find out what is there.
     expect(await screen.findByText("도달 불가")).toBeTruthy();
     expect(screen.getByText("시험·예제 코드")).toBeTruthy();
   });

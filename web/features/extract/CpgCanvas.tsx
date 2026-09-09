@@ -7,7 +7,6 @@ import FlowChrome, { FLOW_THEME } from "@/components/graph/chrome";
 import { layoutView } from "@/lib/layout";
 import type { GraphView } from "@/lib/types";
 
-/** One projected view of the CPG, laid out and drawn. */
 function Canvas({
   view,
   selected,

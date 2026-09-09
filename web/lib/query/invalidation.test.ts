@@ -29,8 +29,6 @@ describe("InvalidationQueue", () => {
   });
 
   it("collapses a burst into one invalidation per key", () => {
-    // A wave of four lens tasks lands four checkpoints in about 100ms. Without
-    // this, that is sixteen requests for a single super-step.
     const client = spyClient();
     const queue = new InvalidationQueue(client, 250);
 
@@ -51,8 +49,6 @@ describe("InvalidationQueue", () => {
     queue.add(["a"]);
     vi.advanceTimersByTime(90);
     queue.add(["b"]);
-    // The window is not extended by later additions; it fires 100ms after the
-    // first, having accumulated both.
     vi.advanceTimersByTime(10);
     expect(client.calls).toHaveLength(2);
   });
@@ -74,8 +70,6 @@ describe("InvalidationQueue", () => {
   });
 
   it("flushes immediately when asked", () => {
-    // run_finished does this: the report is on disk now and waiting a further
-    // quarter second to read it is just latency.
     const client = spyClient();
     const queue = new InvalidationQueue(client, 250);
     queue.add(["a"]);

@@ -1,5 +1,3 @@
-// Turn a GraphView into positioned React-Flow nodes/edges via a dagre layout.
-
 import dagre from "dagre";
 import type { Edge, Node } from "@xyflow/react";
 import type { GraphView, ViewKey } from "./types";
@@ -7,14 +5,6 @@ import type { GraphView, ViewKey } from "./types";
 const NODE_W = 190;
 const NODE_H = 46;
 
-/**
- * A colour per Joern vertex label, so each view is readable at a glance.
- *
- * Design-system tokens rather than the hex ladder that used to be here: those
- * were picked against the old blue palette and did not move with the theme, so
- * in light mode the graph stayed dark-mode-coloured. These are the same hues
- * the rest of the app uses for the same jobs.
- */
 const LABEL_COLORS: Record<string, string> = {
   METHOD: "var(--alt)",
   CALL: "var(--accent)",
@@ -92,8 +82,6 @@ export function layoutView(view: GraphView): LaidOut {
         width: NODE_W,
         borderRadius: 10,
         border: `2px solid ${color}`,
-        // Was `var(--node-bg)`, which was never defined anywhere in the repo --
-        // so every node fell back to React Flow's default white, in both themes.
         background: "var(--surface-2)",
         color: "var(--ink)",
         fontSize: 12,

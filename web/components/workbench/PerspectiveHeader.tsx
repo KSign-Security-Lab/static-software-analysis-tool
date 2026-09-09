@@ -18,27 +18,6 @@ const PANES: { id: PaneId; icon: typeof PanelLeft }[] = [
   { id: "inspector", icon: PanelRight },
 ];
 
-/**
- * The title bar: where you are, and the window controls.
- *
- * There used to be a status strip along the foot of the window as well, carrying
- * the run id, the phase and a standing "로컬 기록 · 외부 전송 없음". The phase is
- * at the top of the pane that shows the run now, where it means something, and
- * the rest was a permanent band of text nobody needed twice -- so the strip is
- * gone and these controls are the only chrome left around the panels.
- *
- * It carries the wordmark in a cell exactly as wide as the rail, so the rail,
- * this bar and the panel headers below all meet on the same two lines rather
- * than stacking three bands of three different heights. Same height as a panel
- * header, for the same reason.
- *
- * The panel folds and the theme live here rather than at the foot of the rail. They
- * are window controls, not places to go -- and putting them here leaves the rail
- * doing one job.
- *
- * The folds no longer advertise a keybinding: ⌘B and ⌘J went with the keyboard
- * layer, which existed to feed a command palette this app does not have.
- */
 export default function PerspectiveHeader() {
   const current = perspectiveFor(usePathname());
   const { setTheme } = useTheme();
@@ -54,9 +33,6 @@ export default function PerspectiveHeader() {
         SSAT
       </span>
 
-      {/* The perspective's one-line pitch used to sit beside this. It never
-          changed and never told anyone anything twice; it is in 사용법 now, with
-          the rest of the explaining. */}
       {current && (
         <h1 className="min-w-0 flex-1 truncate px-3 text-sm font-semibold text-ink-strong">{current.label}</h1>
       )}
@@ -91,9 +67,6 @@ export default function PerspectiveHeader() {
 
         <span className="mx-1 h-4 w-px bg-line" />
 
-        {/* Only the panes this surface has. 검사 has one, and offering to
-            unfold the other two revealed a pane whose entire content was a
-            sentence saying this screen does not have one. */}
         {PANES.filter(({ id }) => current?.panes.includes(id)).map(({ id, icon: Icon }) => (
           <Tooltip key={id}>
             <TooltipTrigger asChild>

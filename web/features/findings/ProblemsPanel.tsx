@@ -8,18 +8,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ENGINE_LABEL, SEVERITY_DOT, SEVERITY_LABEL, SEVERITY_TEXT, sortFindings, type Engine, type UiFinding } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
-/**
- * The findings, worst first.
- *
- * Shared, and here rather than under a surface, because F2-A is the only caller
- * left: 검사 shows its findings with the reasoning folded into each row (see
- * features/inspect/FindingList.tsx), which a list-plus-detail-pane cannot do.
- *
- * Both engines land here -- the structural line and the agent answer the same
- * question about the same code, so they are read the same way. The filter says
- * which produced what, because that is the one thing you cannot tell by
- * looking at a finding.
- */
 export default function ProblemsPanel({
   findings,
   selectedId,

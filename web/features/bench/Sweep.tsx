@@ -11,18 +11,6 @@ import type { Dataset, Instance } from "@/lib/bench/types";
 import { describeError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
-/**
- * Starting a long job from a web page, and coming back to it.
- *
- * The run is a detached process on the server with its own session and its own
- * log, so closing the tab, restarting the API and losing the network all leave
- * it running. Everything shown here is read off that log, which is why the
- * panel says the same thing in a browser opened tomorrow as in the one that
- * pressed the button.
- *
- * It does not survive the machine rebooting, and the panel says so rather than
- * implying a durability it does not have.
- */
 export default function Sweep({ dataset, instances }: { dataset: Dataset; instances: Instance[] }) {
   const status = useSweep();
   const start = useStartSweep();
@@ -32,14 +20,10 @@ export default function Sweep({ dataset, instances }: { dataset: Dataset; instan
 
   if (!status.data) return null;
   const { running, position, of, instance, started_at, log, chose, split } = status.data;
-  // One log, one machine: what it holds is the last run of either split. Saying
-  // so beats a panel on the OSS page quietly showing two hundred CVE instances.
   const elsewhere = !running && split && split !== dataset.split;
   const busy = start.isPending || stop.isPending;
   const failed = start.error || stop.error;
 
-  // Ticking instances that are already done is how you ask for them again, so
-  // the offer to redo them only appears when there are some.
   const done = new Set(instances.filter((i) => i.outcome !== "not_run").map((i) => i.id));
   const redoing = chosen.filter((id) => done.has(id)).length;
 
@@ -116,14 +100,6 @@ export default function Sweep({ dataset, instances }: { dataset: Dataset; instan
   );
 }
 
-/**
- * The tail of the sweep's log.
- *
- * The one thing a long run owes whoever left it: some sign it is alive and
- * some idea of what went wrong when it is not. Follows the bottom while it is
- * running and stops following once it stops, so a finished run can be read
- * without the view yanking back down.
- */
 function Log({ lines, running }: { lines: string[]; running: boolean }) {
   const box = useRef<HTMLPreElement>(null);
 
@@ -145,7 +121,6 @@ function Log({ lines, running }: { lines: string[]; running: boolean }) {
   );
 }
 
-/** The lines worth finding by eye in a wall of INFO. */
 function tone(line: string): string {
   if (/^(red|ERROR|.*refusing to start)/.test(line) || line.includes("ERROR")) return "text-warn";
   if (line.startsWith("== ") || /bench: \[\d+\//.test(line)) return "text-ink";

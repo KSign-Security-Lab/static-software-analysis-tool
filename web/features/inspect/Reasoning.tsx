@@ -14,20 +14,6 @@ import { outcomeOf } from "@/lib/trace/outcome";
 import { labelOf, seconds } from "@/lib/trace/process";
 import { cn } from "@/lib/utils";
 
-/**
- * How this claim was reached, when somebody asks.
- *
- * Both halves were full-width centre tabs and neither was read, because looking
- * at a finding's reasoning meant navigating away from the finding. They are
- * sections of it now, and closed: the question they answer is a second question,
- * and a screen that answers it permanently is a screen answering the first one
- * badly.
- *
- * Closed also means unmounted, which matters more than it reads: the trail joins
- * two queries -- the run's spans and its threads -- and the drawing is React Flow
- * plus a dagre layout. Neither should be paid for by a reader who only wanted to
- * know what was wrong.
- */
 export default function Reasoning({ finding }: { finding: UiFinding }) {
   const [process, setProcess] = useState(false);
   const [structure, setStructure] = useState(false);
@@ -67,13 +53,6 @@ export default function Reasoning({ finding }: { finding: UiFinding }) {
   );
 }
 
-/**
- * The agents that produced this claim, in the order they ran, and what each said.
- *
- * Numbered rather than bulleted, because the order *is* the argument: 선별 before
- * a specialist, the specialist before the evidence, the evidence before the
- * verdict. Picking a step opens the call it was.
- */
 function Trail({ finding }: { finding: UiFinding }) {
   const trail = useClaimTrail(finding);
   const { selection, select } = useSelection();
@@ -128,9 +107,6 @@ function Trail({ finding }: { finding: UiFinding }) {
                 </span>
               </button>
 
-              {/* Opened in place, under the step it belongs to. It used to
-                  replace the finding in a 400px column, so inspecting one line
-                  of an argument cost you the argument. */}
               {current && <Call exchange={exchange} />}
             </li>
           );
@@ -140,7 +116,6 @@ function Trail({ finding }: { finding: UiFinding }) {
   );
 }
 
-/** The same four tones the record uses. `danger` means a claim survived. */
 const TONE: Record<string, string> = {
   plain: "text-ink",
   quiet: "text-ink-faint",

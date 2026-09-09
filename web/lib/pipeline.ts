@@ -1,12 +1,3 @@
-// Turn the SSAT pipeline's per-function artifacts into the same GraphView shape
-// the CPG views use, so <GraphView> can render both without knowing which is
-// which.
-//
-// These are NOT the CPG views in lib/views.ts. Those project Joern's own graph
-// by edge label. These are the statement-level AST and def-use DFG that the
-// Python pipeline computes from the Template — a different object that happens
-// to share the words "AST" and "DFG".
-
 import type {
   GraphView,
   PipelineAst,
@@ -15,14 +6,12 @@ import type {
   ViewNode,
 } from "./types";
 
-/** Guard-edge kinds, as emitted by the AST extractor. */
 const GUARD_KIND_LABEL: Record<number, string> = {
   1: "lower",
   2: "upper",
   4: "switch",
 };
 
-/** DFG edge flow ids (see ssat.dfg.extractor FLOW_ID). */
 const FLOW_LABEL: Record<number, string> = {
   1: "value",
   2: "index",
@@ -70,7 +59,6 @@ export function pipelineAstView(fn: PipelineFunction): GraphView {
 }
 
 export function pipelineDfgView(fn: PipelineFunction): GraphView {
-  // DFG nodes carry only sids; borrow the AST's code for readable labels.
   const codeBySid = new Map(fn.ast.nodes.map((n) => [n.sid, n.code ?? ""]));
   const typeBySid = new Map(fn.ast.nodes.map((n) => [n.sid, n.node_type_id ?? ""]));
 
@@ -101,7 +89,6 @@ export function pipelineDfgView(fn: PipelineFunction): GraphView {
   };
 }
 
-/** Functions that actually produced something worth drawing. */
 export function nonEmptyFunctions(functions: PipelineFunction[]): PipelineFunction[] {
   return functions.filter((f) => (f.ast?.nodes?.length ?? 0) > 0);
 }

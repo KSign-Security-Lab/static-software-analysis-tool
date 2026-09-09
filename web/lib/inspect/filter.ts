@@ -9,33 +9,12 @@ import {
   type UiFinding,
 } from "@/lib/model/finding";
 
-/**
- * Narrowing a report down to the rows worth reading.
- *
- * A scan of a real repository produces hundreds of findings, and the first
- * question is never "show me all of them" -- it is "the critical ones", "the
- * ones in this file", "the ones that survived verification". So the table
- * filters, and the filtering is here: pure functions over `UiFinding[]`, tested
- * without a browser, because an off-by-one in a severity comparison silently
- * hides a critical row.
- *
- * Every facet is a set of accepted values, and an empty set means "no opinion"
- * rather than "nothing". That is what makes the controls composable: a filter
- * nobody has touched cannot exclude anything.
- */
-
 export interface Facets {
   severity: Set<Severity>;
   cwe: Set<string>;
   file: Set<string>;
   standing: Set<Standing>;
-  /**
-   * Whether the code runs. A second axis beside `standing`, not a refinement of
-   * it: a finding can be 취약 확인 and 도달 불가 at the same time, and that pair
-   * is the one a reader most wants to be able to pick out.
-   */
   liveness: Set<Liveness>;
-  /** Matched against the title, the CWE and the path. Case-insensitive. */
   query: string;
 }
 
@@ -84,7 +63,6 @@ export function matches(finding: UiFinding, facets: Facets): boolean {
   return matchesQuery(finding, facets.query);
 }
 
-/** The CWE bucket for a finding the agent could not classify. */
 export const UNCLASSIFIED = "미분류";
 
 export function apply(findings: UiFinding[], facets: Facets): UiFinding[] {
@@ -93,15 +71,6 @@ export function apply(findings: UiFinding[], facets: Facets): UiFinding[] {
 
 export type SortKey = "severity" | "file" | "confidence";
 
-/**
- * Row order.
- *
- * `severity` delegates to `sortFindings`, which is the report's own order and
- * already the shared definition of worst-first. The other two exist because a
- * reader working through one file wants that file's rows together, and a reader
- * deciding what to trust wants the confident ones first -- neither of which is
- * derivable from severity.
- */
 export function sort(findings: UiFinding[], key: SortKey): UiFinding[] {
   if (key === "severity") return sortFindings(findings);
   const rows = [...findings];
@@ -128,13 +97,6 @@ export interface Tally<T extends string> {
   count: number;
 }
 
-/**
- * How many findings each severity has, worst first.
- *
- * Counted over the *unfiltered* report on purpose: these double as the filter
- * controls, and a control whose count changes when you press it cannot tell you
- * what pressing it would do.
- */
 export function bySeverity(findings: UiFinding[]): Tally<Severity>[] {
   const counts = new Map<Severity, number>();
   for (const finding of findings) counts.set(finding.severity, (counts.get(finding.severity) ?? 0) + 1);
@@ -143,7 +105,6 @@ export function bySeverity(findings: UiFinding[]): Tally<Severity>[] {
     .map(([value, count]) => ({ value, count }));
 }
 
-/** CWEs present, most frequent first, then by name so ties do not shuffle. */
 export function byCwe(findings: UiFinding[]): Tally<string>[] {
   const counts = new Map<string, number>();
   for (const finding of findings) {
@@ -155,7 +116,6 @@ export function byCwe(findings: UiFinding[]): Tally<string>[] {
     .map(([value, count]) => ({ value, count }));
 }
 
-/** Files with findings, worst first -- which is the order to open them in. */
 export function byFile(findings: UiFinding[]): (Tally<string> & { worst: Severity })[] {
   const counts = new Map<string, { count: number; worst: Severity }>();
   for (const finding of findings) {
@@ -172,13 +132,6 @@ export function byFile(findings: UiFinding[]): (Tally<string> & { worst: Severit
     .map(([value, { count, worst }]) => ({ value, count, worst }));
 }
 
-/**
- * How many findings sit in code of each kind.
- *
- * Ordered by how much of a reader's attention each deserves rather than
- * alphabetically -- the two at the end are the ones the list folds away by
- * default, and a chip row that buried 실행 경로 between them would undo that.
- */
 export function byLiveness(findings: UiFinding[]): Tally<Liveness>[] {
   const counts = new Map<Liveness, number>();
   for (const finding of findings) {
@@ -195,18 +148,10 @@ export function byStanding(findings: UiFinding[]): Tally<Standing>[] {
     const standing = standingOf(finding);
     if (standing) counts.set(standing, (counts.get(standing) ?? 0) + 1);
   }
-  // Confirmed first: it is the half a reader acts on.
   const order: Standing[] = ["confirmed", "candidate"];
   return order.filter((each) => counts.has(each)).map((value) => ({ value, count: counts.get(value) ?? 0 }));
 }
 
-/**
- * Whether a finding carries code that can actually be applied.
- *
- * The tray and the patch dialog both need this: a bucket of ten where three
- * have no `replacement` produces a patch of seven, and saying so before the
- * download is the difference between a preview and a surprise.
- */
 export function isFixable(finding: UiFinding): boolean {
   return Boolean(finding.replacement && finding.replacement.trim());
 }

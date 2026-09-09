@@ -2,20 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { createWorkbenchStore } from "./store";
 
-/**
- * A panel handle that behaves like the real one.
- *
- * `react-resizable-panels` commits a layout change synchronously -- `j()` does
- * `F.set(group, layout)` before returning -- so `isCollapsed()` immediately after
- * `collapse()` already reports the new state. The mirror in this store was written
- * as `!handle.isCollapsed()` *after* the mutation, which is therefore the opposite
- * of the truth every single time.
- *
- * It looked fine because the panel's own `onResize` fired a moment later and
- * corrected it. That correction is a ResizeObserver notification, and a browser
- * that drops one -- "ResizeObserver loop completed with undelivered notifications"
- * -- leaves the fold button lit backwards with nothing to fix it.
- */
 function fakePanel(collapsed = false) {
   let isCollapsed = collapsed;
   return {
@@ -47,8 +33,6 @@ describe("togglePane", () => {
   });
 
   it("stays right without any resize notification arriving", () => {
-    // The whole point: correctness cannot depend on `onResize`, because that is a
-    // ResizeObserver callback and browsers drop them under a loop.
     const store = createWorkbenchStore({ collapsed: { dock: false } });
     const panel = fakePanel();
     store.getState().registerPanel("dock", panel as never);
@@ -61,8 +45,6 @@ describe("togglePane", () => {
   });
 
   it("asks the panel rather than the mirror, so a drag to zero is respected", () => {
-    // A drag to zero folds a panel without going through this, so the mirror can be
-    // stale on the way in. Already folded, so the toggle expands it.
     const store = createWorkbenchStore({ collapsed: { side: false } });
     const panel = fakePanel(true);
     store.getState().registerPanel("side", panel as never);
@@ -73,9 +55,6 @@ describe("togglePane", () => {
   });
 
   it("follows the panel when a drag folds it behind our back", () => {
-    // `onResize` is where a drag is reported, and it is the one thing that still
-    // has to come through a notification -- there is no other way to hear about a
-    // pointer. It only ever writes what the panel already is.
     const store = createWorkbenchStore();
     store.getState().setCollapsed("inspector", true);
     expect(store.getState().collapsed.inspector).toBe(true);

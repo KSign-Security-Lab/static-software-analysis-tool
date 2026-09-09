@@ -8,7 +8,6 @@ import ProblemsPanel from "@/features/findings/ProblemsPanel";
 import { useSelectedFinding } from "@/lib/run/selection";
 import { useCpgSource } from "../cpg/provider";
 
-/** The same findings list the agent surface uses; only the engine differs. */
 export default function F2aDock() {
   const cpg = useCpgSource();
   const [selectedId, setSelectedId] = useSelectedFinding();

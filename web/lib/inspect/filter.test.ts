@@ -85,8 +85,6 @@ describe("matches", () => {
   });
 
   it("excludes a finding with no standing when standing is being filtered on", () => {
-    // F2-A findings never go near a verifier, so `verified` is null and there is
-    // no honest answer -- which is not the same as either answer.
     expect(matches(finding({ id: "3", verified: null }), facets({ standing: new Set(["confirmed" as const]) }))).toBe(
       false,
     );
@@ -212,8 +210,6 @@ describe("liveness", () => {
   const reach = (state: string) => ({ state, callers: 0, hops: null, why: [] }) as UiFinding["reach"];
 
   it("is a second axis, not a refinement of standing", () => {
-    // A finding can be 취약 확인 and 도달 불가 at once, and that pair is exactly
-    // the one worth being able to pick out.
     const both = finding({ id: "1", verified: true, reach: reach("unreachable") });
 
     expect(matches(both, facets({ standing: new Set(["confirmed" as const]) }))).toBe(true);
@@ -224,8 +220,6 @@ describe("liveness", () => {
   });
 
   it("excludes a finding nothing answered for, when asked about liveness", () => {
-    // Null is not a state, it is no state -- an F2-A finding, or a run indexed
-    // before reach existed.
     expect(matches(finding({ id: "1", reach: null }), facets({ liveness: new Set(["live" as const]) }))).toBe(false);
   });
 

@@ -9,20 +9,6 @@ import { downloadArchive, previewPatch, pushBranch, savePatch } from "@/lib/api/
 import { keys } from "@/lib/query/keys";
 import { useRunStream } from "@/lib/run/stream";
 
-/**
- * Getting the bucket out of the browser.
- *
- * All mutations, including the preview, and deliberately: the preview is a
- * question about a selection that changes with every tick, so caching it by
- * finding-id-set would be a cache key nobody could invalidate. It is cheap --
- * the server splices in memory and writes nothing.
- *
- * `previewPatch` is asked first in all three flows. What it returns is not just
- * a diff but the refusals, and those are the reason to ask before doing: a
- * bucket of ten where three carry no code produces a patch of seven, and the
- * reader should learn that from a dialog rather than from a short file.
- */
-
 export function usePatchPreview(runId: string | null) {
   return useMutation({
     mutationFn: (findingIds: string[]) => previewPatch(runId!, findingIds),
@@ -30,13 +16,6 @@ export function usePatchPreview(runId: string | null) {
   });
 }
 
-/**
- * Save the diff that is already on screen.
- *
- * Not a mutation over the network at all -- the bytes are in hand from the
- * preview. It lives here so the button beside the other two reads the same way,
- * and so what is saved is provably the diff that was reviewed.
- */
 export function useSavePatch(runId: string | null) {
   return (patch: string) => {
     savePatch(runId!, patch);
@@ -52,14 +31,6 @@ export function useDownloadArchive(runId: string | null) {
   });
 }
 
-/**
- * Commit the fixes on a branch of the run's own remote.
- *
- * Invalidates nothing: the push happens on a clone the server made and threw
- * away, so no run, report or file this page holds has changed. Saying that here
- * is worth more than the line of code it saves -- the reflex is to invalidate
- * after a mutation, and doing so would refetch the whole run for no reason.
- */
 export function usePushBranch(runId: string | null) {
   const client = useQueryClient();
   return useMutation({
@@ -71,31 +42,12 @@ export function usePushBranch(runId: string | null) {
           ? "풀 리퀘스트를 열었습니다."
           : `${result.applied.length}건이 반영되었습니다.`,
       });
-      // The run itself is untouched; only its list row's timestamp is stale.
       void client.invalidateQueries({ queryKey: keys.runs() });
     },
     onError: (error) => toast.error("브랜치를 올릴 수 없습니다", { description: describeError(error) }),
   });
 }
 
-/**
- * Stop a running scan.
- *
- * Invalidates the run rather than patching a status in: the worker decides what
- * the run becomes -- `cancelled`, with whatever it had found -- and guessing that
- * here would show a state the server may not agree with.
- *
- * The tense is the point. A 200 from this endpoint means the stop was
- * *accepted*: the flag is set, and the nodes already dispatched are still
- * returning. `control.ts` writes that caution down for starting a run and it
- * was never applied here, so the toast said 중단했습니다 in the past tense while
- * the progress bar went on advancing and findings went on arriving -- which is
- * what "the stop button does nothing" looked like from the outside, even once
- * the server was doing exactly the right thing.
- *
- * `markCancelling` is what stops the rest of the surface claiming otherwise;
- * `finished` clears it, so the run's own account is always what wins.
- */
 export function useCancelRun(runId: string | null) {
   const client = useQueryClient();
   const { markCancelling, clearCancelling } = useRunStream();
@@ -106,15 +58,10 @@ export function useCancelRun(runId: string | null) {
       toast.info("검사를 중단하는 중입니다", {
         description: "지금 하던 분석만 끝내고 멈춥니다. 그때까지 찾은 것은 그대로 남습니다.",
       });
-      // The row, not the run. `keys.run` is a prefix of `keys.findings`, and
-      // re-reading the report mid-scan is the one thing `stream.tsx` says never
-      // to do -- the scan has not stopped yet, it has only been told to.
       void client.invalidateQueries({ queryKey: keys.summary(runId!) });
       void client.invalidateQueries({ queryKey: keys.runs() });
     },
     onError: (error) => {
-      // A 409 means the server has already ended it. Left set, the optimistic
-      // flag above disables 중단 for ever and holds a 1s poll open behind it.
       clearCancelling();
       void client.invalidateQueries({ queryKey: keys.summary(runId!) });
       toast.error("검사를 중단할 수 없습니다", { description: describeError(error) });

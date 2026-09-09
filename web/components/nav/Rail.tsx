@@ -8,29 +8,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { PERSPECTIVES, hrefFor, perspectiveFor } from "@/lib/workbench/perspectives";
 
-/**
- * The 64px rail of surfaces, shared by the two shells.
- *
- * 검사 has its own shell and the four research surfaces share the workbench, so
- * the rail is the one thing genuinely common to both -- and it has to be, or the
- * two shells would drift into two different navigations for one application.
- *
- * Named, not only drawn. Five glyphs and a tooltip is a navigation you can use
- * once you already know it, and these are quite different tools sharing one
- * application -- an icon cannot say which inspects code and which reads a
- * benchmark. The tooltip keeps the sentence that will not fit.
- *
- * Fixed width and a flex sibling of whatever it sits beside, never a panel: the
- * workbench sizes its panels in percentages, so a rail expressed as one would
- * breathe with the window.
- */
 export default function Rail({
   wordmark = false,
   foot,
 }: {
-  /** Shown only where no title bar carries it, which is 검사. */
   wordmark?: boolean;
-  /** Controls belonging to no surface in particular. The shell decides. */
   foot?: ReactNode;
 }) {
   const pathname = usePathname();
@@ -62,10 +44,6 @@ export default function Rail({
                 className={cn(
                   "relative grid w-full justify-items-center gap-1 border-l-2 border-transparent py-2 transition-colors",
                   "text-ink-faint hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                  // A left bar and a weight change, not a filled block. The
-                  // wash is the strongest colour on the page and spending it
-                  // on the thing you are already looking at leaves nothing for
-                  // the thing you are meant to notice.
                   active && "border-l-accent bg-surface-2 text-ink-strong",
                 )}
               >
@@ -81,20 +59,11 @@ export default function Rail({
         );
       })}
 
-      {/* `mt-auto` rather than a spacer div, so the foot sits against the floor
-          at every window height without reserving anything. */}
       {foot && <div className="mt-auto flex w-full flex-col items-center gap-0.5 pt-2">{foot}</div>}
     </nav>
   );
 }
 
-/**
- * How to use the surface you are on, in order.
- *
- * Read out of `perspectives.ts` rather than written here, because that file is
- * where each surface's purpose and steps are declared and two copies of a
- * walkthrough is one copy that goes stale.
- */
 export function HowToUse() {
   const current = perspectiveFor(usePathname());
   if (!current) return null;

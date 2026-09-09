@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-// A plain .mjs script, deliberately dependency-free; resolved via allowJs.
 import { assign, classify, evaluate, flatten, parseExpression, tokenize, verify } from "./licenses.mjs";
 
 const parse = (expr: string) => parseExpression(tokenize(expr));
@@ -16,7 +15,6 @@ describe("SPDX expressions", () => {
   });
 
   it("elects the allowed side of an OR, which is the whole point", () => {
-    // dompurify ships exactly this, as a production dependency.
     const result = evaluate(parse("(MPL-2.0 OR Apache-2.0)"), allowing("Apache-2.0"));
     expect(result).toEqual({ ok: true, elected: "Apache-2.0" });
   });
@@ -42,7 +40,6 @@ describe("SPDX expressions", () => {
   });
 
   it("gives AND tighter precedence than OR", () => {
-    // MIT OR (ISC AND BSD-3-Clause) -- allowed via the right branch only.
     const tree = parse("MIT OR ISC AND BSD-3-Clause");
     expect(evaluate(tree, allowing("ISC", "BSD-3-Clause"))).toEqual({ ok: true, elected: "ISC AND BSD-3-Clause" });
   });
@@ -86,31 +83,21 @@ describe("tiers", () => {
   });
 
   it("lets production win over dev whichever listing is read first", () => {
-    // The stricter tier has to win, or a copyleft dependency hides behind
-    // whichever copy of it the listing happened to report.
     expect(assign({ production: [row("a@1.0.0")], dev: [row("a@1.0.0")] })[0].tier).toBe("production");
     expect(assign({ dev: [row("a@1.0.0")], production: [row("a@1.0.0")] })[0].tier).toBe("production");
   });
 
   it("keeps a dev platform binary in the dev tier", () => {
-    // lightningcss-linux-x64-gnu: an optional dependency of a dev dependency.
-    // It builds, it never ships, and no production edge reaches it.
     const [only] = assign({ production: [], optional: [], dev: [row("lightningcss-linux-x64-gnu@1.0.0")] });
     expect(only.tier).toBe("dev");
   });
 
   it("gives a shippable optional binary the strict tier", () => {
-    // `--prod` covers optionalDependencies too, so an optional binary that a
-    // production edge reaches is claimed before the whole-tree listing sees it.
     const [only] = assign({ production: [], optional: [row("b@1.0.0")], dev: [row("b@1.0.0")] });
     expect(only.tier).toBe("optional");
   });
 
   it("tiers everything in the tree, so nothing escapes by matching no filter", () => {
-    // `--dev` is not the complement of `--prod`: it omits the optional
-    // dependencies *of* dev dependencies. The third listing is unfiltered for
-    // this reason, and four native binaries -- one of them MPL-2.0 -- were
-    // outside the audit entirely until it was.
     const tree = [row("a@1.0.0"), row("b@1.0.0"), row("c@1.0.0")];
     const tiered = assign({ production: [row("a@1.0.0")], optional: [row("b@1.0.0")], dev: tree });
     expect(tiered.map((r) => [r.id, r.tier])).toEqual([
@@ -206,8 +193,6 @@ describe("verify", () => {
   });
 
   it("only warns for a dead platform-conditional exception", () => {
-    // The libvips binaries exist on linux-x64 and not on darwin-arm64; a hard
-    // failure there would make the gate unusable on half the team's machines.
     const withException = {
       ...config,
       exceptions: { "gone@9.9.9": { license: "MIT", reason: "ok", platformConditional: true } },
@@ -226,7 +211,6 @@ describe("verify", () => {
     const { failures } = verify(config, [pkg({ license: "MIT OR" })], TODAY);
     expect(failures[0]).toMatch(/unparseable SPDX expression/);
   });
-
 });
 
 describe("flatten", () => {
@@ -242,8 +226,6 @@ describe("flatten", () => {
   });
 
   it("keeps two versions of one package apart, with the path each was read from", () => {
-    // They can be licensed differently, and the notices quote the licence file
-    // from the directory this names.
     const rows = flatten({
       MIT: [{ name: "thing", versions: ["1.0.0", "2.0.0"], paths: ["/a/thing", "/b/thing"], license: "MIT" }],
     });
@@ -263,14 +245,9 @@ describe("the banned package", () => {
   const TODAY = "2026-08-05";
 
   it("rejects elkjs however it arrives", () => {
-    // `EPL-2.0 OR GPL-3.0-or-later`: neither disjunct is permissive, so the OR
-    // fails as a whole. This is the one dependency the plan bans by name, and
-    // dagre already covers every layout the app needs.
     const declared = { ...pkg({ name: "elkjs", id: "elkjs@0.12.0", license: "EPL-2.0 OR GPL-3.0-or-later" }) };
     expect(verify(config, [declared], TODAY).failures[0]).toMatch(/elkjs@0\.12\.0 \[production\]/);
 
-    // And in the dev tier, where an unlisted licence would otherwise pass:
-    // the deny list is fatal in every tier.
     const asDev = { ...declared, tier: "dev", license: "GPL-3.0-or-later", id: "elkjs@0.12.0" };
     expect(verify({ ...config, denyAlways: ["GPL-3.0-or-later"] }, [asDev], TODAY).failures[0]).toMatch(
       /elkjs@0\.12\.0 \[dev\]/,

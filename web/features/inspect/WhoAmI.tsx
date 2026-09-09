@@ -10,18 +10,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { keys } from "@/lib/query/keys";
 import { MAX_NAME, normalise, readOwner, subscribe, writeOwner } from "@/lib/run/whoami";
 
-/**
- * Whose runs 지난 검사 shows.
- *
- * **Not a login**, and the copy says so rather than leaving it to be assumed:
- * nothing is challenged, and a run stays readable by id whoever asks. It exists
- * because the server is shared and a list of every scan on the box is mostly
- * other people's and useless.
- *
- * Reads through `useSyncExternalStore` because the header here and every request
- * in `lib/api/client` read the same `localStorage` value, and they are not in one
- * tree.
- */
 export default function WhoAmI() {
   const owner = useSyncExternalStore(subscribe, readOwner, () => null);
   const [draft, setDraft] = useState("");
@@ -31,8 +19,6 @@ export default function WhoAmI() {
   function commit() {
     writeOwner(draft);
     setOpen(false);
-    // The list is filtered server-side by the header, so a new name is a new
-    // list rather than the same one re-sorted.
     void client.invalidateQueries({ queryKey: keys.runs() });
   }
 

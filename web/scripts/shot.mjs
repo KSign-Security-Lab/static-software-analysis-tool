@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/**
- * Screenshot a page after it has settled, and report what it said.
- *
- * `chrome --screenshot` fires on the load event, which is before React has
- * rendered anything the queries fetched -- and `--virtual-time-budget`, which
- * would normally wait, hangs forever here because the workbench holds an SSE
- * connection open and virtual time never advances past a pending request.
- *
- * So: drive Chrome over the DevTools protocol, wait a real interval, capture,
- * and print the console. A screenshot that looks right while the console is
- * full of errors is not a passing check.
- *
- * No dependency -- node has had a WebSocket client built in since 22.
- *
- *   node scripts/shot.mjs <url> <out.png> [--wait 3500] [--size 1700x950]
- *                         [--theme dark|light] [--click <selector>]
- *                         [--eval <expression>]
- */
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -135,8 +117,6 @@ try {
   await call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
 
   if (theme) {
-    // Before navigation, so next-themes' pre-paint script reads it and the
-    // page never renders in the other theme first.
     await call("Page.addScriptToEvaluateOnNewDocument", {
       source: `try{localStorage.setItem("ssat-theme",${JSON.stringify(theme)})}catch(e){}`,
     });
@@ -146,15 +126,11 @@ try {
   await sleep(wait);
 
   if (click) {
-    // `text=…` matches on visible text. Radix does not put its `value` in an
-    // attribute, so a tab is not addressable by CSS -- and matching what the
-    // user would actually read is the more honest target anyway.
     const finder = click.startsWith("text=")
       ? `[...document.querySelectorAll("button, a, [role=tab], [role=button], [role=menuitem]")]
            .find((e) => (e.textContent || "").trim().includes(${JSON.stringify(click.slice(5))}))`
       : `document.querySelector(${JSON.stringify(click)})`;
 
-    // Returns the centre point, so the caller can aim a real pointer at it.
     const expression = `(() => {
       const el = ${finder};
       if (!el) return "no match";
@@ -168,9 +144,6 @@ try {
     if (typeof result.value === "string") {
       console.log(`click ${click}: ${result.value}`);
     } else if (result.value) {
-      // A real pointer, not element.click(). Radix activates a tab on
-      // mousedown and focus; a synthetic click event alone does nothing, which
-      // looks exactly like a broken app when it is a broken test.
       const { x, y } = result.value;
       for (const type of ["mousePressed", "mouseReleased"]) {
         await call("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
@@ -181,7 +154,6 @@ try {
   }
 
   if (evaluate) {
-    // awaitPromise, or an async probe returns the Promise serialised as `{}`.
     const { result, exceptionDetails } = await call("Runtime.evaluate", {
       expression: evaluate,
       returnByValue: true,
@@ -203,12 +175,9 @@ try {
   client.close();
 } finally {
   chrome.kill();
-  // Chrome keeps flushing its profile for a moment after SIGTERM, so a rmdir
-  // straight away races it and throws ENOTEMPTY on a run that succeeded.
   await sleep(400);
   try {
     rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   } catch {
-    /* a temp directory left behind is not worth a non-zero exit */
   }
 }

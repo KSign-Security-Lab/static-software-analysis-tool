@@ -29,17 +29,11 @@ describe("grouping by where it broke", () => {
   });
 
   it("shows no group for a stage this dataset cannot reach", () => {
-    // The corpus has no build and no test suite. A 패치 빌드 실패 bucket sitting
-    // permanently at zero reads as "we never fail that way" when the truth is
-    // "we never test that way".
     const groups = groupByOutcome([instance({ outcome: "not_located" })], DETECTION);
     expect(groups.some((g) => g.outcome === "patch_build_failed")).toBe(false);
   });
 
   it("keeps 오탐 apart from 찾고 오독", () => {
-    // Two opposite failures -- wrong CWE on a real bug, and a false alarm on
-    // clean code -- that need opposite fixes. One bar meaning either is a bar
-    // that tells you nothing.
     const groups = groupByOutcome(
       [instance({ outcome: "misread" }), instance({ id: "y.c", outcome: "false_flagged" })],
       DETECTION,

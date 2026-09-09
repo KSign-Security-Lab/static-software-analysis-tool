@@ -2,12 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installClipboardFallback } from "./clipboard-fallback";
 
-/**
- * The shim only matters where the real API is missing, so both halves are
- * worth pinning: that it fills the gap, and that it never touches a browser
- * that already has one.
- */
-
 function forgetClipboard() {
   Reflect.deleteProperty(window.navigator, "clipboard");
   Reflect.deleteProperty(window, "ClipboardItem");
@@ -50,9 +44,6 @@ describe("installClipboardFallback", () => {
   });
 
   it("survives the item whose text is never provided", async () => {
-    // Monaco calls write() on *every* click with a promise it settles only on
-    // a real copy, and cancels on the next one. That rejection must not
-    // escape: unhandled, it was one console error per click.
     forgetClipboard();
     installClipboardFallback();
     const exec = vi.fn(() => true);

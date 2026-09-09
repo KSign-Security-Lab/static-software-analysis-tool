@@ -20,19 +20,6 @@ import { useRunId } from "@/lib/run/use-run-id";
 import { useSelection } from "@/lib/run/selection";
 import { cn } from "@/lib/utils";
 
-/**
- * The report, and one finding open beside it.
- *
- * Two columns, because that is the shape of the work: decide about a list while
- * reading one of its rows. The old surface spent four panes on this and still
- * could not do it -- reading a finding's reasoning meant opening a tab over the
- * code the reasoning was about.
- *
- * The list is the left column and it stays put. Every previous version made the
- * centre the widest region because an editor lived there; nothing does now, and
- * the two things that actually want width are a finding's evidence and its
- * patch, which are both in the detail column.
- */
 export default function Findings({
   findings,
   stats,
@@ -41,9 +28,7 @@ export default function Findings({
 }: {
   findings: UiFinding[];
   stats?: RunStats;
-  /** A scan is still running, so this list is growing and not yet complete. */
   scanning?: boolean;
-  /** A scan stopped short. The strip stays, because it owns the way to resume. */
   stopped?: boolean;
 }) {
   const [runId] = useRunId();
@@ -58,18 +43,6 @@ export default function Findings({
   const shown = useMemo(() => sort(apply(findings, facets), order), [findings, facets, order]);
   const tickedSet = useMemo(() => new Set(ticked), [ticked]);
 
-  /**
-   * The rows a reader works through first, and the ones that can wait.
-   *
-   * Split, never filtered: a finding in code nothing calls is still a finding,
-   * dead code gets revived, and the index cannot see a call made through a
-   * function pointer. So the folded half stays in the list, stays in the counts,
-   * and stays one click away -- what changes is only which half is in front of
-   * the reader.
-   *
-   * Not applied while a facet asks for those states directly. Somebody who has
-   * just clicked 도달 불가 should not have their whole result folded away.
-   */
   const asked = facets.liveness.size > 0;
   const front = useMemo(() => (asked ? shown : shown.filter((each) => !isFolded(each))), [shown, asked]);
   const back = useMemo(() => (asked ? [] : shown.filter(isFolded)), [shown, asked]);
@@ -80,9 +53,6 @@ export default function Findings({
         {(scanning || stopped) && <ScanStrip />}
         <Coverage stats={stats} />
         <div className="mx-auto w-full max-w-2xl px-6 py-10">
-          {/* "없습니다" would be a claim about the code. While a scan is running
-              it is a claim about how far it has got, and those are different
-              sentences. */}
           {scanning ? (
             <EmptyState icon={Search} title="아직 찾은 것이 없습니다">
               계속 찾고 있습니다. 읽은 단위 대부분은 아무 문제가 없고, 나오는 대로 이 자리에 쌓입니다.
@@ -101,8 +71,6 @@ export default function Findings({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {(scanning || stopped) && <ScanStrip />}
-      {/* Above both columns: it is a statement about the whole report, and a
-          reader who takes the list at face value is the person it is for. */}
       <Coverage stats={stats} />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,26rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,34rem)]">
       <section className="flex min-h-0 min-w-0 flex-col border-r border-line">
@@ -170,9 +138,6 @@ export default function Findings({
           )}
         </ul>
 
-        {/* Hidden while a scan runs, and not merely disabled: `/patch` builds
-            from the saved report, which does not exist until the run ends, so
-            every button in the tray would 409. */}
         {!scanning && <BucketTray findings={findings} />}
       </section>
 

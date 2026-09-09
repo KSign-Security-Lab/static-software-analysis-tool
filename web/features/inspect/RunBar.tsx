@@ -11,18 +11,6 @@ import { bySeverity } from "@/lib/inspect/filter";
 import { useRun } from "@/lib/run/queries";
 import { useRunId } from "@/lib/run/use-run-id";
 
-/**
- * One thin strip, and only what is true at every stage.
- *
- * 검사 used to carry two rows of chrome -- a title bar with 1,270px of nothing
- * in the middle, and a run strip under it -- for information that was transient
- * (the phase), post-hoc (tokens, duration) or pressed once a run. None of it
- * wanted to be permanent, and the 72px went to the work instead.
- *
- * What is left is the three things that are true whatever the stage: which code
- * this is, whose runs these are, and how to start again. The severity tally
- * joins them only once there is something to tally.
- */
 export default function RunBar({ findings }: { findings: UiFinding[] }) {
   const [runId, setRunId] = useRunId();
   const run = useRun(runId);
@@ -41,9 +29,6 @@ export default function RunBar({ findings }: { findings: UiFinding[] }) {
         )}
       </span>
 
-      {/* Only where there is something to count. `stage === "results"` used to
-          gate this and now always holds -- a scan runs on the results page -- so
-          the tally is gated on there being a tally. */}
       {counts.length > 0 && (
         <span className="flex shrink-0 items-center gap-2.5 border-l border-line pl-3">
           {counts.map(({ value, count }) => (
@@ -70,13 +55,6 @@ export default function RunBar({ findings }: { findings: UiFinding[] }) {
   );
 }
 
-/**
- * Which of the three ways this code arrived.
- *
- * Worth a glyph rather than only a label, because it is what decides whether the
- * patch dialog can offer to push -- and a reader who cannot tell a cloned run
- * from an uploaded one cannot predict which buttons they will get.
- */
 function OriginMark({ origin }: { origin: Origin | undefined }) {
   const Icon = origin?.kind === "git" ? FolderGit2 : origin ? FolderOpen : ScanSearch;
   return <Icon className="size-4 shrink-0 text-ink-faint" aria-hidden />;

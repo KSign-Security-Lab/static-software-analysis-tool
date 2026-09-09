@@ -17,13 +17,6 @@ const SEVERITY_TEXT: Record<string, string> = {
   info: "text-sev-info",
 };
 
-/**
- * Why this is a finding, and where the evidence for it sits.
- *
- * F2-A's detail pane. 검사 used this too until its findings learned to open in
- * place; kept here, outside either surface, because both read the same
- * `UiFinding` and only one of them still wants a separate pane.
- */
 export default function FindingInspector({
   finding,
   knowledge,
@@ -46,10 +39,6 @@ export default function FindingInspector({
 
   const confidence = Math.round(finding.confidence * 100);
 
-  // The callers and callees of the unit this sits in. Computed here because
-  // the whole graph is already in the cache -- the server can do it, but does
-  // not expose it over HTTP, and a breadth-first walk beats a round trip per
-  // selected finding.
   const related = knowledge && finding.chunkId ? neighbours(knowledge, finding.chunkId, 1) : [];
 
   return (
@@ -81,7 +70,6 @@ export default function FindingInspector({
             <span>확신도</span>
             <span className="font-mono">{confidence}%</span>
           </div>
-          {/* A meter, not a progress bar: it is a measurement, not a task. */}
           <div
             role="meter"
             aria-valuenow={confidence}
@@ -155,8 +143,6 @@ export default function FindingInspector({
               <ArrowRight className="size-3" />
               고치는 방법
             </h4>
-            {/* Shown, never applied: a suggested patch from a model is a
-                suggestion, and the diff is for a person to read. */}
             <p className="text-xs leading-relaxed whitespace-pre-wrap text-ink-muted">{finding.remediation}</p>
           </section>
         )}

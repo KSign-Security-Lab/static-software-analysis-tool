@@ -5,20 +5,6 @@ import { RefreshCw, ServerCrash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useBackend } from "@/lib/inspect/backend";
 
-/**
- * The backend is not answering, said once and where it matters.
- *
- * Everything on this surface is the server's: the run list, the report, the
- * patch. When it cannot be reached, every one of those renders as an absence --
- * no scans, no findings, nothing to patch -- and an absence is indistinguishable
- * from an answer. So this is a strip rather than a toast: a toast is gone in four
- * seconds and the misleading empty screen stays.
- *
- * Names the URL it tried, because the failure is almost always that the address
- * is right for the machine serving the page and wrong for the one reading it --
- * the API host is derived from `window.location.hostname`, so a page opened over
- * a LAN or tailnet address expects the API on that same host.
- */
 export default function BackendDown() {
   const { down, message, base, retry } = useBackend();
   if (!down) return null;

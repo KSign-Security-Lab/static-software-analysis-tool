@@ -2,7 +2,6 @@ import { PanelRight } from "lucide-react";
 
 import { EmptyState, PanelShell } from "@/components/workbench/PanelShell";
 
-/** For surfaces with no inspector of their own: 스테이지, which starts collapsed. */
 export default function InspectorDefault() {
   return (
     <PanelShell title="인스펙터">

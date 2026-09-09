@@ -5,14 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RunStats } from "@/lib/api/types";
 
-/**
- * How much of a report the scan in front of you actually produced.
- *
- * Both facts were in `stats` and on screen nowhere, so a scan that failed a
- * third of its calls and one that served every unit from an earlier run both
- * presented an identical list to one that did all the work.
- */
-
 const start = { mutate: vi.fn(), isPending: false };
 vi.mock("@/lib/run/queries", () => ({ useStartRun: () => start }));
 vi.mock("@/lib/run/stream", () => ({ useRunStream: () => ({ ensureAttached: vi.fn() }) }));
@@ -26,7 +18,6 @@ afterEach(() => {
   cleanup();
 });
 
-/** An llm span the way the recorder writes one, name carrying its subject. */
 function failedSpan(name: string) {
   return { id: name, name, kind: "llm", status: "error", error: "length limit" };
 }
@@ -65,10 +56,6 @@ describe("judgements that failed", () => {
   });
 
   it("names the lever that actually moves it", async () => {
-    // Was AGENT_MAX_TOKENS, which was the wrong advice: raising the ceiling
-    // gives a reasoning model more room to reason and it spends that too.
-    // Measured on 16 prompts that all truncated -- at a lower effort every one
-    // finished, inside the ceiling they had already been given.
     await show({ failed: 1 });
     expect(screen.getByRole("alert").textContent).toContain("AGENT_REASONING_EFFORT");
   });
@@ -87,8 +74,6 @@ describe("units served from an earlier run", () => {
   });
 
   it("explains why those units have no 판단 과정", async () => {
-    // The reasoning section is empty for a reused unit because no call happened
-    // in this run -- which otherwise looks like the record having been lost.
     await show({ chunks_cached: 2, chunks_inspected: 0 });
     expect(screen.getByText(/호출이 일어나지 않았기 때문입니다/)).toBeInTheDocument();
   });
@@ -96,8 +81,6 @@ describe("units served from an earlier run", () => {
   it("offers a re-scan that turns the reuse off", async () => {
     await show({ chunks_cached: 2, chunks_inspected: 0 });
     screen.getByRole("button", { name: /전체 다시 검사/ }).click();
-    // `force` is the flag that sets `warm=false`, so the cache is bypassed
-    // rather than merely re-read.
     expect(start.mutate).toHaveBeenCalledWith({ force: true });
   });
 });
@@ -110,14 +93,7 @@ describe("both at once", () => {
   });
 });
 
-
 describe("which units were not fully read", () => {
-  /**
-   * The count alone was all this ever said. Run dbd2c9e7ca62 left 177 of 673
-   * units short of one specialist and reported `328번의 판단이 실패` -- true,
-   * and no help in finding the code nobody looked at. `failuresByUnit` has
-   * answered this since before the banner existed and nothing imported it.
-   */
   it("names the unit and the lens that died", async () => {
     spans = [failedSpan("lens:memory:bn_Add"), failedSpan("lens:logic:EN_Mul")];
     await show({ failed: 2 });
@@ -129,8 +105,6 @@ describe("which units were not fully read", () => {
   });
 
   it("does not count a call that a retry made good", async () => {
-    // An error followed by a success under the same name is a recovered call.
-    // Counting it said the lens both found things and never ran.
     spans = [failedSpan("lens:memory:bn_Add"), { id: "2", name: "lens:memory:bn_Add", kind: "llm", status: "ok" }];
     await show({ failed: 1 });
 

@@ -1,29 +1,4 @@
 #!/usr/bin/env node
-/**
- * Licence gate over the installed dependency tree.
- *
- * Reads `pnpm licenses list`, which reports what the lockfile resolved and the
- * store actually holds -- including platform-conditional optional
- * dependencies, which is the case that actually bites here: the LGPL libvips
- * binaries exist on linux-x64 and not on darwin-arm64, and a checker that
- * disagrees with the tree by platform is worse than none.
- *
- * There is no `extraneous` tier any more. Under npm, arborist reported a
- * package no manifest edge reaches as `dev: true`, so an undeclared one sailed
- * through the lenient tier and this had to force it back to production. pnpm
- * builds `node_modules` from the lockfile and prunes what is not in it, so the
- * listing cannot contain an undeclared package -- and anything hand-placed
- * there is invisible to this gate rather than mislabelled by it. What keeps the
- * lockfile honest is CI installing with `--frozen-lockfile`, which fails when
- * it and `package.json` disagree.
- *
- * No dependencies, on purpose. A licence gate that pulls in thirty transitive
- * packages has enlarged the thing it was meant to audit.
- *
- *   node scripts/licenses.mjs                  verify, exit 1 on failure
- *   node scripts/licenses.mjs --write-notices  regenerate THIRD-PARTY-NOTICES.md
- *   node scripts/licenses.mjs --check-notices  fail if that file is stale
- */
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -33,15 +8,6 @@ import { fileURLToPath } from "node:url";
 const WEB = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG = join(WEB, "licenses.config.json");
 const NOTICES = join(WEB, "THIRD-PARTY-NOTICES.md");
-
-/* -- SPDX -------------------------------------------------------------------
- *
- * Enough of the expression grammar to answer "may we use this, and under
- * which licence". `OR` picks the first allowed disjunct and records it --
- * `(MPL-2.0 OR Apache-2.0)` on dompurify is a real production dependency here,
- * and substring matching on that string gets the wrong answer. `AND` requires
- * all of them. `WITH` binds tighter than either and travels with its id.
- */
 
 export function tokenize(expr) {
   return expr
@@ -99,11 +65,8 @@ export function parseExpression(tokens) {
   return tree;
 }
 
-/** `{ ok, elected }` -- `elected` is the disjunct we are relying on. */
 export function evaluate(node, allowed) {
   if (node.kind === "id") {
-    // `GPL-2.0+` and the deprecated `-only`/`-or-later` pairs are distinct ids;
-    // we compare literally rather than guessing at equivalences.
     return { ok: allowed(node.id), elected: node.id };
   }
   if (node.kind === "and") {
@@ -117,11 +80,6 @@ export function evaluate(node, allowed) {
   return { ok: false, elected: null };
 }
 
-/**
- * A licence string the gate can reason about, or a reason it cannot.
- * Anything unreadable fails closed: it can only be cleared by an exception
- * entry, which forces someone to open the package and read the file.
- */
 export function classify(license) {
   if (license === undefined || license === null || license === "") return { readable: false, why: "no licence declared" };
   const text = typeof license === "string" ? license : license.type;
@@ -131,25 +89,19 @@ export function classify(license) {
   return { readable: true, text };
 }
 
-/* -- the tree ---------------------------------------------------------------- */
-
 function listing(...flags) {
   const raw = execFileSync("pnpm", ["licenses", "list", "--json", ...flags], {
     cwd: WEB,
     encoding: "utf8",
     maxBuffer: 256 << 20,
   });
-  // Empty output rather than `{}` when a filter matches nothing.
   return raw.trim() ? JSON.parse(raw) : {};
 }
 
-/** `{ licence: [{ name, versions, paths }] }` into one row per `name@version`. */
 export function flatten(groups) {
   const rows = [];
   for (const entries of Object.values(groups ?? {})) {
     for (const entry of entries) {
-      // `versions` and `paths` are parallel; two versions of one package are
-      // two rows, because they can be licensed differently.
       entry.versions.forEach((version, index) => {
         rows.push({
           id: `${entry.name}@${version}`,
@@ -199,29 +151,15 @@ export function assign({ production = [], optional = [], dev = [] }) {
 }
 
 function collect() {
-  // Three listings rather than one labelled tree, narrowest first. `--prod` is
-  // `dependencies` *plus* `optionalDependencies`, so what it has over `--prod
-  // --no-optional` is the optional set; there is no flag that asks for that
-  // directly.
-  //
-  // The third is unfiltered on purpose. `--dev` is not the complement of
-  // `--prod`: it leaves out the optional dependencies *of* dev dependencies,
-  // which is where four native binaries live -- among them lightningcss's,
-  // under MPL-2.0, which is not on the allowlist. Using `--dev` here dropped
-  // all four out of the audit entirely rather than tiering them.
   const production = flatten(listing("--prod", "--no-optional"));
   const shipped = flatten(listing("--prod"));
   const everything = flatten(listing());
 
   return {
-    // Ourselves, read rather than asked for: pnpm reports the workspace's
-    // dependencies, not the importer, and this only needs the licence field.
     root: JSON.parse(readFileSync(join(WEB, "package.json"), "utf8")),
     packages: assign({ production, optional: shipped, dev: everything }),
   };
 }
-
-/* -- verdicts ----------------------------------------------------------------- */
 
 export function verify(config, packages, today) {
   const allow = new Set(config.allow);
@@ -238,7 +176,7 @@ export function verify(config, packages, today) {
     const exception = exceptions[pkg.id];
     const { readable, text, why } = classify(pkg.license);
 
-    let verdict = null; // { status, elected }
+    let verdict = null;
 
     if (readable) {
       const tree = (() => {
@@ -255,7 +193,6 @@ export function verify(config, packages, today) {
       }
 
       const denied = evaluate(tree, (id) => deny.has(id));
-      // A deny-listed id anywhere is fatal in every tier, including dev.
       if (denied.ok) {
         failures.push(`${pkg.id} [${tier}] — ${text} is on the deny list`);
         continue;
@@ -306,8 +243,6 @@ export function verify(config, packages, today) {
 
   for (const [id, exception] of Object.entries(exceptions)) {
     if (usedExceptions.has(id)) continue;
-    // Platform binaries legitimately vanish on another OS or arch; anything
-    // else that matches nothing is how an allowlist quietly goes permissive.
     const message = `exception for ${id} matches nothing installed`;
     if (exception.platformConditional) warnings.push(`${message} (platform-conditional; not an error here)`);
     else failures.push(`${message} — remove it or restore the dependency`);
@@ -315,8 +250,6 @@ export function verify(config, packages, today) {
 
   return { rows, failures, warnings };
 }
-
-/* -- notices ------------------------------------------------------------------ */
 
 const LICENCE_FILE = /^(LICEN[CS]E|COPYING|COPYRIGHT)(\..*)?$/i;
 const NOTICE_FILE = /^NOTICE(\..*)?$/i;
@@ -335,16 +268,12 @@ function readTexts(dir, match) {
     try {
       out.push({ file: entry.name, text: readFileSync(join(dir, entry.name), "utf8").trimEnd() });
     } catch {
-      /* unreadable; the caller records the absence */
     }
   }
   return out;
 }
 
 function renderNotices(rows) {
-  // Production only: these are the packages whose code we redistribute, and
-  // every permissive licence in the allowlist requires the notice travel with
-  // it. Apache-2.0 s4(d) additionally requires any NOTICE file be propagated.
   const shipped = rows.filter((r) => r.tier === "production").sort((a, b) => a.id.localeCompare(b.id));
 
   const out = [
@@ -389,8 +318,6 @@ function renderNotices(rows) {
   return out.join("\n");
 }
 
-/* -- report ------------------------------------------------------------------- */
-
 function summarise(rows) {
   const tiers = { production: 0, dev: 0, optional: 0 };
   const licences = new Map();
@@ -409,10 +336,6 @@ function main() {
   const { root, packages } = collect();
   const { rows, failures, warnings } = verify(config, packages, today);
 
-  // A repo that demands an SPDX id from every dependency should declare one.
-  // Any non-empty string counts, `UNLICENSED` included: for ourselves that is
-  // a deliberate "not published, all rights reserved", not an unreadable grant
-  // we are being asked to rely on.
   const declared = typeof root?.license === "string" ? root.license.trim() : "";
   if (!declared) failures.push(`this package declares no licence — set "license" in web/package.json`);
 
@@ -457,5 +380,4 @@ function main() {
   console.log("\nok — every dependency is permissively licensed or has a reviewed exception.");
 }
 
-// Importable for its tests; only walks the tree when run as a command.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

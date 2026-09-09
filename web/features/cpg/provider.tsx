@@ -12,29 +12,12 @@ import { keys } from "@/lib/query/keys";
 import { SAMPLES } from "@/lib/samples";
 import type { AnalyzeResponse } from "@/lib/types";
 
-/**
- * Getting a CPG, shared by the two surfaces that need one.
- *
- * F2-A and extraction both start from "compile this source, or open this CPG
- * JSON", and both put the source panel, the editor, the findings list and the
- * inspector in different parallel route slots -- four sibling components that
- * have to agree on one buffer. A context is the only thing that spans them;
- * per-component state meant the analyse button compiled the sample while the
- * editor showed an edit.
- *
- * The compiled result is a disabled query rather than a mutation. Every slot
- * subscribes to the same cache entry and re-renders when it lands; reading it
- * with `getQueryData` during render, which was the first attempt, subscribes
- * to nothing and simply never updates.
- */
-
 interface CpgSource {
   sampleId: string;
   sample: (typeof SAMPLES)[number];
   text: string;
   name: string;
   language: string;
-  /** The text the current response was compiled from, if any. */
   analyzed: string | null;
   response: AnalyzeResponse | null;
   analyzing: boolean;
@@ -47,7 +30,6 @@ interface CpgSource {
 
 const Context = createContext<CpgSource | null>(null);
 
-/** Cheap, stable, and only ever a cache key. */
 function hash(value: string): number {
   let out = 0;
   for (let i = 0; i < value.length; i += 1) out = (Math.imul(31, out) + value.charCodeAt(i)) | 0;
@@ -71,8 +53,6 @@ export function CpgSourceProvider({ children }: { children: ReactNode }) {
 
   const cacheKey = `${language}:${name}:${hash(text)}`;
 
-  // enabled:false -- this only ever runs when something calls refetch(). Every
-  // slot holds the same query, so they all update together.
   const query = useQuery({
     queryKey: keys.analyze(cacheKey),
     queryFn: async () => ({ result: await analyze({ source: text, language, filename: name }), analyzed: text }),
@@ -92,7 +72,6 @@ export function CpgSourceProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const content = await file.text();
-        // A CPG JSON skips Joern: there is no source to compile.
         if (file.name.toLowerCase().endsWith(".json")) {
           const raw: unknown = JSON.parse(content);
           if (!looksLikeCpg(raw)) throw new Error("CPG JSON이 아닙니다 (vertices/edges를 찾을 수 없습니다).");

@@ -5,17 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UiFinding } from "@/lib/model/finding";
 import FindingRow from "./FindingRow";
 
-/**
- * What a row says, and what it does not.
- *
- * The row is the densest thing on the surface -- severity, title, CWE, location,
- * standing, fixability and a tick, in about forty pixels -- so the decisions
- * about what earns space are worth pinning. Two in particular: `패치 없음` appears
- * only where it is true, because a badge on every row is a badge nobody reads;
- * and a finding with no code can still be ticked, because the patch dialog offers
- * to write some and refusing the tick would hide that door.
- */
-
 afterEach(cleanup);
 
 function finding(over: Partial<UiFinding> = {}): UiFinding {
@@ -71,9 +60,6 @@ describe("what the row shows", () => {
   });
 
   it("says when one claim was reported by more than one unit", () => {
-    // The chunker makes a unit of a file and a unit of each function in it, so a
-    // problem inside a function is read twice and reported twice. Merged into
-    // one row -- and the row says so rather than looking like a lone reading.
     render(<FindingRow finding={finding({ chunkIds: ["c1", "c2"] })} />);
     expect(screen.getByText("2회 보고")).toBeInTheDocument();
   });
@@ -82,8 +68,6 @@ describe("what the row shows", () => {
     render(<FindingRow finding={finding({ verified: true })} />);
     expect(screen.getByText(/취약 확인/)).toBeInTheDocument();
     cleanup();
-    // F2-A findings never go near a verifier, so `null` is no state rather than
-    // a third one, and a badge would invent a step that did not happen.
     render(<FindingRow finding={finding({ verified: null })} />);
     expect(screen.queryByText(/취약 확인|취약 후보/)).toBeNull();
   });
@@ -102,8 +86,6 @@ describe("the tick", () => {
   });
 
   it("reports a tick without opening the row", async () => {
-    // The checkbox stops propagation: ticking forty rows should not drag the
-    // detail panel through forty findings on the way.
     const onTick = vi.fn();
     const onOpen = vi.fn();
     render(<FindingRow finding={finding()} ticked={false} onTick={onTick} onOpen={onOpen} />);
@@ -122,7 +104,6 @@ describe("the tick", () => {
   });
 
   it("is not a button at all when there is nothing to open", async () => {
-    // The live list during a scan renders rows that cannot be opened yet.
     render(<FindingRow finding={finding()} />);
     expect(screen.getByRole("button")).toBeDisabled();
   });

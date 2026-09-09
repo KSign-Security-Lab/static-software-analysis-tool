@@ -9,20 +9,6 @@ import { useDeleteRun, useRuns } from "@/lib/run/queries";
 import { useRunId } from "@/lib/run/use-run-id";
 import { cn } from "@/lib/utils";
 
-/**
- * 지난 검사.
- *
- * A scan costs minutes and tokens, so reopening one has to be possible -- and
- * the report is the whole of what it produced, so reopening is just setting
- * `?run=`. Everything else on this screen is derived from that.
- *
- * A popover rather than a pane. The previous version was a 321-line panel with
- * comparison, deletion and a run's whole statistics in it; what a reader actually
- * does here is pick one and occasionally delete one, and both fit in a list.
- *
- * The list is this owner's, by the `x-ssat-owner` header. Not a login -- see
- * `lib/run/whoami` -- just a way of not showing you a stranger's scans.
- */
 export default function RunPicker() {
   const [runId, setRunId] = useRunId();
   const runs = useRuns();
@@ -42,10 +28,6 @@ export default function RunPicker() {
       <PopoverContent align="end" className="w-96 p-0">
         {rows.length === 0 ? (
           <p className="px-3 py-4 text-xs text-ink-faint">
-            {/* Three states, and the third used to be told as the second. A
-                failed request is not an empty history, and saying "아직 검사한
-                것이 없습니다" to somebody whose backend is down sends them
-                looking for their scans instead of at their server. */}
             {runs.isPending
               ? "불러오는 중"
               : runs.error
@@ -70,9 +52,6 @@ export default function RunPicker() {
                       <span
                         className={cn("min-w-0 truncate text-xs", current ? "text-ink-strong" : "text-ink")}
                       >
-                        {/* The origin label is what somebody recognises. The
-                            file names are the fallback for runs made before
-                            intake recorded one. */}
                         {row.origin?.label ?? row.files.join(", ") ?? row.run_id}
                       </span>
                       {typeof row.findings === "number" && row.findings > 0 && (
@@ -91,9 +70,6 @@ export default function RunPicker() {
                     aria-label="이 검사 지우기"
                     className="shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100"
                     onClick={() => {
-                      // Clear the selection first: the queries against it are
-                      // disabled the moment the id goes, so nothing re-fetches
-                      // from a server that has just deleted it.
                       if (current) setRunId(null);
                       remove.mutate(row.run_id);
                     }}
@@ -110,7 +86,6 @@ export default function RunPicker() {
   );
 }
 
-/** Only the ones worth saying. `done` is the expected case and says nothing. */
 const STATUS: Record<string, string> = {
   created: "준비 중",
   indexing: "읽는 중",

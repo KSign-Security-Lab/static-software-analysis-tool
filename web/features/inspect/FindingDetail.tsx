@@ -19,17 +19,6 @@ import {
 } from "@/lib/model/finding";
 import { cn } from "@/lib/utils";
 
-/**
- * One finding, in the order the questions get asked.
- *
- * What is it, where is it, why does it think so, how do I fix it, and -- only if
- * you ask -- how did it decide. That last pair used to be two of four centre
- * tabs competing with an editor for width, which is why nobody read them: seeing
- * a finding's own reasoning meant navigating away from the finding.
- *
- * They are the bottom two sections now, closed. Nothing that was visible is
- * hidden; what was a place to go is filed under the thing it is about.
- */
 export default function FindingDetail({ finding }: { finding: UiFinding | undefined }) {
   if (!finding) {
     return (
@@ -103,9 +92,6 @@ export default function FindingDetail({ finding }: { finding: UiFinding | undefi
           <FixPatch finding={finding} />
         </Section>
 
-        {/* Closed. The two questions below this line are the ones a reader asks
-            second, and only sometimes -- but when they ask, they want the whole
-            width, which is why they are here rather than in a 400px column. */}
         <Reasoning finding={finding} />
       </div>
     </section>

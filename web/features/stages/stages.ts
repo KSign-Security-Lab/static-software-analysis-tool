@@ -1,18 +1,9 @@
-/**
- * The pipeline, one call at a time.
- *
- * The analyse page runs the whole chain and renders the result. This is the
- * other thing you want when a stage is misbehaving: call it alone and read the
- * JSON it actually returned.
- */
 export interface Stage {
   key: string;
   path: string;
   label: string;
   note: string;
-  /** Whether the endpoint takes a prebuilt CPG instead of source. */
   acceptsCpg: boolean;
-  /** Whether it takes *only* a CPG. */
   requiresCpg?: boolean;
 }
 

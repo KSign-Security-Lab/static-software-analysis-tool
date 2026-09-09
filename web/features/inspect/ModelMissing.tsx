@@ -4,20 +4,6 @@ import { AlertTriangle } from "lucide-react";
 
 import type { AgentHealth } from "@/lib/api/types";
 
-/**
- * The agent has no model, said before the button rather than after it.
- *
- * `require_model` exists so a misconfigured deployment fails at startup rather
- * than at chunk 400 of 600, and it was being checked inside the worker thread --
- * so pressing 검사 시작 accepted the request, flipped the run to 실행 중 and then
- * failed it. The route refuses up front now, and this is the other half: the
- * screen already knows, so offering a button that cannot work is offering to
- * waste an upload.
- *
- * Names what the endpoint serves, which is the fact that makes this fixable.
- * Knowing `AGENT_MODEL` is unset does not say what to set it to; `?probe=true`
- * asks the endpoint, and the answer is usually one id long.
- */
 export default function ModelMissing({ health }: { health: AgentHealth | undefined }) {
   if (!health || health.configured) return null;
 
