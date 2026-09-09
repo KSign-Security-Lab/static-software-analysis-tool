@@ -179,3 +179,53 @@ def test_report_backend_skew():
     if differences:
         print("\nbackend skew (likely differing Joern versions):")
         print("\n".join(differences))
+
+
+# -- the container's workspace -----------------------------------------------
+
+
+def test_the_batch_driver_stages_where_the_container_is_mounted():
+    """One definition of the bind mount, shared with the batch driver.
+
+    The bug this closes: the driver computed `<root>/workspace` while compose
+    mounts `<root>/artifacts/workspace`, so joern-parse was told to read a file
+    that was never inside the container. Every file in a batch failed, with an
+    empty error message, for as long as anyone had been running it.
+    """
+    from ssat.cpg import backends, generator
+
+    assert generator.workspace_dir is backends.workspace_dir, "a second definition of the mount point"
+    assert backends.WORKSPACE_SUBDIR.parts == ("artifacts", "workspace")
+    assert backends.workspace_dir().parts[-2:] == ("artifacts", "workspace")
+
+
+def test_the_workspace_can_be_pointed_elsewhere(monkeypatch, tmp_path):
+    from ssat.cpg.backends import workspace_dir
+
+    monkeypatch.setenv("SSAT_JOERN_WORKSPACE", str(tmp_path / "elsewhere"))
+    assert workspace_dir() == tmp_path / "elsewhere"
+
+
+def test_the_container_name_can_be_pointed_elsewhere(monkeypatch):
+    """The batch driver used to interpolate `$USER` itself, so this override
+    applied to every caller except the one that cannot run without a container."""
+    from ssat.cpg.backends import joern_container_name
+
+    monkeypatch.setenv("SSAT_JOERN_CONTAINER", "some-other-joern")
+    assert joern_container_name() == "some-other-joern"
+
+
+def test_a_job_directory_does_not_outlive_the_run():
+    """Joern runs as root in the container and writes its export as root, so a
+    host-side rmtree cannot remove it -- and with `ignore_errors=True` it said
+    nothing. 729 job directories, 252MB, had accumulated before anyone looked.
+    """
+    from ssat.cpg.backends import DockerBackend, workspace_dir
+
+    docker = DockerBackend()
+    if not docker.is_available():
+        pytest.skip("need a running Joern container")
+
+    docker.generate(SOURCE, filename="main.c")
+    leftovers = [path.name for path in workspace_dir().glob("job_*")]
+    assert leftovers == [], f"left behind: {leftovers}"

@@ -92,6 +92,27 @@ ssat f2a                 CPG           -> OCPP evidence candidates
 The input path is positional. Every subcommand also takes `-o/--output` and
 `--backend {jpype,docker}`; `--workers` parallelises CPG generation only.
 
+Which Joern the two backends mean, because it decides whether you need a
+container:
+
+- **`jpype`** (default) loads Joern's JARs into this process. A local install
+  and `JOERN_HOME`; no container. This is what the web UI's `/analyze` uses.
+- **`docker`** runs `docker exec` against `ssat-joern-$USER`
+  (`SSAT_JOERN_CONTAINER` overrides the name). No local Joern needed.
+
+`ssat cpg` always takes the container route, whatever `--backend` says, for one
+file as much as for a directory: its driver is a process pool, and a pool of
+workers cannot share one JVM. Start it with `docker compose up -d joern`;
+without it the command stops before doing any work and says which command to
+run.
+
+`--backend` is therefore about the *other* stages, which generate their own CPG
+from source in-process — `ssat f2a --ext c path/to/file.c` needs no container at
+all.
+
+The agent is a separate line of analysis and uses neither: it parses with
+tree-sitter and needs only Postgres.
+
 The five stages that build a Template also take `--no-replace-macro`. Joern runs
 no preprocessor: it models a `#define` as a function and each use of it as a
 call, inlining the expansion beneath the use site. By default that pseudo-call

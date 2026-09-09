@@ -93,6 +93,30 @@ def joern_container_name() -> str:
     return os.getenv("SSAT_JOERN_CONTAINER") or f"ssat-joern-{username}"
 
 
+def remove_job_dir(job_dir: Path, container_work_dir: str, container_name: str) -> None:
+    """Delete a staged job directory, from inside the container first.
+
+    Joern runs as root in there and writes `cpg.bin` and `out/export.json` as
+    root, so a host-side `rmtree` cannot remove them -- and with
+    `ignore_errors=True` it said nothing about failing. 729 job directories and
+    252MB had accumulated in `artifacts/workspace` before anyone looked.
+
+    Best effort by design: a leaked directory is litter, and raising here would
+    turn it into a failed analysis that actually produced its CPG.
+    """
+    try:
+        subprocess.run(
+            ["docker", "exec", container_name, "rm", "-rf", container_work_dir],
+            capture_output=True,
+            timeout=30,
+        )
+    except OSError, subprocess.SubprocessError:
+        pass
+    # The staging directory itself is ours, and empty by now unless the
+    # container never ran.
+    shutil.rmtree(job_dir, ignore_errors=True)
+
+
 def run_joern_in_container(
     job_dir: Path,
     container_source: str,
@@ -174,8 +198,13 @@ def run_joern_in_container(
 WORKSPACE_SUBDIR = Path("artifacts") / "workspace"
 
 
-def _workspace_dir() -> Path:
-    """Host side of the container's /workspace bind mount."""
+def workspace_dir() -> Path:
+    """Host side of the container's /workspace bind mount.
+
+    Public because the batch driver stages files here too, and it used to
+    compute the path itself -- as `<root>/workspace`, which is not what compose
+    mounts. Every file it staged was invisible to the container.
+    """
     override = os.getenv("SSAT_JOERN_WORKSPACE")
     if override:
         return Path(override)
@@ -206,7 +235,7 @@ class DockerBackend:
         return result.returncode == 0 and result.stdout.strip() == "true"
 
     def generate(self, source: str, *, filename: str = "main.c", representation: str = "all") -> CpgResult:
-        workspace = _workspace_dir()
+        workspace = workspace_dir()
         workspace.mkdir(parents=True, exist_ok=True)
 
         job_id = uuid.uuid4().hex[:12]
@@ -224,7 +253,7 @@ class DockerBackend:
                 representation=representation,
             )
         finally:
-            shutil.rmtree(job_dir, ignore_errors=True)
+            remove_job_dir(job_dir, f"/workspace/job_{job_id}", joern_container_name())
 
         return CpgResult(graphson, count_methods(graphson), self.name)
 

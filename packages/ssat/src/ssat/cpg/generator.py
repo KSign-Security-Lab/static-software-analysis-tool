@@ -13,7 +13,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .backends import run_joern_in_container
+from .backends import remove_job_dir, run_joern_in_container, workspace_dir
 
 # File extensions that Joern can process
 SUPPORTED_EXTENSIONS = frozenset(
@@ -107,7 +107,7 @@ def _worker_generate_one(
     except Exception as exc:  # noqa: BLE001 - reported per-file, never kills the batch
         return {"success": False, "file": source_file, "error": str(exc)}
     finally:
-        shutil.rmtree(job_dir, ignore_errors=True)
+        remove_job_dir(job_dir, f"/workspace/job_{job_id}", container_name)
 
 
 def batch_generate_cpg(
@@ -137,10 +137,12 @@ def batch_generate_cpg(
         copy_source: If True, copy original source files alongside JSON output
         progress_callback: Optional callable(result_dict) for progress updates
     """
-    # Find the project root to locate the workspace directory
-    project_root = _find_project_root(Path.cwd())
-    workspace_dir = project_root / "workspace"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
+    # The one definition of where the container's /workspace is mounted from.
+    # This used to be `<project root>/workspace`, which compose does not mount:
+    # joern-parse then failed on every file, with an empty error, because the
+    # source it was told to read was never inside the container.
+    workspace = workspace_dir()
+    workspace.mkdir(parents=True, exist_ok=True)
 
     # Ensure workspace has correct permissions in Docker
     try:
@@ -162,7 +164,7 @@ def batch_generate_cpg(
                 str(input_root),
                 str(output_root),
                 container_name,
-                str(workspace_dir),
+                str(workspace),
                 representation,
                 export_format,
                 copy_source,
@@ -177,18 +179,3 @@ def batch_generate_cpg(
                 progress_callback(result)
 
     return results
-
-
-# ---------------------------------------------------------------------------
-# Single-file generation (used by downstream template/ast/dfg pipeline)
-# ---------------------------------------------------------------------------
-
-
-def _find_project_root(start_dir: Path) -> Path:
-    """Find the project root by looking for pyproject.toml or package.json."""
-    current = start_dir
-    while current != current.parent:
-        if (current / "pyproject.toml").exists() or (current / "package.json").exists():
-            return current
-        current = current.parent
-    return Path.cwd()
