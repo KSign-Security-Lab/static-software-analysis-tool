@@ -177,9 +177,23 @@ Model choice, GPU sizing, port conflicts and how to read the output are in
 
 ## Development
 
-There is no task runner and no wrapper script. Every command below is the real
-one, so what you run locally is what CI runs and what this file can be checked
-against.
+The task list is `[tool.poe.tasks]` in the root `pyproject.toml`, and
+[poethepoet](https://poethepoet.natn.io/) runs it:
+
+```bash
+uv run poe               # the list, with what each one does
+uv run poe check         # lint, types, Python tests, then the web gate
+uv run poe api           # the API on :8001
+uv run poe web           # the Next.js dev server on :3000
+uv run poe stack         # what is running right now
+```
+
+It reaches the web app too — those tasks set `cwd = "web"` and shell out to
+`pnpm`, so one file lists both halves of the repo. `uv run poe agent index src/`
+passes its extra arguments straight through.
+
+Nothing is hidden behind it. Every task is the real command and running it
+yourself works exactly the same:
 
 ```bash
 ruff check
@@ -191,8 +205,9 @@ cd web && pnpm type-check && pnpm lint && pnpm test
 ```
 
 No path arguments: the targets live in `pyproject.toml`, so there is one
-definition of what gets checked rather than one per caller. That is exactly what
-CI runs — see `.github/workflows/ci.yml`.
+definition of what gets checked rather than one per caller. CI calls the tools
+directly rather than going through poe — see `.github/workflows/ci.yml` — so a
+mistake in the task list cannot turn a build green.
 
 The containers, by name — `vllm` and `secbench` are profile-gated, and Compose
 silently matches nothing if the profile is left off:
