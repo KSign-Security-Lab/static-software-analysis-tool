@@ -109,7 +109,7 @@ uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
   --reload-dir api --reload-dir packages/ssat/src/ssat \
   --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
 
-cd web && npm run dev       # Next.js on :3000
+cd web && pnpm dev          # Next.js on :3000
 ```
 
 The API exposes `/cpg-jpype`, `/cpg-docker`, `/template`, `/ast`, `/dfg`,
@@ -123,7 +123,7 @@ return the SSAT pipeline's own artifacts.
 ## LLM inspection
 
 ```bash
-uv sync && (cd web && npm install)                 # once
+uv sync && (cd web && pnpm install)                # once
 cp .env.example .env                               # which model, which GPUs, where the weights go
 docker compose --profile vllm up -d --wait vllm    # the model server, on :8000
 docker compose up -d --wait postgres               # the run database
@@ -179,7 +179,7 @@ ruff format --check
 mypy
 pytest
 
-cd web && npm run type-check && npm run lint && npm run test
+cd web && pnpm type-check && pnpm lint && pnpm test
 ```
 
 No path arguments: the targets live in `pyproject.toml`, so there is one

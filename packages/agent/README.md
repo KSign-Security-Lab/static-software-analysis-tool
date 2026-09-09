@@ -383,7 +383,7 @@ uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
   --reload --timeout-graceful-shutdown 2 \
   --reload-dir api --reload-dir packages/ssat/src/ssat \
   --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
-cd web && npm run dev             # Next.js on :3000
+cd web && pnpm dev                # Next.js on :3000
 ```
 
 Open <http://localhost:3000/inspect>, upload a zip or a set of files, and press

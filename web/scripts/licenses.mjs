@@ -2,11 +2,20 @@
 /**
  * Licence gate over the installed dependency tree.
  *
- * Reads `npm query`, which is arborist's own view, so it agrees exactly with
- * what `npm ci` put on disk -- including platform-conditional optional
+ * Reads `pnpm licenses list`, which reports what the lockfile resolved and the
+ * store actually holds -- including platform-conditional optional
  * dependencies, which is the case that actually bites here: the LGPL libvips
  * binaries exist on linux-x64 and not on darwin-arm64, and a checker that
  * disagrees with the tree by platform is worse than none.
+ *
+ * There is no `extraneous` tier any more. Under npm, arborist reported a
+ * package no manifest edge reaches as `dev: true`, so an undeclared one sailed
+ * through the lenient tier and this had to force it back to production. pnpm
+ * builds `node_modules` from the lockfile and prunes what is not in it, so the
+ * listing cannot contain an undeclared package -- and anything hand-placed
+ * there is invisible to this gate rather than mislabelled by it. What keeps the
+ * lockfile honest is CI installing with `--frozen-lockfile`, which fails when
+ * it and `package.json` disagree.
  *
  * No dependencies, on purpose. A licence gate that pulls in thirty transitive
  * packages has enlarged the thing it was meant to audit.
@@ -124,67 +133,92 @@ export function classify(license) {
 
 /* -- the tree ---------------------------------------------------------------- */
 
-function query(selector) {
-  const raw = execFileSync("npm", ["query", selector], { cwd: WEB, encoding: "utf8", maxBuffer: 256 << 20 });
-  return JSON.parse(raw);
+function listing(...flags) {
+  const raw = execFileSync("pnpm", ["licenses", "list", "--json", ...flags], {
+    cwd: WEB,
+    encoding: "utf8",
+    maxBuffer: 256 << 20,
+  });
+  // Empty output rather than `{}` when a filter matches nothing.
+  return raw.trim() ? JSON.parse(raw) : {};
+}
+
+/** `{ licence: [{ name, versions, paths }] }` into one row per `name@version`. */
+export function flatten(groups) {
+  const rows = [];
+  for (const entries of Object.values(groups ?? {})) {
+    for (const entry of entries) {
+      // `versions` and `paths` are parallel; two versions of one package are
+      // two rows, because they can be licensed differently.
+      entry.versions.forEach((version, index) => {
+        rows.push({
+          id: `${entry.name}@${version}`,
+          name: entry.name,
+          version,
+          license: entry.license,
+          path: entry.paths?.[index] ?? entry.paths?.[0],
+        });
+      });
+    }
+  }
+  return rows;
 }
 
 /**
- * One row per package, not per place it sits in the tree.
+ * One row per package, in the strictest tier that reaches it. First listing to
+ * claim a package wins, so the order of the three is the tiering rule.
  *
  * A package reached both as a dev and as a production dependency is
- * production: the stricter tier has to win, or a copyleft dependency hides
- * behind whichever copy the walk happened to see first.
+ * production, or a copyleft dependency hides behind whichever listing happened
+ * to be read first. Dev comes last for the reason the tier is looser at all --
+ * a platform binary that only ever runs the build, vitest's bundler or
+ * eslint's resolver, does not put its licence on our output. Only a dependency
+ * a production edge reaches earns strict treatment.
+ *
+ * `dev` is therefore passed the *whole* tree rather than a dev-only listing:
+ * whatever the first two did not claim is, by definition, reached by no
+ * production edge, and nothing can fall out of the audit by not matching a
+ * filter.
+ *
+ * @template {{id: string}} Row
+ * @param {{production?: Row[], optional?: Row[], dev?: Row[]}} listings
+ * @returns {(Row & {tier: "production" | "optional" | "dev"})[]}
  */
-export function dedupe(nodes, optionalIds, extraneousIds = new Set()) {
+export function assign({ production = [], optional = [], dev = [] }) {
   const byId = new Map();
-
-  for (const node of nodes) {
-    if (node.location === "") continue; // ourselves; asserted separately
-    const id = node.pkgid ?? `${node.name}@${node.version}`;
-    const existing = byId.get(id);
-    if (existing) {
-      if (!node.dev) existing.dev = false;
-      continue;
+  for (const [tier, rows] of [
+    ["production", production],
+    ["optional", optional],
+    ["dev", dev],
+  ]) {
+    for (const row of rows) {
+      if (!byId.has(row.id)) byId.set(row.id, { ...row, tier });
     }
-    byId.set(id, {
-      id,
-      name: node.name,
-      version: node.version,
-      license: node.license,
-      dev: Boolean(node.dev),
-      optional: optionalIds.has(id),
-      extraneous: extraneousIds.has(id),
-      path: node.realpath ?? node.path,
-    });
   }
-
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function collect() {
-  const all = query("*");
-  // Neither is a field on the node, so each takes its own pass. `.optional` is
-  // a dependency-type class; `:extraneous` is a pseudo-selector.
-  const optional = new Set(query(".optional").map((p) => p.pkgid));
-  const extraneous = new Set(query(":extraneous").map((p) => p.pkgid));
-  return { root: all.find((p) => p.location === ""), packages: dedupe(all, optional, extraneous) };
-}
+  // Three listings rather than one labelled tree, narrowest first. `--prod` is
+  // `dependencies` *plus* `optionalDependencies`, so what it has over `--prod
+  // --no-optional` is the optional set; there is no flag that asks for that
+  // directly.
+  //
+  // The third is unfiltered on purpose. `--dev` is not the complement of
+  // `--prod`: it leaves out the optional dependencies *of* dev dependencies,
+  // which is where four native binaries live -- among them lightningcss's,
+  // under MPL-2.0, which is not on the allowlist. Using `--dev` here dropped
+  // all four out of the audit entirely rather than tiering them.
+  const production = flatten(listing("--prod", "--no-optional"));
+  const shipped = flatten(listing("--prod"));
+  const everything = flatten(listing());
 
-export function tierOf(pkg) {
-  // Extraneous first, and as production: arborist reports a package that no
-  // manifest edge reaches as `dev: true`, so without this an undeclared
-  // package -- an `npm install --no-save`, a half-finished branch, a stale
-  // node_modules -- lands in the lenient tier and is waved through. Nothing
-  // declares it, so nothing proves it does not ship. Fail closed.
-  if (pkg.extraneous) return "production";
-  // Dev wins over optional. A platform binary that only ever runs the build
-  // -- vitest's bundler, eslint's resolver -- is still a build tool, and the
-  // whole reason the dev tier is looser is that its licence does not attach to
-  // our output. Only an optional dependency that can reach the bundle earns
-  // the stricter treatment.
-  if (pkg.dev) return "dev";
-  return pkg.optional ? "optional" : "production";
+  return {
+    // Ourselves, read rather than asked for: pnpm reports the workspace's
+    // dependencies, not the importer, and this only needs the licence field.
+    root: JSON.parse(readFileSync(join(WEB, "package.json"), "utf8")),
+    packages: assign({ production, optional: shipped, dev: everything }),
+  };
 }
 
 /* -- verdicts ----------------------------------------------------------------- */
@@ -200,7 +234,7 @@ export function verify(config, packages, today) {
   const rows = [];
 
   for (const pkg of packages) {
-    const tier = tierOf(pkg);
+    const tier = pkg.tier;
     const exception = exceptions[pkg.id];
     const { readable, text, why } = classify(pkg.license);
 
@@ -316,7 +350,7 @@ function renderNotices(rows) {
   const out = [
     "# Third-party notices",
     "",
-    "Generated by `npm run licenses:notices` — do not edit by hand.",
+    "Generated by `pnpm run licenses:notices` — do not edit by hand.",
     "",
     "The SSAT web UI redistributes the packages below. Where a licence offers a",
     "choice, the licence this project relies on is marked *elected*.",
@@ -392,10 +426,10 @@ function main() {
     try {
       current = readFileSync(NOTICES, "utf8");
     } catch {
-      failures.push("THIRD-PARTY-NOTICES.md is missing — run `npm run licenses:notices`");
+      failures.push("THIRD-PARTY-NOTICES.md is missing — run `pnpm run licenses:notices`");
     }
     if (current && current !== renderNotices(rows)) {
-      failures.push("THIRD-PARTY-NOTICES.md is out of date — run `npm run licenses:notices`");
+      failures.push("THIRD-PARTY-NOTICES.md is out of date — run `pnpm run licenses:notices`");
     }
   }
 

@@ -1,0 +1,9 @@
+# pnpm 10 reads these settings from here rather than from package.json.
+#
+# An allowlist, so no dependency runs a lifecycle script unless it is named --
+# npm ran every one of them, which is how a transitive package gets to execute
+# code at install time. `unrs-resolver` is on it because eslint-config-next
+# resolves imports through it and its postinstall links the native binding;
+# nothing else in this tree asks to build.
+onlyBuiltDependencies:
+  - unrs-resolver

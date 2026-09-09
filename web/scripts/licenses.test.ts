@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 // A plain .mjs script, deliberately dependency-free; resolved via allowJs.
-import { classify, dedupe, evaluate, parseExpression, tierOf, tokenize, verify } from "./licenses.mjs";
+import { assign, classify, evaluate, flatten, parseExpression, tokenize, verify } from "./licenses.mjs";
 
 const parse = (expr: string) => parseExpression(tokenize(expr));
 const allowing =
@@ -78,26 +78,46 @@ describe("classify", () => {
 });
 
 describe("tiers", () => {
+  const row = (id: string) => ({ id, name: id.split("@")[0], version: "1.0.0", license: "MIT" });
+
   it("puts a shipped dependency in production", () => {
-    expect(tierOf({ dev: false, optional: false })).toBe("production");
+    const [only] = assign({ production: [row("a@1.0.0")], optional: [], dev: [row("a@1.0.0")] });
+    expect(only.tier).toBe("production");
+  });
+
+  it("lets production win over dev whichever listing is read first", () => {
+    // The stricter tier has to win, or a copyleft dependency hides behind
+    // whichever copy of it the listing happened to report.
+    expect(assign({ production: [row("a@1.0.0")], dev: [row("a@1.0.0")] })[0].tier).toBe("production");
+    expect(assign({ dev: [row("a@1.0.0")], production: [row("a@1.0.0")] })[0].tier).toBe("production");
   });
 
   it("keeps a dev platform binary in the dev tier", () => {
-    // lightningcss-linux-x64-gnu is optional AND dev: it builds, it never ships.
-    expect(tierOf({ dev: true, optional: true })).toBe("dev");
+    // lightningcss-linux-x64-gnu: an optional dependency of a dev dependency.
+    // It builds, it never ships, and no production edge reaches it.
+    const [only] = assign({ production: [], optional: [], dev: [row("lightningcss-linux-x64-gnu@1.0.0")] });
+    expect(only.tier).toBe("dev");
   });
 
   it("gives a shippable optional binary the strict tier", () => {
-    expect(tierOf({ dev: false, optional: true })).toBe("optional");
+    // `--prod` covers optionalDependencies too, so an optional binary that a
+    // production edge reaches is claimed before the whole-tree listing sees it.
+    const [only] = assign({ production: [], optional: [row("b@1.0.0")], dev: [row("b@1.0.0")] });
+    expect(only.tier).toBe("optional");
   });
 
-  it("treats an undeclared package as production however arborist labelled it", () => {
-    // The hole this closes: arborist reports a package no manifest edge reaches
-    // as `dev: true`. An `npm install --no-save elkjs` therefore sailed straight
-    // through the lenient dev tier. Nothing declares it, so nothing proves it
-    // does not ship.
-    expect(tierOf({ dev: true, optional: false, extraneous: true })).toBe("production");
-    expect(tierOf({ dev: true, optional: true, extraneous: true })).toBe("production");
+  it("tiers everything in the tree, so nothing escapes by matching no filter", () => {
+    // `--dev` is not the complement of `--prod`: it omits the optional
+    // dependencies *of* dev dependencies. The third listing is unfiltered for
+    // this reason, and four native binaries -- one of them MPL-2.0 -- were
+    // outside the audit entirely until it was.
+    const tree = [row("a@1.0.0"), row("b@1.0.0"), row("c@1.0.0")];
+    const tiered = assign({ production: [row("a@1.0.0")], optional: [row("b@1.0.0")], dev: tree });
+    expect(tiered.map((r) => [r.id, r.tier])).toEqual([
+      ["a@1.0.0", "production"],
+      ["b@1.0.0", "optional"],
+      ["c@1.0.0", "dev"],
+    ]);
   });
 });
 
@@ -112,8 +132,7 @@ const pkg = (over: Record<string, unknown> = {}) => ({
   name: "thing",
   version: "1.0.0",
   license: "MIT",
-  dev: false,
-  optional: false,
+  tier: "production",
   path: "/nowhere",
   ...over,
 });
@@ -134,13 +153,13 @@ describe("verify", () => {
   });
 
   it("lets an unlisted licence through in the dev tier", () => {
-    const { failures, rows } = verify(config, [pkg({ license: "MPL-2.0", dev: true })], TODAY);
+    const { failures, rows } = verify(config, [pkg({ license: "MPL-2.0", tier: "dev" })], TODAY);
     expect(failures).toEqual([]);
     expect(rows[0]).toMatchObject({ tier: "dev", status: "dev" });
   });
 
   it("still fails a deny-listed licence in the dev tier", () => {
-    const { failures } = verify(config, [pkg({ license: "AGPL-3.0-only", dev: true })], TODAY);
+    const { failures } = verify(config, [pkg({ license: "AGPL-3.0-only", tier: "dev" })], TODAY);
     expect(failures[0]).toMatch(/on the deny list/);
   });
 
@@ -210,42 +229,33 @@ describe("verify", () => {
 
 });
 
-describe("dedupe", () => {
-  const node = (over: Record<string, unknown> = {}) => ({
-    pkgid: "thing@1.0.0",
-    name: "thing",
-    version: "1.0.0",
-    license: "MIT",
-    location: "node_modules/thing",
-    dev: false,
-    realpath: "/nowhere",
-    ...over,
+describe("flatten", () => {
+  it("reads pnpm's grouping by licence back into one row per package", () => {
+    const rows = flatten({
+      MIT: [{ name: "thing", versions: ["1.0.0"], paths: ["/nowhere/thing"], license: "MIT" }],
+      ISC: [{ name: "other", versions: ["2.0.0"], paths: ["/nowhere/other"], license: "ISC" }],
+    });
+    expect(rows).toEqual([
+      { id: "thing@1.0.0", name: "thing", version: "1.0.0", license: "MIT", path: "/nowhere/thing" },
+      { id: "other@2.0.0", name: "other", version: "2.0.0", license: "ISC", path: "/nowhere/other" },
+    ]);
   });
 
-  it("collapses the same package at several locations into one row", () => {
-    expect(dedupe([node(), node({ location: "node_modules/a/node_modules/thing" })], new Set())).toHaveLength(1);
+  it("keeps two versions of one package apart, with the path each was read from", () => {
+    // They can be licensed differently, and the notices quote the licence file
+    // from the directory this names.
+    const rows = flatten({
+      MIT: [{ name: "thing", versions: ["1.0.0", "2.0.0"], paths: ["/a/thing", "/b/thing"], license: "MIT" }],
+    });
+    expect(rows.map((r) => [r.id, r.path])).toEqual([
+      ["thing@1.0.0", "/a/thing"],
+      ["thing@2.0.0", "/b/thing"],
+    ]);
   });
 
-  it("lets production win over dev whichever copy is seen first", () => {
-    // The stricter tier has to win, or a copyleft dependency hides behind
-    // whichever copy the walk happened to reach first.
-    const devFirst = dedupe([node({ dev: true }), node({ dev: false })], new Set());
-    const prodFirst = dedupe([node({ dev: false }), node({ dev: true })], new Set());
-    expect(devFirst[0].dev).toBe(false);
-    expect(prodFirst[0].dev).toBe(false);
-  });
-
-  it("skips the root package", () => {
-    expect(dedupe([node({ location: "" })], new Set())).toEqual([]);
-  });
-
-  it("marks a package listed by the optional selector", () => {
-    expect(dedupe([node()], new Set(["thing@1.0.0"]))[0].optional).toBe(true);
-  });
-
-  it("marks a package listed by the extraneous selector", () => {
-    expect(dedupe([node()], new Set(), new Set(["thing@1.0.0"]))[0].extraneous).toBe(true);
-    expect(dedupe([node()], new Set())[0].extraneous).toBe(false);
+  it("survives an empty listing, which is what a filter matching nothing gives", () => {
+    expect(flatten({})).toEqual([]);
+    expect(flatten(undefined)).toEqual([]);
   });
 });
 
@@ -259,7 +269,11 @@ describe("the banned package", () => {
     const declared = { ...pkg({ name: "elkjs", id: "elkjs@0.12.0", license: "EPL-2.0 OR GPL-3.0-or-later" }) };
     expect(verify(config, [declared], TODAY).failures[0]).toMatch(/elkjs@0\.12\.0 \[production\]/);
 
-    const undeclared = { ...declared, dev: true, extraneous: true };
-    expect(verify(config, [undeclared], TODAY).failures[0]).toMatch(/elkjs@0\.12\.0 \[production\]/);
+    // And in the dev tier, where an unlisted licence would otherwise pass:
+    // the deny list is fatal in every tier.
+    const asDev = { ...declared, tier: "dev", license: "GPL-3.0-or-later", id: "elkjs@0.12.0" };
+    expect(verify({ ...config, denyAlways: ["GPL-3.0-or-later"] }, [asDev], TODAY).failures[0]).toMatch(
+      /elkjs@0\.12\.0 \[dev\]/,
+    );
   });
 });

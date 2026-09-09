@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
+  "packageManager": "pnpm@10.33.2",
   "description": "SSAT web UI — CPG views, SSAT pipeline artifacts, and F2-A evidence",
   "scripts": {
     "dev": "next dev -p 3000",

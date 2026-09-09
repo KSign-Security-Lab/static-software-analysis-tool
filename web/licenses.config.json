@@ -1,13 +1,13 @@
 {
   "$comment": [
     "Policy for scripts/licenses.mjs. Three tiers, because the obligations differ:",
-    "  production (!dev, !optional) ships in the bundle      -> must satisfy `allow`",
-    "  dev                          is a build tool          -> only `denyAlways` applies",
-    "  optional                     is a platform binary     -> `allow`, or a named exception",
+    "  production  a production dependency, ships in the bundle -> must satisfy `allow`",
+    "  optional    reached only through optionalDependencies    -> `allow`, or a named exception",
+    "  dev         no production edge reaches it; a build tool  -> only `denyAlways` applies",
     "A build tool's licence does not attach to its output, which is why the dev tier",
-    "is looser. Anything not covered by a tier rule fails closed."
+    "is looser. The tier is whichever of pnpm's three listings claims a package",
+    "first, so everything installed lands in exactly one and nothing fails open."
   ],
-
   "allow": [
     "0BSD",
     "Apache-2.0",
@@ -23,7 +23,6 @@
     "Python-2.0",
     "Unlicense"
   ],
-
   "denyAlways": [
     "AGPL-1.0",
     "AGPL-1.0-only",
@@ -39,7 +38,6 @@
     "SSPL-1.0",
     "UNLICENSED"
   ],
-
   "exceptions": {
     "@img/sharp-libvips-linux-x64@1.3.2": {
       "license": "LGPL-3.0-or-later",
@@ -59,7 +57,7 @@
     },
     "@img/sharp-wasm32@0.35.3": {
       "license": "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
-      "reason": "sharp's wasm fallback, carrying the same libvips as the native binaries. npm leaves it in the tree as extraneous even after a clean `npm ci`, because it is an optional dependency for a platform we are not on; the gate treats anything undeclared as production, which is how this surfaced at all. Same standing as the two libvips entries above: never loaded (next/image is unused and images.unoptimized is set), unmodified, and the conjunction is only unallowed because of the LGPL term.",
+      "reason": "sharp's wasm fallback, carrying the same libvips as the native binaries. Not installed on this platform -- pnpm skips an optional dependency whose os/cpu does not match, and the native @img/sharp-linux-x64 is what gets used here; it is kept as an exception because a platform with no native build would install it. Same standing as the two libvips entries above: never loaded (next/image is unused and images.unoptimized is set), unmodified, and the conjunction is only unallowed because of the LGPL term.",
       "platformConditional": true,
       "reviewedBy": "unassigned",
       "reviewedOn": "2026-08-05",

@@ -64,30 +64,39 @@ docker compose up -d --wait postgres    # the API does not start without it
 uv run uvicorn api.main:app --port 8001 --reload --timeout-graceful-shutdown 2 \
   --reload-dir api --reload-dir packages/ssat/src/ssat \
   --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
-cd web && npm install && npm run dev    # :3000
+cd web && pnpm install && pnpm dev      # :3000
 ```
 
 Override the backend with `NEXT_PUBLIC_API_URL` (see `.env.local.example`). Over
 Tailscale, set that and `ALLOWED_DEV_ORIGINS` to your tailnet IP:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://100.x.y.z:8001 ALLOWED_DEV_ORIGINS=100.x.y.z npm run dev
+NEXT_PUBLIC_API_URL=http://100.x.y.z:8001 ALLOWED_DEV_ORIGINS=100.x.y.z pnpm dev
 ```
 
 ## Scripts
 
 | script | what |
 | --- | --- |
-| `npm run dev` | dev server on :3000 |
-| `npm run build` / `npm run start` | production build / serve |
-| `npm run type-check` | `tsc --noEmit` |
-| `npm run lint` | ESLint, including the dead-class and EventSource rules |
-| `npm run test` | Vitest — two projects, `lib` in node and `ui` in jsdom |
-| `npm run licenses` / `licenses:check` | the dependency licence gate CI runs |
+| `pnpm dev` | dev server on :3000 |
+| `pnpm build` / `pnpm start` | production build / serve |
+| `pnpm type-check` | `tsc --noEmit` |
+| `pnpm lint` | ESLint, including the dead-class and EventSource rules |
+| `pnpm test` | Vitest — two projects, `lib` in node and `ui` in jsdom |
+| `pnpm run licenses` / `pnpm run licenses:check` | the dependency licence gate CI runs |
 
-`npm run build` is part of the gate and not redundant with `type-check`: `tsc`
+`pnpm build` is part of the gate and not redundant with `type-check`: `tsc`
 does not catch a server component importing a client-only module, or a broken
 `dynamic()` boundary.
+
+The two licence scripts need `pnpm run`: `pnpm licenses` is pnpm's own command
+and shadows the script name. It fails loudly rather than quietly doing nothing,
+but `run` is the habit to have.
+
+pnpm, not npm — `packageManager` in `package.json` pins the version and
+`pnpm-workspace.yaml` holds the one setting we set: an allowlist of the
+dependencies permitted to run install scripts, which is `unrs-resolver` and
+nothing else.
 
 ### Screenshots
 

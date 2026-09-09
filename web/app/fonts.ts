@@ -10,7 +10,7 @@ import localFont from "next/font/local";
  *
  * `next/font/local` over `next/font/google`: Google downloads from
  * fonts.gstatic.com at build time, which makes the build non-hermetic and puts
- * a third-party CDN in the critical path of `npm run build`. The files are
+ * a third-party CDN in the critical path of `pnpm build`. The files are
  * vendored from @fontsource-variable/* instead (kept as devDependencies for
  * provenance and updates), with their OFL text beside them -- OFL-1.1 wants
  * the licence to travel with the font, and vendoring makes that visible rather
