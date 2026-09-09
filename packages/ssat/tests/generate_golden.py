@@ -1,11 +1,3 @@
-"""Regenerate the legacy-chain golden snapshots.
-
-    python packages/ssat/tests/generate_golden.py
-
-Run this only when a behaviour change is *intended*, and review the resulting
-diff -- these files are the safety net for the refactor.
-"""
-
 from __future__ import annotations
 
 import sys

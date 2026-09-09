@@ -35,17 +35,14 @@ HEADER = """\
 // packages/ssat/tests/test_schema_ts.py fails if the two drift apart.
 """
 
-#: Where the generated file lands, relative to the repo root.
 OUTPUT_PATH = Path("web") / "lib" / "f2a-schema.ts"
 
 
 def render() -> str:
-    """The full generated TypeScript source."""
     return render_ts(schemas_of([F2AResult]), HEADER, all_present=True)
 
 
 def repo_root() -> Path:
-    """Walk up to the directory holding the workspace pyproject."""
     current = Path(__file__).resolve()
     for parent in current.parents:
         if (parent / "pyproject.toml").exists() and (parent / "web").is_dir():
@@ -61,7 +58,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ssat.schema_ts", description=__doc__)
     parser.add_argument("--write", action="store_true", help="Write the file rather than printing it")
     args = parser.parse_args(argv)
-
     rendered = render()
     if not args.write:
         print(rendered, end="")

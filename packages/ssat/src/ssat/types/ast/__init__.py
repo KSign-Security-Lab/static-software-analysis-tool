@@ -1,21 +1,15 @@
-"""AST type definitions."""
-
 from typing import Any, Dict, List, TypedDict
 
 
 class IASTFeature(TypedDict):
-    """AST node feature structure."""
-
     node_type_id: int
     train_mask: int
     in_loop: int
     is_loop: int
     ctx_guard_strength: int
-    #: Fraction. See the note in :mod:`ssat.ast.validate`.
     ctx_upper_bound_norm: float
     is_buffer_decl: int
     buffer_size_state: int
-    #: Fraction, as above.
     buffer_size_norm: float
     call_sem_cat_id: int
     call_flag_danger_unbounded: int
@@ -31,8 +25,6 @@ class IASTFeature(TypedDict):
 
 
 class IASTNode(TypedDict):
-    """AST node structure."""
-
     sid: int
     node_type: str
     code: str
@@ -46,8 +38,6 @@ EdgeASTSB = tuple[int, int, int]
 
 
 class EdgeASTGuard(TypedDict):
-    """AST guard edge structure."""
-
     src: int
     dst: int
     edge_type: int
@@ -56,8 +46,6 @@ class EdgeASTGuard(TypedDict):
 
 
 class IASTResult(TypedDict):
-    """AST result structure."""
-
     nodes: List[IASTNode]
     edges_ast_pc: List[EdgeASTPC]
     edges_ast_sb: List[EdgeASTSB]

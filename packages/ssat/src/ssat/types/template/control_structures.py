@@ -1,55 +1,51 @@
-"""Control structure node type definitions."""
-
 from typing import Required
 
 from .BaseNode.base_types import IBaseNode
 
 
 class IBreakStatement(IBaseNode):
-    """Break statement node."""
+    pass
 
 
 class ICaseLabel(IBaseNode):
-    """Case label node."""
+    pass
 
 
 class IContinueStatement(IBaseNode):
-    """Continue statement node."""
+    pass
 
 
 class IDefaultLabel(IBaseNode):
-    """Default label node."""
+    pass
 
 
 class IDoWhileStatement(IBaseNode):
-    """Do-while statement node."""
+    pass
 
 
 class IForStatement(IBaseNode):
-    """For statement node."""
+    pass
 
 
 class IGotoStatement(IBaseNode):
-    """Goto statement node."""
-
     jumpTarget: Required[str]
 
 
 class IIfStatement(IBaseNode):
-    """If statement node."""
+    pass
 
 
 class ILabel(IBaseNode):
-    """Label node."""
+    pass
 
 
 class IReturnStatement(IBaseNode):
-    """Return statement node."""
+    pass
 
 
 class ISwitchStatement(IBaseNode):
-    """Switch statement node."""
+    pass
 
 
 class IWhileStatement(IBaseNode):
-    """While statement node."""
+    pass

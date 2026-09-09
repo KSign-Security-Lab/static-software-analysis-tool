@@ -1,15 +1,10 @@
-"""Template extractor for building tree structures from CPG data."""
-
 from typing import Any, Dict, List, Optional, Union
 
 from ..types.cpg import NodeInfo, TreeNode
 
 
 class TemplateExtractor:
-    """Extracts template tree structures from CPG data."""
-
     def get_template_tree(self, cpg: Any) -> List[TreeNode]:
-        """Extract template tree from CPG data."""
         if not isinstance(cpg, dict) or cpg is None or "@value" not in cpg:
             return []
 
@@ -24,10 +19,7 @@ class TemplateExtractor:
 
         edges = inner["edges"]
         nodes = inner["vertices"]
-
         ast_edges = [e for e in edges if e.get("label") == "AST"]
-
-        # Build node dictionary
         node_dict: Dict[str, NodeInfo] = {}
         for n in nodes:
             if self._is_value_wrapper(n.get("id")):
@@ -36,7 +28,6 @@ class TemplateExtractor:
                     key = str(id_val)
                     node_dict[key] = n
 
-        # Build AST edge data
         ast_data: List[Dict[str, Any]] = []
         for edge in ast_edges:
             out_node: Optional[NodeInfo] = None
@@ -62,7 +53,6 @@ class TemplateExtractor:
                 }
             )
 
-        # Build node info map and children map
         node_info_map: Dict[str, NodeInfo] = {}
         children_map: Dict[str, List[str]] = {}
 
@@ -87,7 +77,6 @@ class TemplateExtractor:
                     children_map[out_id] = []
                 children_map[out_id].append(in_id)
 
-        # Find root nodes
         all_ids = set(node_info_map.keys())
         child_ids = set()
         for child_arr in children_map.values():
@@ -96,9 +85,7 @@ class TemplateExtractor:
         root_ids = [rid for rid in all_ids if rid not in child_ids]
 
         def build_tree(node_id: str) -> TreeNode:
-            """Build tree recursively."""
             info = node_info_map[node_id]
-
             node: TreeNode = {
                 "id": info.get("id", ""),
                 "label": info.get("label", ""),
@@ -118,13 +105,6 @@ class TemplateExtractor:
         return [build_tree(rid) for rid in root_ids]
 
     def _extract_node_info(self, node: Optional[Dict[str, Any]]) -> NodeInfo:
-        """Flatten a raw GraphSON vertex into a NodeInfo.
-
-        The parameter is the vertex as joern-export writes it (ids and property
-        values wrapped in ``{"@type": ..., "@value": ...}``), not a NodeInfo --
-        producing one is this method's job. It was annotated as ``NodeInfo``,
-        which made every unwrapping step below a type error.
-        """
         if node is None:
             raise ValueError("Node cannot be None in extractNodeInfo")
 
@@ -135,7 +115,6 @@ class TemplateExtractor:
                 id_val = str(id_raw)
 
         label_val = node.get("label", "")
-
         name_val = ""
         if "NAME" in node.get("properties", {}):
             raw_name = node["properties"]["NAME"]
@@ -167,11 +146,9 @@ class TemplateExtractor:
         }
 
     def _is_value_wrapper(self, x: Any) -> bool:
-        """Check if x is an object with a '@value' key."""
         return isinstance(x, dict) and x is not None and "@value" in x
 
     def _unwrap_value(self, x: Any) -> Optional[Union[int, str]]:
-        """Unwrap GraphSON value wrapper."""
         if x is None:
             return None
 

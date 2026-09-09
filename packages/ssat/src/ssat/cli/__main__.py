@@ -1,5 +1,3 @@
-"""Main entry point for SSAT CLI."""
-
 import json
 import logging
 import sys
@@ -23,7 +21,6 @@ from ssat.pipeline import (
 
 
 def find_monorepo_root(start_dir: Path) -> Path:
-    """Find monorepo root by looking for pyproject.toml."""
     current = start_dir
     while current != current.parent:
         if (current / "pyproject.toml").exists():
@@ -33,14 +30,11 @@ def find_monorepo_root(start_dir: Path) -> Path:
 
 
 def resolve_input_path(data_path: str) -> Path:
-    """Resolve input path."""
     path = Path(data_path)
     if path.is_absolute():
         return path
-    # Try relative to current directory
     if path.exists():
         return path.resolve()
-    # Try relative to monorepo root
     repo_root = find_monorepo_root(Path.cwd())
     repo_path = repo_root / data_path
     if repo_path.exists():
@@ -49,7 +43,6 @@ def resolve_input_path(data_path: str) -> Path:
 
 
 def collect_files_recursively(root_path: Path, predicate: Callable[[str], bool]) -> List[Path]:
-    """Collect files recursively matching predicate."""
     files = []
     if root_path.is_file():
         if predicate(str(root_path)):
@@ -62,15 +55,12 @@ def collect_files_recursively(root_path: Path, predicate: Callable[[str], bool])
 
 
 def sanitize_token(s: str) -> str:
-    """Sanitize filename token."""
     return "".join(c if c.isalnum() or c in "_-" else "_" for c in s)[:100]
 
 
 def extract_name_from_code(code: str | None, fallback: str) -> str:
-    """Extract function name from code."""
     if not code:
         return fallback
-    # Extract name similar to Node.js version
     m = code.split("<entry:")[-1] if "<entry:" in code else code
     for sep in [
         "_",
@@ -111,7 +101,6 @@ def process_single_file(
     options: CliOptions,
     logger: SimpleLogger,
 ) -> None:
-    """Process a single file."""
     is_source_file = file_path.suffix.lower() in SUPPORTED_EXTENSIONS
     cpg: CPGRoot
 
@@ -122,13 +111,9 @@ def process_single_file(
                 representation=options.representation,
             )
         else:
-            # Assume JSON file with CPG data
-            # A CPG JSON file on disk: json.loads gives Any, so state the shape once.
             cpg = cast(CPGRoot, json.loads(file_path.read_text(encoding="utf-8")))
 
         result: Any = None
-
-        # `--no-replace-macro` was parsed and dropped on the floor until now.
         macro = options.replace_macro
 
         if options.mode == "cpg":
@@ -140,7 +125,6 @@ def process_single_file(
         elif options.mode == "dfg":
             result = generate_dfg(generate_template(cpg, replace_macro=macro))
         elif options.mode == "full":
-            # One pass: AST and DFG for each function, in the schema the GNN reads.
             result = [
                 training_record(fn, include_template=False, include_label=True)
                 for fn in analyze_cpg(cpg, source=str(file_path), replace_macro=macro)
@@ -151,20 +135,17 @@ def process_single_file(
             template = generate_template(cpg, replace_macro=macro)
             result = get_functions_from_template(template)
         elif options.mode == "f2a":
-            # F2-A consumes a CPG directly (see ssat.f2a).
             from ssat.f2a import run_f2a
 
             f2a_result = run_f2a(cpg, source_cpg=str(file_path))
             result = f2a_result.model_dump()
 
-        # Write result
         if result is not None:
             base = file_path.stem
             relative = file_path.relative_to(input_root) if file_path.is_relative_to(input_root) else file_path
             out_dir = output_root / relative.parent
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            # Handle per-function outputs for certain modes
             if options.mode in ("ast", "template-functions", "dfg", "full"):
                 if options.mode == "ast":
                     ast_array = result if isinstance(result, list) else []
@@ -190,15 +171,11 @@ def process_single_file(
                         per_func_file = out_dir / f"{base}_{fn_name}_{options.mode}.json"
                         per_func_file.write_text(json.dumps(dfg, indent=2), encoding="utf-8")
                 elif options.mode == "full":
-                    # Each record already carries the top-level `ast`/`dfg` keys
-                    # gnn.dataset.JsonDataset reads. The previous shape
-                    # (`ast_result`/`dfg_result`) was unreadable by the trainer.
                     for idx, record in enumerate(result if isinstance(result, list) else []):
                         func_name = sanitize_token(record.get("function_name") or f"func_{idx}")
                         per_func_file = out_dir / f"{base}_{func_name}_{options.mode}.json"
                         per_func_file.write_text(json.dumps(record, indent=2), encoding="utf-8")
             else:
-                # Single file output for other modes
                 output_file = out_dir / f"{base}_{options.mode}.json"
                 output_file.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
@@ -211,15 +188,10 @@ def process_single_file(
 
 
 def main() -> None:
-    """Main entry point."""
     parser = CliParser()
     options = parser.parse()
-
     logger = SimpleLogger(options.debug)
 
-    # Joern's banners and per-pass chatter are captured, not discarded (see
-    # ssat.cpg.embedded); they are replayed through the logging module. Without
-    # a handler that goes nowhere, so --debug is what makes them reachable.
     if options.debug:
         logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(name)s: %(message)s")
 
@@ -227,7 +199,6 @@ def main() -> None:
     logger.info(f"Mode: {options.mode}")
     logger.info(f"Input: {options.data}")
 
-    # Determine output path
     workspace_root = find_monorepo_root(Path.cwd())
     raw_output = options.output or f"result/{options.mode}_{int(__import__('time').time())}"
     output_path = Path(raw_output) if Path(raw_output).is_absolute() else workspace_root / raw_output
@@ -239,7 +210,6 @@ def main() -> None:
             logger.error(f"Input path does not exist: {input_path}")
             sys.exit(1)
 
-        # Collect files
         extensions = options.ext or (["c"] if options.mode == "cpg" else ["json"])
 
         def predicate(p: str) -> bool:
@@ -253,9 +223,6 @@ def main() -> None:
 
         logger.info(f"Found {len(files)} file(s) to process")
 
-        # Asked here, before anything is created or spent. Every pool worker
-        # would otherwise fail on its own missing JARs and report the same
-        # thing once per file, after the output directory had been made.
         if not EmbeddedBackend().is_available():
             from ssat.cpg.embedded import joern_home
 
@@ -266,7 +233,6 @@ def main() -> None:
             )
             sys.exit(1)
 
-        # Process files
         output_path.mkdir(parents=True, exist_ok=True)
 
         workers = int(options.workers) if options.workers else 4
@@ -298,10 +264,6 @@ def main() -> None:
             fail_count = len(results) - success_count
             logger.info(f"Batch complete: {success_count} succeeded, {fail_count} failed")
         else:
-            # Analysis after CPG generation is CPU-bound Python. --workers
-            # parallelises the CPG batch path above (a real process pool); the
-            # previous "parallel" branch here gathered coroutines that never
-            # awaited anything, so it ran sequentially while looking concurrent.
             logger.start_progress(len(files))
             for i, file_path in enumerate(files):
                 process_single_file(file_path, input_path, output_path, options, logger)
@@ -323,7 +285,6 @@ def main() -> None:
 
 
 def ssat_main() -> None:
-    """Entry point for the SSAT CLI."""
     main()
 
 

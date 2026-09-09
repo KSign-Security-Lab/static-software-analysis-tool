@@ -1,5 +1,3 @@
-"""Template converter for transforming CPG trees to template nodes."""
-
 import logging
 import re
 from typing import Any, List, NoReturn, Optional, Union, cast
@@ -58,38 +56,6 @@ logger = logging.getLogger(__name__)
 
 
 def _macro_expansion(children: List["TemplateNodes"]) -> Optional["TemplateNodes"]:
-    """The expansion Joern inlined under a macro use, or None for a real call.
-
-    Joern runs no preprocessor. It models ``#define X 512`` as an external METHOD
-    and every *use* of X as a CALL, hanging the expansion under the use site as
-    an ordinary AST subtree -- so a macro reaches us looking like a call whose
-    argument list contains a block::
-
-        UserDefinedCall X
-        └─ ParameterList
-           └─ CompoundStatement        <- the expansion
-              └─ Literal 512
-
-    A function-like macro is the same shape with the actual arguments beside the
-    block, already substituted *into* it by Joern::
-
-        UserDefinedCall COPY(dst, src)
-        └─ ParameterList
-           ├─ PointerDereference dst   <- also inside the block
-           ├─ PointerDereference src
-           └─ CompoundStatement
-              └─ StandardLibCall strcpy(dst, src)
-
-    The expansion is therefore the whole meaning of the node, and the arguments
-    beside it are either copies of what it already holds or -- for a macro that
-    drops a parameter -- an expression C never evaluates. Returning it lets a
-    macro bound read as the number it is, and a macro-wrapped ``strcpy`` reach
-    the sink tables under its real name.
-
-    Structure decides this, never ``code == "<empty>"``: that string also marks
-    an empty function body in :meth:`TemplateConverter._handle_method`, and a
-    statement cannot appear in a real argument list, so the block is the tell.
-    """
     blocks = [
         child
         for child in children
@@ -104,41 +70,15 @@ def _macro_expansion(children: List["TemplateNodes"]) -> Optional["TemplateNodes
 
 
 def _is_external_stub(is_external: Any, block: Optional[TreeNode]) -> bool:
-    """A METHOD Joern invented for a body it never saw.
-
-    Every call without a definition in the translation unit gets one: library
-    functions, the ``<operator>.*`` family Joern synthesises for the language's
-    own operators, and macros, which it models as methods because it runs no
-    preprocessor. A stub holds nothing but ``p1..pn`` parameters typed ``ANY``
-    and an empty block, and the fallback in :meth:`TemplateConverter._handle_method`
-    used to hand both to :func:`_passthrough_node` -- which drops the METHOD but
-    promotes its children, landing them beside the TranslationUnit for library
-    and operator stubs (Joern hangs those off a detached NAMESPACE_BLOCK) and
-    *inside* it for a macro (hung off the file). Nothing is lost by deleting
-    them: a call's real arguments live on the CALL, and a macro's meaning is the
-    expansion inlined at its uses (see :func:`_macro_expansion`).
-
-    Testing the body, not just ``IS_EXTERNAL``, bounds the deletion to subtrees
-    that provably hold nothing else -- a stub that ever arrives with one is
-    still converted.
-    """
     if not is_external:
         return False
     return block is None or not block.get("children")
 
 
 def _passthrough_node(node: TreeNode, children: List[TemplateNodes]) -> TemplateNodes:
-    """Fallback conversion: keep the raw CPG node, convert its children.
-
-    The result is deliberately *not* a well-formed template node -- it carries
-    the CPG's own keys (``label``, ``line_no``, ``properties``) and no
-    ``nodeType``. That is the contract: ``PostProcessor.remove_invalid_nodes``
-    drops anything without a valid ``nodeType`` in a later pass. Hence the cast.
-    """
     return cast(TemplateNodes, {**node, "children": children})
 
 
-# Type aliases
 TemplateNodes = Union[
     IAddressOfExpression,
     IArrayDeclaration,
@@ -199,20 +139,11 @@ CallReturnTypes = Union[
 
 
 class TemplateConverter:
-    """Converts CPG trees to template nodes."""
-
     def __init__(self, replace_macro: bool = True) -> None:
-        """Initialize converter.
-
-        ``replace_macro`` folds a macro use into the expansion Joern inlined
-        beneath it. See :func:`_macro_expansion`. Off leaves the pseudo-call in
-        place, which is the shape templates written before this existed have.
-        """
         self.call_collection: List[str] = []
         self.replace_macro = replace_macro
 
     def convert_tree(self, nodes: List[TreeNode]) -> List[TemplateNodes]:
-        """Convert an array of root nodes into TemplateNodes[], skipping undefined conversions."""
         converted_nodes: List[TemplateNodes] = []
         for node in nodes:
             single = self._dispatch_convert(node)
@@ -221,19 +152,15 @@ class TemplateConverter:
         return converted_nodes
 
     def get_call_collection(self) -> List[str]:
-        """Get collected call names."""
         return self.call_collection
 
     def _assert_never(self, x: Any) -> NoReturn:
-        """Every CPG label must be handled explicitly."""
         raise ValueError(f"Unexpected label: {x}")
 
     def _converted_children(self, children: List[TreeNode]) -> List[TemplateNodes]:
-        """Convert children nodes."""
         return [child for child in [self._dispatch_convert(child) for child in children] if child is not None]
 
     def _dispatch_convert(self, node: TreeNode) -> Optional[TemplateNodes]:
-        """Dispatch helper: switch on node.label, extract payload, call the correct handler."""
         try:
             label = node.get("label", "")
             if label in [
@@ -286,9 +213,6 @@ class TemplateConverter:
                 return self._assert_never(label)
         except Exception as error:
             error_msg = str(error)
-            # The raised ValueError already carries id/label/name, and each
-            # recursion level re-wraps it -- printing here as well produced one
-            # full stanza per ancestor node for a single root cause.
             logger.debug(
                 "conversion failed at node id=%s label=%s name=%s: %s",
                 node.get("id", ""),
@@ -301,11 +225,9 @@ class TemplateConverter:
             ) from error
 
     def _format_string(self, s: str) -> str:
-        """Format the string to remove quotes and escape characters."""
         return s.replace('"', "").replace("\\n", "\n").replace("\\t", "\t")
 
     def _handle_block(self, node: TreeNode) -> Optional[ICompoundStatement]:
-        """Handle BLOCK node."""
         node_id = node.get("id", "")
         return {
             "nodeType": TemplateNodeTypes.CompoundStatement,
@@ -314,7 +236,6 @@ class TemplateConverter:
         }
 
     def _handle_call(self, node: TreeNode) -> Optional[CallReturnTypes]:
-        """Handle CALL node."""
         node_name = node.get("name", "")
         if node_name not in self.call_collection:
             self.call_collection.append(node_name)
@@ -324,9 +245,6 @@ class TemplateConverter:
 
         children = self._converted_children(node.get("children", []))
 
-        # A macro use is not a call, whatever the CPG labels it. Folded before
-        # the wrapper below is built, so the expansion keeps its own id and no
-        # synthetic ParameterList is minted for a node that is not one.
         if self.replace_macro:
             expansion = _macro_expansion(children)
             if expansion is not None:
@@ -347,7 +265,6 @@ class TemplateConverter:
         }
 
     def _handle_call_operators(self, node: TreeNode) -> Optional[CallReturnTypes]:
-        """Handle call operators."""
         node_name = node.get("name", "")
         properties = node.get("properties", {})
 
@@ -405,7 +322,6 @@ class TemplateConverter:
                 type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
                 raw_size_match = re.search(r"\[(\d+)\]", str(type_full_name))
                 full_raw_type = raw_size_match.group(1) if raw_size_match else None
-
                 length: Union[int, str] = (
                     int(full_raw_type)
                     if full_raw_type and full_raw_type.isdigit()
@@ -461,7 +377,6 @@ class TemplateConverter:
                 "children": self._converted_children(node.get("children", [])),
             }
 
-        # Fallback
         return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _handle_control_structure(
@@ -477,7 +392,6 @@ class TemplateConverter:
             IWhileStatement,
         ]
     ]:
-        """Handle CONTROL_STRUCTURE node."""
         properties = node.get("properties", {})
         cs_type = self._unwrap_graphson_scalar(properties.get("CONTROL_STRUCTURE_TYPE", {}))
 
@@ -520,7 +434,6 @@ class TemplateConverter:
             else_branch = self._dispatch_convert(children[2]) if len(children) > 2 else None
             else_children = else_branch.get("children") or [] if else_branch else []
             else_child = else_children[0] if else_children else None
-
             restructured_children = []
             if condition_child:
                 restructured_children.append(condition_child)
@@ -552,11 +465,9 @@ class TemplateConverter:
                 "children": self._converted_children(node.get("children", [])),
             }
 
-        # Fallback
         return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _handle_field_identifier(self, node: TreeNode) -> Optional[IIdentifier]:
-        """Handle FIELD_IDENTIFIER node."""
         return {
             "nodeType": TemplateNodeTypes.Identifier,
             "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
@@ -567,7 +478,6 @@ class TemplateConverter:
         }
 
     def _handle_file(self, node: TreeNode) -> Optional[ITranslationUnit]:
-        """Handle FILE node."""
         node_name = node.get("name", "")
         if node_name.endswith(".c") or node_name.endswith(".cpp"):
             return {
@@ -578,11 +488,9 @@ class TemplateConverter:
         return None
 
     def _handle_identifier(self, node: TreeNode) -> Optional[Union[IIdentifier, ILiteral, IPointerDereference]]:
-        """Handle IDENTIFIER node."""
         properties = node.get("properties", {})
         type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
         type_full_name_str = str(type_full_name)
-
         is_array = "[" in type_full_name_str and "]" in type_full_name_str
         size = type_full_name_str.split("[")[1].split("]")[0] if is_array else "<not-array>"
         type_val = type_full_name_str.split("[")[0] if is_array else type_full_name_str
@@ -630,19 +538,9 @@ class TemplateConverter:
         return base_obj
 
     def _handle_import(self, node: TreeNode) -> Optional[IIncludeDirective]:
-        """Handle IMPORT node."""
-        return None  # Drop imports for now
-        # properties = node.get("properties", {})
-        # imported_as = self._unwrap_graphson_scalar(properties.get("IMPORTED_AS", {}))
-        # return {
-        #     "nodeType": TemplateNodeTypes.IncludeDirective,
-        #     "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
-        #     "name": "/".join(str(x) for x in imported_as) if isinstance(imported_as, list) else "",
-        #     "children": self._converted_children(node.get("children", [])),
-        # }
+        return None
 
     def _handle_jump_target(self, node: TreeNode) -> Optional[Union[ICaseLabel, IDefaultLabel, ILabel]]:
-        """Handle JUMP_TARGET node."""
         node_name = node.get("name", "")
         if node_name == "case":
             return {
@@ -667,7 +565,6 @@ class TemplateConverter:
         }
 
     def _handle_literal(self, node: TreeNode) -> Optional[ILiteral]:
-        """Handle LITERAL node."""
         children = node.get("children", [])
         if len(children) != 0:
             raise ValueError(f"Literal node {node.get('id')} has {len(children)} children, expected 0.")
@@ -676,10 +573,8 @@ class TemplateConverter:
         type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
         type_full_name_str = str(type_full_name)
         is_string = "char" in type_full_name_str
-
         node_name = node.get("name", "")
         predefined_type = PredefinedIdentifierTypes.get(node_name)
-
         base_obj: ILiteral = {
             "nodeType": TemplateNodeTypes.Literal,
             "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
@@ -693,14 +588,11 @@ class TemplateConverter:
         return base_obj
 
     def _handle_local(self, node: TreeNode) -> Union[IArrayDeclaration, IPointerDeclaration, IVariableDeclaration]:
-        """Handle LOCAL node."""
         properties = node.get("properties", {})
         node_name = node.get("name", "")
         predefined_type = PredefinedIdentifierTypes.get(node_name)
-
         type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
         type_full_name_str = str(type_full_name)
-
         code = node.get("code", "")
         storage = None
         if type_full_name_str and type_full_name_str in code and code.strip().startswith(type_full_name_str):
@@ -751,15 +643,12 @@ class TemplateConverter:
         }
 
     def _handle_member(self, node: TreeNode) -> Union[IArrayDeclaration, IPointerDeclaration, IVariableDeclaration]:
-        """Handle MEMBER node."""
-        return self._handle_local(node)  # Member is handled the same way as Local
+        return self._handle_local(node)
 
     def _handle_method(self, node: TreeNode) -> Optional[Union[IFunctionDeclaration, IFunctionDefinition]]:
-        """Handle METHOD node."""
         properties = node.get("properties", {})
         children = node.get("children", [])
         first_block = next((child for child in children if child.get("label") == "BLOCK"), None)
-
         filename_val = self._unwrap_graphson_scalar(properties.get("FILENAME", {}))
         ast_parent_val = self._unwrap_graphson_scalar(properties.get("AST_PARENT_FULL_NAME", {}))
         is_external_val = self._unwrap_graphson_scalar(properties.get("IS_EXTERNAL", {})) or False
@@ -818,11 +707,9 @@ class TemplateConverter:
         if _is_external_stub(is_external_val, first_block):
             return None
 
-        # Fallback
         return _passthrough_node(node, self._converted_children(children))
 
     def _handle_method_param_in(self, node: TreeNode) -> Optional[IParameterDeclaration]:
-        """Handle METHOD_PARAMETER_IN node."""
         properties = node.get("properties", {})
         type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
         if not type_full_name:
@@ -843,7 +730,6 @@ class TemplateConverter:
         }
 
     def _handle_method_ref(self, node: TreeNode) -> Optional[IIdentifier]:
-        """Handle METHOD_REF node."""
         properties = node.get("properties", {})
         method_full_name = self._unwrap_graphson_scalar(properties.get("METHOD_FULL_NAME", {}))
         type_full_name = self._unwrap_graphson_scalar(properties.get("TYPE_FULL_NAME", {}))
@@ -869,7 +755,6 @@ class TemplateConverter:
         }
 
     def _handle_return(self, node: TreeNode) -> IReturnStatement:
-        """Handle RETURN node."""
         return {
             "nodeType": TemplateNodeTypes.ReturnStatement,
             "id": int(node.get("id", "")) if str(node.get("id", "")).isdigit() else -999,
@@ -877,11 +762,9 @@ class TemplateConverter:
         }
 
     def _handle_skipped_nodes(self, node: TreeNode) -> Optional[TemplateNodes]:
-        """Handle skipped nodes."""
         return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _handle_type_decl(self, node: TreeNode) -> Optional[Union[IStructType, ITypeDefinition, IUnionType]]:
-        """Handle TYPE_DECL node."""
         properties = node.get("properties", {})
         code = node.get("code", "")
 
@@ -917,11 +800,9 @@ class TemplateConverter:
                 "children": self._converted_children(node.get("children", [])),
             }
 
-        # Fallback
         return _passthrough_node(node, self._converted_children(node.get("children", [])))
 
     def _reshape_label_children(self, children: List[TreeNode]) -> List[TreeNode]:
-        """Reshape the children of a switch label node to match the expected structure."""
         reshaped_children: List[TreeNode] = []
         current_label: Optional[TreeNode] = None
 
@@ -943,22 +824,6 @@ class TemplateConverter:
         return reshaped_children
 
     def _unwrap_graphson_scalar(self, value: Any) -> Any:
-        """Unwrap a GraphSON property down to the scalar it holds.
-
-        Joern exports vertex properties doubly wrapped::
-
-            {"@type": "g:VertexProperty",
-             "@value": {"@type": "g:List", "@value": ["char[64]"]}}
-
-        The previous implementation (named ``_unwrap_graphson_array``) stopped one
-        level early and returned the *list*. Callers treat the result as a string,
-        so ``re.search`` was handed a list and raised ``expected string or
-        bytes-like object, got 'list'`` for any assignment with an
-        ``<operator>.alloc`` child -- 37% of the real corpus.
-
-        Multi-valued properties are joined with "/" to match how
-        ``_handle_call_operators`` renders address-of types.
-        """
         if not isinstance(value, dict):
             return value
         if "@value" not in value:

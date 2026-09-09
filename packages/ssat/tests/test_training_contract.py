@@ -1,11 +1,3 @@
-"""The pipeline's training output must be loadable by the GNN dataset layer.
-
-This contract was silently broken before the refactor: the CLI's ``full`` mode
-wrote ``ast_result``/``dfg_result``, while ``gnn.dataset.JsonDataset`` reads
-top-level ``ast``/``dfg``. Nothing failed loudly -- the trainer just saw graphs
-with no nodes. These tests fail loudly instead.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -32,7 +24,6 @@ def test_training_record_has_the_keys_the_loader_reads():
     from ssat.pipeline import training_record
 
     record = training_record(_first_fixture_with_functions()[0])
-    # juliet_json_to_sample reads exactly these.
     assert "ast" in record and "dfg" in record
     assert record["ast"]["nodes"], "AST section must not be empty"
     assert "edges_dfg" in record["dfg"]
@@ -40,7 +31,6 @@ def test_training_record_has_the_keys_the_loader_reads():
 
 
 def test_loader_builds_populated_ast_and_dfg_graphs():
-    """The real round-trip: pipeline output -> juliet_json_to_sample -> Data."""
     from pydantic import BaseModel
 
     from gnn.dataset.JsonDataset import juliet_json_to_sample
@@ -49,8 +39,6 @@ def test_loader_builds_populated_ast_and_dfg_graphs():
     record = training_record(_first_fixture_with_functions()[0], include_template=False)
 
     class _Raw(BaseModel):
-        """juliet_json_to_sample takes a pydantic model and calls model_dump()."""
-
         model_config = {"extra": "allow"}
 
     sample = juliet_json_to_sample(_Raw(**record))
@@ -64,13 +52,6 @@ def test_loader_builds_populated_ast_and_dfg_graphs():
 
 
 def test_old_broken_schema_degenerates_silently():
-    """Guard against regressing to ``ast_result``/``dfg_result``.
-
-    Documents *why* the key names matter, and why the break went unnoticed: the
-    old shape raises nothing. It yields an AST graph of one featureless node and
-    no DFG graph at all -- a sample the trainer happily accepts and learns
-    nothing from.
-    """
     from pydantic import BaseModel
 
     from gnn.dataset.JsonDataset import juliet_json_to_sample
@@ -87,7 +68,6 @@ def test_old_broken_schema_degenerates_silently():
         model_config = {"extra": "allow"}
 
     sample = juliet_json_to_sample(_Raw(**legacy_shape))
-    # A single placeholder node carrying zero features, and no DFG side at all.
     assert sample.ast_graph.num_nodes == 1
     assert sample.ast_graph.x.shape[1] == 0, "expected zero feature columns"
     assert sample.ast_graph.edge_index.shape[1] == 0, "expected no edges"

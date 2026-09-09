@@ -1,15 +1,3 @@
-"""Stage orchestration for the SSAT analysis pipeline.
-
-The chain is::
-
-    source -> CPG -> template -> per-function AST -> per-function def-use DFG
-
-:func:`analyze_cpg` is the primary entry point: AST and DFG are produced together
-because the DFG is derived from the AST, and every consumer wants both.
-:func:`training_record` renders one function into the JSON schema the GNN dataset
-loader (``gnn.dataset.JsonDataset``) reads.
-"""
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Sequence, Set, TypeVar, cast
@@ -36,7 +24,6 @@ T = TypeVar("T")
 
 
 def _with_context(fn_name: str, fn: Callable[[], T]) -> T:
-    """Run a stage, tagging any failure with which stage it was."""
     try:
         return fn()
     except Exception as err:
@@ -45,7 +32,6 @@ def _with_context(fn_name: str, fn: Callable[[], T]) -> T:
 
 
 def _collect_ids_from_flatten(graph: TemplateFlattenedGraph) -> List[int]:
-    """Collect IDs from flattened graph."""
     ids: List[int] = []
     for node in graph.get("nodes", []):
         node_id = node.get("id")
@@ -55,7 +41,6 @@ def _collect_ids_from_flatten(graph: TemplateFlattenedGraph) -> List[int]:
 
 
 def _build_template_artifacts(root: CPGRoot, *, replace_macro: bool = True) -> Dict[str, Any]:
-    """Build template artifacts from CPG root."""
     extractor = TemplateExtractor()
     converter = TemplateConverter(replace_macro=replace_macro)
     post_processor = PostProcessor()
@@ -83,7 +68,6 @@ def _build_template_artifacts(root: CPGRoot, *, replace_macro: bool = True) -> D
         ]
     )
     tree_to_text = TreeToText(["properties", "line_no", "code"])
-
     export_data = root.get("export", {})
     template: List[TreeNode] = _with_context("getTemplateTree", lambda: extractor.get_template_tree(export_data))
     converted = _with_context("convertTree", lambda: converter.convert_tree(template))
@@ -121,11 +105,6 @@ def generate_cpg(
     filename: str = "main.c",
     representation: str = "all",
 ) -> CPGRoot:
-    """Generate a validated CPG document from source text.
-
-    Joern runs in this process; see :mod:`ssat.cpg.backends`. Returns the
-    ``{"export": ...}`` shape the rest of the pipeline consumes.
-    """
     result = EmbeddedBackend().generate(source, filename=filename, representation=representation)
     validate_cpg_root([result.graphson])
     return CPGRoot(export=result.graphson)
@@ -136,7 +115,6 @@ def generate_cpg_from_file(
     *,
     representation: str = "all",
 ) -> CPGRoot:
-    """Generate a validated CPG document from a source file on disk."""
     path = Path(file_path)
     return generate_cpg(
         path.read_text(encoding="utf-8", errors="replace"),
@@ -146,11 +124,6 @@ def generate_cpg_from_file(
 
 
 def generate_template(cpg: CPGRoot, *, replace_macro: bool = True) -> List[TemplateNodes]:
-    """Generate template from CPG.
-
-    ``replace_macro`` is what the CLI's ``--no-replace-macro`` turns off; see
-    :func:`ssat.template.converter._macro_expansion` for what it folds.
-    """
     export_data = cpg.get("export", {})
     validate_cpg_root([export_data])
     artifacts = _build_template_artifacts(cpg, replace_macro=replace_macro)
@@ -160,8 +133,6 @@ def generate_template(cpg: CPGRoot, *, replace_macro: bool = True) -> List[Templ
 
 @dataclass
 class FunctionGraphs:
-    """AST and def-use DFG for one function, plus where it came from."""
-
     name: str
     ast: Dict[str, Any]
     dfg: Dict[str, Any]
@@ -171,11 +142,6 @@ class FunctionGraphs:
 
 
 def _template_functions(template: Sequence[Mapping[str, Any]], skip_main: bool) -> List[Dict[str, Any]]:
-    """Function definitions with a body, in template order.
-
-    Uses the general extractor, not the Juliet-specific
-    :func:`ssat.ast.utils.get_juliet_benchmark_functions`.
-    """
     functions = [
         f
         for f in get_functions_from_template(template)
@@ -189,12 +155,6 @@ def _template_functions(template: Sequence[Mapping[str, Any]], skip_main: bool) 
 def analyze_template(
     template: List[TemplateNodes], *, source: str = "", skip_main: bool = True
 ) -> List[FunctionGraphs]:
-    """Extract AST and def-use DFG for every function in a template.
-
-    The DFG is derived from the AST, so the two are always produced together --
-    computing them separately would mean walking the template twice and risks
-    the halves drifting out of sync.
-    """
     if not isinstance(template, list):
         raise ValueError("analyze_template expects a list of TemplateNodes")
 
@@ -218,26 +178,14 @@ def analyze_template(
 def analyze_cpg(
     cpg: CPGRoot, *, source: str = "", skip_main: bool = True, replace_macro: bool = True
 ) -> List[FunctionGraphs]:
-    """Run the whole chain: CPG -> template -> per-function AST + DFG."""
     return analyze_template(generate_template(cpg, replace_macro=replace_macro), source=source, skip_main=skip_main)
 
 
 def generate_ast(template: List[TemplateNodes]) -> List[IASTResult]:
-    """AST for every function in a template.
-
-    Was ``async`` and returned nothing on non-Juliet code; both were incidental.
-    """
     return validate_ast_results([fg.ast for fg in analyze_template(template)])
 
 
 def generate_dfg(template: List[TemplateNodes]) -> List[Dict[str, Any]]:
-    """Def-use DFG for every function in a template.
-
-    Previously this took ``(cpg, asts)`` and ran ``DFGBuilder``, which projected
-    CPG ``REF`` edges rather than tracking memory reads and writes -- and passed
-    ``templateResult[0]`` for every AST regardless of which function it belonged
-    to. Both are gone; this is the def-use analysis the GNN consumes.
-    """
     return [fg.dfg for fg in analyze_template(template)]
 
 
@@ -247,19 +195,6 @@ def training_record(
     include_template: bool = True,
     include_label: bool = False,
 ) -> Dict[str, Any]:
-    """Render one function into the schema ``gnn.dataset.JsonDataset`` reads.
-
-    The loader looks for top-level ``ast`` and ``dfg`` keys
-    (``juliet_json_to_sample``). The CLI's old ``full`` mode wrote
-    ``ast_result``/``dfg_result`` instead, so its output was silently unreadable
-    by the trainer.
-
-    ``include_label`` defaults to False on purpose: ``_infer_label_from_json``
-    treats an explicit ``label`` as highest priority and otherwise falls back to
-    filename heuristics. Emitting a name-derived label by default would silently
-    relabel any dataset whose ground truth lives in the *filename* rather than
-    the function name.
-    """
     record: Dict[str, Any] = {
         "source_template": graphs.source,
         "function_name": graphs.name,

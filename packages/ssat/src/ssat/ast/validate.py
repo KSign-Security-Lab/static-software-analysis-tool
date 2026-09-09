@@ -1,5 +1,3 @@
-"""AST validation using Pydantic."""
-
 from typing import Any, Dict, List, cast
 
 from pydantic import BaseModel
@@ -8,17 +6,11 @@ from ..types.ast import IASTResult
 
 
 class IASTFeatureModel(BaseModel):
-    """AST feature model."""
-
     node_type_id: int
     train_mask: int
     in_loop: int
     is_loop: int
     ctx_guard_strength: int
-    # Fractions, not counts: the extractor divides. Declared `int` until a bound
-    # actually resolved, which never happened while every macro comparison read
-    # as unbounded -- 0.0 coerces to an int and 1/256 does not, so the first
-    # resolvable bound failed validation here instead of being reported.
     ctx_upper_bound_norm: float
     is_buffer_decl: int
     buffer_size_state: int
@@ -37,8 +29,6 @@ class IASTFeatureModel(BaseModel):
 
 
 class IASTNodeModel(BaseModel):
-    """AST node model."""
-
     sid: int
     node_type: str
     code: str
@@ -48,8 +38,6 @@ class IASTNodeModel(BaseModel):
 
 
 class EdgeASTGuardModel(BaseModel):
-    """AST guard edge model."""
-
     src: int
     dst: int
     edge_type: int
@@ -58,7 +46,6 @@ class EdgeASTGuardModel(BaseModel):
 
 
 def validate_ast_results(value: Any) -> List[IASTResult]:
-    """Validate AST results."""
     if not isinstance(value, list):
         raise ValueError("AST results must be a list")
 
@@ -67,7 +54,6 @@ def validate_ast_results(value: Any) -> List[IASTResult]:
         if not isinstance(item, dict):
             raise ValueError("Each AST result must be a dictionary")
 
-        # Validate nodes
         nodes = []
         for node_data in item.get("nodes", []):
             node_model = IASTNodeModel.model_validate(node_data)
@@ -82,7 +68,6 @@ def validate_ast_results(value: Any) -> List[IASTResult]:
                 }
             )
 
-        # Validate edges
         edges_ast_pc = [tuple(e) for e in item.get("edges_ast_pc", []) if isinstance(e, (list, tuple)) and len(e) == 3]
         edges_ast_sb = [tuple(e) for e in item.get("edges_ast_sb", []) if isinstance(e, (list, tuple)) and len(e) == 3]
         edges_ast_guard = [EdgeASTGuardModel.model_validate(e).model_dump() for e in item.get("edges_ast_guard", [])]

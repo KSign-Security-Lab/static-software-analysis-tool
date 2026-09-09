@@ -1,10 +1,3 @@
-"""Unit + light-integration tests for the handler-resolution model (F2-A step 1).
-
-The pure tests (ActionIdentifier consistency, select_cascade) need no CPG. Two
-integration tests load pre-generated fixture CPGs to confirm the extractors emit
-evidence and cascade selection groups it, without changing behaviour.
-"""
-
 import json
 from pathlib import Path
 
@@ -44,25 +37,18 @@ def _ev(kind, callback, weight, match=MatchStrength.EXACT_IDENTIFIER):
     )
 
 
-# --- Q1: internally conflicting ActionIdentifier ------------------------------
-
-
 def test_action_identifier_numeric_conflict_is_kb_free():
-    """A symbol resolving to 15 while the numeric literal is 41 must not collapse
-    into one identity — it is CONFLICTING even without a KB."""
     aid = ActionIdentifier(symbol="ACTION_X", resolved_value=15, numeric_id=41)
     assert aid.consistency() is ConsistencyState.CONFLICTING
 
 
 def test_action_identifier_conflict_via_kb():
-    """Symbol maps to SetChargingProfile, normalized name maps to DataTransfer."""
     kb = default_knowledge_base()
     aid = ActionIdentifier(symbol="ACTION_SET_CHARGING_PROFILE", normalized_name="DataTransfer")
     assert aid.consistency(kb) is ConsistencyState.CONFLICTING
 
 
 def test_action_identifier_consistent_via_kb():
-    """Symbol and numeric id both denote SetChargingProfile."""
     kb = default_knowledge_base()
     aid = ActionIdentifier(symbol="ACTION_SET_CHARGING_PROFILE", numeric_id=41)
     assert aid.consistency(kb) is ConsistencyState.CONSISTENT
@@ -72,9 +58,6 @@ def test_action_identifier_partial_single_field():
     kb = default_knowledge_base()
     assert ActionIdentifier(numeric_id=41).consistency(kb) is ConsistencyState.PARTIAL
     assert ActionIdentifier(symbol="ACTION_X").consistency() is ConsistencyState.PARTIAL
-
-
-# --- Q4 / selection: empty -> UNRESOLVED --------------------------------------
 
 
 def test_select_empty_is_unresolved_no_evidence():
@@ -94,30 +77,23 @@ def test_select_single_candidate_resolves_without_conflict():
     assert sel.chosen.confidence == 0.85
 
 
-# --- multiple competing candidates (cascade policy: resolve top, record conflict) ---
-
-
 def test_multiple_competing_candidates_cascade():
-    """Two candidates for different callbacks. Cascade resolves the higher-weight
-    one but MUST record the competitor in a ConflictReport (status not downgraded
-    in Phase 1)."""
     enum_c = HandlerCandidate(callback=100, evidence=[_ev(ENUM_CASE, 100, 0.85)])
     name_c = HandlerCandidate(callback=200, evidence=[_ev(NAME_MATCH, 200, 0.70)])
-    sel = select_cascade([name_c, enum_c])  # unsorted input
+    sel = select_cascade([name_c, enum_c])
 
     assert sel.status is ResolutionStatus.RESOLVED
-    assert sel.chosen.callback == 100  # higher weight wins regardless of input order
+    assert sel.chosen.callback == 100
     assert sel.conflict is not None
     assert {c["callback"] for c in sel.conflict.competing} == {100, 200}
     assert sel.conflict.margin == round(0.85 - 0.70, 6)
 
 
 def test_equal_weight_tie_broken_by_kind_rank():
-    """Same weight, different kind -> the higher-ranked kind wins deterministically."""
     reg = HandlerCandidate(callback=1, evidence=[_ev(REGISTRAR_CALL, 1, 0.70)])
     name = HandlerCandidate(callback=2, evidence=[_ev(NAME_MATCH, 2, 0.70)])
     sel = select_cascade([name, reg])
-    assert sel.chosen.callback == 1  # REGISTRAR_CALL rank > NAME_MATCH rank
+    assert sel.chosen.callback == 1
 
 
 def _cev(kind, callback, ms, group, weight, aid=None, nodes=None, extractor="x", dispatch_site=None):
@@ -134,9 +110,6 @@ def _cev(kind, callback, ms, group, weight, aid=None, nodes=None, extractor="x",
     )
 
 
-# --- §1 exact deduplication + explicit MATCH_STRENGTH_RANK --------------------
-
-
 def test_match_strength_rank_is_explicit_and_strictly_ordered():
     order = [
         MatchStrength.EXACT_IDENTIFIER,
@@ -146,25 +119,19 @@ def test_match_strength_rank_is_explicit_and_strictly_ordered():
         MatchStrength.NONE,
     ]
     ranks = [MATCH_STRENGTH_RANK[m] for m in order]
-    assert ranks == sorted(ranks, reverse=True)  # strictly descending
-    assert len(set(ranks)) == len(order)  # total, no ties
-    assert set(MATCH_STRENGTH_RANK) == set(MatchStrength)  # covers every member
+    assert ranks == sorted(ranks, reverse=True)
+    assert len(set(ranks)) == len(order)
+    assert set(MATCH_STRENGTH_RANK) == set(MatchStrength)
 
 
 def test_dedupe_collapses_identical_keeps_strongest():
-    # same (kind, callback, dispatch_site, nodes) from two extractors, differing
-    # only in match_strength -> one survivor, the stronger match.
     weak = _cev(REGISTRATION_INIT, 1, MatchStrength.HEURISTIC_SUBSTRING, "g", 0.80, nodes=[10, 11], extractor="b")
     strong = _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "g", 0.80, nodes=[11, 10], extractor="a")
     out = dedupe_evidence([weak, strong])
     assert len(out) == 1
     assert out[0].match_strength is MatchStrength.EXACT_IDENTIFIER
-    # different kind for same callback is NOT a duplicate
     other = _cev(NAME_MATCH, 1, MatchStrength.NORMALIZED_NAME, "token:X", 0.70, nodes=[10, 11])
     assert len(dedupe_evidence([strong, other])) == 2
-
-
-# --- §3 aggregation: group-max, noisy-OR, caps --------------------------------
 
 
 def test_corroborate_independent_groups_noisy_or():
@@ -177,7 +144,7 @@ def test_corroborate_independent_groups_noisy_or():
     )
     sel = select_corroborate([c], kb=None)
     assert sel.status is ResolutionStatus.RESOLVED
-    assert sel.chosen.confidence == round(1 - (1 - 0.85) * (1 - 0.80), 6)  # 0.97
+    assert sel.chosen.confidence == round(1 - (1 - 0.85) * (1 - 0.80), 6)
 
 
 def test_corroborate_same_group_takes_max_no_inflation():
@@ -189,11 +156,10 @@ def test_corroborate_same_group_takes_max_no_inflation():
         ],
     )
     sel = select_corroborate([c], kb=None)
-    assert sel.chosen.confidence == 0.85  # max within one group, not 0.97
+    assert sel.chosen.confidence == 0.85
 
 
 def test_corroborate_weak_only_cap():
-    # three independent weak groups would noisy-OR to ~0.933; capped at 0.85.
     c = HandlerCandidate(
         1,
         [
@@ -203,30 +169,26 @@ def test_corroborate_weak_only_cap():
         ],
     )
     sel = select_corroborate([c], kb=None)
-    assert sel.chosen.confidence == 0.85  # WEAK_ONLY_CAP
+    assert sel.chosen.confidence == 0.85
 
 
 def test_corroborate_conflicting_identifier_penalty_with_diagnostics():
-    conflicted = ActionIdentifier(numeric_id=41, resolved_value=15)  # KB-free CONFLICTING
+    conflicted = ActionIdentifier(numeric_id=41, resolved_value=15)
     e = _cev(REGISTRATION_INIT, 1, MatchStrength.EXACT_IDENTIFIER, "site:reg:7", 0.80, aid=conflicted)
     sel = select_corroborate([HandlerCandidate(1, [e])], kb=None)
-    assert e.score_pre_penalty == 0.80  # W*M before penalty (diagnostic)
-    assert e.score == round(0.80 * 0.70 * 0.5, 6)  # cap M at 0.70, then x0.5 -> 0.28
-    # 0.28 < MIN_CONFIDENCE -> UNRESOLVED, but per-evidence, not forced ambiguity
+    assert e.score_pre_penalty == 0.80
+    assert e.score == round(0.80 * 0.70 * 0.5, 6)
     assert sel.status is ResolutionStatus.UNRESOLVED
     assert sel.unresolved.reason is UnresolvedReason.LOW_CONFIDENCE
 
 
-# --- §4 status: low-confidence + ambiguity ------------------------------------
-
-
 def test_corroborate_low_confidence_retains_candidates():
-    e = _cev(NAME_MATCH, 1, MatchStrength.HEURISTIC_SUBSTRING, "token:X", 0.65)  # 0.455
+    e = _cev(NAME_MATCH, 1, MatchStrength.HEURISTIC_SUBSTRING, "token:X", 0.65)
     sel = select_corroborate([HandlerCandidate(1, [e])], kb=None)
     assert sel.status is ResolutionStatus.UNRESOLVED
     assert sel.chosen is None
     assert sel.unresolved.reason is UnresolvedReason.LOW_CONFIDENCE
-    assert [c.callback for c in sel.candidates] == [1]  # retained for review
+    assert [c.callback for c in sel.candidates] == [1]
 
 
 def test_corroborate_ambiguous_within_margin():
@@ -241,17 +203,12 @@ def test_corroborate_ambiguous_within_margin():
 
 
 def test_cascade_does_not_corroborate():
-    """Two evidences for the SAME callback -> confidence is the MAX weight, not a
-    noisy-OR combination (corroboration is a later, opt-in policy)."""
     cand = HandlerCandidate(
         callback=100,
         evidence=[_ev(ENUM_CASE, 100, 0.85), _ev(NAME_MATCH, 100, 0.70)],
     )
     sel = select_cascade([cand])
-    assert sel.chosen.confidence == 0.85  # not 1 - (1-0.85)(1-0.70) = 0.955
-
-
-# --- integration: extractors emit evidence, grouped into candidates -----------
+    assert sel.chosen.confidence == 0.85
 
 
 def _resolve(fixture, action, selection="cascade"):
@@ -260,7 +217,6 @@ def _resolve(fixture, action, selection="cascade"):
 
 
 def test_integration_string_dispatch_evidence_cascade():
-    """Cascade policy: confidence is the strongest kind's raw weight."""
     if not (FX / "update_firmware.c.json").exists():
         import pytest
 
@@ -273,9 +229,6 @@ def test_integration_string_dispatch_evidence_cascade():
 
 
 def test_integration_enum_candidate_gathers_multiple_evidence_cascade():
-    """The enum fixture's handler name also matches the KB pattern, so ONE
-    candidate carries BOTH ENUM_CASE and NAME_MATCH evidence — proving evidence
-    grouping — while cascade confidence stays 0.85 (no corroboration)."""
     if not (FX / "data_transfer_enum.c.json").exists():
         import pytest
 
@@ -289,9 +242,6 @@ def test_integration_enum_candidate_gathers_multiple_evidence_cascade():
 
 
 def test_integration_corroborate_shared_token_no_inflation():
-    """Corroborate policy: ENUM_CASE + NAME_MATCH on DataTransfer both reduce to
-    the same weak token group ("token:DataTransfer"), so they take the group MAX
-    (0.85*0.85 = 0.7225), NOT a noisy-OR — a shared naming token must not inflate."""
     if not (FX / "data_transfer_enum.c.json").exists():
         import pytest
 

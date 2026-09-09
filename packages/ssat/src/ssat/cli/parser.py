@@ -1,10 +1,3 @@
-"""CLI argument parser.
-
-Every subcommand takes the same options apart from the CPG-specific ones, so
-they are declared once in :func:`_add_common_arguments` rather than repeated per
-subparser (which is how they drifted apart before).
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -12,8 +5,6 @@ from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
 Mode = Literal["cpg", "template", "ast", "dfg", "template-functions", "full", "f2a"]
-
-#: subcommand -> (help text, default input description, default extensions)
 COMMANDS: dict[str, tuple[str, str, str]] = {
     "cpg": (
         "Generate a Code Property Graph from source code",
@@ -40,16 +31,11 @@ COMMANDS: dict[str, tuple[str, str, str]] = {
     ),
 }
 
-#: Stages that build a Template, and so are the ones `--replace-macro` means
-#: anything to. Not `cpg`, which is Joern's own work and where the flag used to
-#: sit doing nothing, and not `f2a`, which reads the CPG and never a Template.
 TEMPLATE_STAGES: frozenset[str] = frozenset({"template", "ast", "template-functions", "dfg", "full"})
 
 
 @dataclass
 class CliOptions:
-    """Parsed CLI options."""
-
     mode: Mode
     data: str
     output: Optional[str] = None
@@ -64,10 +50,6 @@ class CliOptions:
 
 
 def _add_common_arguments(parser: argparse.ArgumentParser, input_help: str, default_ext: str) -> None:
-    """Options every subcommand accepts."""
-    # The input is the one thing every invocation must supply, so it is
-    # positional: `ssat f2a foo.c`, not `ssat f2a -d foo.c`. -d/--data still
-    # works, for anyone with it in a script.
     parser.add_argument("data", nargs="?", help=f"Input {input_help}")
     parser.add_argument("-d", "--data", dest="data_flag", help=argparse.SUPPRESS)
     parser.add_argument("-o", "--output", help="Output directory (default: result/<mode>_<timestamp>)")
@@ -78,8 +60,6 @@ def _add_common_arguments(parser: argparse.ArgumentParser, input_help: str, defa
 
 
 class CliParser:
-    """CLI argument parser."""
-
     def __init__(self) -> None:
         self.parser = argparse.ArgumentParser(
             prog="ssat",
@@ -93,7 +73,6 @@ class CliParser:
         self.setup_subcommands()
 
     def setup_subcommands(self) -> None:
-        """Declare one subparser per mode."""
         subparsers = self.parser.add_subparsers(dest="mode", help="Command to run", required=True)
 
         for name, (help_text, input_help, default_ext) in COMMANDS.items():
@@ -105,8 +84,6 @@ class CliParser:
             _add_common_arguments(subparser, input_help, default_ext)
 
             if name == "cpg":
-                # Only CPG generation parallelises: batch_generate_cpg drives a
-                # real process pool. Later stages are sequential CPU work.
                 subparser.add_argument("--workers", default="4", help="Parallel workers for batch CPG generation")
                 subparser.add_argument("--repr", default="all", help="Representation (ast, cfg, cpg14, all, ...)")
                 subparser.add_argument(
@@ -130,9 +107,7 @@ class CliParser:
                 )
 
     def parse(self, argv: Optional[List[str]] = None) -> CliOptions:
-        """Parse command line arguments."""
         args = self.parser.parse_args(argv)
-
         data = args.data or args.data_flag
         if not data:
             self.parser.error(f"{args.mode}: an input path is required")

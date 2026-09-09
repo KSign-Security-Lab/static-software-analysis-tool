@@ -1,5 +1,3 @@
-"""Base types and enums for template nodes."""
-
 from .base_types import (
     IBaseNode,
     TemplateNodeTypes,

@@ -1,10 +1,3 @@
-"""Tests for the node readers shared by the AST and DFG extractors.
-
-:mod:`ssat.nodes` was extracted from two copies that had already drifted. Two of
-those divergences are deliberate and load-bearing, so they are pinned here: if
-someone "simplifies" either one away, these fail rather than the goldens moving.
-"""
-
 from __future__ import annotations
 
 from ssat.nodes import (
@@ -36,13 +29,7 @@ def member(base, field):
     return {"nodeType": "MemberAccess", "children": [ident(base), ident(field)]}
 
 
-# ---------------------------------------------------------------------------
-# guards from a condition
-# ---------------------------------------------------------------------------
-
-
 def test_lower_bound_only_for_comparison_against_zero():
-    """``x > 0`` is a lower bound; ``x > 5`` is not recorded as one."""
     assert guards_from_condition_ast(binary(">", ident("i"), lit(0))) == {
         "i": {"lower": 1, "upper": 0, "upper_const": 0.0}
     }
@@ -56,14 +43,12 @@ def test_upper_bound_normalizes_the_constant():
 
 
 def test_non_constant_upper_bound_has_no_normalized_value():
-    """``x < N`` is still an upper bound, but there is nothing to normalize."""
     assert guards_from_condition_ast(binary("<", ident("x"), ident("N"))) == {
         "x": {"lower": 0, "upper": 1, "upper_const": 0.0}
     }
 
 
 def test_flipped_comparison_is_read_in_the_right_direction():
-    """``10 > x`` means ``x < 10``, and ``0 < x`` means ``x > 0``."""
     assert guards_from_condition_ast(binary(">", lit(10), ident("x"))) == {
         "x": {"lower": 0, "upper": 1, "upper_const": 0.1}
     }
@@ -73,7 +58,6 @@ def test_flipped_comparison_is_read_in_the_right_direction():
 
 
 def test_both_sides_of_a_logical_operator_are_merged():
-    """``&&`` and ``||`` alike: the union, conservatively."""
     cond = binary("&&", binary(">", ident("i"), lit(0)), binary("<", ident("i"), lit(4)))
     assert guards_from_condition_ast(cond) == {"i": {"lower": 1, "upper": 1, "upper_const": 0.25}}
     assert guards_from_condition_ast(binary("||", *cond["children"])) == guards_from_condition_ast(cond)
@@ -97,11 +81,6 @@ def test_a_condition_nested_under_wrappers_is_still_found():
 def test_no_guards_from_a_non_comparison():
     assert guards_from_condition_ast(binary("+", ident("a"), ident("b"))) == {}
     assert guards_from_condition_ast(None) == {}
-
-
-# ---------------------------------------------------------------------------
-# guards from a for header
-# ---------------------------------------------------------------------------
 
 
 def for_stmt(init, cond, inc):
@@ -147,18 +126,7 @@ def test_a_non_for_node_yields_nothing():
     assert guards_from_for_header(binary("<", ident("i"), lit(4))) == {}
 
 
-# ---------------------------------------------------------------------------
-# the two deliberate divergences
-# ---------------------------------------------------------------------------
-
-
 def test_the_two_literal_readers_are_deliberately_different():
-    """``int_from_node`` and ``int_from_literal_node`` must not be merged.
-
-    The condition reader requires an int-ish ``type`` but will scrape the code
-    text when ``value`` is unusable; the for-header reader ignores ``type`` and
-    gives up instead. Each is what its caller had.
-    """
     untyped = {"nodeType": "Literal", "value": "7", "type": "char", "code": "7"}
     assert int_from_node(untyped) is None, "condition reader honours `type`"
     assert int_from_literal_node(untyped) == 7, "for-header reader ignores `type`"
@@ -169,11 +137,6 @@ def test_the_two_literal_readers_are_deliberately_different():
 
 
 def test_the_two_cast_peeling_strategies_are_deliberately_different():
-    """``unwrap_cast_typeref`` skips a cast's type child; ``unwrap_cast_paren`` does not.
-
-    ``fullname_from_expr`` therefore takes the strategy as an argument. The AST
-    extractor passes the first, the DFG extractor the second.
-    """
     cast = {
         "nodeType": "CastExpression",
         "children": [{"nodeType": "TypeRef", "name": "char"}, ident("buf")],
@@ -187,11 +150,6 @@ def test_the_two_cast_peeling_strategies_are_deliberately_different():
     paren = {"nodeType": "ParenExpression", "children": [ident("x")]}
     assert unwrap_cast_paren(paren) == ident("x"), "only this strategy peels parentheses"
     assert unwrap_cast_typeref(paren) == paren
-
-
-# ---------------------------------------------------------------------------
-# expression readers
-# ---------------------------------------------------------------------------
 
 
 def test_fullname_reaches_through_deref_and_subscript():

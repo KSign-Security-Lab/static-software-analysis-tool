@@ -1,11 +1,9 @@
-"""Preprocessor directive node type definitions."""
-
 from .BaseNode.base_types import IBaseNode
 
 
 class IIncludeDirective(IBaseNode):
-    """Include directive node."""
+    pass
 
 
 class IMacroDefinition(IBaseNode):
-    """Macro definition node."""
+    pass

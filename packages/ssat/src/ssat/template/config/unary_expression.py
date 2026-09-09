@@ -1,5 +1,3 @@
-"""Unary expression operator mappings."""
-
 UnaryExpressionOperatorMap: dict[str, str] = {
     "<operator>.postIncrement": "++",
     "<operator>.preIncrement": "++",
