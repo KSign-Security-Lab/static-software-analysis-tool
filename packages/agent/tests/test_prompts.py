@@ -1,10 +1,3 @@
-"""Tuned prompts: stored beside the runs, read at run time, revertible.
-
-The point of the override store is that tuning a prompt against a real trace
-changes what later runs do, without editing tracked source and without a bad
-save being a code change.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,13 +11,6 @@ from agent.promptstore import DEFAULTS, NAMES, UnknownPrompt
 
 
 def test_triage_offers_every_lens_that_exists() -> None:
-    """A lens the screen never names is a lens that almost never runs.
-
-    `crypto` was declared, given a scope and wired into the graph, and left out
-    of the triage prompt -- so `triage` filtered it out of every list the model
-    produced, and it ran only when the screen returned nothing or failed. The
-    class of bug, not the instance: this fails for the next lens too.
-    """
     from agent.prompts import TRIAGE_SYSTEM
     from agent.schema import LENSES
 
@@ -37,7 +23,6 @@ def test_nothing_saved_means_the_shipped_prompts(tmp_path: Path) -> None:
 
     assert promptstore.load(path) == {}
     assert promptstore.resolve(path) == DEFAULTS
-    # Never written just by being read: an unconfigured install stays clean.
     assert not path.exists()
 
 
@@ -47,7 +32,6 @@ def test_a_saved_prompt_shadows_the_default(tmp_path: Path) -> None:
 
     resolved = promptstore.resolve(path)
     assert resolved["lens:memory"] == "Only report memory errors."
-    # The others are untouched, so tuning one call does not disturb the rest.
     assert resolved["verify"] == DEFAULTS["verify"]
     assert resolved["gather"] == DEFAULTS["gather"]
 
@@ -69,8 +53,6 @@ def test_clearing_a_prompt_that_was_never_tuned_is_fine(tmp_path: Path) -> None:
 
 
 def test_an_empty_prompt_is_refused(tmp_path: Path) -> None:
-    """Far likelier a cleared textarea than an instruction to say nothing, and
-    the run it would produce could not be explained."""
     path = tmp_path / "prompts.json"
 
     with pytest.raises(ValueError):
@@ -80,7 +62,6 @@ def test_an_empty_prompt_is_refused(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("name", ["analyze", "", "ANALYSE", "system"])
 def test_an_unknown_prompt_name_is_refused(tmp_path: Path, name: str) -> None:
-    """Saving under a typo would be a silent no-op that looks like it worked."""
     with pytest.raises(UnknownPrompt):
         promptstore.save(tmp_path / "prompts.json", name, "text")
     with pytest.raises(UnknownPrompt):
@@ -88,8 +69,6 @@ def test_an_unknown_prompt_name_is_refused(tmp_path: Path, name: str) -> None:
 
 
 def test_a_corrupt_store_falls_back_rather_than_failing_the_run(tmp_path: Path) -> None:
-    """A run that behaves as shipped is a far better failure than one that
-    refuses to start because a JSON file was hand-edited."""
     path = tmp_path / "prompts.json"
     path.write_text("{not json at all", encoding="utf-8")
 
@@ -109,7 +88,6 @@ def test_junk_entries_are_ignored(tmp_path: Path) -> None:
 
 
 def test_describe_carries_both_the_default_and_the_tuning(tmp_path: Path) -> None:
-    """The editor needs both to offer a revert and to show what changed."""
     path = tmp_path / "prompts.json"
     promptstore.save(path, "lens:memory", "tuned")
 
@@ -123,7 +101,6 @@ def test_describe_carries_both_the_default_and_the_tuning(tmp_path: Path) -> Non
 
 
 def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The whole point: what is saved here is what the next run is given."""
     from agent.config import ENV_PROMPTS_FILE, AgentConfig
     from agent.graph.session import InspectionSession
     from agent.runs import new_run
@@ -156,8 +133,6 @@ def test_a_run_uses_the_tuned_prompt(tmp_path: Path, monkeypatch: pytest.MonkeyP
         run_id="test",
         files=read_tree(root),
         store=store,
-        # One specialist and no screening, so every call this run makes is the
-        # call under test rather than a mixture of four prompts and a screener.
         config=AgentConfig(model="fake", enable_tools=False, lenses=("memory",), triage=False),
         caller=caller,  # type: ignore[arg-type]
     ) as session:

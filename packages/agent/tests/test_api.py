@@ -1,10 +1,3 @@
-"""The HTTP surface, including the parts that must refuse.
-
-The upload endpoint takes an arbitrary archive from a browser, so the traversal
-and zip-bomb cases are not hypothetical. They get as much attention here as the
-happy path.
-"""
-
 from __future__ import annotations
 
 import io
@@ -29,7 +22,6 @@ from agent.config import ENV_MODEL  # noqa: E402
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    """A client over the suite's throwaway database, with no model configured."""
     monkeypatch.delenv(ENV_MODEL, raising=False)
 
     from api.main import app
@@ -64,9 +56,6 @@ def _upload(client: TestClient, entries: dict[str, str | bytes] | None = None) -
     return response.json()
 
 
-# -- upload ------------------------------------------------------------------
-
-
 def test_upload_indexes_and_returns_the_file_list(client: TestClient) -> None:
     body = _upload(client)
     assert body["uploaded"] == 2
@@ -97,7 +86,6 @@ def test_upload_of_loose_files_works_too(client: TestClient) -> None:
     ],
 )
 def test_zip_traversal_entries_are_rejected(client: TestClient, name: str, tmp_path: Path) -> None:
-    """A path-traversal entry must fail the upload, not be quietly renamed."""
     response = client.post(
         "/agent/runs",
         files={"files": ("evil.zip", _zip({name: "int x;"}), "application/zip")},
@@ -117,15 +105,7 @@ def test_an_empty_upload_is_rejected(client: TestClient) -> None:
     assert response.status_code == 400
 
 
-# -- reading the tree --------------------------------------------------------
-
-
 def test_files_endpoint_lists_the_whole_tree(client: TestClient) -> None:
-    """The run record carries at most two names, which is a label, not a tree.
-
-    Without this the editor could not populate its explorer for a run it had
-    not just uploaded -- opening a shared ``?run=`` link showed nothing.
-    """
     run_id = _upload(client)["run_id"]
     response = client.get(f"/agent/runs/{run_id}/files")
     assert response.status_code == 200
@@ -136,19 +116,10 @@ def test_files_endpoint_lists_the_whole_tree(client: TestClient) -> None:
 
 
 def test_only_files_the_analyser_can_read_are_stored(client: TestClient) -> None:
-    """The stored tree *is* the analysed tree.
-
-    A README, a Makefile and a `package.json` produce no chunks -- there is no
-    grammar for them -- so storing them cost bytes toward the upload cap and gave
-    nothing back. `seen` against `kept` is how the reader still learns their
-    project is four hundred files of which sixty are source.
-    """
     body = _upload(client, {**SAMPLE, "README.md": "# hi\n", "Makefile": "all:\n", "package.json": "{}"})
 
     assert set(body["files"]) == {"src/app.c", "src/util.h"}
     assert body["intake"] == {"kept": 2, "seen": 5, "skipped": []}
-    # Not reported one by one: three hundred such lines would bury the skips that
-    # a reader can actually act on.
     assert client.get(f"/agent/runs/{body['run_id']}/files").json()["files"] == ["src/app.c", "src/util.h"]
 
 
@@ -166,10 +137,6 @@ def test_file_endpoint_returns_content_and_a_monaco_language(client: TestClient)
 
 
 def test_file_endpoint_does_not_serve_a_path_out_of_the_run(client: TestClient) -> None:
-    """This takes a path straight from a query string, so it is a real target.
-
-    A 404, not a 400: there is no root to escape and nothing to resolve
-    against, so a traversal is one more name the run does not have."""
     run_id = _upload(client)["run_id"]
     response = client.get(f"/agent/runs/{run_id}/file", params={"path": "../../../../etc/passwd"})
     assert response.status_code == 404
@@ -191,26 +158,19 @@ def test_runs_can_be_listed(client: TestClient) -> None:
     assert any(run["run_id"] == run_id for run in listed)
 
 
-# -- inspection --------------------------------------------------------------
-
-
 def test_health_reports_unconfigured_when_no_model_is_set(client: TestClient) -> None:
-    """A missing model must be visible, not discovered at chunk 400 of 600."""
     body = client.get("/agent/health").json()
     assert body["configured"] is False
     assert body["model"] is None
 
 
 def test_health_does_not_touch_the_network_unless_asked(client: TestClient) -> None:
-    """It doubles as a liveness probe, so the default must stay local."""
     body = client.get("/agent/health").json()
     assert "served_models" not in body
     assert "reachable" not in body
 
 
 def test_health_probe_reports_what_the_endpoint_serves(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """?probe=true answers the question people actually have: is AGENT_MODEL
-    one of the ids this server knows about?"""
     import api.agent.meta as routes
 
     monkeypatch.setattr(routes, "list_models", lambda _url: ["agent", "other"])
@@ -225,7 +185,6 @@ def test_health_probe_reports_what_the_endpoint_serves(client: TestClient, monke
 def test_health_probe_flags_a_model_the_server_does_not_serve(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The usual first failure: the HF path was used instead of the served id."""
     import api.agent.meta as routes
 
     monkeypatch.setattr(routes, "list_models", lambda _url: ["agent"])
@@ -248,13 +207,6 @@ def test_health_probe_survives_a_dead_endpoint(client: TestClient, monkeypatch: 
 def test_a_run_that_dies_mid_flight_still_surfaces_on_the_stream(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Starting is asynchronous, so a *runtime* failure has nowhere else to go.
-
-    Configuration is answered by the route now -- see the 503 below -- and an
-    unreachable endpoint is not enough to fail a run either: the graph is
-    deliberately resilient, so it completes having found nothing. What is left is
-    a genuine crash, which is what the worker's except branch is for.
-    """
     monkeypatch.setenv(ENV_MODEL, "agent")
 
     def explode(**_kwargs: object) -> None:
@@ -270,8 +222,6 @@ def test_a_run_that_dies_mid_flight_still_surfaces_on_the_stream(
     assert "run_failed" in events, events
     row = client.get(f"/agent/runs/{run_id}").json()
     assert row["status"] == "failed"
-    # The reason is persisted, not only streamed: the stream cannot be replayed,
-    # so a tab that attached late has only the row to read.
     assert "checkpointer" in row["error"]
 
 
@@ -298,13 +248,11 @@ def test_diff_against_an_unknown_run_is_a_404(client: TestClient) -> None:
 
 
 def test_existing_ssat_routes_still_work(client: TestClient) -> None:
-    """Mounting the agent router must not disturb the CPG service."""
     body = client.get("/health").json()
     assert "backends" in body or "status" in body, body
 
 
 def test_generated_ts_schema_is_shipped_to_the_web_app() -> None:
-    """The browser half of the contract has to actually exist on disk."""
     from agent.schema_ts import output_path
 
     content = output_path().read_text(encoding="utf-8")
@@ -328,8 +276,6 @@ def test_openapi_documents_the_agent_routes(client: TestClient) -> None:
     ):
         assert route in paths, f"{route} is missing from the OpenAPI document"
 
-    # And the editing surface is gone rather than merely unused: a route that
-    # still answers is a route something will start calling again.
     for route in (
         "/agent/runs/new",
         "/agent/runs/{run_id}/apply",
@@ -338,12 +284,10 @@ def test_openapi_documents_the_agent_routes(client: TestClient) -> None:
         "/agent/runs/{run_id}/checkpoints",
         "/agent/runs/{run_id}/input",
         "/agent/runs/{run_id}/spans/{span_id}/replay",
-        # Both verbs went, so FastAPI never registers the path.
         "/agent/prompts/{name}",
     ):
         assert route not in paths, f"{route} should have been removed"
 
-    # The file route survives, read-only.
     assert set(paths["/agent/runs/{run_id}/file"]) == {"get"}
 
 
@@ -356,7 +300,6 @@ def test_spans_are_empty_before_an_inspection(client: TestClient) -> None:
 
 
 def test_spans_endpoint_serves_the_recorded_tree(client: TestClient) -> None:
-    """What the debug view reads: a tree, with counts already totalled."""
     from agent.runs import get_run
 
     run_id = _upload(client)["run_id"]
@@ -397,16 +340,12 @@ def test_graph_endpoint_answers_before_any_run(client: TestClient) -> None:
 
 
 def test_graph_endpoint_says_what_each_step_is_given_and_may_reach_for(client: TestClient) -> None:
-    """The half of "what did the agent do" that no trace can answer: a tool that
-    was offered and never called leaves no span behind."""
     steps = {entry["step"]: entry for entry in client.get("/agent/graph").json()["steps"]}
 
     assert steps["triage"]["schema"] == "Triage"
     assert steps["lens:memory"]["prompt"] == "lens:memory"
     assert steps["gather"]["node"] == "gather", "retrieval is a node, not a half of one"
     assert [tool["name"] for tool in steps["gather"]["tools"]][:1] == ["read_source"]
-    # The specialists hold lookups now; only the steps that read nothing new --
-    # screening, narrowing, and the ruling itself -- hold none.
     assert [t["name"] for t in steps["lens:memory"]["tools"]] == [
         "find_definition",
         "find_callers",
@@ -417,7 +356,6 @@ def test_graph_endpoint_says_what_each_step_is_given_and_may_reach_for(client: T
 
 
 def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestClient) -> None:
-    """The span tree shows the machinery; this shows the exchange."""
     from agent.runs import get_run
 
     run_id = _upload(client)["run_id"]
@@ -425,8 +363,6 @@ def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestC
     assert paths is not None
 
     spans = paths.spans()
-    # `langgraph_node` is set by LangGraph on everything running inside a node,
-    # so a real span carries it alongside the metadata `call_config` adds.
     meta = {
         "chunk_id": "c1",
         "symbol": "run",
@@ -458,8 +394,6 @@ def test_thread_groups_model_calls_into_one_conversation_per_chunk(client: TestC
     assert [m["role"] for m in turn["messages"]] == ["system", "human"]
     assert turn["node"] == "verify", "the node, so narrowing the record is not a guess at the name"
     assert turn["raised_by"] == "injection", "which specialist raised the claim this call is about"
-    # The tool the model asked for, and what running it returned -- the pair is
-    # what makes a verify step readable.
     assert turn["tool_calls"][0]["name"] == "read_source"
     assert turn["tools"][0]["outputs"] == "int main(void)"
     assert turn["tools"][0]["latency_ms"] == 400
@@ -472,7 +406,6 @@ def test_the_thread_is_empty_before_an_inspection(client: TestClient) -> None:
 
 
 def test_graph_endpoint_names_the_nodes_a_breakpoint_may_use(client: TestClient) -> None:
-    """The studio offers these as checkboxes, so they have to be the real set."""
     body = client.get("/agent/graph").json()
 
     assert set(body["steppable"]) == {
@@ -492,12 +425,10 @@ def test_graph_endpoint_names_the_nodes_a_breakpoint_may_use(client: TestClient)
         "verify",
         "reduce",
     }
-    # LangGraph's own markers are in `nodes` and are not somewhere to stop.
     assert "__start__" not in body["steppable"]
 
 
 def test_a_misspelled_breakpoint_is_refused_before_the_run_starts(client: TestClient) -> None:
-    """A breakpoint that silently never fires is worse than an error."""
     run_id = _upload(client)["run_id"]
     response = client.post(f"/agent/runs/{run_id}/inspect", json={"breakpoints": ["analyze"]})
 
@@ -506,14 +437,12 @@ def test_a_misspelled_breakpoint_is_refused_before_the_run_starts(client: TestCl
 
 
 def test_state_before_any_run_is_a_404_not_an_empty_state(client: TestClient) -> None:
-    """Nothing to show and nothing to edit are the same answer here."""
     run_id = _upload(client)["run_id"]
     assert client.get(f"/agent/runs/{run_id}/state").status_code == 404
     assert client.get("/agent/runs/deadbeef/state").status_code == 404
 
 
 def test_resuming_a_run_that_is_not_stopped_is_refused(client: TestClient) -> None:
-    """Nothing is in flight and there is no history, so there is nowhere to go."""
     run_id = _upload(client)["run_id"]
     response = client.post(f"/agent/runs/{run_id}/resume", json={})
 
@@ -531,13 +460,10 @@ def test_state_and_resume_of_an_unknown_run_are_404(client: TestClient) -> None:
 
 
 def test_watching_a_run_does_not_make_it_look_started(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Opening the stream before anyone presses start must not read as in flight,
-    or the run could never be started at all."""
     import api.agent.channels as routes
 
     monkeypatch.setenv(ENV_MODEL, "agent")
     run_id = _upload(client)["run_id"]
-    # What GET /events does on connect.
     routes._channel(run_id)
 
     body = client.post(f"/agent/runs/{run_id}/inspect", json={}).json()
@@ -545,8 +471,6 @@ def test_watching_a_run_does_not_make_it_look_started(client: TestClient, monkey
 
 
 def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The watcher holds the channel object, so a new worker reuses it rather
-    than swapping in one nothing writes to."""
     import api.agent.channels as routes
 
     monkeypatch.setenv(ENV_MODEL, "agent")
@@ -560,16 +484,6 @@ def test_starting_a_run_keeps_an_existing_watcher_attached(client: TestClient, m
 
 
 def test_the_last_frame_of_the_previous_run_survives_a_restart(client: TestClient) -> None:
-    """Reclaiming used to drain the listener queues, and must not.
-
-    A start landing inside the reader's one-second poll threw away the previous
-    run's unread `run_finished` -- so the tab never learned that run had ended,
-    and `cancelling` stayed set on a surface with no way to clear it. Queues are
-    FIFO: the tail of the run that ended arrives ahead of the new run's frames,
-    which is the order the reducer expects.
-
-    `commands` still drains. A stale abort would misfire on the new worker.
-    """
     from api.agent.channels import RunChannel
 
     channel = RunChannel()
@@ -589,14 +503,6 @@ def test_the_last_frame_of_the_previous_run_survives_a_restart(client: TestClien
 
 
 def test_two_starts_landing_together_put_one_worker_on_the_run(client: TestClient) -> None:
-    """The check and the take are one step, and they were two.
-
-    `/inspect` asked `_live_channel` and spawned several lines later, with a
-    traversal-order computation in between. Two requests landing in that window
-    both passed and both spawned, sharing a store and a thread id while the
-    second reset the debug record the first was writing. The web makes it easy:
-    four independent start buttons whose pending flags do not compose.
-    """
     import threading
 
     from api.agent.channels import RunChannel
@@ -620,7 +526,6 @@ def test_two_starts_landing_together_put_one_worker_on_the_run(client: TestClien
 
 
 def test_a_start_on_a_run_already_in_flight_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`already_running` is the answer, not a second worker."""
     import api.agent.channels as channels
 
     monkeypatch.setenv(ENV_MODEL, "agent")
@@ -632,8 +537,6 @@ def test_a_start_on_a_run_already_in_flight_says_so(client: TestClient, monkeypa
 
 
 class _Ordinary:
-    """A session that starts, finds nothing and finishes."""
-
     stopped = False
     interrupted = False
 
@@ -658,19 +561,6 @@ class _Ordinary:
 def test_a_stream_opened_before_the_start_survives_the_last_runs_finish(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The headline. 검사 시작 after a finished run streamed to nobody.
-
-    Nothing clears `finished` when a run ends -- only the *next* start does, in
-    `reclaim`. So a stream attached between two runs read a set flag about the
-    wrong run and closed itself a second later, and the client does not
-    reconnect after a clean close. Every frame of the run then started went to
-    an empty listener set, and the strip sat on 범위를 정하는 중 until the page
-    was reloaded.
-
-    The start is on a thread because the stream is read on this one, which is
-    the shape a browser is in too. It is late on purpose: a second is what the
-    old reader waited before giving up.
-    """
     import threading
 
     import api.agent.channels as channels
@@ -679,8 +569,6 @@ def test_a_stream_opened_before_the_start_survives_the_last_runs_finish(
     monkeypatch.setattr("api.agent.inspection.STREAM_START_GRACE_SECONDS", 10.0)
     monkeypatch.setattr("api.agent.inspection.InspectionSession", _Ordinary)
     run_id = _upload(client)["run_id"]
-
-    # Exactly the state the next 검사 시작 arrives in.
     channel = channels._channel(run_id)
     channel.claimed = True
     channel.finished.set()
@@ -703,13 +591,6 @@ def test_a_stream_opened_before_the_start_survives_the_last_runs_finish(
 def test_a_stream_on_a_run_nobody_starts_does_not_hang_for_ever(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The other side of the latch.
-
-    The studio opens the stream when a run is selected, long before anyone
-    presses start, and `finished` is never set on a channel no worker touched --
-    so that response and its listener queue used to be held for the life of the
-    process.
-    """
     monkeypatch.setattr("api.agent.inspection.STREAM_START_GRACE_SECONDS", 1.0)
     run_id = _upload(client)["run_id"]
 
@@ -722,13 +603,6 @@ def test_a_stream_on_a_run_nobody_starts_does_not_hang_for_ever(
 def test_a_worker_that_dies_before_it_starts_still_ends_the_run(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Opening the store was above the handler, and one blip wedged the run.
-
-    `claim` has already been taken by the time the thread runs, so a failure
-    there left the channel claimed and unfinished for the life of the process:
-    every later start answered `already_running`, `/cancel` set a flag nobody
-    read, `DELETE` refused, and no stream on the run ever ended.
-    """
     import api.agent.channels as channels
 
     monkeypatch.setenv(ENV_MODEL, "agent")
@@ -739,23 +613,15 @@ def test_a_worker_that_dies_before_it_starts_still_ends_the_run(
     def boom(self: object) -> None:
         raise RuntimeError("the database went away")
 
-    # After the upload, which indexes through a real store of its own.
     monkeypatch.setattr("agent.runs.Run.store", boom)
 
     assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
     assert channel.finished.wait(2.0), "a worker that died left the run claimed"
     assert client.get(f"/agent/runs/{run_id}").json()["status"] == "failed"
-    # And the run is startable again, rather than wedged behind `already_running`.
     assert channel.live is False
 
 
 def test_a_store_that_fails_to_close_still_ends_the_run(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """One close raising used to skip every close after it, and the flag.
-
-    `store.close()` was called before `spans.close()` and before
-    `channel.finished.set()`, in a `finally` that nothing caught -- so a failure
-    there stranded both the span store and every stream on the run.
-    """
     import api.agent.channels as channels
 
     monkeypatch.setenv(ENV_MODEL, "agent")
@@ -779,24 +645,16 @@ def test_a_store_that_fails_to_close_still_ends_the_run(client: TestClient, monk
     run_id = _upload(client)["run_id"]
     channel = channels._channel(run_id)
 
-    # After the upload, which indexes through a real store of its own.
     monkeypatch.setattr("agent.runs.Run.store", lambda self: BadStore())
     monkeypatch.setattr("agent.runs.Run.spans", lambda self: Spans())
     monkeypatch.setattr("api.agent.inspection.InspectionSession", _Ordinary)
 
     assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
     assert channel.finished.wait(2.0), "a failing close stranded the run"
-    # The tail, because `reset_debug` opens and closes a span store of its own.
     assert closed[-2:] == ["store", "spans"], closed
 
 
 def test_an_ordinary_stop_is_reported_as_aborted(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`stopped` was computed one line above the event and not used.
-
-    `aborted` was only ever true for a worker parked at a breakpoint and told to
-    abort, and the surface this serves sets no breakpoints -- so pressing 중단
-    never fired the 실행이 중단되었습니다 toast.
-    """
     import api.agent.channels as channels
 
     monkeypatch.setenv(ENV_MODEL, "agent")
@@ -829,15 +687,6 @@ def test_an_ordinary_stop_is_reported_as_aborted(client: TestClient, monkeypatch
 
 
 def test_shutdown_stops_workers_rather_than_orphaning_them(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A daemon thread killed where it stands leaves a mess behind.
-
-    The session never closes, so its MCP subprocess is orphaned, and the row
-    stays `inspecting` for the *next* boot to mark failed -- where cancelling
-    ends it as `cancelled` with what it found, which is what 중단 already does.
-
-    Its own client, because the fixture owns the lifespan and this test is about
-    what happens on the way out of one.
-    """
     import api.agent.channels as channels
     from api.main import app
 
@@ -851,7 +700,6 @@ def test_shutdown_stops_workers_rather_than_orphaning_them(tmp_path: Path, monke
 
         def start(self, **_kwargs: object) -> None:
             running.set()
-            # What a wave in flight looks like from here: it returns when asked.
             while not self._cancelled():  # type: ignore[operator]
                 time.sleep(0.01)
 
@@ -873,12 +721,6 @@ def test_shutdown_stops_workers_rather_than_orphaning_them(tmp_path: Path, monke
 
 
 def test_a_channel_nobody_is_on_is_forgotten(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`_channels` was keyed by run id and never emptied.
-
-    A GET on `/events` allocates one for any run, so merely viewing runs grew
-    the dict by an object with its queues, events and listener set. A live
-    channel is never swept: the worker holds it, and `/cancel` finds it here.
-    """
     import api.agent.channels as channels
 
     monkeypatch.setattr(channels, "CHANNEL_IDLE_SECONDS", -1.0)
@@ -886,7 +728,6 @@ def test_a_channel_nobody_is_on_is_forgotten(client: TestClient, monkeypatch: py
     working = channels._channel("still-working")
     working.claimed = True
 
-    # Any later lookup sweeps.
     channels._channel("someone-else")
 
     assert "watched-and-left" not in channels._channels
@@ -894,11 +735,6 @@ def test_a_channel_nobody_is_on_is_forgotten(client: TestClient, monkeypatch: py
 
 
 def test_every_listener_gets_every_event(client: TestClient) -> None:
-    """Two readers must each see the whole run, not half of it each.
-
-    The channel used to be one queue that each reader popped from, so a second
-    browser tab watching the same run silently took frames away from the first.
-    """
     from api.agent.channels import RunChannel
 
     channel = RunChannel()
@@ -926,9 +762,6 @@ def test_a_listener_stops_receiving_once_it_detaches(client: TestClient) -> None
 
 
 def test_publishing_with_nobody_attached_is_dropped(client: TestClient) -> None:
-    """Not buffered: the stream is documented as unreplayable, clients read
-    their state over REST, and an unbounded backlog for a listener that may
-    never arrive is a leak."""
     from api.agent.channels import RunChannel
 
     channel = RunChannel()
@@ -938,11 +771,7 @@ def test_publishing_with_nobody_attached_is_dropped(client: TestClient) -> None:
         assert events.empty()
 
 
-# -- tuning a prompt against a real trace -------------------------------------
-
-
 def _recorded_llm_span(client: TestClient, step: str = "lens:memory") -> tuple[str, str]:
-    """A run with one recorded model call, as a finished inspection leaves."""
     from agent.runs import get_run
 
     run_id = _upload(client)["run_id"]
@@ -982,9 +811,7 @@ def test_replaying_an_unknown_span_is_a_404(client: TestClient) -> None:
 
 
 def test_a_run_is_labelled_by_its_files_not_its_id(client: TestClient) -> None:
-    """A run id is random hex. What anyone recognises is the code in it."""
     run_id = _upload(client)["run_id"]
-
     run = next(r for r in client.get("/agent/runs").json()["runs"] if r["run_id"] == run_id)
     assert set(run["files"]) <= {"app.c", "util.h"}
     assert run["file_count"] == 2
@@ -992,13 +819,10 @@ def test_a_run_is_labelled_by_its_files_not_its_id(client: TestClient) -> None:
 
 
 def test_runs_are_listed_most_recently_touched_first(client: TestClient) -> None:
-    """Sorted by id, a list of random hex is shuffled into a meaningless order."""
     from agent.runs import get_run
 
     first = _upload(client)["run_id"]
     second = _upload(client)["run_id"]
-    # Two uploads can land in the same tick, so the newer one is touched
-    # explicitly. `write_meta` is what bumps `updated_at`.
     run = get_run(second)
     assert run is not None
     run.write_meta(touched=True)
@@ -1008,10 +832,7 @@ def test_runs_are_listed_most_recently_touched_first(client: TestClient) -> None
 
 
 def test_a_run_that_never_ran_is_marked_as_such(client: TestClient) -> None:
-    """It has no trace to read, so the list can fold it away rather than
-    padding itself with workspaces someone abandoned."""
     run_id = _upload(client)["run_id"]
-
     run = next(r for r in client.get("/agent/runs").json()["runs"] if r["run_id"] == run_id)
     assert run["started"] is False
 
@@ -1025,8 +846,6 @@ def test_a_run_can_be_deleted(client: TestClient) -> None:
     assert run.files(), "the upload should have landed as rows"
 
     assert client.delete(f"/agent/runs/{run_id}").json()["deleted"] == run_id
-    # Gone, and gone as a unit: the row is deleted and everything hanging off
-    # it cascades, which is what the directory removal used to stand for.
     assert get_run(run_id) is None
     assert run.files() == []
     assert all(r["run_id"] != run_id for r in client.get("/agent/runs").json()["runs"])
@@ -1049,7 +868,6 @@ def test_a_run_in_flight_is_not_deleted_from_under_its_worker(client: TestClient
 
 
 def _run_with_status(status: str) -> str:
-    """A run workspace recorded in one state, with nothing behind it."""
     from agent.runs import new_run
 
     paths = new_run()
@@ -1058,12 +876,6 @@ def _run_with_status(status: str) -> str:
 
 
 def test_startup_fails_the_runs_no_process_is_left_to_finish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A run recorded as in flight at startup belongs to a process that is gone.
-
-    Its worker was a thread here and its progress channel was in-process, so
-    nothing can resume it and nothing will ever finish it. Left alone it reads
-    as running for ever -- which is the one thing a status is for.
-    """
     monkeypatch.delenv(ENV_MODEL, raising=False)
 
     from agent.runs import get_run
@@ -1079,34 +891,22 @@ def test_startup_fails_the_runs_no_process_is_left_to_finish(tmp_path: Path, mon
 
     assert statuses[inspecting] == "failed"
     assert statuses[interrupted] == "failed"
-    # Anything already settled is left exactly as it was.
     assert statuses[finished] == "done"
 
     paths = get_run(interrupted)
     assert paths is not None
     meta = paths.read_meta()
     assert "다시 시작" in meta["error"]
-    # The breakpoint position goes with it: there is no worker parked there.
     assert meta["parked"] is None
 
 
 def test_a_second_inspection_of_unchanged_code_is_declined(client: TestClient) -> None:
-    """Pressing 검사 실행 again must not throw away the trace to do nothing.
-
-    A chunk id is derived from its content, so an unchanged tree has nothing
-    left to analyse -- and a fresh start resets the debug record first. The run
-    therefore called no model, found nothing, and destroyed the call history of
-    the run that did the work. Declining is the whole fix; `force` is how you
-    ask for the work anyway.
-    """
     from agent.runs import get_run
 
     run_id = _upload(client)["run_id"]
     paths = get_run(run_id)
     assert paths is not None
 
-    # Stand in for a completed inspection: every chunk has a result, and a
-    # trace exists. Both are what the route reads.
     store = paths.store()
     chunk_ids = store.order()
     assert chunk_ids, "the fixture upload should index at least one chunk"
@@ -1114,28 +914,20 @@ def test_a_second_inspection_of_unchanged_code_is_declined(client: TestClient) -
         store.mark_inspected(chunk_id)
     assert store.uninspected() == []
     store.close()
-    paths.spans().close()  # creates the trace database
+    paths.spans().close()
 
     declined = client.post(f"/agent/runs/{run_id}/inspect").json()
     assert declined["nothing_to_do"] is True
     assert declined["already_running"] is False
 
-    # `force` is not declined -- it is the request to do the work regardless.
     forced = client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).json()
     assert "nothing_to_do" not in forced
 
 
 def test_an_uninspected_chunk_still_starts_a_run(client: TestClient) -> None:
-    """The decline is about there being nothing to do, not about having run before."""
     run_id = _upload(client)["run_id"]
     accepted = client.post(f"/agent/runs/{run_id}/inspect").json()
     assert "nothing_to_do" not in accepted
-
-
-# -- applying a proposed fix --------------------------------------------------
-#
-# This writes to the user's source, so the refusals matter more than the happy
-# path: every one of them is a way of corrupting a file rather than failing.
 
 
 def _report_with_fix(paths, *, replacement: str | None, excerpt: str, start: int, end: int) -> None:
@@ -1177,11 +969,6 @@ def _paths_for(run_id: str):
 
 
 def _report_with_fixes(paths, specs: list[dict[str, Any]]) -> None:
-    """A report over `src/app.c`, one finding per spec.
-
-    Specs carry `id`, `line`, `replacement` and optionally `end`; the excerpt is
-    read from the run so the anchors match unless a test means them not to.
-    """
     from agent.schema import Finding, Remediation, Report, Span
 
     source = paths.read_file("src/app.c").splitlines()
@@ -1240,7 +1027,6 @@ def test_patch_returns_a_diff_for_the_selected_findings(client: TestClient) -> N
 
 
 def test_patch_never_touches_the_stored_tree(client: TestClient) -> None:
-    """The whole reason a patch is reproducible: the analysed tree is immutable."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     before = paths.read_file("src/app.c")
@@ -1251,7 +1037,6 @@ def test_patch_never_touches_the_stored_tree(client: TestClient) -> None:
 
 
 def test_patch_reports_what_it_could_not_apply(client: TestClient) -> None:
-    """Advice without code is a reason, not a smaller patch than expected."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     _report_with_fixes(
@@ -1269,7 +1054,6 @@ def test_patch_reports_what_it_could_not_apply(client: TestClient) -> None:
 
 
 def test_patch_of_an_unfixable_selection_is_an_empty_patch_not_an_error(client: TestClient) -> None:
-    """A question about the selection, answered. Not a failed request."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     _report_with_fixes(paths, [{"id": "prose", "line": 1, "replacement": None}])
@@ -1302,8 +1086,6 @@ def test_patch_requires_at_least_one_finding(client: TestClient) -> None:
 
 
 def test_archive_ships_the_whole_tree_with_the_fix_in_it(client: TestClient) -> None:
-    """Every file, not only the patched ones: three files out of four hundred
-    is not a source tree."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     _report_with_fixes(
@@ -1328,13 +1110,10 @@ def test_archive_ships_the_whole_tree_with_the_fix_in_it(client: TestClient) -> 
         patched = archive.read("src/app.c").decode("utf-8")
         assert "static void run(const char *u) { (void)u; }" in patched
         assert "sprintf" not in patched
-        # The file nobody fixed comes through unchanged.
         assert archive.read("src/util.h").decode("utf-8") == paths.read_file("src/util.h")
 
 
 def test_archive_refuses_when_nothing_could_be_applied(client: TestClient) -> None:
-    """An archive identical to the upload, named as though it were fixed, is the
-    one output here that could get unpatched code shipped."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     _report_with_fixes(paths, [{"id": "prose", "line": 1, "replacement": None}])
@@ -1345,7 +1124,6 @@ def test_archive_refuses_when_nothing_could_be_applied(client: TestClient) -> No
 
 
 def test_two_fixes_in_one_file_both_reach_the_archive(client: TestClient) -> None:
-    """The ordering guarantee, end to end through HTTP."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     upper = _line_of(paths, "sprintf")
@@ -1354,7 +1132,6 @@ def test_two_fixes_in_one_file_both_reach_the_archive(client: TestClient) -> Non
     _report_with_fixes(
         paths,
         [
-            # Grows by a line, which is what would shift the one below it.
             {"id": "upper", "line": upper, "replacement": "static void run(const char *u) {\n    (void)u;\n}"},
             {"id": "lower", "line": lower, "replacement": "void handle(Request *r) { (void)r; }"},
         ],
@@ -1369,13 +1146,6 @@ def test_two_fixes_in_one_file_both_reach_the_archive(client: TestClient) -> Non
         patched = archive.read("src/app.c").decode("utf-8")
     assert "(void)u;" in patched
     assert "void handle(Request *r) { (void)r; }" in patched
-
-
-# -- intake from a git remote --------------------------------------------------
-#
-# This route makes the *server* fetch a URL somebody typed. `test_vcs.py` covers
-# the validation in detail; what matters here is that a refusal is a 400 and not
-# a half-created run, and that the commit is recorded so a push can be honest.
 
 
 @pytest.fixture
@@ -1408,7 +1178,6 @@ def test_cloning_a_repository_indexes_it_and_records_the_commit(
 
     if shutil.which("git") is None:
         pytest.skip("git is not installed")
-    # A filesystem path cannot pass the real check; it is tested on its own.
     monkeypatch.setattr("agent.vcs.check_url", lambda url: url)
 
     response = client.post("/agent/runs/git", json={"url": str(git_remote), "ref": "main"})
@@ -1423,7 +1192,6 @@ def test_cloning_a_repository_indexes_it_and_records_the_commit(
     assert len(origin["commit"]) == 40
     assert origin["label"].endswith("@main")
 
-    # And it survives on the run, which is what a later push reads.
     listed = client.get(f"/agent/runs/{body['run_id']}").json()
     assert listed["origin"]["commit"] == origin["commit"]
 
@@ -1435,7 +1203,6 @@ def test_a_url_the_server_may_not_fetch_is_a_400(client: TestClient) -> None:
 
 
 def test_an_unreachable_remote_is_a_502_not_a_500(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """We reached out and something upstream said no. That is not our error."""
     import shutil
 
     if shutil.which("git") is None:
@@ -1447,13 +1214,11 @@ def test_an_unreachable_remote_is_a_502_not_a_500(client: TestClient, monkeypatc
 
 
 def test_an_upload_records_what_kind_of_intake_it_was(client: TestClient) -> None:
-    """The patch surface reads this to decide whether pushing is even possible."""
     body = _upload(client)
     assert body["origin"] == {"kind": "zip", "label": "upload.zip", "url": None, "ref": None, "commit": None}
 
 
 def test_pushing_a_run_that_was_uploaded_is_a_400(client: TestClient) -> None:
-    """No remote, so no button. The API says so rather than trying."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     _report_with_fixes(paths, [{"id": "f1", "line": _line_of(paths, "sprintf"), "replacement": "void run(void) { }"}])
@@ -1474,7 +1239,6 @@ def test_pushing_with_nothing_applicable_is_refused_before_any_network(client: T
         f"/agent/runs/{run_id}/push",
         json={"finding_ids": ["prose"], "branch": "ssat/fix", "token": "t"},
     )
-    # The origin check comes first, and this run has no git origin either.
     assert response.status_code in {400, 409}
 
 
@@ -1490,13 +1254,6 @@ def test_a_push_needs_a_token(client: TestClient) -> None:
 def test_a_cloned_run_can_have_its_fix_pushed_back(
     client: TestClient, git_remote: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The whole path, end to end: clone, report, select, push.
-
-    Against a bare repository on disk rather than a network host. The URL check
-    and the credential rewrite are stubbed -- both are tested on their own in
-    `test_vcs.py` -- so what this exercises is the route: origin lookup, patch
-    built server-side from ids, apply on a fresh clone, branch created.
-    """
     import shutil
     import subprocess
 
@@ -1553,33 +1310,14 @@ def test_a_cloned_run_can_have_its_fix_pushed_back(
     assert "(void)u;" in shown.stdout
     assert "system(u);" not in shown.stdout
 
-    # The token was a request argument and nothing more.
     assert "secret-token" not in json.dumps(paths.read_meta())
-
-
-# -- what an upload may contain ------------------------------------------------
-#
-# Two caps defending two different things, and the difference is the point. The
-# totals are a resource-exhaustion defence and stay refusals. The per-file cap is
-# a judgement about what is worth keeping, so it skips -- because a real project
-# carries generated artifacts and refusing the whole upload over one of them cost
-# the reader every other file for nothing.
 
 
 def test_an_oversized_file_is_skipped_and_the_rest_is_indexed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The case this exists for: a 260 MB `pkix1.json` beside the C it came from.
-
-    The indexer skips anything over 1.5 MB anyway, so such a file was never going
-    to be inspected -- and the upload refusing outright meant the project could
-    not be scanned at all.
-    """
-    # Comfortably above both SAMPLE files and far below the artifact.
     monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 1024)
 
-    # A *source* file this time: a generated `.json` no longer reaches the size
-    # check at all, because it is not something the analyser reads.
     body = _upload(client, {**SAMPLE, "src/generated.c": "x" * 4096})
 
     assert set(body["files"]) == {"src/app.c", "src/util.h"}
@@ -1592,16 +1330,13 @@ def test_an_oversized_file_is_skipped_and_the_rest_is_indexed(
 def test_what_was_skipped_survives_the_request_that_decided_it(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A patch archive a week later is missing that file. The run has to say why."""
     monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 1024)
     run_id = _upload(client, {**SAMPLE, "big.c": "x" * 4096})["run_id"]
-
     listed = client.get(f"/agent/runs/{run_id}").json()
     assert listed["intake"]["skipped"][0]["path"] == "big.c"
 
 
 def test_an_upload_of_nothing_but_oversized_files_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Different from an empty upload: this is a tree with no source in it."""
     monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 64)
 
     payload = _zip({"big.c": "x" * 4096})
@@ -1612,8 +1347,6 @@ def test_an_upload_of_nothing_but_oversized_files_says_so(client: TestClient, mo
 
 
 def test_the_total_size_cap_is_still_a_refusal(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A thousand merely-large files each pass the per-file cap and still add up,
-    so skipping cannot be the answer here the way it is for one absurd file."""
     monkeypatch.setattr("agent.files.MAX_UPLOAD_BYTES", 128)
 
     payload = _zip({f"f{i}.c": "x" * 64 for i in range(8)})
@@ -1621,8 +1354,6 @@ def test_the_total_size_cap_is_still_a_refusal(client: TestClient, monkeypatch: 
 
     assert response.status_code == 400
     detail = response.json()["detail"]
-    # Actionable, not just accurate: `expands past 524288000 bytes` said what
-    # happened and nothing about what to do next.
     assert "MB를 넘습니다" in detail
     assert "하위 폴더만 골라" in detail
 
@@ -1638,11 +1369,6 @@ def test_the_file_count_cap_is_still_a_refusal(client: TestClient, monkeypatch: 
 
 
 def test_loose_files_are_capped_the_same_way_an_archive_is(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The folder picker had no caps at all -- only `read_zip` counted anything.
-
-    So the same tree was refused as a zip and accepted as a folder, which is the
-    wrong way round: the folder picker is the path most people use.
-    """
     monkeypatch.setattr("agent.files.MAX_SINGLE_FILE_BYTES", 64)
 
     response = client.post(
@@ -1660,16 +1386,6 @@ def test_loose_files_are_capped_the_same_way_an_archive_is(client: TestClient, m
 
 
 def test_the_dead_weight_of_a_real_project_is_not_stored(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`.git`, `node_modules` and build output are excluded at intake.
-
-    Only the git path did this, so a project *zipped up* stored its whole history
-    as rows and the indexer then skipped every one of them -- which is how an
-    upload could exceed the total cap on bytes nobody was ever going to read.
-
-    Not reported as skips: unlike an oversized source file, nobody is surprised
-    that `.git` was left out, and ten thousand of them would bury the ones that
-    matter.
-    """
     body = _upload(
         client,
         {
@@ -1686,11 +1402,6 @@ def test_the_dead_weight_of_a_real_project_is_not_stored(client: TestClient, mon
 
 
 def test_the_total_cap_counts_only_what_is_kept(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A project whose bulk is `.git` must not be refused for its bulk.
-
-    The whole point of filtering at intake: 40 MB of history against a 128-byte
-    budget is fine, because none of it is stored.
-    """
     monkeypatch.setattr("agent.files.MAX_UPLOAD_BYTES", 128)
 
     body = _upload(client, {"src/app.c": "int x;", ".git/pack/big": "x" * 40_000})
@@ -1699,14 +1410,6 @@ def test_the_total_cap_counts_only_what_is_kept(client: TestClient, monkeypatch:
 
 
 def test_a_mac_made_zip_does_not_take_the_upload_down(client: TestClient) -> None:
-    """The crash this exists for: `psycopg.DataError` from inside the ORM flush.
-
-    A Mac writes an AppleDouble fork beside every file it archives, and its header
-    is literally `\\x00\\x05\\x16\\x07`. `files.content` is a Postgres text column,
-    Postgres rejects NUL outright, and `errors="replace"` does not help because
-    NUL is perfectly valid UTF-8 -- so one such entry failed the whole upload with
-    a 500 and left the run empty.
-    """
     body = _upload(
         client,
         {
@@ -1718,18 +1421,10 @@ def test_a_mac_made_zip_does_not_take_the_upload_down(client: TestClient) -> Non
     )
 
     assert set(body["files"]) == {"src/app.c", "src/util.h"}
-    # Mac litter is noise, not a skip worth reporting: one entry per real file
-    # would bury the skips that matter.
     assert body["intake"]["skipped"] == []
 
 
 def test_a_binary_file_is_skipped_and_named(client: TestClient) -> None:
-    """Not a size judgement. It cannot be stored, and storing it mangled was worse
-    than useless: the archive route writes rows back out as text, so a PNG went in
-    and came out corrupted."""
-    # Named `.c`, so it passes the source filter and the bytes are what refuse it --
-    # a corrupt file wearing a source extension is the only way a binary now
-    # reaches this check at all.
     body = _upload(client, {**SAMPLE, "src/blob.c": b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"})
 
     assert set(body["files"]) == {"src/app.c", "src/util.h"}
@@ -1737,12 +1432,6 @@ def test_a_binary_file_is_skipped_and_named(client: TestClient) -> None:
 
 
 def test_text_that_merely_looks_odd_is_still_stored(client: TestClient) -> None:
-    """The heuristic is a NUL in the first block, not "is not ASCII".
-
-    Korean comments, a UTF-8 BOM and invalid byte sequences all have to survive --
-    `errors="replace"` is what they are for, and refusing them would refuse most
-    of this repository's own corpus.
-    """
     body = _upload(
         client,
         {
@@ -1757,8 +1446,6 @@ def test_text_that_merely_looks_odd_is_still_stored(client: TestClient) -> None:
 
 
 def test_a_stray_nul_deep_in_a_text_file_does_not_fail_the_upload(client: TestClient) -> None:
-    """Past the sniff window, so `is_binary` misses it and the decode has to catch
-    it. Defence in depth: one odd byte is not worth refusing an upload over."""
     padded = ("int x;\n" * 2000).encode() + b"\x00tail\n"
     body = _upload(client, {"src/odd.c": padded})
 
@@ -1771,31 +1458,17 @@ def test_a_stray_nul_deep_in_a_text_file_does_not_fail_the_upload(client: TestCl
 def test_starting_without_a_model_is_refused_rather_than_started(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A 503 from the button, not a run that dies.
-
-    `require_model` was checked inside the worker thread, so a deployment with no
-    `AGENT_MODEL` accepted the request with a 200, marked the run `inspecting`,
-    and then failed -- which reaches the reader as 실행 실패 on a scan they thought
-    had started, rather than as a button telling them what to configure.
-    """
     monkeypatch.delenv(ENV_MODEL, raising=False)
     run_id = _upload(client)["run_id"]
-
     response = client.post(f"/agent/runs/{run_id}/inspect", json={})
 
     assert response.status_code == 503
     detail = response.json()["detail"]
     assert "AGENT_MODEL" in detail
-    # And the run is untouched: nothing was spawned, so it is still indexed.
     assert client.get(f"/agent/runs/{run_id}").json()["status"] != "inspecting"
 
 
 def test_health_names_what_the_endpoint_actually_serves(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The one fact that turns this dead end into a one-line fix.
-
-    Knowing `AGENT_MODEL` is unset does not say what to set it *to*, and the
-    endpoint already knows.
-    """
     monkeypatch.delenv(ENV_MODEL, raising=False)
     monkeypatch.setattr("api.agent.meta.list_models", lambda _base: ["agent", "other"])
 
@@ -1806,14 +1479,6 @@ def test_health_names_what_the_endpoint_actually_serves(client: TestClient, monk
     assert body["model_is_served"] is False
 
 
-# -- an upload that has been scanned before ------------------------------------
-#
-# The cross-run cache already means an unchanged tree costs nothing to re-scan.
-# What it did not do is *say so before the work*: the reader uploaded, pressed
-# start, and learned it had all happened before by watching it finish in five
-# seconds. These pin the question being answered at intake instead.
-
-
 def test_a_re_upload_names_the_run_that_already_has_it(client: TestClient) -> None:
     first = _upload(client)
     assert first["matches"] == [], "the first upload of a tree has nothing to match"
@@ -1821,7 +1486,6 @@ def test_a_re_upload_names_the_run_that_already_has_it(client: TestClient) -> No
     second = _upload(client)
 
     assert [m["run_id"] for m in second["matches"]] == [first["run_id"]]
-    # Enough to describe it without a second request: what it was, how it went.
     match = second["matches"][0]
     assert match["file_count"] == 2
     assert match["status"] in {"indexed", "done"}
@@ -1835,7 +1499,6 @@ def test_one_changed_byte_is_a_different_tree(client: TestClient) -> None:
 
 
 def test_a_missing_file_is_a_different_tree(client: TestClient) -> None:
-    """The file *count* is the prefilter, so this is the case it must not pass."""
     _upload(client)
 
     assert _upload(client, {"src/app.c": SAMPLE["src/app.c"]})["matches"] == []
@@ -1848,11 +1511,6 @@ def test_an_added_file_is_a_different_tree(client: TestClient) -> None:
 
 
 def test_a_stranger_s_run_is_never_offered(client: TestClient) -> None:
-    """The run list is scoped by the owner header, and so is this.
-
-    Not a security boundary -- nothing is -- but nobody recognises a stranger's
-    run, so offering to open one is worse than offering nothing.
-    """
     payload = _zip(SAMPLE)
     theirs = client.post(
         "/agent/runs",
@@ -1872,7 +1530,6 @@ def test_a_stranger_s_run_is_never_offered(client: TestClient) -> None:
 def test_matches_are_newest_first(client: TestClient) -> None:
     older = _upload(client)["run_id"]
     newer = _upload(client)["run_id"]
-
     third = _upload(client)
 
     assert [m["run_id"] for m in third["matches"]] == [newer, older]
@@ -1881,7 +1538,6 @@ def test_matches_are_newest_first(client: TestClient) -> None:
 def test_a_cloned_tree_matches_an_uploaded_one(
     client: TestClient, git_remote: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The fingerprint is the content, not how it arrived."""
     import shutil
 
     if shutil.which("git") is None:
@@ -1894,9 +1550,6 @@ def test_a_cloned_tree_matches_an_uploaded_one(
     assert [m["run_id"] for m in second["matches"]] == [first["run_id"]]
 
 
-# -- stopping a run ------------------------------------------------------------
-
-
 def test_cancelling_when_nothing_is_running_is_refused(client: TestClient) -> None:
     run_id = _upload(client)["run_id"]
     response = client.post(f"/agent/runs/{run_id}/cancel")
@@ -1906,11 +1559,6 @@ def test_cancelling_when_nothing_is_running_is_refused(client: TestClient) -> No
 
 
 def test_watching_a_run_is_not_something_to_cancel(client: TestClient) -> None:
-    """A channel opened by a listener is not a run in flight.
-
-    `claimed` is the difference, and it is the same distinction that stops
-    watching a run making it look started.
-    """
     import api.agent.channels as channels
 
     run_id = _upload(client)["run_id"]
@@ -1922,11 +1570,6 @@ def test_watching_a_run_is_not_something_to_cancel(client: TestClient) -> None:
 def test_cancelling_a_live_run_sets_the_flag_the_graph_reads(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The mechanism, without a model: the flag is what the graph loop checks.
-
-    `commands` could not carry this. Nothing reads that queue unless the graph
-    has parked at a breakpoint, which is why 중단 refused every ordinary scan.
-    """
     import api.agent.channels as channels
 
     run_id = _upload(client)["run_id"]
@@ -1941,8 +1584,6 @@ def test_cancelling_a_live_run_sets_the_flag_the_graph_reads(
 
 
 def test_cancelling_a_parked_run_also_wakes_it(client: TestClient) -> None:
-    """One route for both. A worker waiting at a breakpoint is not looking at the
-    flag -- it is blocked on the queue -- so it gets the abort as well."""
     import api.agent.channels as channels
 
     run_id = _upload(client)["run_id"]
@@ -1957,8 +1598,6 @@ def test_cancelling_a_parked_run_also_wakes_it(client: TestClient) -> None:
 
 
 def test_a_cancelled_run_is_not_reported_as_done(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`done` says the tree was read. A partial report wearing it is the coverage
-    lie the whole surface is built to avoid."""
     monkeypatch.setenv(ENV_MODEL, "agent")
 
     class Stopped:
@@ -1993,31 +1632,12 @@ def test_a_cancelled_run_is_not_reported_as_done(client: TestClient, monkeypatch
 def test_a_cancelled_run_finishes_instead_of_parking_at_a_breakpoint(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The stop button, through the worker rather than around it.
-
-    A cancelled session breaks out of the graph with work still queued, so
-    `_refresh` reads a non-empty `next` and `interrupted` is true -- which is
-    indistinguishable, at this level, from a run parked at a breakpoint. The
-    worker believed that: it wrote STATUS_INTERRUPTED, emitted `run_interrupted`
-    and blocked in `_await_command` for thirty minutes waiting to be told what
-    to do by somebody who had already said stop. The report was not saved and
-    the status was not written until that expired, which is what "중단 does
-    nothing" was.
-
-    `Stopped` above could not catch it: its `interrupted` is False, so it never
-    entered the loop at all.
-
-    The timeout is shortened rather than trusted, so a regression fails in a
-    second instead of hanging the suite for half an hour.
-    """
     import api.agent.channels as channels
 
     monkeypatch.setenv(ENV_MODEL, "agent")
     monkeypatch.setattr("api.agent.inspection.INTERRUPT_TIMEOUT_SECONDS", 5.0)
 
     class CancelledMidWave:
-        """A session stopped with work still on the queue."""
-
         stopped = True
         interrupted = True
         next_nodes = ["plan"]
@@ -2027,7 +1647,6 @@ def test_a_cancelled_run_finishes_instead_of_parking_at_a_breakpoint(
             self._run_id = str(kwargs.get("run_id"))
 
         def start(self, **_kwargs: object) -> None:
-            # What pressing 중단 in the middle of a wave does.
             channels._channel(self._run_id).cancelled.set()
 
         def resume(self, **_kwargs: object) -> None:
@@ -2045,11 +1664,8 @@ def test_a_cancelled_run_finishes_instead_of_parking_at_a_breakpoint(
     run_id = _upload(client)["run_id"]
     channel = channels._channel(run_id)
 
-    # Attached before the worker starts: `publish` drops events that have no
-    # listener, so collecting after the fact would be a race, not an assertion.
     with channel.listen() as events:
         assert client.post(f"/agent/runs/{run_id}/inspect").status_code == 200
-        # Comfortably inside the shortened park, nowhere near the real one.
         assert channel.finished.wait(2.0), "a cancelled run parked instead of finishing"
         seen = []
         while True:
@@ -2066,13 +1682,6 @@ def test_a_cancelled_run_finishes_instead_of_parking_at_a_breakpoint(
 def test_stopping_a_run_does_not_stop_every_later_run_on_it(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`reclaim` clears the stop, and it did not.
-
-    `_channel` caches one channel per run id for the life of the process, so a
-    run that had been cancelled once kept a set flag for ever: every later
-    inspection of it broke at the very first frame and finished immediately with
-    nothing inspected. Stopping a scan appeared to break that run permanently.
-    """
     import api.agent.channels as channels
 
     monkeypatch.setenv(ENV_MODEL, "agent")
@@ -2086,7 +1695,6 @@ def test_stopping_a_run_does_not_stop_every_later_run_on_it(
             self._cancelled = kwargs.get("cancelled")
 
         def start(self, **_kwargs: object) -> None:
-            # What the graph asks before it does anything at all.
             started.append("cancelled" if self._cancelled() else "running")  # type: ignore[operator]
 
         def report(self):  # noqa: ANN202 - a stand-in for the real session
@@ -2099,13 +1707,10 @@ def test_stopping_a_run_does_not_stop_every_later_run_on_it(
 
     monkeypatch.setattr("api.agent.inspection.InspectionSession", Ordinary)
     run_id = _upload(client)["run_id"]
-
     channel = channels._channel(run_id)
     channel.claimed = True
     assert client.post(f"/agent/runs/{run_id}/cancel").status_code == 200
     assert channel.cancelled.is_set()
-    # That worker has now exited, which is the state the next 검사 실행 arrives
-    # in -- and it arrives at this same cached channel object.
     channel.finished.set()
 
     assert client.post(f"/agent/runs/{run_id}/inspect", json={"force": True}).status_code == 200
@@ -2114,17 +1719,7 @@ def test_stopping_a_run_does_not_stop_every_later_run_on_it(
     assert started == ["running"], "a later run inherited the last stop"
 
 
-# -- asking for a fix ---------------------------------------------------------
-#
-# `POST /runs/{id}/propose` had no test at all, which is part of why it shipped
-# sending the whole file: run dbd2c9e7ca62 could not have made this button work
-# for any finding in its four largest sources, and 85 of its 259 findings were
-# in one of them.
-
-
 def test_propose_says_there_is_no_model_in_the_reader_s_language(client: TestClient) -> None:
-    """503, not 409 -- which is why `describeError` never had a case for it and
-    the English sentence reached a Korean toast raw."""
     run_id = _upload(client)["run_id"]
     paths = _paths_for(run_id)
     _report_with_fix(paths, replacement=None, excerpt="", start=1, end=1)
@@ -2134,12 +1729,6 @@ def test_propose_says_there_is_no_model_in_the_reader_s_language(client: TestCli
 
 
 def test_propose_sends_a_window_not_the_whole_file(client: TestClient, monkeypatch) -> None:
-    """The prompt must be bounded by what the endpoint can hold.
-
-    A 197KB source is roughly 123 000 tokens against a 16 384 window, and vLLM
-    answers `max_tokens must be at least 1, got -43420`. Asserted on a file
-    padded past the budget, because a small one cannot tell the two apart.
-    """
     from agent.config import AgentConfig, ENV_MODEL
     from agent.llm import Outcome
     from agent.schema import CandidateRemediation
@@ -2172,5 +1761,4 @@ def test_propose_sends_a_window_not_the_whole_file(client: TestClient, monkeypat
     assert len(source) > budget * 2, "the file must exceed the budget or this asserts nothing"
     assert seen, "the model was never asked"
     assert len(seen[0]) < budget * 1.5
-    # What it is being asked to replace is never the thing dropped.
     assert "system(cmd);" in seen[0]

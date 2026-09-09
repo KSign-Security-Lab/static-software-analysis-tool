@@ -1,13 +1,3 @@
-"""A LangChain callback handler that writes spans to the run's own store.
-
-Attached through the ``config`` already built for each call, so it sees the
-whole tree -- graph nodes, the LLM calls under them, the tool calls under those
--- rather than only what the call sites happen to report.
-
-Never raises. A tracer that can break an inspection is worse than no tracer, so
-every hook swallows its own failures.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -36,7 +26,6 @@ def _tokens(response: Any) -> int | None:
 
 
 def _messages(batches: Sequence[Sequence[Any]]) -> list[dict[str, str]]:
-    """Chat messages, flattened to something readable in the UI."""
     out: list[dict[str, str]] = []
     for batch in batches:
         for message in batch:
@@ -50,65 +39,24 @@ def _messages(batches: Sequence[Sequence[Any]]) -> list[dict[str, str]]:
 
 
 def _is_step(given: str | None, parent: UUID | None, metadata: dict[str, Any] | None) -> bool:
-    """Whether a chain is a step of the agent or framework scaffolding.
-
-    Everything inside a node inherits that node's metadata, so `langgraph_node`
-    alone does not separate them -- but the node span is the one *named* after
-    its node. The rest are the wrapper `with_structured_output` puts around the
-    model, the parser it appends, the routing predicate and the channel writes.
-    They were two thirds of the tree and none of them is a step anyone reads.
-    """
     if parent is None:
-        return True  # the graph itself
+        return True
     node = (metadata or {}).get("langgraph_node")
     return bool(node) and given == node
 
 
-#: The model call currently open on this branch of the run.
-#:
-#: A tool runs after the model that asked for it has already closed, and
-#: LangChain reports it under the graph node instead. Filing it under the model
-#: call is what makes a verify step readable as one exchange: what was asked,
-#: what was run, what came back.
-#:
-#: A ContextVar rather than a ``threading.local``, and that distinction is the
-#: whole reason tools were landing under the node. Two threads are involved: the
-#: graph thread runs the model call, and the tool itself runs on the MCP
-#: session's event loop, because ``ToolSession.call`` hands the coroutine to
-#: another thread. ``call_soon_threadsafe`` copies the calling context over with
-#: it, so a ContextVar survives that hop; thread-local state does not, and every
-#: tool call read an empty field and fell back to the enclosing node.
-#:
-#: Still isolated per branch, which was the point of the thread-local: a fresh
-#: thread starts from the default, and a copied context is a copy -- so four
-#: specialists in flight cannot file each other's tool calls.
 _open_llm: ContextVar[str | None] = ContextVar("agent_trace_open_llm", default=None)
 
 
 class SpanRecorder(BaseCallbackHandler):
-    """Persist the call tree of one inspection.
-
-    Called from several threads at once, now that a wave of chunks is analysed
-    concurrently. The maps below are shared and locked; the "model call that is
-    currently open" is emphatically not shared -- it is per branch of the run,
-    because that is the only sense in which the question has an answer.
-    """
-
     def __init__(self, store: SpanStore) -> None:
         self.store = store
-        # Dropped spans, and the parent their children should attach to
-        # instead, so skipping plumbing does not orphan what ran inside it.
         self._skipped: dict[str, str | None] = {}
-        # A skipped wrapper often holds the only meaningful name -- `analyse:fw.c`
-        # is set on the sequence, not on the ChatOpenAI inside it.
         self._label: dict[str, str] = {}
         self._lock = threading.Lock()
 
-    # -- helpers -----------------------------------------------------------
-
     @property
     def _last_llm(self) -> str | None:
-        """The model call this branch of the run most recently opened."""
         return _open_llm.get()
 
     @_last_llm.setter
@@ -116,7 +64,6 @@ class SpanRecorder(BaseCallbackHandler):
         _open_llm.set(span_id)
 
     def _parent_of(self, parent: UUID | None) -> str | None:
-        """The nearest ancestor that was actually recorded."""
         current = str(parent) if parent else None
         seen = 0
         with self._lock:
@@ -126,7 +73,6 @@ class SpanRecorder(BaseCallbackHandler):
         return current
 
     def _inherited(self, parent: UUID | None) -> str | None:
-        """A name donated by a skipped ancestor, if it had one."""
         current = str(parent) if parent else None
         seen = 0
         with self._lock:
@@ -162,8 +108,6 @@ class SpanRecorder(BaseCallbackHandler):
         except Exception as err:  # noqa: BLE001
             log.debug("span finish failed: %s", err)
 
-    # -- chains (graph nodes, runnables) -----------------------------------
-
     def on_chain_start(
         self,
         serialized: dict[str, Any],
@@ -179,13 +123,9 @@ class SpanRecorder(BaseCallbackHandler):
             parent = self._parent_of(parent_run_id)
             with self._lock:
                 self._skipped[str(run_id)] = parent
-                # `analyse:fw.c` is set on the wrapper, not on the model inside
-                # it, so dropping the wrapper has to hand the name down.
                 if given:
                     self._label[str(run_id)] = str(given)
             return
-        # Graph state is large and mostly the queue; the useful part is which
-        # chunk this is, which the metadata already carries.
         self._open(run_id, self._parent_of(parent_run_id), str(given or "chain"), "chain", None, metadata)
 
     def on_chain_end(self, outputs: dict[str, Any], *, run_id: UUID, **kwargs: Any) -> None:
@@ -194,16 +134,7 @@ class SpanRecorder(BaseCallbackHandler):
     def on_chain_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
         self._close(run_id, error=str(error))
 
-    # -- models -------------------------------------------------------------
-
     def _model_name(self, serialized: dict[str, Any], parent: UUID | None, kwargs: dict[str, Any]) -> str:
-        """``analyse:fw.c``, not ``ChatOpenAI``.
-
-        ``with_structured_output`` wraps the model in a sequence, and the
-        ``run_name`` lands on the wrapper -- which is plumbing and gets skipped
-        -- leaving the model itself with only its class name. Twelve rows all
-        called ChatOpenAI is not a trace.
-        """
         given = kwargs.get("name")
         if given:
             return str(given)
@@ -245,8 +176,6 @@ class SpanRecorder(BaseCallbackHandler):
                 if getattr(generation, "text", ""):
                     text.append(generation.text)
                 message = getattr(generation, "message", None)
-                # Tool calls live on the message, not as child spans, so they
-                # would be invisible in the tree without lifting them here.
                 if message is not None and getattr(message, "tool_calls", None):
                     calls.extend(message.tool_calls)
         payload: dict[str, Any] = {}
@@ -258,8 +187,6 @@ class SpanRecorder(BaseCallbackHandler):
 
     def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
         self._close(run_id, error=str(error))
-
-    # -- tools ---------------------------------------------------------------
 
     def on_tool_start(
         self,
@@ -273,10 +200,6 @@ class SpanRecorder(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         name = (serialized or {}).get("name") or kwargs.get("name") or "tool"
-        # LangChain reports the tool under the graph node, because the gathering
-        # loop runs it after the model call that requested it has closed. Filed
-        # under that model call instead, so a verify step reads as one exchange:
-        # what was asked, what was run, what came back.
         parent = self._last_llm or self._parent_of(parent_run_id)
         self._open(run_id, parent, str(name), "tool", inputs or input_str, metadata)
 

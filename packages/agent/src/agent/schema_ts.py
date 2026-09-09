@@ -31,9 +31,7 @@ HEADER = """\
 // packages/agent/tests/test_schema.py fails if the two drift apart.
 """
 
-#: Where the generated file lands, relative to the repo root.
 OUTPUT_PATH = Path("web") / "lib" / "agent-schema.ts"
-
 EXTRAS = """\
 export const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 
@@ -51,16 +49,10 @@ export const SEVERITY_RANK: Record<SeverityName, number> = {
 
 
 def render() -> str:
-    """The full generated TypeScript source.
-
-    ``all_present`` is deliberately left off here: these are read *and*
-    written by the client, and the drift test pins this output byte for byte.
-    """
     return render_ts(schemas_of(EXPORTED_MODELS), HEADER, EXTRAS)
 
 
 def repo_root() -> Path:
-    """Walk up to the directory holding the workspace pyproject."""
     current = Path(__file__).resolve()
     for parent in current.parents:
         if (parent / "pyproject.toml").exists() and (parent / "web").is_dir():
@@ -76,7 +68,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agent.schema_ts", description=__doc__)
     parser.add_argument("--write", action="store_true", help="Write the file rather than printing it")
     args = parser.parse_args(argv)
-
     rendered = render()
     if not args.write:
         print(rendered, end="")

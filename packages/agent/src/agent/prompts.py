@@ -1,39 +1,3 @@
-"""Prompts, together so they read as a set.
-
-Four properties are load-bearing: the model quotes source instead of giving line
-numbers, verification defaults against the finding, triage defaults for it, and
-the whole exchange is in the language its reader reads. The middle two point in
-opposite directions on purpose -- the cheap pass at the front is generous so
-nothing is lost, and the expensive pass at the back is hostile so nothing
-survives that should not.
-
-The four specialist prompts are assembled here from a shared body of rules, but
-each one is stored and sent whole. A prompt that only made sense glued to
-another could not be edited against a trace and saved back, which is the loop
-the studio exists for.
-
-Korean, and the one line drawn through it. The prompts are not machinery here --
-they are rendered in 과정, beside the replies they produced, because the claim
-this product makes is that you can audit the reasoning. A reasoning trail a
-Korean reader cannot read is not an audit. So the instructions, the scaffolding
-and every field a person opens are Korean, and the pipeline is Korean end to end
-rather than half-translated: `note` travels to the units that call this one and
-`gather`'s reply travels into `verify`, and both stay Korean, so no call ever
-reads one language wrapped around another.
-
-What stays English is not prose. JSON field names and enum values are the
-schema's, `anchor_text`'s *value* is a quotation matched back into the file
-character for character (locate.py), and identifiers, paths, CWE ids and the
-terms of art Korean security writing keeps in English are the code's own words.
-Translating any of those is a defect, and the anchor is the one that fails
-silently: an anchor that does not match is a finding discarded with no error
-raised anywhere. `_VERBATIM` below says so in the prompt, last, where an
-instruction is followed best.
-
-The comments and docstrings in this file stay English, like the rest of the
-repository. They are for whoever maintains the prompt, not for the model.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Sequence
@@ -42,7 +6,6 @@ from .context import ContextPack, truncate
 from .index.chunk import Chunk
 from .schema import Finding, Lens
 
-#: Everything true of any analysis call, whichever lens is making it.
 _ANALYSE_RULES = """\
 주어진 코드에서 실제로 짚어 보일 수 있는 취약점만 보고하십시오. 취약점이란 구체적이고
 악용 가능한 결함입니다 -- 신뢰할 수 없는 입력이 위험한 연산에 닿는 것, 메모리 오류,
@@ -75,13 +38,6 @@ _ANALYSE_RULES = """\
 아무것도 찾지 못하는 것은 유효하고 흔한 결과입니다. 근거가 얕은 목록보다 빈 findings
 목록이 낫습니다."""
 
-#: What is not prose, and therefore not translated.
-#:
-#: The anchor is the whole of the risk. locate.py matches it back into the file
-#: character for character; a translated one matches nothing and the finding is
-#: discarded, silently, which is the only failure here that leaves no trace.
-#: The terms of art are kept because Korean security writing keeps them -- an
-#: invented Korean equivalent for `use-after-free` reads worse, not better.
 _VERBATIM = """\
 답은 한국어로 씁니다. 사람이 읽는 글 -- `title`, `explanation`, 증거 항목의 `note`,
 그리고 remediation 의 `summary` 와 `detail` -- 은 모두 한국어 문장이어야 합니다. 영어로
@@ -113,9 +69,6 @@ ANALYSE_SYSTEM = f"""\
 {_VERBATIM}
 """
 
-#: What each specialist is for, and what it must leave to the others. The
-#: exclusion is as important as the scope: without it every analyst reports
-#: the same obvious `system()` call and three of them find nothing else.
 _LENS_SCOPE: dict[Lens, str] = {
     "memory": """\
 당신은 메모리 안전성 전문가입니다. 오직 한 갈래의 결함만 찾습니다: 프로그램이 자기
@@ -188,8 +141,6 @@ format string 취약점, 안전하지 않은 역직렬화, 템플릿·표현식 
 범위 밖, 다른 분석가에게 맡길 것: 메모리 오류, injection, 인가와 비밀값.""",
 }
 
-#: The system prompt for each specialist: standalone, complete, and the exact
-#: text that will be sent, so it round-trips through the studio's editor.
 LENS_SYSTEM: dict[Lens, str] = {
     lens: f"{scope}\n\n{_ANALYSE_RULES}\n\n{_VERBATIM}\n" for lens, scope in _LENS_SCOPE.items()
 }
@@ -266,11 +217,6 @@ VERIFY_SYSTEM = f"""\
 
 
 def lookup_user(pack: ContextPack) -> str:
-    """Ask a specialist what it needs looked up before it reads.
-
-    Only lookups are on offer, so this cannot turn into exploration: the answer
-    is what the index already knows about names the unit mentions.
-    """
     return "\n\n".join(
         [
             pack.text,
@@ -283,7 +229,6 @@ def lookup_user(pack: ContextPack) -> str:
 
 
 def analyse_user(pack: ContextPack, looked_up: str = "") -> str:
-    """The analyse-call payload for one chunk."""
     parts = [pack.text]
     if looked_up.strip():
         parts.append(f"=== 찾아본 것 ===\n{looked_up}")
@@ -305,13 +250,6 @@ def analyse_user(pack: ContextPack, looked_up: str = "") -> str:
 
 
 def scout_user(chunk: Chunk, first: int, last: int, whole: bool) -> str:
-    """One pass over part of a unit: which stretches of it deserve a close read.
-
-    Takes an explicit line range rather than a character limit, because the
-    answer is a set of line numbers and a character cut lands mid-line -- asking
-    where to look in a body whose tail was silently removed is the failure this
-    whole pass exists to avoid, one level down.
-    """
     span = "" if whole else f" (이 단위의 {first}-{last}번 줄 부분)"
     parts = [
         f"=== 분석 단위: {chunk.file} :: {chunk.symbol}{span} ===\n{chunk.numbered_range(first, last)}",
@@ -326,13 +264,6 @@ def scout_user(chunk: Chunk, first: int, last: int, whole: bool) -> str:
 
 
 def triage_user(chunk: Chunk, max_chars: int) -> str:
-    """The screening payload: the unit alone.
-
-    Deliberately not a context pack. Triage exists to be cheap, and callee
-    notes, type definitions and caller signatures are most of a pack's tokens --
-    material for deciding *whether* something is exploitable, which is the next
-    pass's job, not this one's.
-    """
     body, cut = truncate(chunk.numbered_body(), max_chars)
     parts = [
         f"=== 분석 단위: {chunk.file} :: {chunk.symbol} ({chunk.start_line}-{chunk.end_line}번 줄) ===\n{body}",
@@ -365,14 +296,6 @@ REPLAN_SYSTEM = """\
 
 
 def replan_user(items: Sequence[tuple[str, str, str]], confirmed: Sequence[dict[str, Any]]) -> str:
-    """What the wave learned, and what is left.
-
-    The plan is shown as ids with their file and symbol, because a chunk id is
-    unreadable and the model has to return one exactly. What was *confirmed* is
-    shown rather than every candidate: a claim that survived verification is a
-    fact about the tree, and a claim that did not is the noise this pass exists
-    to avoid acting on.
-    """
     parts: list[str] = []
     if confirmed:
         found = "\n".join(
@@ -421,7 +344,6 @@ GATHER_SYSTEM = f"""\
 
 
 def gather_user(finding: Finding, pack: ContextPack) -> str:
-    """What is missing before a verdict, with tools available."""
     return "\n\n".join(
         [
             pack.text,
@@ -435,7 +357,6 @@ def gather_user(finding: Finding, pack: ContextPack) -> str:
 
 
 def verify_user(finding: Finding, pack: ContextPack, gathered: str = "") -> str:
-    """The refute-call payload for one candidate finding."""
     evidence = "\n".join(
         f"- [{item.role}] {item.span.file}:{item.span.start_line}: {item.span.excerpt.strip()} -- {item.note}"
         for item in finding.evidence

@@ -1,20 +1,3 @@
-"""One instance: pull it, read the crash, inspect it, produce a patch.
-
-The shape of an attempt is deliberately the shape of an ordinary inspection.
-Files go into a real run row, `InspectionSession` reads them, findings land in
-the report, and the patch comes out of `remediate.splice` -- the same function
-behind 이대로 고치기. So `instance.run_id` on the 벤치마크 surface opens a trace,
-a pipeline drawing and a tool-call record like any other run, and the sweep
-cannot quietly diverge from what a person pressing the button would get.
-
-What the agent is shown is the sanitizer report's stack trace and the CVE text.
-Not the files the reference patch touches: that would be telling it where the
-bug is and then scoring it on finding the bug.
-
-Nothing here is imported by the graph or the API. A benchmark you can trigger
-from a request is one you will iterate against.
-"""
-
 from __future__ import annotations
 
 import json
@@ -37,26 +20,15 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class Attempt:
-    """What one instance produced. Written beside the run, read by the surface."""
-
     instance_id: str
-    #: The run this became, so the surface can open it in 검사.
     run_id: str | None = None
     config_hash: str | None = None
-    #: Repo-relative paths the sweep actually put in front of the agent.
     shown: list[str] | None = None
-    #: `model_patch` for `preds.json`. Empty means we produced nothing.
     patch: str = ""
-    #: Which finding the patch came from, if any.
     finding_id: str | None = None
     cwe: str | None = None
-    #: Set when the attempt did not get as far as a patch, in the runner's own
-    #: words. The evaluator decides the later stages; this decides the earlier
-    #: ones, and saying which is which is the point of the taxonomy.
     stage: str = ""
     note: str = ""
-    #: Their evaluator's verdict, stored beside the attempt that produced it.
-    #: Written while the image is still here, because afterwards it is not.
     verdict: dict | None = None
 
     def as_dict(self) -> dict:
@@ -64,12 +36,6 @@ class Attempt:
 
 
 def _docker(config: BenchConfig, *args: str, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
-    """A docker command against the *sweep's* daemon.
-
-    Never the host's. `DOCKER_HOST` is passed explicitly rather than exported,
-    so nothing in this process can accidentally point the rest of it at the
-    wrong daemon and start writing two hundred gigabytes to the system disk.
-    """
     return subprocess.run(  # noqa: S603 - fixed argv, no shell
         ["docker", *args],
         env=config.docker_env(),
@@ -81,7 +47,6 @@ def _docker(config: BenchConfig, *args: str, timeout: int | None = None) -> subp
 
 
 def prepare(instance: Instance, config: BenchConfig) -> bool:
-    """Pull the instance's evaluation image. Returns whether it is present."""
     image = config.image_for(instance.instance_id)
     if _docker(config, "image", "inspect", image).returncode == 0:
         return True
@@ -94,26 +59,10 @@ def prepare(instance: Instance, config: BenchConfig) -> bool:
 
 
 def read_sources(instance: Instance, config: BenchConfig) -> dict[str, str]:
-    """The files the crash names, read out of the instance's own image.
-
-    Read from the image rather than cloned from GitHub, because the image is
-    what the evaluator will build and the repository at `base_commit` is only
-    probably the same thing. One `docker run` per instance, not per file: the
-    container start dominates, and a shell loop inside it is free.
-
-    A path the report names but the image does not have is skipped. Reports come
-    from a machine that laid the tree out differently, so a miss is ordinary --
-    `crash_candidates` proposes and this is what disposes. The image is the only
-    authority on the layout, so every reading of a frame is offered and the
-    first that exists wins; an `elif` chain rather than a list, so a frame
-    contributes one file and not two.
-    """
     wanted = instance.crash_candidates(depth=config.caller_depth)
     if not wanted:
         return {}
 
-    # Each file delimited by a marker, so one exec returns all of them and a
-    # frame no reading resolved simply contributes nothing between two markers.
     script = "; ".join(
         " ".join(
             f'{"if" if position == 0 else "elif"} [ -f "{instance.work_dir}/{path}" ]; then '
@@ -159,14 +108,6 @@ def _split_marked(blob: str) -> dict[str, str]:
 
 
 def _patch_from(report: Report, sources: dict[str, str]) -> tuple[str, Finding | None, str]:
-    """The best patch the report offers, as a unified diff.
-
-    Findings are already sorted worst-first by `sorted_findings`, so this takes
-    the most severe one that actually carries an applicable replacement. A
-    finding whose fix could not be expressed as a line replacement is skipped
-    rather than guessed at -- `remediate` deliberately leaves `replacement`
-    empty when the change does not fit in place.
-    """
     for finding in report.sorted_findings():
         original = sources.get(finding.primary.file)
         if original is None or not (finding.remediation.replacement or "").strip():
@@ -185,19 +126,10 @@ def _patch_from(report: Report, sources: dict[str, str]) -> tuple[str, Finding |
 
 
 def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig | None = None) -> Attempt:
-    """Inspect one instance and produce what it produced.
-
-    Never raises for an instance's own failure. A sweep of two hundred that dies
-    on the seventh is worse than one that records seven results and a reason --
-    so anything that goes wrong here becomes a stage on the attempt.
-    """
     attempt = Attempt(instance_id=instance.instance_id)
     agent_config = agent_config or AgentConfig()
-
     sources = read_sources(instance, config)
     if not sources:
-        # Ours, not the agent's. We failed to map the report's paths onto the
-        # image, so the agent was never shown anything to be wrong about.
         attempt.stage = "harness_error"
         attempt.note = "크래시가 가리키는 파일을 이미지에서 찾지 못했습니다"
         return attempt
@@ -215,14 +147,10 @@ def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig |
             store=store,
             config=agent_config,
             spans=run.spans(),
-            # Every instance is its own tree, so there is nothing to reuse and a
-            # warm read would only be confusing in the trace.
             warm=False,
         )
     except Exception as err:  # noqa: BLE001 - one instance failing is a result
         log.warning("bench: inspection failed for %s: %s", instance.instance_id, err)
-        # A crash, an unreachable model, a full disk. The agent produced no
-        # opinion, so there is no opinion to score.
         attempt.stage = "harness_error"
         attempt.note = f"검사가 실패했습니다: {err}"
         return attempt
@@ -240,7 +168,6 @@ def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig |
         attempt.finding_id = finding.id
         attempt.cwe = finding.cwe
     elif not report.findings:
-        # The real one. The agent read the crash file and reported nothing.
         attempt.stage = "not_located"
         attempt.note = "크래시가 가리키는 파일에서 아무것도 보고하지 않았습니다"
     else:
@@ -249,18 +176,6 @@ def run_one(instance: Instance, config: BenchConfig, agent_config: AgentConfig |
 
 
 def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = True) -> list[Attempt]:
-    """Every instance, in order, writing as it goes.
-
-    Written after each rather than at the end, and **resumable by default**: a
-    sweep is measured in days, the machine it runs on is shared, and a crash at
-    the hundred and ninetieth should cost one instance rather than the week. An
-    instance with an `attempt.json` already on disk is skipped and its result
-    carried forward, so re-running the same command continues rather than
-    starting over.
-
-    `resume=False` is how you ask for the work again -- a new model, say, where
-    every previous answer is about a different system.
-    """
     config.runs_dir.mkdir(parents=True, exist_ok=True)
 
     done = {attempt.instance_id: attempt for attempt in load_attempts(config)} if resume else {}
@@ -287,21 +202,11 @@ def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = Tru
         else:
             attempts.append(run_one(instance, config))
 
-        # Scored here, before the image goes. The image is what the evaluator
-        # builds in, so scoring at the end of the sweep -- which is what this
-        # did -- meant every instance was downloaded once to run against and a
-        # second time to be judged in. Two hundred of them at ~2.8GB is not a
-        # rounding error.
-        #
-        # It also means the sweep reports as it goes. A run that takes days and
-        # says nothing until it finishes is a run nobody can course-correct.
         verdict = _score_now(attempts[-1], config)
         if verdict is not None:
             attempts[-1].verdict = verdict
 
         _write_attempt(attempts[-1], config)
-        # Rewritten every instance so an interrupted sweep still has a
-        # `preds.json` covering everything that finished.
         write_predictions(attempts, config)
 
         if config.prune_after:
@@ -311,46 +216,20 @@ def sweep(instances: Sequence[Instance], config: BenchConfig, resume: bool = Tru
 
 
 def _prune(instance_id: str, config: BenchConfig) -> None:
-    """Everything this instance left behind, before the next one starts.
-
-    Removing our own pull is not enough. Their evaluator builds its own image
-    per instance to apply the patch in, and leaves it: the sweep would grow by
-    both, which is what "build and prune" has to mean if two hundred instances
-    are to fit in the space of one.
-
-    Matched by name rather than swept with `image prune -a`, which would also
-    take the base layers every instance shares -- correct for disk, and about a
-    gigabyte of re-download apiece.
-
-    All of it inside the sweep's own daemon. Nothing here can reach the images
-    on the host, which is the reason that daemon exists.
-    """
-    # Ours by name, because we know it and it must go whether or not the
-    # discovery below works.
     _docker(config, "rmi", "-f", config.image_for(instance_id))
 
-    # Theirs by search, because we do not know what they tagged it.
     listed = _docker(
         config, "images", "--format", "{{.Repository}}:{{.Tag}}", "--filter", f"reference=*{instance_id}*"
     )
     for reference in dict.fromkeys((listed.stdout or "").split()):
         _docker(config, "rmi", "-f", reference)
 
-    # The build's intermediate layers and the exited containers it ran in.
-    # Dangling only, so the shared base survives.
     _docker(config, "container", "prune", "-f")
     _docker(config, "image", "prune", "-f")
     _docker(config, "builder", "prune", "-f")
 
 
 def _score_now(attempt: Attempt, config: BenchConfig) -> dict | None:
-    """Their evaluator, on this one instance, before its image is removed.
-
-    Imported here rather than at module scope: `score` imports `Attempt` from
-    this module, so a top-level import would close a cycle. Failure is a missing
-    verdict rather than a dead sweep -- `outcome_for` renders that as not-yet
-    -scored, and `agent bench score` can fill it in later from `preds.json`.
-    """
     try:
         from .score import score_one
 
@@ -369,14 +248,6 @@ def _write_attempt(attempt: Attempt, config: BenchConfig) -> None:
 
 
 def write_predictions(attempts: Sequence[Attempt], config: BenchConfig) -> None:
-    """`preds.json`, in the shape SEC-bench's evaluator reads.
-
-    SWE-agent's format -- `{instance_id: {model_patch: "..."}}` -- because it is
-    the simplest of the four they accept and needs no change upstream. An
-    instance with no patch is still written, with an empty string: their
-    evaluator counts it as unresolved, which is exactly what it is, and dropping
-    it would silently shrink the denominator.
-    """
     config.predictions_file.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         attempt.instance_id: {"instance_id": attempt.instance_id, "model_patch": attempt.patch}
@@ -386,7 +257,6 @@ def write_predictions(attempts: Sequence[Attempt], config: BenchConfig) -> None:
 
 
 def load_attempts(config: BenchConfig) -> list[Attempt]:
-    """What a previous sweep wrote. Read by the surface and by `score`."""
     if not config.runs_dir.is_dir():
         return []
     found: list[Attempt] = []

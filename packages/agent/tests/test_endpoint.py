@@ -1,10 +1,3 @@
-"""Asking the server what it serves.
-
-This exists so ``AGENT_MODEL`` never has to be guessed. It is also the code that
-runs when nothing is working, so it has to fail quietly and informatively rather
-than raise -- a discovery helper that throws is useless for discovery.
-"""
-
 from __future__ import annotations
 
 import httpx
@@ -20,8 +13,6 @@ def _transport(handler):
 
 @pytest.fixture
 def mock_get(monkeypatch: pytest.MonkeyPatch):
-    """Replace httpx.get with a scripted responder keyed by URL."""
-
     def install(routes: dict[str, object]) -> list[str]:
         seen: list[str] = []
 
@@ -56,7 +47,6 @@ def test_trailing_slash_does_not_double_up(mock_get) -> None:
 
 
 def test_an_unreachable_endpoint_is_empty_not_an_exception(mock_get) -> None:
-    """Callers use this to decide whether a server is up at all."""
     mock_get({})
     assert list_models("http://localhost:9999/v1") == []
 
@@ -68,7 +58,6 @@ def test_malformed_payloads_are_survived(mock_get) -> None:
 
 
 def test_probe_returns_none_when_nothing_is_served(mock_get) -> None:
-    """An endpoint answering with zero models is not a usable endpoint."""
     mock_get({"http://x/v1/models": _models()})
     assert probe("http://x/v1") is None
 
@@ -103,17 +92,12 @@ def test_discover_returns_every_live_candidate(mock_get) -> None:
 
 
 def test_vllms_default_port_is_probed_first() -> None:
-    """vLLM keeps 8000, its own default; the SSAT API moved to 8001."""
     assert DEFAULT_CANDIDATES[0].endswith(":8000/v1")
     assert DEFAULT_CANDIDATES[1].endswith(":8001/v1")
 
 
 def test_no_ollama_port_is_probed() -> None:
-    """vLLM only. Ollama's 11434 was dropped deliberately."""
     assert not any("11434" in url for url in DEFAULT_CANDIDATES)
-
-
-# -- the window, and the budget derived from it -------------------------------
 
 
 def _served(model: str, window: int | None) -> dict[str, object]:
@@ -124,14 +108,11 @@ def _served(model: str, window: int | None) -> dict[str, object]:
 
 
 def test_the_window_is_read_from_the_endpoint_rather_than_assumed(mock_get) -> None:
-    """Every budget in this package was a character count invented against a
-    window nobody had read."""
     mock_get({"http://localhost:8000/v1/models": _served("agent", 16384)})
     assert context_window("http://localhost:8000/v1", "agent") == 16384
 
 
 def test_an_endpoint_that_does_not_say_is_none_not_a_guess(mock_get) -> None:
-    """None means "it did not say", which is different from a small window."""
     mock_get({"http://localhost:8000/v1/models": _served("agent", None)})
     assert context_window("http://localhost:8000/v1", "agent") is None
 
@@ -143,21 +124,15 @@ def test_an_endpoint_that_does_not_say_is_none_not_a_guess(mock_get) -> None:
 
 
 def test_the_character_budget_comes_off_the_window() -> None:
-    """The answer has to change when the model does. A run against a 16k
-    endpoint should not be planning as though it had 128k -- 24 000 characters
-    against that window is roughly 40% more than it holds, which is why runs
-    were overflowing."""
     small = AgentConfig(model="m", context_window=16384)
     large = AgentConfig(model="m", context_window=128_000)
 
     assert small.input_chars() < small.context_char_budget, "the flat budget overpromised"
     assert large.input_chars() > small.input_chars()
-    # Output reservation is not available for input.
     assert small.input_chars() < (small.context_window - small.max_tokens) * small.chars_per_token
 
 
 def test_an_unknown_window_leaves_us_where_we_were() -> None:
-    """Worse than knowing, better than a made-up number pretending to be derived."""
     config = AgentConfig(model="m", context_window=0)
     assert config.input_chars() == config.context_char_budget
 
@@ -175,12 +150,7 @@ def test_the_window_is_asked_for_once_and_remembered(mock_get) -> None:
     assert len(seen) == 1, "nothing on a hot path should be making this call twice"
 
 
-# -- resolving the model -----------------------------------------------------
-
-
 def test_an_unset_model_is_asked_for_rather_than_invented(mock_get) -> None:
-    """`--served-model-name` decides the id, so the server is the only thing
-    that knows it. Asking is not guessing."""
     mock_get({"http://localhost:8000/v1/models": _models("agent")})
     config = AgentConfig(model="", base_url="http://localhost:8000/v1")
 
@@ -189,7 +159,6 @@ def test_an_unset_model_is_asked_for_rather_than_invented(mock_get) -> None:
 
 
 def test_two_served_models_still_have_to_be_chosen_by_hand(mock_get) -> None:
-    """Picking one would be exactly the invented default this does not have."""
     mock_get({"http://localhost:8000/v1/models": _models("agent", "other")})
     config = AgentConfig(model="", base_url="http://localhost:8000/v1")
 

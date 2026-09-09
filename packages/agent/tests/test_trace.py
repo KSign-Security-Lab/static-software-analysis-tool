@@ -1,5 +1,3 @@
-"""Local tracing: the store, and the callback handler that fills it."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -73,8 +71,6 @@ def test_clear_empties_and_restarts_numbering(store: SpanStore) -> None:
 
 
 def test_reopening_continues_the_sequence() -> None:
-    """Two handles on one run's spans, not two runs: the sequence belongs to
-    the run, and a resumed inspection must not restart it at 1."""
     run_id = new_run().run_id
     first = SpanStore(run_id)
     first.start(span_id="a", parent_id=None, name="plan", kind="chain", started_at=0.0)
@@ -86,16 +82,11 @@ def test_reopening_continues_the_sequence() -> None:
     second.close()
 
 
-# -- recorder --------------------------------------------------------------
-
-
 def _uuid() -> UUID:
     return uuid4()
 
 
 def _in_node(name: str) -> dict[str, object]:
-    """Metadata as LangGraph reports it. Everything inside a node inherits the
-    node's metadata, which is exactly why it cannot be what identifies it."""
     return {"langgraph_node": name, "langgraph_step": 1}
 
 
@@ -147,8 +138,6 @@ def test_recorder_captures_messages_and_tool_calls(store: SpanStore) -> None:
 
 
 def test_a_tool_is_filed_under_the_model_that_asked_for_it(store: SpanStore) -> None:
-    """LangChain reports it under the graph node, because the gathering loop
-    runs the tool after the model call has already closed."""
     recorder = SpanRecorder(store)
     node, llm, tool = _uuid(), _uuid(), _uuid()
 
@@ -180,8 +169,6 @@ def test_a_tool_is_filed_under_the_model_that_asked_for_it(store: SpanStore) -> 
 
 
 def test_framework_plumbing_is_dropped_without_orphaning_its_children(store: SpanStore) -> None:
-    """`with_structured_output` wraps the model in a sequence and appends a
-    parser. Recording them tripled the tree and said nothing."""
     recorder = SpanRecorder(store)
     node, wrapper, llm, parser = _uuid(), _uuid(), _uuid(), _uuid()
 
@@ -207,8 +194,6 @@ def test_framework_plumbing_is_dropped_without_orphaning_its_children(store: Spa
     names = [span.name for span in store.spans()]
     assert names == ["analyse", "analyse:fw.c"], "the wrapper and the parser are noise"
 
-    # The model kept the wrapper's name -- the run_name lands on the sequence,
-    # not on the model, so dropping it blindly would leave a row of ChatOpenAI.
     model = next(span for span in store.spans() if span.kind == "llm")
     assert model.name == "analyse:fw.c"
     assert model.parent_id == str(node), "reattached to the node, not orphaned"
@@ -226,7 +211,6 @@ def test_recorder_records_errors(store: SpanStore) -> None:
 
 
 def test_a_broken_store_does_not_break_the_run(tmp_path: Path) -> None:
-    """A tracer that can abort an inspection is worse than no tracer."""
     store = SpanStore(new_run().run_id)
     store.close()
     recorder = SpanRecorder(store)
@@ -236,13 +220,6 @@ def test_a_broken_store_does_not_break_the_run(tmp_path: Path) -> None:
 
 
 def test_callbacks_reach_a_model_call_inside_a_graph_node(store: SpanStore) -> None:
-    """The load-bearing assumption: the recorder is attached once, at the root,
-    and every model call underneath is picked up without threading it through.
-
-    ``call_config`` builds a fresh config for each call, so if it displaced the
-    inherited callbacks instead of merging with them, the trace would contain
-    the nodes and nothing else -- which is the half that matters.
-    """
     from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
     from langgraph.graph import END, START, StateGraph
     from typing_extensions import TypedDict
@@ -275,8 +252,6 @@ def test_callbacks_reach_a_model_call_inside_a_graph_node(store: SpanStore) -> N
 
 
 def test_a_tool_stays_with_its_own_model_call_across_threads(store: SpanStore) -> None:
-    """With four specialists in flight, one shared "call that is open now" would
-    file a tool under whichever model answered last on any thread."""
     import threading
 
     recorder = SpanRecorder(store)
@@ -294,8 +269,6 @@ def test_a_tool_stays_with_its_own_model_call_across_threads(store: SpanStore) -
             name=f"gather:{lens}",
             metadata=_in_node("verify"),
         )
-        # Both models are open at once; without thread-local state the second
-        # one to start owns every tool call that follows.
         started.wait(timeout=5)
         recorder.on_tool_start({"name": "find_callers"}, "{}", run_id=tool, parent_run_id=None)
         recorder.on_tool_end(lens, run_id=tool)
@@ -313,15 +286,6 @@ def test_a_tool_stays_with_its_own_model_call_across_threads(store: SpanStore) -
 
 
 def test_a_tool_run_on_the_mcp_loop_stays_with_the_call_that_asked(store: SpanStore) -> None:
-    """The shape a real run has, and the one thread-local state got wrong.
-
-    ``ToolSession.call`` hands the coroutine to the MCP session's event loop, so
-    the tool's callbacks fire on *that* thread while the graph thread waits.
-    ``call_soon_threadsafe`` copies the calling context across, which is what a
-    ContextVar rides on and what a ``threading.local`` cannot: every tool call
-    read an empty field there and was filed under the enclosing node instead,
-    leaving the exchange with no tools on it at all.
-    """
     import contextvars
     import threading
 
@@ -342,8 +306,6 @@ def test_a_tool_run_on_the_mcp_loop_stays_with_the_call_that_asked(store: SpanSt
         recorder.on_tool_start({"name": "search_text"}, "{}", run_id=tool, parent_run_id=node)
         recorder.on_tool_end("fw.c:12:strcpy", run_id=tool)
 
-    # Exactly what the loop does with the work it is handed: run it on another
-    # thread, in a copy of the caller's context.
     context = contextvars.copy_context()
     worker = threading.Thread(target=context.run, args=(on_loop_thread,))
     worker.start()

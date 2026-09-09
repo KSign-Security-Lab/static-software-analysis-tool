@@ -1,16 +1,3 @@
-"""Per-run SQLite store: chunks, links, notes, findings.
-
-On disk rather than in memory because a run has to survive the process, and
-because it is what makes incremental re-inspection possible. One file per run,
-at ``<run_dir>/index.db``.
-
-Shared between threads. The inspection used to be one node at a time on one
-thread, so a connection bound to its creator was fine; now a wave of chunks runs
-concurrently on LangGraph's pool and every one of them reads and writes here.
-``check_same_thread=False`` plus a lock is the same arrangement
-:mod:`agent.trace.store` already uses, for the same reason.
-"""
-
 from __future__ import annotations
 
 import json
@@ -33,12 +20,6 @@ from .chunk import Chunk
 from .links import Link
 
 def _row_to_chunk(row: ChunkRow) -> Chunk:
-    """A row to the dataclass the rest of the package passes around.
-
-    The four list fields were JSON in a TEXT column and are real arrays now, so
-    the `_loads` helper that used to sit here is gone -- the driver hands back a
-    list and the dataclass wants a tuple.
-    """
     return Chunk(
         chunk_id=row.chunk_id,
         file=row.file,
@@ -59,21 +40,9 @@ def _row_to_chunk(row: ChunkRow) -> Chunk:
 
 
 class ChunkStore:
-    """The per-run index. Use as a context manager.
-
-    Scoped by ``run_id`` rather than by owning a file. Every statement carries
-    it, which is what makes "delete the run" a cascade rather than a directory
-    removal, and what lets the results cache be shared across runs while the
-    index is not.
-    """
-
     def __init__(self, run_id: str, config: AgentConfig | None = None) -> None:
         self.run_id = run_id
         self._sessions = session_factory(config)
-        # Reentrant: `definition_of` and friends are built out of other methods,
-        # and a plain lock would deadlock on the second one. Kept even though
-        # the pool is thread-safe, because `uninspected()` reads twice and must
-        # not see a write land between them.
         self.lock = threading.RLock()
 
     def __enter__(self) -> ChunkStore:
@@ -88,13 +57,10 @@ class ChunkStore:
         self.close()
 
     def close(self) -> None:
-        """Nothing to close: sessions are per-operation. Kept because callers
-        pair it with the constructor and with `__exit__`."""
+        pass
 
     def _mine(self, model: Any) -> Any:
         return model.run_id == self.run_id
-
-    # -- writing -----------------------------------------------------------
 
     def add_chunks(self, chunks: Iterable[Chunk]) -> None:
         rows = [
@@ -146,20 +112,12 @@ class ChunkStore:
         self.set_meta("order", json.dumps(list(chunk_ids)))
 
     def set_levels(self, levels: dict[str, int]) -> None:
-        """Which chunks may be inspected together. See :func:`agent.index.order.call_levels`."""
         self.set_meta("levels", json.dumps(levels, sort_keys=True))
 
     def set_reach(self, reach: dict[str, Any]) -> None:
-        """Whether each unit is reached. See :func:`agent.index.reach.compute`."""
         self.set_meta("reach", json.dumps(reach, sort_keys=True))
 
     def set_meta(self, key: str, value: str) -> None:
-        """Index metadata, on the run row.
-
-        Was a `meta` key/value table per index database. There is one run row
-        already carrying free-form metadata, so this writes into it under
-        `index.<key>` rather than adding a table whose only job is two keys.
-        """
         with self.lock, self._sessions() as session:
             row = session.get(RunRow, self.run_id)
             if row is None:
@@ -218,21 +176,13 @@ class ChunkStore:
             )
             session.commit()
 
-    # -- clearing ------------------------------------------------------------
-    #
-    # Here rather than as raw SQL at the call site: the API was reaching into
-    # `store.conn` to do these, which put statements that have to agree with the
-    # schema three files away from it.
-
     def clear_index(self) -> None:
-        """Drop the chunks and links, for a re-index of the same run."""
         with self.lock, self._sessions() as session:
             session.execute(delete(ChunkRow).where(self._mine(ChunkRow)))
             session.execute(delete(LinkRow).where(self._mine(LinkRow)))
             session.commit()
 
     def clear_results(self) -> None:
-        """Forget every inspection, so a forced run does the work again."""
         with self.lock, self._sessions() as session:
             session.execute(delete(InspectedRow).where(self._mine(InspectedRow)))
             session.execute(delete(FindingRow).where(self._mine(FindingRow)))
@@ -242,8 +192,6 @@ class ChunkStore:
         with self.lock, self._sessions() as session:
             session.execute(delete(FindingRow).where(self._mine(FindingRow), FindingRow.file == file))
             session.commit()
-
-    # -- reading -----------------------------------------------------------
 
     def _chunks(self, *where: Any, order: Any = None) -> list[Chunk]:
         query = select(ChunkRow).where(self._mine(ChunkRow), *where)
@@ -265,7 +213,6 @@ class ChunkStore:
         return parsed
 
     def levels(self) -> dict[str, int]:
-        """Chunk id to call depth; empty for an index written before levels existed."""
         raw = self.get_meta("levels")
         if raw is None:
             return {}
@@ -273,13 +220,6 @@ class ChunkStore:
         return parsed
 
     def reach(self) -> dict[str, Any]:
-        """Chunk id to reachability, empty for an index written before it existed.
-
-        Empty is a supported answer, not a broken one: every finding then
-        carries `reach: null`, which reads as "not asked" rather than as a
-        claim. Same shape as `levels` for the same reason -- it is a property of
-        the tree, written once at index time.
-        """
         raw = self.get_meta("reach")
         if raw is None:
             return {}
@@ -320,7 +260,6 @@ class ChunkStore:
         return self._related(chunk_id, kind, LinkRow.dst, LinkRow.src)
 
     def _related(self, chunk_id: str, kind: str, anchor: Any, other: Any) -> list[Chunk]:
-        """Both directions of the same join, which is all callers/callees are."""
         query = (
             select(ChunkRow)
             .join(LinkRow, (LinkRow.run_id == ChunkRow.run_id) & (other == ChunkRow.chunk_id))
@@ -348,13 +287,6 @@ class ChunkStore:
             )
 
     def uninspected(self) -> list[str]:
-        """Chunks with no stored result, in the order a run would take them.
-
-        A chunk id is derived from its content, so a tree that has not changed
-        since the last run has none of these -- and a run started over it would
-        call no model, find nothing, and still reset the record of the run that
-        did. Asking first is what lets the caller decline.
-        """
         with self.lock:
             with self._sessions() as session:
                 done = set(
@@ -385,9 +317,4 @@ class ChunkStore:
             )
 
     def definition_of(self, symbol: str) -> list[Chunk]:
-        """Chunks defining a symbol.
-
-        A containment test on the array rather than loading every chunk and
-        filtering in Python, which is what the JSON-in-TEXT column forced.
-        """
         return self._chunks(ChunkRow.defines.any(symbol))

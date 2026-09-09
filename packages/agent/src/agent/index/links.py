@@ -1,10 +1,3 @@
-"""Resolve chunk references into edges.
-
-Symbol-table work, not search: a ``references`` entry matching another chunk's
-``defines`` *is* a call edge. What it cannot resolve -- function pointers,
-macro-generated calls -- it leaves alone rather than guessing.
-"""
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -17,16 +10,11 @@ from .chunk import FILE_CHUNK_KIND, Chunk
 CALLS = "calls"
 USES_TYPE = "uses_type"
 FILE_DEPENDS = "file_depends"
-
-# Beyond this the name is an overload or a per-TU stub; linking to all of them
-# buries the real edge.
 MAX_AMBIGUITY = 4
 
 
 @dataclass(frozen=True)
 class Link:
-    """A resolved edge between two chunks."""
-
     src: str
     dst: str
     kind: str
@@ -42,8 +30,6 @@ def _by_defined_symbol(chunks: Sequence[Chunk]) -> dict[str, list[Chunk]]:
 
 
 def _pick(candidates: Sequence[Chunk], source: Chunk) -> list[Chunk]:
-    """Same-file wins: a static helper shadows an identically named function
-    elsewhere, which is the common case in C."""
     same_file = [c for c in candidates if c.file == source.file and c.chunk_id != source.chunk_id]
     if same_file:
         return same_file[:1]
@@ -54,7 +40,6 @@ def _pick(candidates: Sequence[Chunk], source: Chunk) -> list[Chunk]:
 
 
 def _include_target(include: str) -> str | None:
-    """Only local includes; system headers are not in the tree."""
     if '"' in include:
         parts = include.split('"')
         if len(parts) >= 2 and parts[1]:
@@ -63,7 +48,6 @@ def _include_target(include: str) -> str | None:
 
 
 def _resolve_include(target: str, source_file: str, by_file: dict[str, list[Chunk]]) -> Chunk | None:
-    """Match an include target against indexed files, nearest first."""
     candidate = str(PurePosixPath(source_file).parent / target)
     normalized = str(PurePosixPath(candidate)) if candidate != target else target
     for key in (normalized, target):
@@ -76,7 +60,6 @@ def _resolve_include(target: str, source_file: str, by_file: dict[str, list[Chun
 
 
 def resolve_links(chunks: Sequence[Chunk]) -> list[Link]:
-    """Every resolvable edge among these chunks, deterministically ordered."""
     defined = _by_defined_symbol(chunks)
     file_chunks: dict[str, list[Chunk]] = defaultdict(list)
     for chunk in chunks:
@@ -112,10 +95,8 @@ def resolve_links(chunks: Sequence[Chunk]) -> list[Link]:
 
 
 def callees(links: Iterable[Link], chunk_id: str) -> list[str]:
-    """Chunks this one calls."""
     return [link.dst for link in links if link.src == chunk_id and link.kind == CALLS]
 
 
 def callers(links: Iterable[Link], chunk_id: str) -> list[str]:
-    """Chunks that call this one."""
     return [link.src for link in links if link.dst == chunk_id and link.kind == CALLS]

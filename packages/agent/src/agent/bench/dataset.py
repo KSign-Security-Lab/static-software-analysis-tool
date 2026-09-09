@@ -1,22 +1,3 @@
-"""The SEC-bench dataset: fetching it, reading it, and finding the crash in it.
-
-Two hundred CVE instances in `eval-cve.jsonl` and a hundred OSS-Fuzz ones in
-`eval-oss.jsonl`, 2.6MB and 1.2MB. The two hundred gigabytes people associate
-with this benchmark are the built container images; the dataset itself fits in a
-pocket, and downloading it is the only thing here that touches the network.
-
-Every record carries its own `dockerfile`, `build_sh` and `secb_sh`, the CVE's
-`bug_description`, an ASAN `sanitizer_report` with a real stack trace, and the
-reference `patch`.
-
-**`patch` is ground truth and never leaves this module for the agent.** It is
-read by the evaluator and by nothing else. Handing the agent the files that
-patch touches would be telling it where the bug is and then scoring it on
-finding the bug -- a number that looks good and means nothing. `Instance.patch`
-exists because the scorer needs it; `Instance.for_agent()` is what the runner is
-allowed to pass on, and it does not include it.
-"""
-
 from __future__ import annotations
 
 import json
@@ -30,34 +11,19 @@ from typing import Iterator, Sequence
 from .config import SPLITS, BenchConfig
 
 log = logging.getLogger(__name__)
-
-#: Where the splits come from. The dataset is small and public, so this is a
-#: plain download rather than the `datasets` library and its dependency tree.
 DATASET_URL = "https://huggingface.co/datasets/SEC-bench/SEC-bench/resolve/main/data/eval-{split}.jsonl"
-
-#: One frame of an AddressSanitizer backtrace:
-#:
-#:     #0 0x4e3e53 in njs_vmcode_interpreter /home/q1iq/.../src/njs_vmcode.c:802:27
-#:
-#: The column is optional -- not every frame has one -- and the path is absolute
-#: on whatever machine built the report, which is why `candidate_paths` exists.
 _FRAME = re.compile(
     r"^\s*#(?P<depth>\d+)\s+0x[0-9a-f]+\s+in\s+(?P<function>\S+)\s+(?P<path>[^\s:]+):(?P<line>\d+)(?::\d+)?",
     re.MULTILINE,
 )
 
-#: Extensions worth indexing. The report also names libc and compiler-runtime
-#: frames; those are somebody else's source and not in the image.
 SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp")
 
 
 @dataclass(frozen=True)
 class Frame:
-    """One line of a backtrace."""
-
     depth: int
     function: str
-    #: As written in the report: absolute, on the machine that produced it.
     path: str
     line: int
 
@@ -68,8 +34,6 @@ class Frame:
 
 @dataclass(frozen=True)
 class Instance:
-    """One benchmark instance, as the dataset ships it."""
-
     instance_id: str
     repo: str
     project_name: str
@@ -81,7 +45,6 @@ class Instance:
     build_sh: str
     secb_sh: str
     dockerfile: str
-    #: The reference fix. Ground truth: the evaluator's, never the agent's.
     patch: str
     exit_code: int
     sanitizer_report: str
@@ -93,15 +56,7 @@ class Instance:
         known["exit_code"] = int(known.get("exit_code") or 0)
         return cls(**{k: (v if v is not None else "") if k != "exit_code" else v for k, v in known.items()})
 
-    # -- what the agent may see ---------------------------------------------
-
     def for_agent(self) -> dict[str, str]:
-        """Everything the runner is allowed to put in front of the model.
-
-        Deliberately a separate shape rather than the record with a field
-        removed: a subtraction is easy to forget to repeat, and this cannot
-        leak `patch` by omission because it never mentions it.
-        """
         return {
             "instance_id": self.instance_id,
             "project": self.project_name,
@@ -110,10 +65,7 @@ class Instance:
             "sanitizer_report": self.sanitizer_report,
         }
 
-    # -- where the crash was ------------------------------------------------
-
     def frames(self) -> list[Frame]:
-        """The backtrace, innermost first, source frames only."""
         found = [
             Frame(
                 depth=int(m.group("depth")),
@@ -126,28 +78,11 @@ class Instance:
         return [frame for frame in found if frame.is_source]
 
     def project_frames(self) -> list[Frame]:
-        """The frames that are this project's own code.
-
-        A backtrace runs off the end of the project and into libc and the
-        compiler runtime -- `/build/glibc/csu/libc-start.c` is a `.c` file by
-        every test except the one that matters. That source is not in the image
-        and indexing it would spend a run reading somebody else's code.
-
-        Recognised by the project marker in the path. If no frame has one -- a
-        report produced somewhere that laid the tree out differently -- every
-        source frame is kept, because a narrowing rule that matches nothing
-        should widen rather than return an empty backtrace.
-        """
         source = [frame for frame in self.frames() if not _is_foreign(frame.path)]
         owned = [frame for frame in source if _has_marker(frame.path, self.project_name)]
         return owned or source
 
     def crash_paths(self, depth: int = 1) -> list[str]:
-        """Repo-relative paths for the crashing frame and `depth` callers above.
-
-        Ordered innermost first and de-duplicated, so the file the sanitizer
-        actually blamed is the first thing the agent is given.
-        """
         wanted: list[str] = []
         for readings in self.crash_candidates(depth):
             if readings[0] not in wanted:
@@ -155,13 +90,6 @@ class Instance:
         return wanted
 
     def crash_candidates(self, depth: int = 1) -> list[list[str]]:
-        """Every reading of each crash frame's path, longest first.
-
-        The caller reads these out of the image and takes the first that exists,
-        which is the only authority on how the tree is actually laid out. Keeping
-        just the best guess -- which this used to -- meant one wrong guess lost
-        the instance, and it lost two of the first six.
-        """
         found: list[list[str]] = []
         seen: set[str] = set()
         for position, frame in enumerate(self.project_frames()):
@@ -175,38 +103,11 @@ class Instance:
 
 
 def _has_marker(reported: str, project: str) -> bool:
-    """Whether a path looks like it is inside `project`'s tree.
-
-    The directory is often the project name with a commit or version glued on
-    -- `njs_f65981b` -- so a prefix match rather than equality.
-    """
     return any(_is_marker(part, project) for part in Path(reported).parts)
 
 
 def candidate_paths(reported: str, project: str) -> list[str]:
-    """Repo-relative readings of an absolute path from someone else's machine.
-
-    A report says `/home/q1iq/Documents/origin/njs_f65981b/src/njs_vmcode.c` and
-    the container has `/src/njs/src/njs_vmcode.c`. Nothing in the record maps
-    one to the other, so this proposes suffixes -- longest first -- and the
-    caller takes the first that exists in the image.
-
-    Longest first because the shortest suffix is the bare filename, and a
-    project with `src/utils.c` and `test/utils.c` would otherwise resolve to
-    whichever the filesystem answered with.
-    """
-    # `../../programs/escape.c` happens: some reports are relative to the build
-    # directory, not the tree. The dots carry no information a suffix search can
-    # use, and left in they make every candidate a path that cannot exist.
     parts = [p for p in Path(reported).parts if p not in ("/", "", ".", "..")]
-
-    # Every reading a project marker gives, longest first, because the marker
-    # can appear more than once: gpac's reports say
-    # `/home/fuzz/gpac/gpac/applications/...` -- one checkout inside a directory
-    # of the same name -- and splitting at the first occurrence yields
-    # `gpac/applications/...`, which is one `gpac/` too many and exists nowhere.
-    # Splitting at the last would break the opposite layout, so this offers both
-    # and lets the image decide.
     marked = [
         "/".join(parts[index + 1 :])
         for index, part in enumerate(parts)
@@ -215,17 +116,9 @@ def candidate_paths(reported: str, project: str) -> list[str]:
     if marked:
         return marked
 
-    # No project marker: progressively shorter suffixes, longest first.
     return ["/".join(parts[i:]) for i in range(max(0, len(parts) - 4), len(parts))]
 
 
-#: Paths that are somebody else's source.
-#:
-#: A backtrace runs off the end of the project into the C library, the system
-#: headers and the compiler runtime. None of it is in the instance's image, and
-#: `/usr/include/.../string_fortified.h` is where a `strcpy` overflow lands
-#: every time -- so without this the innermost "project" frame of a whole class
-#: of instances is a header we cannot read and would not want to.
 _FOREIGN = ("/usr/", "/lib/", "/build/glibc", "/usr/include", "/opt/rh/")
 
 
@@ -234,21 +127,10 @@ def _is_foreign(reported: str) -> bool:
 
 
 def _is_marker(part: str, project: str) -> bool:
-    """The directory is often the project name with a commit or version glued
-    on -- `njs_f65981b` -- so a prefix match rather than equality."""
     return part == project or part.startswith(f"{project}_") or part.startswith(f"{project}-")
 
 
-# -- fetching ----------------------------------------------------------------
-
-
 def fetch(config: BenchConfig | None = None, splits: Sequence[str] = SPLITS) -> dict[str, int]:
-    """Download the splits into `root/data`. Idempotent.
-
-    The only network call in the sweep, and it is 3.8MB for both splits. Written
-    to a temporary name and moved into place, so an interrupted download cannot
-    leave a half-file that parses as a shorter benchmark.
-    """
     config = config or BenchConfig()
     config.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -266,7 +148,6 @@ def fetch(config: BenchConfig | None = None, splits: Sequence[str] = SPLITS) -> 
 
 
 def load(config: BenchConfig | None = None) -> list[Instance]:
-    """Every instance of the configured split, in file order."""
     config = config or BenchConfig()
     path = config.dataset_file
     if not path.exists():
@@ -282,12 +163,6 @@ def _lines(path: Path) -> Iterator[str]:
 
 
 def select(instances: Sequence[Instance], config: BenchConfig | None = None) -> list[Instance]:
-    """Narrow to what this sweep is about: named ids first, then the cap.
-
-    An id that names nothing is an error rather than an empty sweep -- a typo in
-    an instance id would otherwise look exactly like a benchmark with nothing to
-    run, which is the kind of quiet nothing that wastes an afternoon.
-    """
     config = config or BenchConfig()
     chosen = list(instances)
 

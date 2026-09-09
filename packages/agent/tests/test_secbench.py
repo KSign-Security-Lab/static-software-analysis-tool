@@ -1,11 +1,3 @@
-"""The SEC-bench sweep: its configuration, its dataset, and what it must not leak.
-
-No network and no Docker. The parts of this that need either are the parts that
-cannot be asserted in a test suite anyway; what can be pinned here is the shape
-of the data, the resolution of the settings, and the one guard the whole
-exercise rests on -- that the reference patch never reaches the agent.
-"""
-
 from __future__ import annotations
 
 import json
@@ -16,10 +8,6 @@ import pytest
 from agent.bench import dataset as ds
 from agent.bench.config import BenchConfig
 
-# One real record, trimmed. The stack trace is verbatim from
-# `njs.cve-2022-32414`, because the path-mangling it exercises -- an absolute
-# path from the machine that produced the report -- is the whole reason
-# `candidate_paths` exists.
 RECORD = {
     "instance_id": "njs.cve-2022-32414",
     "repo": "nginx/njs",
@@ -53,17 +41,7 @@ def instance() -> ds.Instance:
     return ds.Instance.from_record(RECORD)
 
 
-# -- the guard that matters --------------------------------------------------
-
-
 def test_the_reference_patch_never_reaches_the_agent(instance: ds.Instance) -> None:
-    """The strongest guard this sweep has against a meaningless number.
-
-    Showing the agent the files the reference patch touches would be telling it
-    where the bug is and then scoring it on finding the bug. `for_agent` is a
-    separate shape rather than the record with a field removed, because a
-    subtraction is easy to forget to repeat and this cannot leak by omission.
-    """
     payload = instance.for_agent()
 
     assert "patch" not in payload
@@ -73,17 +51,12 @@ def test_the_reference_patch_never_reaches_the_agent(instance: ds.Instance) -> N
 
 
 def test_what_the_agent_does_get_is_what_a_triager_gets(instance: ds.Instance) -> None:
-    """The CVE text and the crash, which is what actually lands in an inbox."""
     payload = instance.for_agent()
     assert payload["bug_description"]
     assert "AddressSanitizer" in payload["sanitizer_report"]
 
 
-# -- reading the crash -------------------------------------------------------
-
-
 def test_frames_are_parsed_innermost_first(instance: ds.Instance) -> None:
-    """`frames` is the backtrace as written -- every source frame, ours or not."""
     frames = instance.frames()
     assert [f.depth for f in frames] == [0, 1, 2, 3]
     assert frames[0].function == "njs_vmcode_interpreter"
@@ -91,23 +64,11 @@ def test_frames_are_parsed_innermost_first(instance: ds.Instance) -> None:
 
 
 def test_frames_outside_the_project_are_dropped(instance: ds.Instance) -> None:
-    """A backtrace runs off the end of the project into libc.
-
-    `/build/glibc/csu/libc-start.c` is a `.c` file by every test except the one
-    that matters: it is not in the image, and indexing it would spend a run
-    reading somebody else's code.
-    """
     assert any("glibc" in f.path for f in instance.frames()), "the fixture should contain one"
     assert all("glibc" not in f.path for f in instance.project_frames())
 
 
 def test_a_report_with_no_recognisable_project_keeps_every_frame_but_the_foreign_ones() -> None:
-    """A narrowing rule that matches nothing should widen, not return an empty
-    backtrace -- some reports were produced against a differently laid-out tree.
-
-    It widens to everything that could be the project, which is not everything:
-    glibc is somebody else's source under any layout.
-    """
     odd = ds.Instance.from_record({**RECORD, "project_name": "somethingelse"})
     kept = odd.project_frames()
     assert len(kept) == len(odd.frames()) - 1, "only glibc dropped"
@@ -115,45 +76,26 @@ def test_a_report_with_no_recognisable_project_keeps_every_frame_but_the_foreign
 
 
 def test_the_crash_file_comes_first(instance: ds.Instance) -> None:
-    """Ordered innermost first, so the file the sanitizer blamed is the first
-    thing the agent is shown."""
     assert instance.crash_paths(depth=0) == ["src/njs_vmcode.c"]
     assert instance.crash_paths(depth=1) == ["src/njs_vmcode.c", "src/njs_async.c"]
 
 
 def test_an_absolute_path_from_another_machine_becomes_repo_relative() -> None:
-    """The report was produced somewhere else. Nothing in the record maps its
-    paths to the container's, so the project name is the seam."""
     assert ds.candidate_paths("/home/q1iq/origin/njs_f65981b/src/njs_vmcode.c", "njs") == ["src/njs_vmcode.c"]
     assert ds.candidate_paths("/build/njs/src/x.c", "njs") == ["src/x.c"]
 
 
 def test_a_checkout_inside_a_directory_of_the_same_name() -> None:
-    """gpac's reports say `/home/fuzz/gpac/gpac/applications/...`.
-
-    Splitting at the first marker gives `gpac/applications/...` -- one `gpac/`
-    too many, a path that exists nowhere, and the instance is lost. Both
-    readings are offered and the image decides.
-    """
     found = ds.candidate_paths("/home/fuzz/gpac/gpac/applications/mp4box/mp4box.c", "gpac")
     assert "applications/mp4box/mp4box.c" in found
     assert found[0].count("/") >= found[-1].count("/"), "longest first"
 
 
 def test_a_path_relative_to_the_build_directory_loses_its_dots() -> None:
-    """libredwg's frames read `../../programs/escape.c`. The dots say where the
-    compiler was standing, which no suffix search can use."""
     assert ds.candidate_paths("../../programs/escape.c", "libredwg")[0] == "programs/escape.c"
 
 
 def test_the_c_library_is_not_the_project_even_when_nothing_else_matches() -> None:
-    """The widening fallback exists for oddly-laid-out trees, and it used to
-    widen all the way into `/usr/include`.
-
-    A `strcpy` overflow reports `string_fortified.h` as its innermost frame every
-    time. Reading it costs the instance: it is not in the image, and it is not
-    where the bug is.
-    """
     odd = ds.Instance.from_record(
         {
             **RECORD,
@@ -168,19 +110,12 @@ def test_the_c_library_is_not_the_project_even_when_nothing_else_matches() -> No
 
 
 def test_a_path_with_no_project_marker_offers_suffixes_longest_first() -> None:
-    """Shortest-first would resolve `src/utils.c` and `test/utils.c` to whichever
-    the filesystem answered with."""
     found = ds.candidate_paths("/a/b/c/d/utils.c", "nothing")
     assert found[0].count("/") >= found[-1].count("/")
     assert found[-1] == "utils.c"
 
 
-# -- configuration -----------------------------------------------------------
-
-
 def test_defaults_are_repo_relative_so_a_checkout_runs_unconfigured(monkeypatch) -> None:
-    """Nothing committed names a machine. `.env` is where a machine says where
-    its space is."""
     for name in ("SECB_ROOT", "SECB_SPLIT", "SECB_LIMIT", "SECB_PRUNE"):
         monkeypatch.delenv(name, raising=False)
 
@@ -207,8 +142,6 @@ def test_every_knob_has_an_environment_override(monkeypatch) -> None:
 
 
 def test_a_typo_falls_back_rather_than_refusing_to_start(monkeypatch) -> None:
-    """This is read wherever the sweep is imported. A misspelled split should
-    run the default and be visible in `status`, not stop the CLI."""
     monkeypatch.setenv("SECB_SPLIT", "cvee")
     monkeypatch.setenv("SECB_CONTEXT", "magic")
 
@@ -218,23 +151,16 @@ def test_a_typo_falls_back_rather_than_refusing_to_start(monkeypatch) -> None:
 
 
 def test_the_sweep_never_defaults_to_the_host_daemon() -> None:
-    """A sweep that fell back to the host socket would put two hundred gigabytes
-    of somebody else's images on the machine's system disk, which is the one
-    failure this arrangement exists to prevent."""
     monkeypatched = BenchConfig()
     assert "/var/run/docker.sock" not in monkeypatched.docker_host
     assert monkeypatched.docker_env()["DOCKER_HOST"] == monkeypatched.docker_host
 
 
 def test_every_path_hangs_off_root(monkeypatch) -> None:
-    """So deleting one directory undoes a sweep and nothing is left behind."""
     monkeypatch.setenv("SECB_ROOT", "/tmp/sweep")
     config = BenchConfig()
     for path in (config.data_dir, config.dataset_file, config.runs_dir, config.predictions_file, config.results_dir):
         assert str(path).startswith("/tmp/sweep")
-
-
-# -- selection ---------------------------------------------------------------
 
 
 def _many(count: int) -> list[ds.Instance]:
@@ -254,8 +180,6 @@ def test_named_instances_are_taken_in_the_order_asked_for(monkeypatch) -> None:
 
 
 def test_an_unknown_instance_is_an_error_not_an_empty_sweep(monkeypatch) -> None:
-    """A typo would otherwise look exactly like a benchmark with nothing to run,
-    which is the kind of quiet nothing that wastes an afternoon."""
     monkeypatch.setenv("SECB_INSTANCES", "p.cve-1,nope.cve-9")
     with pytest.raises(KeyError, match="nope.cve-9"):
         ds.select(_many(3), BenchConfig())
@@ -267,12 +191,7 @@ def test_loading_without_fetching_says_so(monkeypatch, tmp_path: Path) -> None:
         ds.load(BenchConfig())
 
 
-# -- producing a patch -------------------------------------------------------
-
-
 def test_a_replacement_becomes_a_diff_the_evaluator_can_apply() -> None:
-    """Our agent works in line replacements, which is what an editor wants.
-    Every benchmark in this space speaks diffs, so the translation happens once."""
     from agent.remediate import splice, unified_diff
     from agent.schema import Span
 
@@ -287,8 +206,6 @@ def test_a_replacement_becomes_a_diff_the_evaluator_can_apply() -> None:
 
 
 def test_a_file_that_moved_is_refused_rather_than_corrupted() -> None:
-    """The excerpt was read when the finding was made. A mismatch means the file
-    changed, and applying to that is applying to code nobody looked at."""
     from agent.remediate import Stale, splice
     from agent.schema import Span
 
@@ -298,8 +215,6 @@ def test_a_file_that_moved_is_refused_rather_than_corrupted() -> None:
 
 
 def test_predictions_are_written_in_the_shape_their_evaluator_reads(tmp_path: Path, monkeypatch) -> None:
-    """SWE-agent's format, because it is the simplest of the four they accept
-    and needs no change upstream. Pinned here so a drift is a failing test."""
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     from agent.bench.runner import Attempt, write_predictions
 
@@ -311,8 +226,6 @@ def test_predictions_are_written_in_the_shape_their_evaluator_reads(tmp_path: Pa
     payload = json.loads(config.predictions_file.read_text())
 
     assert payload["a.cve-1"]["model_patch"] == "diff --git a/x b/x\n"
-    # Written with an empty patch rather than dropped: their evaluator counts it
-    # unresolved, which it is, and omitting it would shrink the denominator.
     assert payload["b.cve-2"]["model_patch"] == ""
 
 
@@ -327,8 +240,6 @@ def test_an_instance_that_produced_nothing_is_still_scored(tmp_path: Path, monke
 
 
 def test_the_runner_owns_the_early_stages_and_the_evaluator_the_late_ones() -> None:
-    """The honest division: only the runner knows whether the agent found
-    anything, and only a build knows whether the patch works."""
     from agent.bench.runner import Attempt
     from agent.bench.score import outcome_for
 
@@ -336,20 +247,11 @@ def test_the_runner_owns_the_early_stages_and_the_evaluator_the_late_ones() -> N
     assert outcome_for(patched, {"resolved": True})[0] == "solved"
     assert outcome_for(patched, {"resolved": False, "stage": "build_failed"})[0] == "patch_build_failed"
     assert outcome_for(patched, {"resolved": False, "reason": "tests_failed"})[0] == "fixed_tests_broke"
-    # Scored, not resolved, and their report did not say how. The note carries
-    # what they actually said, so nobody has to trust the guess.
     outcome, note = outcome_for(patched, {"resolved": False})
     assert outcome == "built_not_fixed" and note
 
 
 def test_an_unscored_instance_is_not_a_failure() -> None:
-    """Three facts, three words. Never tried, tried-and-unjudged, and tried-and-
-    failed are different things, and the page groups them apart.
-
-    The middle one is the one that was missing: with scoring inside the sweep
-    there is always a window where a patch exists and no verdict does, and
-    calling that 안 돌림 told the reader we had not attempted instances we had
-    in fact patched."""
     from agent.bench.runner import Attempt
     from agent.bench.score import outcome_for
 
@@ -359,9 +261,6 @@ def test_an_unscored_instance_is_not_a_failure() -> None:
 
 
 def test_the_sweep_is_never_imported_by_the_request_path() -> None:
-    """Same rule the tuner follows. A benchmark reachable from a request is one
-    you will iterate against, and the moment we tune against a held-out set it
-    stops measuring us."""
     from pathlib import Path as P
 
     import agent
@@ -373,12 +272,6 @@ def test_the_sweep_is_never_imported_by_the_request_path() -> None:
 
 
 def test_a_sweep_resumes_rather_than_starting_over(tmp_path: Path, monkeypatch) -> None:
-    """What makes it safe to leave running.
-
-    A sweep is measured in days on a shared machine. A crash at the hundred and
-    ninetieth instance should cost one instance, not the week -- so an instance
-    with a result already on disk is carried forward and never re-run.
-    """
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     from agent.bench import runner as bench_runner
     from agent.bench.runner import Attempt, sweep
@@ -399,7 +292,6 @@ def test_a_sweep_resumes_rather_than_starting_over(tmp_path: Path, monkeypatch) 
 
 
 def test_asking_for_the_work_again_is_possible(tmp_path: Path, monkeypatch) -> None:
-    """A new model makes every previous answer about a different system."""
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     from agent.bench import runner as bench_runner
     from agent.bench.runner import Attempt, sweep
@@ -415,20 +307,7 @@ def test_asking_for_the_work_again_is_possible(tmp_path: Path, monkeypatch) -> N
     assert ran == ["p.cve-0"]
 
 
-# -- the two bugs a running sweep found --------------------------------------
-
-
 def test_the_image_reference_is_the_one_their_evaluator_builds() -> None:
-    """Pulling the repository untagged fetched `:latest`.
-
-    `eval_instances.py` builds `f"{PREFIX}.{id}:patch"` for a patch evaluation,
-    so the sweep ran against one image and was judged in another -- and the
-    evaluator, finding nothing local, downloaded a second ~2.8GB per instance.
-    Measured afterwards, the two tags share every layer and the crashing file is
-    byte-identical, so this cost bandwidth rather than correctness. Pulling what
-    will actually be built is still right: it makes the tree we patch and the
-    tree that gets built one object instead of two that happen to agree.
-    """
     config = BenchConfig()
     reference = config.image_for("njs.cve-2022-32414")
 
@@ -442,13 +321,6 @@ def test_the_track_is_a_setting_not_a_rewrite(monkeypatch) -> None:
 
 
 def test_an_instance_is_scored_before_its_image_is_removed(tmp_path: Path, monkeypatch) -> None:
-    """The ordering bug, asserted on call order.
-
-    The sweep prunes as it goes because two hundred images do not fit. Scoring
-    used to happen in a separate phase at the end, by which time every image was
-    gone -- so the evaluator re-downloaded each one. A comment would not have
-    caught this; the sequence is the only thing that says it.
-    """
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     from agent.bench import runner as bench_runner
     from agent.bench.runner import Attempt, sweep
@@ -463,8 +335,6 @@ def test_an_instance_is_scored_before_its_image_is_removed(tmp_path: Path, monke
         bench_runner, "_score_now", lambda a, _c: calls.append(f"score:{a.instance_id}") or {"resolved": True}
     )
 
-    # Returns a result rather than None: `_prune` reads the image list back out
-    # of it to find what the evaluator left behind.
     class Listed:
         returncode = 0
         stdout = ""
@@ -484,8 +354,6 @@ def test_an_instance_is_scored_before_its_image_is_removed(tmp_path: Path, monke
 
 
 def test_the_verdict_is_kept_with_the_attempt(tmp_path: Path, monkeypatch) -> None:
-    """Written while the image was on disk, which is the only moment it could be.
-    Re-reading the batch results later is the fallback, not the source."""
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     from agent.bench import runner as bench_runner
     from agent.bench.runner import Attempt, load_attempts
@@ -498,8 +366,6 @@ def test_the_verdict_is_kept_with_the_attempt(tmp_path: Path, monkeypatch) -> No
 
 
 def test_an_unpatched_instance_costs_no_container(tmp_path: Path, monkeypatch) -> None:
-    """Their evaluator would record it unresolved, which `outcome_for` already
-    says without spending minutes of build time to hear it."""
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     from agent.bench.runner import Attempt
     from agent.bench.score import score_one
@@ -508,16 +374,6 @@ def test_an_unpatched_instance_costs_no_container(tmp_path: Path, monkeypatch) -
 
 
 def test_an_instance_takes_its_leavings_with_it(monkeypatch) -> None:
-    """What makes two hundred instances fit in the space of one.
-
-    Removing our own pull is not enough: their evaluator builds its own image
-    per instance to apply the patch in, and leaves it behind. With the sweep
-    back on `/` -- 433G at 98% -- the difference between pruning one image and
-    pruning both is whether the run finishes or fills the disk.
-
-    Matched by name rather than swept with `image prune -a`: the base layers
-    every instance shares are worth about a gigabyte of re-download apiece.
-    """
     from agent.bench import runner
 
     calls: list[tuple] = []
@@ -537,12 +393,7 @@ def test_an_instance_takes_its_leavings_with_it(monkeypatch) -> None:
     assert ("image", "prune", "-af") not in calls, "-a would take the shared base too"
 
 
-# -- the unattended sweep ----------------------------------------------------
-
-
 def test_a_relative_root_means_the_checkout_not_the_working_directory(monkeypatch) -> None:
-    """`.env` says `./artifacts/secbench` and means the one in the repository,
-    whichever directory `agent bench` was typed in."""
     from agent.bench.config import repo_root
 
     repo = repo_root()
@@ -553,8 +404,6 @@ def test_a_relative_root_means_the_checkout_not_the_working_directory(monkeypatc
 
 
 def test_the_env_file_never_overrides_the_environment(monkeypatch) -> None:
-    """An explicit setting is a decision; `.env` is a machine's default. The web
-    UI passes a split by environment and must not be overruled by a file."""
     import os
 
     from agent.bench.config import load_env
@@ -581,12 +430,6 @@ def test_a_missing_env_file_is_not_an_error(tmp_path: Path) -> None:
 
 
 def test_the_log_carries_what_the_terminal_showed(tmp_path: Path, capfd) -> None:
-    """Including docker's output, which is most of it. tmux scrollback is finite
-    and a sweep runs for days, so the log is what is read afterwards.
-
-    With capturing suspended, because this works on the process's own
-    descriptors and pytest has replaced them with its own.
-    """
     import subprocess
     import sys
 
@@ -603,13 +446,11 @@ def test_the_log_carries_what_the_terminal_showed(tmp_path: Path, capfd) -> None
 
 
 def test_a_failed_precondition_spends_nothing(tmp_path: Path, monkeypatch) -> None:
-    """The whole point of the checks: no phase runs if one of them failed."""
     from agent.bench import sweep as sweep_module
 
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))
     monkeypatch.setattr(sweep_module, "_preflight", lambda config: False)
     ran: list[str] = []
-
     code = sweep_module.sweep(BenchConfig(), lambda action: ran.append(action) or 0)
 
     assert code == 1
@@ -632,8 +473,6 @@ def test_a_failed_fetch_never_reaches_the_expensive_phase(tmp_path: Path, monkey
 
 
 def test_the_phases_are_the_bench_actions_themselves(tmp_path: Path, monkeypatch) -> None:
-    """`agent bench run` and the `run` phase of a sweep are one implementation,
-    so they cannot drift."""
     from agent.bench import sweep as sweep_module
 
     monkeypatch.setenv("SECB_ROOT", str(tmp_path))

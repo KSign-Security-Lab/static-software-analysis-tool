@@ -1,5 +1,3 @@
-"""Run storage: one Postgres database, one row per run, everything cascading."""
-
 from .models import (
     Base,
     CachedResult,

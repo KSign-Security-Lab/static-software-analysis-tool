@@ -1,10 +1,3 @@
-"""LangSmith wiring.
-
-Tracing itself is LangChain's; what is tested here is the part that makes a
-trace usable. A chunk-by-chunk run makes hundreds of calls, and untagged they
-are an undifferentiated column of "ChatOpenAI".
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -35,8 +28,6 @@ def test_tracing_is_off_by_default() -> None:
 
 @pytest.mark.parametrize("var", TRACING_VARS)
 def test_either_spelling_enables_tracing(var: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """LANGSMITH_* is current and LANGCHAIN_* is the older name; langsmith
-    honours both, so neither may be quietly ignored here."""
     monkeypatch.setenv(var, "true")
     assert is_enabled() is True
 
@@ -47,7 +38,6 @@ def test_status_explains_why_it_is_off_rather_than_only_that_it_is() -> None:
 
 
 def test_status_flags_tracing_enabled_with_no_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The failure that looks like success: switched on, exporting nowhere."""
     monkeypatch.setenv(TRACING_VARS[0], "true")
     body = status()
     assert body["enabled"] is True
@@ -56,8 +46,6 @@ def test_status_flags_tracing_enabled_with_no_api_key(monkeypatch: pytest.Monkey
 
 
 def test_status_catches_the_environment_being_set_too_late(monkeypatch: pytest.MonkeyPatch) -> None:
-    """langsmith lru_caches its env reads, so a variable set after it is first
-    touched is silently ignored -- the trap this reports on."""
     monkeypatch.setenv(TRACING_VARS[0], "true")
     monkeypatch.setenv(API_KEY_VARS[0], "ls-fake")
     refresh_env_cache()
@@ -89,7 +77,6 @@ def test_default_project_groups_runs_but_never_overrides(monkeypatch: pytest.Mon
 
 
 def test_call_config_names_the_span_for_what_it_did() -> None:
-    """The span list should be readable without opening anything."""
     config = call_config(step="analyse", subject="fetch_firmware")
     assert config["run_name"] == "analyse:fetch_firmware"
 
@@ -124,7 +111,6 @@ def test_call_config_omits_absent_fields_rather_than_sending_nulls() -> None:
 
 
 def test_the_loop_tags_every_call_it_makes(tmp_path) -> None:
-    """End to end: a run must produce named spans, not anonymous ones."""
     from agent.config import AgentConfig
     from agent.graph.build import run_inspection
     from agent.runs import new_run

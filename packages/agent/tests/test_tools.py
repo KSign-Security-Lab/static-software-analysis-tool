@@ -1,16 +1,3 @@
-"""Tool behaviour, especially where it refuses.
-
-The input is an arbitrary uploaded archive, so a name that tries to leave the
-tree is still a real thing to refuse -- but the refusal is different now. A tool
-reads a `{path: text}` mapping rather than a directory, so `../../etc/passwd` is
-not a path that resolves anywhere: it is a key nobody stored. What used to be
-confinement (`agent.paths.resolve_within`, resolving symlinks against a root) is
-now the absence of anything to confine.
-
-`run_in_sandbox` and its tests are gone with the directory -- it ran a command
-against a real tree and there is no tree to run against.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -34,9 +21,6 @@ TREE = {
 }
 
 
-# -- names that are not keys -------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "candidate",
     [
@@ -53,13 +37,8 @@ def test_paths_leaving_the_tree_are_refused(candidate: str) -> None:
 
 
 def test_glob_only_ever_returns_stored_names() -> None:
-    """There is nothing else to return: a symlink out of the tree was a file on
-    disk, and the mapping holds text under names."""
     assert glob_files(TREE, "*.c") == ["a.c"]
     assert glob_files(TREE, "**/*.c") == ["a.c", "sub/b.c"]
-
-
-# -- reading -----------------------------------------------------------------
 
 
 def test_read_file_line_range_is_one_based_inclusive() -> None:
@@ -68,7 +47,6 @@ def test_read_file_line_range_is_one_based_inclusive() -> None:
 
 
 def test_list_dir_marks_directories() -> None:
-    """Derived from the key prefixes rather than from a stat."""
     assert list_dir(TREE) == ["a.c", "sub/"]
     assert list_dir(TREE, "sub") == ["b.c"]
 
@@ -92,9 +70,6 @@ def test_grep_with_no_matches_is_empty_not_an_error() -> None:
     assert grep(TREE, "nothing_matches_this") == []
 
 
-# -- graph tools -------------------------------------------------------------
-
-
 @pytest.fixture
 def indexed(tree_files: dict[str, str]) -> ChunkStore:
     run = new_run()
@@ -104,7 +79,6 @@ def indexed(tree_files: dict[str, str]) -> ChunkStore:
 
 
 def test_graph_tools_answer_from_the_link_graph(indexed: ChunkStore) -> None:
-    """Exact, unlike grep: a textual mention is not a call."""
     assert [c["symbol"] for c in callers_of(indexed, "inner")] == ["outer"]
     assert [c["symbol"] for c in callees_of(indexed, "outer")] == ["inner"]
 
@@ -120,16 +94,7 @@ def test_graph_tools_are_empty_for_unknown_symbols(indexed: ChunkStore) -> None:
     indexed.close()
 
 
-# -- the agent.mcp package must not shadow the mcp library -------------------
-
-
 def test_agent_mcp_does_not_shadow_the_mcp_library() -> None:
-    """``agent/mcp/`` and the ``mcp`` distribution share a name.
-
-    Python 3's absolute imports make this safe, but "should be fine" is not
-    evidence -- if it ever breaks, it breaks at server startup in a subprocess
-    where the traceback is easy to miss.
-    """
     from agent.mcp.server import mcp as server
 
     import mcp as library
@@ -139,11 +104,6 @@ def test_agent_mcp_does_not_shadow_the_mcp_library() -> None:
 
 
 def test_mcp_server_exposes_the_expected_tools() -> None:
-    """Pinned, because the roster is what the agent is allowed to do.
-
-    `run_in_sandbox` is deliberately absent: a run has rows, not a tree, and a
-    tool that shells out against one had nothing to shell out against.
-    """
     import asyncio
 
     from agent.mcp.server import mcp as server
@@ -167,8 +127,6 @@ def test_mcp_server_exposes_the_expected_tools() -> None:
 
 
 def test_mcp_tools_report_bad_paths_as_text_not_protocol_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A raised exception looks like a dead tool; a message the model can read
-    lets it correct itself."""
     from agent.mcp import server as server_module
 
     run = new_run()

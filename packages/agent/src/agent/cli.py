@@ -1,22 +1,3 @@
-"""``agent`` -- inspect a tree from the terminal.
-
-The same library the web API drives, without the browser. Both are thin front
-ends over the same package: ``api`` imports ``agent``, never the reverse, and
-the CLI does not go through HTTP -- needing a web server running before a local
-directory can be analysed would be backwards.
-
-::
-
-    agent                        interactive: pick an endpoint, model and target
-    agent index   path/to/src    index only; deterministic, no model calls
-    agent inspect path/to/src    index and inspect
-    agent runs                   previous runs
-
-Run bare it prompts, which is the difference between "works" and "usable":
-``AGENT_MODEL`` has to match the id the server reports, and asking the server
-removes the chance of guessing wrong.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -43,13 +24,7 @@ from .schema import Finding, Report
 from .tracing import status as tracing_status
 
 SEVERITY_MARK = {"critical": "!!", "high": " !", "medium": " ~", "low": " -", "info": " ."}
-
-#: Offered as the default target when prompting: a small labelled tree shipped
-#: with the package, so a first run has something to find without the user
-#: having to supply source. Absent from an installed wheel, hence the fallback.
 SAMPLE_TREE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "sample"
-
-#: Enough chunks that the run is worth thinking about before starting it.
 LARGE_RUN_CHUNKS = 40
 
 
@@ -62,16 +37,6 @@ def _info(message: str) -> None:
 
 
 def _load_tree(source: Path, run: Run) -> int:
-    """Read a local directory into the run. Returns the file count.
-
-    Was `shutil.copytree` into the run's workspace. There is no workspace: the
-    files become rows, which is the same bargain as before -- the user's
-    checkout is read and never written -- reached without a second copy on disk.
-
-    Says what it passed over. A checked-in generated artifact is skipped rather
-    than refused, and a run quietly missing a file is exactly the surprise the
-    old outright refusal existed to avoid.
-    """
     files: dict[str, bytes] = {}
     for path in sorted(source.rglob("*")):
         if not path.is_file() or path.is_symlink():
@@ -98,9 +63,6 @@ def _print_finding(finding: Finding) -> None:
     print()
 
 
-# ----------------------------------------------------------------- prompting
-
-
 def _ask(prompt: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
     try:
@@ -111,7 +73,6 @@ def _ask(prompt: str, default: str = "") -> str:
 
 
 def _choose(prompt: str, options: list[str]) -> int:
-    """Index of the chosen option. Single-option lists do not ask."""
     if len(options) == 1:
         return 0
     for number, option in enumerate(options, start=1):
@@ -124,7 +85,6 @@ def _choose(prompt: str, options: list[str]) -> int:
 
 
 def _pick_endpoint() -> Endpoint | None:
-    """Find a running server, asking if there is more than one."""
     endpoints = discover()
     if not endpoints:
         return None
@@ -135,7 +95,6 @@ def _pick_endpoint() -> Endpoint | None:
 
 
 def _interactive(config: AgentConfig) -> int:
-    """Prompt for everything, then run."""
     _info("SSAT agent")
 
     endpoint = _pick_endpoint()
@@ -156,7 +115,6 @@ def _interactive(config: AgentConfig) -> int:
 
     config.base_url = endpoint.base_url
     config.model = model
-    # Exported so a nested process, or the user's next command, agrees.
     os.environ[ENV_BASE_URL] = endpoint.base_url
     os.environ[ENV_MODEL] = model
 
@@ -195,12 +153,7 @@ def _interactive(config: AgentConfig) -> int:
     return _inspect_run(run, config, index_result.as_dict())
 
 
-# ------------------------------------------------------------------ commands
-
-
 def _inspect_run(run: Run, config: AgentConfig, index_stats: dict[str, int]) -> int:
-    """Drive an already-indexed run to completion and print the report."""
-
     def emit(event: str, payload: object) -> None:
         if event == "chunk_finished" and isinstance(payload, dict):
             stats = payload.get("stats", {})
@@ -211,8 +164,6 @@ def _inspect_run(run: Run, config: AgentConfig, index_stats: dict[str, int]) -> 
             print(f"\r  [{done}/{total}] {str(payload.get('symbol', ''))[:40]}{suffix}", end="", flush=True)
 
     store = run.store()
-    # Recorded here too, so a run started from the terminal is inspectable in
-    # the web trace view afterwards. They share a database.
     spans = run.spans()
     spans.clear()
     try:
@@ -242,9 +193,6 @@ def _inspect_run(run: Run, config: AgentConfig, index_stats: dict[str, int]) -> 
         _print_finding(finding)
 
     stats = report.stats
-    # Cached units are named rather than left out of the count: a second run
-    # over unchanged code otherwise reports findings "from 0 chunk(s)", which
-    # reads as a bug rather than as the cache doing its job.
     looked_at = stats.chunks_inspected + stats.chunks_cached
     reused = f", {stats.chunks_cached} reused" if stats.chunks_cached else ""
     print(
@@ -276,10 +224,6 @@ def cmd_index(args: argparse.Namespace) -> int:
     print(f"run {run.run_id}: {json.dumps(result.as_dict())}")
     print(f"inspection order: {len(order)} chunks (callees before callers)")
 
-    # Printed because it is deterministic and therefore checkable without a
-    # model -- the same reason the order above is printed. `unreachable` and
-    # `unknown` are listed by name: they are the two the report folds away and
-    # the two whose rule is worth being able to disagree with on real code.
     if reach:
         tally: dict[str, int] = {}
         for entry in reach.values():
@@ -332,12 +276,6 @@ def cmd_runs(args: argparse.Namespace) -> int:
 
 
 def cmd_corpus(args: argparse.Namespace) -> int:
-    """Ingest or describe the corpus of known weaknesses. See `agent/rag/`.
-
-    `ingest` is run once after a checkout and again after editing the corpus.
-    Cheap when nothing has changed: sample ids are content-derived, and an
-    unchanged tree never constructs the embedder at all.
-    """
     from .rag import corpus
 
     if args.action == "stats":
@@ -353,8 +291,6 @@ def cmd_corpus(args: argparse.Namespace) -> int:
     try:
         result = corpus.ingest(Path(args.path).resolve() if args.path else None)
     except corpus.Unavailable as err:
-        # Not a failure to ingest: a failure to have the extra installed, which
-        # is a different thing to tell somebody.
         print(f"corpus: {err}")
         return 1
     if result["embedded"] == 0 and result["removed"] == 0:
@@ -362,20 +298,11 @@ def cmd_corpus(args: argparse.Namespace) -> int:
     else:
         print(f"corpus: {result['embedded']} embedded, {result['removed']} removed, {result['total']} total")
     if result["skipped"]:
-        # Said out loud rather than swallowed: a file in a folder with no CWE in
-        # its name is silently not in the corpus, and that is worth knowing.
         print(f"corpus: skipped {result['skipped']} file(s) with no CWE folder or no functions")
     return 0
 
 
 def cmd_tune(args: argparse.Namespace) -> int:
-    """Read finished runs, propose, and replay. Never inside a request.
-
-    `propose` and `list` only read. `replay` is the expensive one and the only
-    one that changes what a proposal is allowed to become: it indexes a pinned
-    corpus, inspects it twice -- once under each config -- and attaches the
-    result. `apply` refuses without that.
-    """
     from . import harness, replay as replay_module, tuner
 
     if args.action == "configs":
@@ -437,17 +364,6 @@ def cmd_tune(args: argparse.Namespace) -> int:
 
 
 def _replay_arm(config: AgentConfig, corpus: str) -> Report:
-    """One arm of an A/B: a whole inspection of the pinned corpus.
-
-    Its own run each time. The replay exists because the change has not been
-    observed yet, so anything reused from an earlier run is evidence about the
-    config that produced it -- which is the config being replaced.
-
-    ``warm=False`` for the sharper version of the same problem: the result cache
-    is keyed by content and both arms read identical files, so the second arm
-    would otherwise be served the first arm's answers and the comparison would
-    be of a config against itself.
-    """
     run = new_run()
     _load_tree(Path(corpus), run)
     index_run(run)
@@ -464,45 +380,22 @@ def _replay_arm(config: AgentConfig, corpus: str) -> Report:
     finally:
         store.close()
 
-    # Marked finished, and marked an experiment.
-    #
-    # The status because it *is* finished, and a run left reading `indexing`
-    # after it completed is a lie the run list repeats. The flag because
-    # `tuner._completed` must not read these back as observations: an arm exists
-    # to test a config, not to be evidence about one, and a tuner that counted
-    # its own experiments would be feeding its conclusions to itself. That was
-    # true by accident before -- these runs happened never to reach `done` --
-    # and an accident is not a guardrail.
     run.set_status(STATUS_DONE, replay=True)
     return report
 
 
 def cmd_bench(args: argparse.Namespace) -> int:
-    """The SEC-bench sweep. Offline, and never reachable from a request.
-
-    Split into steps because each has a different cost and a different way of
-    going wrong: `fetch` is 3.7MB of network, `prepare` is gigabytes of it,
-    `run` is the model, and `score` is a compiler. A single command would make
-    the expensive ones un-skippable after the cheap ones failed.
-
-    `sweep` is all of them in order, with the preconditions checked first -- the
-    unattended one, for tmux. See :mod:`agent.bench.sweep`.
-    """
     from .bench import dataset as ds
     from .bench.config import BenchConfig, load_env
     from .bench import runner as bench_runner
     from .bench import score as bench_score
 
-    # Where this machine says its space is. Compose reads `.env` itself; this
-    # has to be told, and every path below can come from it.
     load_env()
     config = BenchConfig()
 
     if args.action == "sweep":
         from .bench.sweep import sweep as run_sweep
 
-        # The phases come back through here, so `agent bench run` and the `run`
-        # phase of a sweep are the same code rather than two that agree today.
         return run_sweep(config, lambda action: cmd_bench(argparse.Namespace(action=action)))
 
     if args.action == "status":
@@ -557,12 +450,6 @@ def cmd_bench(args: argparse.Namespace) -> int:
 
 
 def cmd_endpoints(args: argparse.Namespace) -> int:
-    """What is reachable, and what it serves. Answers 'why does nothing work'.
-
-    Tracing status is printed either way. It is a separate question from whether
-    a model server is up, and the whole point of this command is to answer "what
-    is my environment actually doing" in one place.
-    """
     endpoints = discover()
     for endpoint in endpoints:
         print(endpoint.base_url)
@@ -577,7 +464,6 @@ def cmd_endpoints(args: argparse.Namespace) -> int:
     print(f"langsmith: {'on -> ' + trace['project'] if trace['enabled'] else 'off'}")
     if trace["detail"]:
         print(f"  {trace['detail']}")
-    # Non-zero only for the thing that blocks a run; tracing being off does not.
     return 0 if endpoints else 1
 
 
@@ -589,7 +475,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Log model calls and dropped anchors")
     subparsers = parser.add_subparsers(dest="command")
-
     index_parser = subparsers.add_parser("index", help="Index a tree without calling a model")
     index_parser.add_argument("path", help="Directory to index")
     index_parser.set_defaults(func=cmd_index)

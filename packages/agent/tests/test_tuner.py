@@ -1,10 +1,3 @@
-"""The return path: config identity, proposals, and the gate on applying one.
-
-The tests that matter here are the ones about what the tuner *cannot* do. A
-proposal engine that produces good suggestions and can also apply them is not
-safer than one that produces bad ones.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -21,9 +14,6 @@ def _config(**over: Any) -> AgentConfig:
     return AgentConfig(**{**base, **over})
 
 
-# -- identity ----------------------------------------------------------------
-
-
 def test_the_same_settings_hash_the_same() -> None:
     assert harness.fingerprint(_config()) == harness.fingerprint(_config())
 
@@ -35,12 +25,6 @@ def test_settings_that_change_the_answer_change_the_hash() -> None:
 
 
 def test_settings_that_only_change_speed_do_not() -> None:
-    """The line the hash draws.
-
-    Folding a timeout into it would make two identical analyses look like two
-    different experiments every time somebody moved a port, and every comparison
-    afterwards would be against a config nobody had actually changed.
-    """
     same = harness.fingerprint(_config())
     assert harness.fingerprint(_config(request_timeout=999)) == same
     assert harness.fingerprint(_config(max_concurrency=1)) == same
@@ -56,7 +40,6 @@ def test_a_recorded_config_can_be_read_back() -> None:
 
 
 def test_recording_twice_writes_one_row() -> None:
-    """The hash is the key, so a thousand runs alike are one experiment."""
     first = harness.record(_config())
     second = harness.record(_config())
     assert first == second
@@ -64,11 +47,6 @@ def test_recording_twice_writes_one_row() -> None:
 
 
 def test_a_run_records_the_config_that_produced_it(tmp_path) -> None:
-    """Traceability, end to end: a result points at its settings.
-
-    Everything in `tuner.py` rests on this one property, which is why the tuner
-    was not written until it held.
-    """
     from agent.graph.build import run_inspection
     from agent.index import ChunkStore, build_index
     from agent.runs import Run, new_run
@@ -95,17 +73,7 @@ def test_a_run_records_the_config_that_produced_it(tmp_path) -> None:
     assert harness.load(recorded) is not None
 
 
-# -- what the tuner may not do ----------------------------------------------
-
-
 def test_the_tuner_is_never_in_the_request_path() -> None:
-    """Asserted rather than intended.
-
-    A tuner reachable from a request is a harness that can change while it is
-    being measured, and every number produced afterwards is about a moving
-    target. The import graph is the only place that can be enforced, so this
-    reads the source of everything a run touches and refuses to find it.
-    """
     from pathlib import Path
 
     package = Path(tuner.__file__).parent
@@ -124,11 +92,6 @@ def test_the_tuner_is_never_in_the_request_path() -> None:
 
 
 def test_the_tuner_may_not_tune_the_tuner() -> None:
-    """`planning` is off limits, and so is anything the gate depends on.
-
-    A system that can widen its own approval criteria will, and the first thing
-    it widens is whatever is stopping it.
-    """
     assert "planning" in tuner.OFF_LIMITS
 
     digest = harness.record(_config())
@@ -144,8 +107,6 @@ def test_the_tuner_may_not_tune_the_tuner() -> None:
 
 
 def test_a_pinned_config_is_never_argued_with() -> None:
-    """Checked when proposing, so a pinned baseline never acquires a proposal
-    for somebody to have to ignore."""
     digest = harness.record(_config(max_chunk_chars=4321), label="baseline")
     harness.pin(digest)
 
@@ -166,7 +127,6 @@ def test_a_proposal_carries_the_evidence_that_motivated_it() -> None:
 
 
 def test_a_proposal_names_two_configs_that_exist() -> None:
-    """So a replay always has something to replay *against*."""
     digest = harness.record(_config(wave_width=2))
     made = tuner._propose_visit_budget(
         {"wave_width": 2}, {"runs": ["r1"], "totals": {"runs": 3, "budget_hits": 3}}, digest, None
@@ -180,9 +140,6 @@ def test_a_proposal_names_two_configs_that_exist() -> None:
     assert stored["status"] == "proposed"
 
 
-# -- the gate ----------------------------------------------------------------
-
-
 def _saved_proposal() -> str:
     digest = harness.record(_config(wave_width=2))
     made = tuner._propose_visit_budget(
@@ -193,12 +150,6 @@ def _saved_proposal() -> str:
 
 
 def test_applying_without_a_replay_is_refused() -> None:
-    """The guardrail, in code rather than in a docstring.
-
-    Evidence is about runs that happened; the change is a claim about runs that
-    have not. Only a replay connects them, so this is the one place that can
-    tell the difference and it is not permitted to be polite about it.
-    """
     proposal_id = _saved_proposal()
     with pytest.raises(tuner.NotReplayed, match="no A/B replay"):
         tuner.apply(proposal_id)
@@ -230,17 +181,12 @@ def test_a_passing_replay_is_what_lets_it_through() -> None:
 
 
 def test_the_superseded_config_is_still_there() -> None:
-    """Never delete, only archive. A hash that resolves to nothing is a result
-    with no provenance."""
     proposal_id = _saved_proposal()
     before = [p for p in tuner.proposals() if p["id"] == proposal_id][0]["base_hash"]
     tuner.attach_replay(proposal_id, {"metric": "chunks_inspected", "direction": "up", "improved": True})
     tuner.apply(proposal_id)
 
     assert harness.load(before) is not None
-
-
-# -- the replay itself -------------------------------------------------------
 
 
 def _report(confirmed: int, inspected: int) -> Report:
@@ -262,12 +208,9 @@ def _report(confirmed: int, inspected: int) -> Report:
 
 
 def test_the_metric_and_direction_are_fixed_before_the_replay_runs() -> None:
-    """A replay that could pick its own metric afterwards would approve
-    everything, because some number always moves."""
     assert replay.improved(1.0, 2.0, "up") is True
     assert replay.improved(2.0, 1.0, "up") is False
     assert replay.improved(2.0, 1.0, "down") is True
-    # A tie is a failure: a change with no measurable effect has no argument.
     assert replay.improved(1.0, 1.0, "up") is False
     assert replay.improved(1.0, 1.0, "down") is False
 
@@ -278,15 +221,8 @@ def test_an_unknown_metric_is_refused_rather_than_scored_as_zero() -> None:
 
 
 def test_a_replay_runs_both_arms_over_one_corpus() -> None:
-    """Pinned corpus, same files to both arms.
-
-    Against whatever happened to be lying around, a replay measures the corpus
-    as much as the config, and two configs judged on different trees are not
-    being compared at all.
-    """
     base = harness.record(_config(wave_width=2))
     proposed = harness.record(_config(wave_width=4))
-
     saw: list[tuple[int, str]] = []
 
     def arm(config: AgentConfig, corpus: str) -> Report:
@@ -309,8 +245,6 @@ def test_a_replay_runs_both_arms_over_one_corpus() -> None:
 
 
 def test_a_replay_that_finds_less_does_not_pass() -> None:
-    """The failure the default metric exists to catch: a cheaper config that
-    finds fewer real things."""
     base = harness.record(_config(lenses=("injection", "memory")))
     proposed = harness.record(_config(lenses=("injection",)))
 
@@ -328,16 +262,7 @@ def test_a_replay_that_finds_less_does_not_pass() -> None:
     assert out["improved"] is False
 
 
-# -- the signals the record can actually support -----------------------------
-
-
 def test_a_lens_whose_every_claim_was_refuted_is_the_signal() -> None:
-    """The question worth asking about a lens, now that it can be asked.
-
-    Not whether it ran -- whether anything it raised survived. That needs
-    `Finding.lens`, which is why the field exists; matching findings back to
-    `lens:` spans by title would have been a guess dressed as a measurement.
-    """
     per_lens = {
         "memory": {"calls": 20, "raised": 12, "confirmed": 0},
         "injection": {"calls": 20, "raised": 6, "confirmed": 4},
@@ -365,15 +290,12 @@ def test_a_lens_that_is_working_is_left_alone() -> None:
 
 
 def test_the_lens_set_is_never_emptied() -> None:
-    """A config with no specialists finds nothing, which scores perfectly on
-    any per-call metric. The replay would approve it."""
     per_lens = {lens: {"calls": 20, "raised": 0, "confirmed": 0} for lens in ("memory", "injection")}
     per_lens.update({lens: {"calls": 0, "raised": 0, "confirmed": 0} for lens in ("access", "crypto", "logic")})
     assert _propose_with_lenses(("memory", "injection"), per_lens) is None
 
 
 def _propose_with_lenses(active: tuple[str, ...], per_lens: dict[str, dict[str, int]]):
-    """Drive `_propose_idle_lens` against a fixed record, without a database."""
     import agent.tuner as module
 
     original = module._lens_record
@@ -390,16 +312,10 @@ def _propose_with_lenses(active: tuple[str, ...], per_lens: dict[str, dict[str, 
 
 
 def test_a_retrieval_budget_nobody_spends_is_proposed_away() -> None:
-    """The retrieval signal, in the only honest form the record supports.
-
-    Which tool contributed to a confirmed finding is written down nowhere. That
-    a budget was offered and never drawn on, across runs that did confirm
-    findings, is measurable -- and is what this proposes on.
-    """
     import agent.tuner as module
 
     original = module._tool_record
-    module._tool_record = lambda *_a, **_k: {"read_source": 4}  # no lens tools at all
+    module._tool_record = lambda *_a, **_k: {"read_source": 4}
     try:
         made = module._propose_tool_budget(
             {"max_lens_tool_calls": 2, "lens_tools": True},
@@ -416,8 +332,6 @@ def test_a_retrieval_budget_nobody_spends_is_proposed_away() -> None:
 
 
 def test_no_confirmed_findings_means_the_retrieval_signal_says_nothing() -> None:
-    """"Never contributed to a confirmed finding" is true of every path when
-    there are no confirmed findings, and says nothing about any of them."""
     import agent.tuner as module
 
     original = module._tool_record
@@ -435,7 +349,6 @@ def test_no_confirmed_findings_means_the_retrieval_signal_says_nothing() -> None
 
 
 def test_a_finding_records_the_specialist_that_raised_it(tmp_path) -> None:
-    """Everything above rests on this being written down at all."""
     from agent.graph.build import run_inspection
     from agent.index import ChunkStore, build_index
     from agent.runs import new_run
@@ -465,12 +378,6 @@ def test_a_finding_records_the_specialist_that_raised_it(tmp_path) -> None:
 
 
 def test_the_schema_is_built_by_the_run_rather_than_by_the_tests() -> None:
-    """`create_all` was called from the fixtures and nowhere else.
-
-    Every table this package has added since arrived in a database the tests had
-    built and production had not -- so adding one broke a real run and no test,
-    which is the worst shape a gap can have.
-    """
     from sqlalchemy import inspect as sqla_inspect
 
     from agent.db import ensure
@@ -482,18 +389,9 @@ def test_the_schema_is_built_by_the_run_rather_than_by_the_tests() -> None:
 
 
 def test_a_replay_arm_is_not_evidence_about_the_config_it_tested() -> None:
-    """The feedback loop this closes.
-
-    An A/B arm runs *under* a config to test it. Counted as an observation *of*
-    it, a rejected proposal would still have moved the numbers that produce the
-    next proposal -- the tuner feeding its own experiments back to itself. It
-    was already excluded, but only because these runs happened never to reach
-    `done`, and an accident is not a guardrail.
-    """
     from agent.runs import Run, new_run
 
     digest = harness.record(_config(max_callee_notes=7))
-
     ordinary = new_run()
     ordinary.write_meta(status="done", config_hash=digest, report={"findings": [], "stats": {}})
     arm = new_run()
@@ -505,18 +403,7 @@ def test_a_replay_arm_is_not_evidence_about_the_config_it_tested() -> None:
     assert Run(arm.run_id).read_meta()["status"] == "done", "and it should still say it finished"
 
 
-# -- what a cached result is allowed to be reused for --------------------------
-
-
 def test_the_token_settings_are_part_of_a_result_s_identity() -> None:
-    """They read like performance and they are not.
-
-    A completion that runs out mid-object produces no finding, so a unit
-    analysed under a ceiling too small for it is cached as *clean*. Run
-    dbd2c9e7ca62 lost 209 lens analyses that way; without these in the key, the
-    next run over the same code would have been served those empty results and
-    called them a cache hit.
-    """
     from agent.cache import recipe_of
 
     base = dict(model="m", lenses=("memory",), prompts={"analyse": "a"})
@@ -524,12 +411,10 @@ def test_the_token_settings_are_part_of_a_result_s_identity() -> None:
 
     assert recipe_of(**base, reasoning_effort="medium", max_tokens=4096) != default
     assert recipe_of(**base, reasoning_effort="low", max_tokens=8192) != default
-    # Same settings, same key -- the whole point of the cache still works.
     assert recipe_of(**base, reasoning_effort="low", max_tokens=4096) == default
 
 
 def test_reasoning_effort_is_a_knob_that_changes_the_answer() -> None:
-    """So two runs under different efforts are not fair to compare."""
     from agent.config import AgentConfig
     from agent.harness import TUNABLE, fingerprint
 
@@ -543,14 +428,6 @@ def test_reasoning_effort_is_a_knob_that_changes_the_answer() -> None:
 
 
 def test_results_cached_before_the_retry_worked_are_not_reused() -> None:
-    """The recipe cannot see a code fix, so the format has to.
-
-    A lens that ran out of completion tokens produced nothing and `reduce`
-    cached the unit regardless, with only what the surviving lenses found. Those
-    rows say a unit is clean when nobody finished reading it -- and the model,
-    the prompts and both token settings are identical either side of the fix, so
-    nothing else in the key changes.
-    """
     from agent.cache import FORMAT
 
     assert FORMAT != "1", "bump this when a fix changes what a cached result means"

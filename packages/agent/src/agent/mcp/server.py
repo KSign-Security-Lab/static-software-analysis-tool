@@ -168,9 +168,6 @@ def search_corpus(code: str, cwe: str = "", limit: int = 5) -> str:
     """
 
     def run() -> str:
-        # Deliberately not `_store()`. Every other tool is scoped to the current
-        # run because it describes one inspection; these describe weaknesses,
-        # and are the same for every run there has ever been.
         try:
             hits = corpus.search(code, cwe=cwe, limit=limit)
         except corpus.Unavailable as err:
@@ -347,17 +344,6 @@ def _direction(given: str) -> Direction:
     return given if given in ("out", "in", "both") else "both"  # type: ignore[return-value]
 
 
-# `run_in_sandbox` was here.
-#
-# It ran a command against the run's tree, and a run has no tree: the files are
-# rows and nothing materialises them. Removed rather than handed a scratch
-# directory per call -- that would be a second source of truth with a lifetime,
-# for the one tool that wanted it.
-#
-# `describe_tools` below reads the registry, so deleting the tool is what stops
-# it being advertised. Nothing else needs editing.
-
-
 def describe_tools() -> list[dict[str, Any]]:
     """Every tool this server offers, as facts a reader can be shown.
 
@@ -373,8 +359,6 @@ def describe_tools() -> list[dict[str, Any]]:
     return [
         {
             "name": tool.name,
-            # First paragraph only: the rest of the docstring tells the model how
-            # to use the tool, and a list wants one line.
             "summary": " ".join((tool.description or "").split("\n\n")[0].split()),
             "parameters": sorted((tool.parameters or {}).get("properties", {})),
         }

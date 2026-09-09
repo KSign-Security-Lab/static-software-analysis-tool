@@ -12,29 +12,10 @@ from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
 
-# Bumped when a field is removed or changes meaning; adding an optional one is
-# fine. Typed as the literal so the defaults below stay assignable.
 SCHEMA_VERSION: Literal["1"] = "1"
-
 Severity = Literal["critical", "high", "medium", "low", "info"]
-
 EvidenceRole = Literal["source", "propagation", "sink", "missing_check", "context"]
-
 SEVERITY_ORDER: dict[str, int] = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-
-
-# --------------------------------------------------------------------------
-# Model-facing: what guided decoding constrains the LLM to produce.
-# --------------------------------------------------------------------------
-#
-# These descriptions are not documentation. They are handed to the endpoint as
-# part of the JSON schema and sit beside the field while it is being decoded,
-# which makes them the closest instruction to the tokens being produced -- so
-# the ones asking for prose ask in the language that prose has to be in, and the
-# example is in it too. An English exemplar next to `title` was most of why a
-# fully Korean prompt still came back in English.
-#
-# The field *names* stay English: they are the schema's, not the reader's.
 
 
 class CandidateEvidence(BaseModel):
@@ -49,15 +30,13 @@ class CandidateEvidence(BaseModel):
     note: str = Field(description="이 단계가 왜 중요한지 한국어 한 문장.")
 
 
+# The descriptions below are Korean on purpose: they ride in the JSON schema next to
+# the tokens being decoded, and an English exemplar pulls the whole answer into English.
 class CandidateRemediation(BaseModel):
     """The fix, as the model proposes it. Never applied without being asked."""
 
     summary: str = Field(description="무엇을 고칠지 한국어 한 줄. 예: '셸을 거치지 말고 인자를 배열로 넘기기'.")
     detail: str = Field(description="어떻게 고치고 그것이 왜 문제를 닫는지, 한국어로.")
-    #: Replacement lines rather than a patch, and that is the whole reason this
-    #: can be applied at all. The anchor is already resolved to an exact span, so
-    #: a fix scoped to that span is a splice: it cannot half-apply, cannot drift
-    #: against a moved line, and needs no patch parser to be trusted.
     replacement: str | None = Field(
         default=None,
         description=(
@@ -72,8 +51,6 @@ class CandidateFinding(BaseModel):
     """One suspected vulnerability, before the server resolves or verifies it."""
 
     title: str = Field(
-        # Deliberately not a shape a real finding is likely to land on: an
-        # example close to the answer gets copied instead of read.
         description="짧은 한국어 명사구. 영어 용어를 품더라도 구 전체는 한국어입니다. "
         "예: '설정 파일 이름을 통한 path traversal', '세션 검사를 건너뛴 권한 상승'."
     )
@@ -112,17 +89,7 @@ class Verdict(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, description="0-1 confidence that the finding is real.")
 
 
-#: The specialists. One generalist prompt asked to hold every vulnerability
-#: class in mind at once skims all of them; narrow ones, run concurrently, each
-#: have room to be thorough about their own.
-#:
-#: `crypto` was split out of `access`, which had grown to carry authentication,
-#: authorisation, IDOR, privilege escalation, hardcoded credentials, secrets in
-#: logs, cryptography, randomness and file permissions -- the longest brief of
-#: the four, and the argument for splitting them in the first place applies to
-#: it exactly as it applied to the generalist.
 Lens = Literal["memory", "injection", "access", "crypto", "logic"]
-
 LENSES: tuple[Lens, ...] = get_args(Lens)
 
 
@@ -165,11 +132,6 @@ class Triage(BaseModel):
         description="Which specialists should look at it. Empty means all of them.",
     )
     reason: str = Field(default="", description="한국어 한 문장. 살펴볼 값어치가 있다고/없다고 본 이유.")
-
-
-# --------------------------------------------------------------------------
-# Wire: what the web consumes.
-# --------------------------------------------------------------------------
 
 
 class Span(BaseModel):
@@ -243,22 +205,7 @@ class Finding(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     remediation: Remediation
     verified: bool = Field(description="Survived the adversarial refute pass.")
-    #: Which specialist raised it.
-    #:
-    #: Recorded because the tuner cannot otherwise ask the one question worth
-    #: asking about a lens: not whether it ran, but whether anything it raised
-    #: survived verification. That was previously answerable only by matching
-    #: findings back to `lens:` spans by title, which is a guess dressed as a
-    #: measurement.
-    #:
-    #: Optional because a finding from a run recorded before this existed has no
-    #: honest answer, and `null` says so where a default lens would lie.
     lens: Lens | None = None
-    #: Whether this unit is reached, in the tree this run indexed.
-    #:
-    #: Optional for the reason `lens` is: a run recorded before this existed has
-    #: no honest answer, and `null` says so where a default would lie. Also null
-    #: for a finding in a file chunk, where the question does not apply.
     reach: Reach | None = None
 
     def sort_key(self) -> tuple[int, str, int, str]:
@@ -306,19 +253,11 @@ class RunStats(BaseModel):
     chunks_total: int = 0
     chunks_inspected: int = 0
     chunks_cached: int = 0
-    #: Screened out before any specialist looked at them.
     triaged_out: int = 0
-    #: Stretches the specialists were pointed at. Equal to the units inspected
-    #: when nothing needed narrowing, and above it when something did.
     regions: int = 0
     candidates: int = 0
     dropped_unlocatable: int = 0
     refuted: int = 0
-    #: Model calls that produced nothing -- a token limit hit mid-object, a
-    #: timeout, a reply of the wrong shape. Counted because the alternative is
-    #: what this used to be: a run that lost two analyses and a patch, and
-    #: reported itself complete. A partial result is still useful; a partial
-    #: result presented as a whole one is not.
     failed: int = 0
 
 

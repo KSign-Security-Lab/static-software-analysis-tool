@@ -1,15 +1,3 @@
-"""Tuned system prompts, read at run time.
-
-``prompts.py`` holds the defaults, in git, where they can be reviewed and
-blamed. Tuning one against a real trace writes an override here instead of
-editing that file: the default stays one click away, and a prompt saved from a
-browser never turns up as an unexplained change to tracked source.
-
-An override is keyed by the same ``step`` a span's metadata carries -- triage,
-``lens:memory``, gather, verify -- which is what lets a row in the trace be
-traced back to the prompt that produced it, and edited from there.
-"""
-
 from __future__ import annotations
 
 import json
@@ -32,21 +20,15 @@ log = logging.getLogger(__name__)
 
 
 def lens_prompt(lens: Lens) -> str:
-    """The prompt key for one specialist. Also the ``step`` its spans carry."""
     return f"lens:{lens}"
 
 
-#: The system prompt behind each kind of model call. Every specialist is its own
-#: entry, so a lens that is too eager can be reined in without touching the
-#: other three -- which is the whole reason for splitting them up.
 DEFAULTS: dict[str, str] = {
     "triage": TRIAGE_SYSTEM,
     "scout": SCOUT_SYSTEM,
     **{lens_prompt(lens): text for lens, text in LENS_SYSTEM.items()},
     "gather": GATHER_SYSTEM,
     "verify": VERIFY_SYSTEM,
-    # Only sent when `AGENT_PLANNING=advisory`. Registered regardless, so the
-    # studio can read and tune it without the run having to be in that mode.
     "replan": REPLAN_SYSTEM,
     "fix": FIX_SYSTEM,
 }
@@ -55,7 +37,7 @@ NAMES = tuple(DEFAULTS)
 
 
 class UnknownPrompt(KeyError):
-    """No such prompt. Saving under a typo would be a silent no-op."""
+    pass
 
 
 def _check(name: str) -> str:
@@ -65,12 +47,6 @@ def _check(name: str) -> str:
 
 
 def load(path: Path) -> dict[str, str]:
-    """Whatever has been deliberately overridden. Absent or corrupt reads empty.
-
-    A malformed file must not stop the agent: falling back to the defaults gives
-    a run that behaves as shipped, which is a far better failure than refusing
-    to start.
-    """
     if not path.exists():
         return {}
     try:
@@ -84,19 +60,12 @@ def load(path: Path) -> dict[str, str]:
 
 
 def resolve(path: Path, overrides: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The prompts a run should actually use: defaults, shadowed by overrides."""
     resolved = dict(DEFAULTS)
     resolved.update(overrides if overrides is not None else load(path))
     return resolved
 
 
 def save(path: Path, name: str, text: str) -> dict[str, str]:
-    """Record an override. Returns what is overridden afterwards.
-
-    An empty prompt is refused rather than stored: it is far more likely to be a
-    cleared textarea than a deliberate instruction to say nothing, and the run it
-    would produce is unexplainable.
-    """
     _check(name)
     if not text.strip():
         raise ValueError(f"{name} prompt is empty; use clear() to go back to the default")
@@ -108,7 +77,6 @@ def save(path: Path, name: str, text: str) -> dict[str, str]:
 
 
 def clear(path: Path, name: str) -> dict[str, str]:
-    """Drop an override, putting the shipped default back."""
     _check(name)
     overrides = load(path)
     overrides.pop(name, None)
@@ -122,12 +90,6 @@ def _write(path: Path, overrides: dict[str, str]) -> None:
 
 
 def describe(path: Path) -> list[dict[str, Any]]:
-    """Every prompt, its default, and what it has been changed to.
-
-    Both are returned so the editor can offer a revert and a diff without a
-    second request -- and so "this is the shipped one" is visible rather than
-    inferred from the absence of a field.
-    """
     overrides = load(path)
     return [
         {

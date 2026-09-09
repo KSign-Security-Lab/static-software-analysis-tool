@@ -1,10 +1,3 @@
-"""The corpus of known weaknesses: labelling, idempotency, and whether it works.
-
-The last one is the point. A retrieval feature that returns something for every
-query always looks like it is working, so the measurement is a test rather than
-a thing someone did once by hand -- see `test_it_names_the_weakness`.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -55,22 +48,10 @@ def test_the_filename_says_which_half_of_the_pair_it_is(tmp_path: Path) -> None:
 
 
 def test_an_unlabelled_sample_is_presumed_vulnerable() -> None:
-    """The safer way to be wrong.
-
-    A fixed sample called vulnerable weakens a match. A vulnerable one called
-    fixed would argue *against* a real finding, which is the direction that
-    costs something.
-    """
     assert corpus.variant_of("example.c") == corpus.VULNERABLE
 
 
 def test_a_folder_with_no_cwe_is_skipped_rather_than_fatal(tmp_path: Path) -> None:
-    """A corpus is a directory people drop things into.
-
-    One stray file must not stop the other four hundred from being read -- but
-    it is counted, because a sample silently absent from the index is worse
-    than one that was refused loudly.
-    """
     _tree(tmp_path)
     (tmp_path / "notes").mkdir()
     (tmp_path / "notes" / "scratch.c").write_text("int main(void) { return 0; }\n")
@@ -81,13 +62,11 @@ def test_a_folder_with_no_cwe_is_skipped_rather_than_fatal(tmp_path: Path) -> No
 
 
 def test_a_nested_folder_inherits_the_nearest_label(tmp_path: Path) -> None:
-    """`scraped/CWE-416_uaf/x.c` picks its CWE up from further in."""
     assert corpus.cwe_of(tmp_path / "scraped" / "CWE-416_uaf" / "x.c", tmp_path) == "CWE-416"
     assert corpus.cwe_of(tmp_path / "misc" / "x.c", tmp_path) is None
 
 
 def test_provenance_is_read_off_the_first_line() -> None:
-    """What the CVE scrape writes, and what says where a sample came from."""
     assert corpus.source_of("// source: CVE-2023-1 openssl@abc1234\nvoid f(void) {}") == (
         "CVE-2023-1 openssl@abc1234"
     )
@@ -95,16 +74,8 @@ def test_provenance_is_read_off_the_first_line() -> None:
 
 
 def test_only_functions_are_stored(tmp_path: Path) -> None:
-    """A file chunk is includes and boilerplate.
-
-    It is near-identical across every sample in the corpus, so indexing it would
-    put a row in front of every query that matches everything equally.
-    """
     samples, _ = corpus.read(_tree(tmp_path))
     assert {s.symbol for s in samples} == {"copy_label_bad", "copy_label_fixed"}
-
-
-# -- the database ones -------------------------------------------------------
 
 
 @pytest.fixture()
@@ -116,13 +87,6 @@ def ingested(tmp_path: Path) -> Path:
 
 
 def test_re_ingesting_an_unchanged_corpus_does_no_work(ingested: Path, monkeypatch) -> None:
-    """The property re-ingesting depends on.
-
-    Ingest re-runs after a corpus edit. Constructing the embedder costs about five
-    seconds cold, so "is there anything to do" has to be answered before the
-    model is touched -- not after. Asserting on the count alone would pass even
-    if it loaded the model to discover there was nothing to embed.
-    """
     def explode():
         raise AssertionError("the embedder was constructed for a corpus with nothing new")
 
@@ -133,7 +97,6 @@ def test_re_ingesting_an_unchanged_corpus_does_no_work(ingested: Path, monkeypat
 
 
 def test_a_sample_deleted_from_disk_leaves_the_index(ingested: Path) -> None:
-    """Otherwise it keeps being retrieved as evidence after being withdrawn."""
     (ingested / "CWE-121_stack_based_buffer_overflow" / "copy_label_fixed.c").unlink()
     result = corpus.ingest(ingested)
     assert result["removed"] == 1
@@ -141,21 +104,6 @@ def test_a_sample_deleted_from_disk_leaves_the_index(ingested: Path) -> None:
 
 
 def test_it_names_the_weakness() -> None:
-    """The measurement that decides whether any of this is worth having.
-
-    Held-out code -- none of it in the corpus verbatim -- against the committed
-    seed. Eight of ten was measured with `jinaai/jina-embeddings-v2-base-code`;
-    `BAAI/bge-small-en-v1.5`, which the run index uses, managed four, scoring
-    shared vocabulary rather than shared meaning.
-
-    Seven is the floor rather than eight so a sample being edited does not fail
-    the build, but a real regression -- swapping the model back, or embedding
-    file chunks again -- lands well below it.
-
-    Deliberately not asserting anything about vulnerable-versus-fixed. Measured
-    at 6 of 10 with a mean margin of 0.007, which is noise, and that is why
-    nothing in the tool or the prompt claims otherwise.
-    """
     pytest.importorskip("fastembed", reason="needs the rag extra")
     root = Path(__file__).resolve().parents[3] / "corpus"
     if not root.is_dir():

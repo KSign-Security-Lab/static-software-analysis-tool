@@ -1,16 +1,3 @@
-"""Scoring, by SEC-bench's evaluator rather than by ours.
-
-Whether a patch builds, silences the sanitizer and leaves the tests passing is
-the one number this whole exercise produces, and it is the number that has to be
-trustworthy. Reimplementing their harness would make it ours -- a figure we
-computed about ourselves, against a benchmark whose value is that we did not.
-
-So this drives `secb.evaluator.eval_instances` inside the pinned `secbench`
-image, on the sweep's own daemon, and reads what it wrote. The only judgement
-here is turning their per-instance verdict into the taxonomy the surface groups
-by, and that mapping is written down below rather than inferred.
-"""
-
 from __future__ import annotations
 
 import json
@@ -22,14 +9,6 @@ from .config import BenchConfig
 from .runner import Attempt
 
 log = logging.getLogger(__name__)
-
-#: Their verdict to our stage.
-#:
-#: The three patch stages exist because "it did not work" is four different
-#: problems: a patch that will not compile is a different fix from one that
-#: compiles and does not help, which is different again from one that helps and
-#: breaks something else. Collapsing them would leave the page saying "unresolved"
-#: and pointing at nothing.
 _STAGE_FOR = {
     "build_failed": "patch_build_failed",
     "not_fixed": "built_not_fixed",
@@ -38,12 +17,6 @@ _STAGE_FOR = {
 
 
 def score(attempts: list[Attempt], config: BenchConfig) -> dict[str, dict[str, Any]]:
-    """Run their evaluator over `preds.json` and return a verdict per instance.
-
-    Instances the runner never got a patch out of are still passed through: they
-    are unresolved, which is a result, and dropping them would shrink the
-    denominator without saying so.
-    """
     config.results_dir.mkdir(parents=True, exist_ok=True)
 
     completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -83,13 +56,6 @@ def score(attempts: list[Attempt], config: BenchConfig) -> dict[str, dict[str, A
 
 
 def read_results(config: BenchConfig) -> dict[str, dict[str, Any]]:
-    """Whatever the evaluator left in `results/`, keyed by instance.
-
-    Tolerant on purpose. Their report's exact filename and shape are theirs to
-    change, and a sweep that lost a day's work because a key was renamed would
-    be worse than one that reports what it could read -- so this looks for the
-    fields it needs wherever they are and says so when they are absent.
-    """
     found: dict[str, dict[str, Any]] = {}
     if not config.results_dir.is_dir():
         return found
@@ -105,7 +71,6 @@ def read_results(config: BenchConfig) -> dict[str, dict[str, Any]]:
 
 
 def _rows(payload: Any) -> list[tuple[str, dict[str, Any]]]:
-    """`{id: {...}}` and `[{instance_id: ..., ...}]` both happen in the wild."""
     if isinstance(payload, dict):
         if "instance_id" in payload:
             return [(str(payload["instance_id"]), payload)]
@@ -120,19 +85,11 @@ def _rows(payload: Any) -> list[tuple[str, dict[str, Any]]]:
 
 
 def outcome_for(attempt: Attempt, verdict: dict[str, Any] | None) -> tuple[str, str]:
-    """`(outcome, note)` for one instance, as the surface groups them.
-
-    The runner owns the early stages and the evaluator owns the late ones, which
-    is the honest division: only the runner knows whether the agent found
-    anything, and only a build knows whether the patch works.
-    """
     if attempt.stage:
         return attempt.stage, attempt.note
     if not attempt.patch:
         return "not_located", attempt.note or "패치를 내놓지 않았습니다"
     if verdict is None:
-        # Attempted and patched, waiting on the evaluator. Not the same as
-        # never having been tried, and the page groups them apart.
         return "awaiting_score", "패치는 나왔고 아직 채점되지 않았습니다"
 
     if verdict.get("resolved") is True:
@@ -143,28 +100,11 @@ def outcome_for(attempt: Attempt, verdict: dict[str, Any] | None) -> tuple[str, 
         for needle, stage in _STAGE_FOR.items():
             if needle in raw:
                 return stage, raw
-    # Scored, not resolved, and their report did not say which way it failed.
-    # `built_not_fixed` is the middle of the three and the least wrong guess --
-    # and the note carries what they actually said so nobody has to trust it.
     return "built_not_fixed", json.dumps(verdict, ensure_ascii=False)[:200]
 
 
 def score_one(attempt: Attempt, config: BenchConfig) -> dict[str, Any] | None:
-    """Score a single instance, while its image is still on disk.
-
-    The sweep prunes each image as it goes -- two hundred of them at ~2.8GB is
-    more than the volume holds -- so scoring cannot wait for the end. It used
-    to, which meant every image was downloaded once to run against and a second
-    time for the evaluator to build in.
-
-    Their runner has no instance filter: `--type`, `--input-dir`, `--split`,
-    `--mode`, `--num-workers`, `--agent`, and nothing else. So one instance
-    means one input directory whose `preds.json` holds one entry, which
-    `write_predictions` already produces the exact shape of.
-    """
     if not attempt.patch:
-        # Nothing to build. Their evaluator would record it unresolved, which is
-        # what `outcome_for` already says without spending a container on it.
         return None
 
     one = config.results_dir / "single" / attempt.instance_id
