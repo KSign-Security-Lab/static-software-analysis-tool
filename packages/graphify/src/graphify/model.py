@@ -1,33 +1,15 @@
-"""What a knowledge graph is here: nodes, edges, and where each edge came from.
-
-Deliberately not tied to the agent's index. The graph is built from records the
-caller hands over, so this package knows nothing about SQLite, chunks or
-findings -- which is what keeps the dependency running one way and lets the same
-graph be built from something else later.
-
-Every edge carries its provenance. An edge the parser actually resolved and an
-edge inferred from a filename appearing in a README are both useful and are not
-the same claim, and a graph that cannot tell them apart is a graph you cannot
-reason about.
-"""
-
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Literal
 
-#: `extracted` was resolved from structure -- a call the parser matched to a
-#: definition. `inferred` is a guess from text, and is never load-bearing.
 Provenance = Literal["extracted", "inferred"]
-
 Direction = Literal["out", "in", "both"]
 
 
 @dataclass(frozen=True)
 class Node:
-    """One thing in the tree: a unit of code, a file, a type, a document."""
-
     id: str
     kind: str
     label: str
@@ -44,18 +26,8 @@ class Edge:
 
 
 class KnowledgeGraph:
-    """Nodes, edges, and the traversals worth having.
-
-    Adjacency is built once at construction. Every walk below is breadth-first
-    and bounded, because these answer a model's questions during a run: an
-    unbounded traversal of a large tree is a way to spend a context window
-    saying nothing.
-    """
-
     def __init__(self, nodes: Iterable[Node], edges: Iterable[Edge]) -> None:
         self.nodes: dict[str, Node] = {node.id: node for node in nodes}
-        # Edges whose ends are not both present would make a walk step into
-        # nothing. Dropped here rather than guarded at every use.
         self.edges: tuple[Edge, ...] = tuple(
             edge for edge in edges if edge.src in self.nodes and edge.dst in self.nodes
         )
@@ -75,11 +47,6 @@ class KnowledgeGraph:
         return [*out, *into]
 
     def neighbours(self, node_id: str, hops: int = 1, direction: Direction = "both") -> list[Node]:
-        """Everything within ``hops`` steps, nearest first, excluding the start.
-
-        Nearest first because that is the order a reader wants: what this thing
-        touches, then what those touch.
-        """
         if node_id not in self.nodes:
             return []
 
@@ -104,12 +71,6 @@ class KnowledgeGraph:
         return found
 
     def path(self, start: str, end: str) -> list[Node]:
-        """The shortest way from one to the other, or nothing.
-
-        Undirected: "how are these two related" is rarely a question about which
-        way the calls point, and a directed answer of "no path" when there is an
-        obvious one is worse than useless.
-        """
         if start not in self.nodes or end not in self.nodes:
             return []
         if start == end:

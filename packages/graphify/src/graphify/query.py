@@ -1,17 +1,8 @@
-"""Turning a traversal into something worth putting in a prompt.
-
-The graph answers in nodes; a model needs prose, and a bounded amount of it.
-Every function here takes a character budget and stays inside it, because the
-caller is a tool the model invokes mid-run and an answer that blows the context
-window is worse than no answer.
-"""
-
 from __future__ import annotations
 
 from .communities import Community, subsystem_of
 from .model import Direction, KnowledgeGraph, Node
 
-#: What a tool answer is allowed to cost. Roughly a page.
 DEFAULT_BUDGET = 4_000
 
 
@@ -23,11 +14,6 @@ def _line(graph: KnowledgeGraph, node: Node, relation: str = "") -> str:
 
 
 def _bounded(lines: list[str], budget: int, total: int) -> str:
-    """Join what fits, and say plainly what did not.
-
-    Truncating in silence is the failure mode that matters: a model told "these
-    are the neighbours" will reason as though the list were complete.
-    """
     kept: list[str] = []
     spent = 0
     for line in lines:

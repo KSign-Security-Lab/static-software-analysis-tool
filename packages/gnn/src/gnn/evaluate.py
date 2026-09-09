@@ -16,9 +16,8 @@ from .model.SingleBranch import ASTOnlyModel, DFGOnlyModel
 from .model.LateFusion import LateFusionModel
 
 
-# Small helper to appease type checkers for torch-geometric Batch/Data `.to`.
 def _move_to_device(obj: object, device: torch.device):
-    try:  # runtime has .to for Data/Batch
+    try:
         return getattr(obj, "to")(device)  # type: ignore[no-any-return]
     except Exception:
         return obj
@@ -57,11 +56,6 @@ def infer_mode_from_model(model: torch.nn.Module) -> str:
 
 
 def load_model_robust(model_path: str, device: torch.device) -> torch.nn.Module:
-    """Load a serialized model object (full checkpoint).
-
-    This avoids relying on saved training configs. If a state_dict-only file is
-    provided, raise a clear error indicating a full-model checkpoint is needed.
-    """
     obj = torch.load(model_path, map_location=device, weights_only=False)
     if isinstance(obj, torch.nn.Module):
         obj.to(device)
@@ -132,8 +126,6 @@ def analyze_sample_with_model(
 
     ast_data = sample.get("ast_graph")
     dfg_data = sample.get("dfg_graph")
-
-    # Wrap per-sample Data into a Batch to satisfy batched forward signatures
     ast_b = _move_to_device(Batch.from_data_list([ast_data]), device) if ast_data is not None else None
     dfg_b = _move_to_device(Batch.from_data_list([dfg_data]), device) if dfg_data is not None else None
 
@@ -147,7 +139,6 @@ def analyze_sample_with_model(
                 single_batch["dfg_graph"] = dfg_b
             logits = forward_fn(model, single_batch, device, mode)
         else:
-            # Respect explicit mode when deciding inputs
             if mode == "ast":
                 if ast_b is None:
                     raise ValueError("AST mode requires ast_graph data")
@@ -157,7 +148,6 @@ def analyze_sample_with_model(
                     raise ValueError("DFG mode requires dfg_graph data")
                 logits = model(dfg_b)
             else:
-                # both/late_fusion
                 if ast_b is not None and dfg_b is not None:
                     logits = model(ast_b, dfg_b)
                 elif ast_b is not None:
@@ -190,9 +180,6 @@ def analyze_sample_with_model(
     }
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Evaluation loop
-# ──────────────────────────────────────────────────────────────────────────────
 def evaluate_model(
     model: torch.nn.Module,
     dataloader: TorchDataLoader,
@@ -208,8 +195,6 @@ def evaluate_model(
     classification_files = defaultdict(list)
     classification_functions = defaultdict(list)
     sample_count = 0
-
-    # no stdout logging here; only save results
 
     with torch.no_grad():
         for _, batch in enumerate(dataloader):
@@ -252,7 +237,6 @@ def evaluate_model(
                     sample_dir = os.path.join(output_dir, sample_id)
                     os.makedirs(sample_dir, exist_ok=True)
 
-                    # metadata.json
                     metadata = {
                         "sample_id": sample_id,
                         "filename": result["filename"],
@@ -265,7 +249,6 @@ def evaluate_model(
                     with open(os.path.join(sample_dir, "metadata.json"), "w") as f:
                         json.dump(metadata, f, indent=2)
 
-                    # graphs.json
                     def serialize_graph(g):
                         if g is None:
                             return None
@@ -296,14 +279,12 @@ def evaluate_model(
     total_samples = len(sample_results)
     correct_predictions = sum(1 for r in sample_results if r["correct_prediction"])
     accuracy = correct_predictions / total_samples if total_samples > 0 else 0.0
-
     true_label_counts = defaultdict(int)
     predicted_label_counts = defaultdict(int)
     for r in sample_results:
         true_label_counts[r["true_label"]] += 1
         predicted_label_counts[r["predicted_label"]] += 1
 
-    # Binary confusion counts (0 = negative, 1 = positive)
     tn = tp = fp = fn = 0
     for r in sample_results:
         t = int(r["true_label"]) if r.get("true_label") is not None else 0

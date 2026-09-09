@@ -37,7 +37,6 @@ from .model.SingleBranch import ASTOnlyModel, DFGOnlyModel
 from .config import TrainConfig
 
 
-# Suppress torch-scatter warning noise
 warnings.filterwarnings("ignore", message=".*torch-scatter.*")
 console = Console()
 
@@ -45,30 +44,16 @@ console = Console()
 ForwardFn = Callable[[torch.nn.Module, Dict[str, Any], torch.device, str], torch.Tensor]
 
 
-# ===== Typing: sample and dataset protocol =====
 T_co = TypeVar("T_co", covariant=True)
 
 
 class Sample(TypedDict, total=False):
-    """
-    Per-item sample returned by __getitem__ for training.
-    'y' is required to silence 'TypedDict not required' errors.
-    Other keys remain optional.
-    """
-
     y: torch.Tensor
     ast_graph: NotRequired[Any]
     dfg_graph: NotRequired[Any]
-    # add other optional fields you collate if needed
 
 
 class SupportsIndex(Protocol[T_co]):
-    """
-    Structural protocol for indexable & sized datasets.
-    Use 'idx: Any' to align with PyTorch stubs where __getitem__ often
-    uses an untyped 'idx' parameter, which avoids Pyright incompatibility.
-    """
-
     def __len__(self) -> int: ...
     def __getitem__(self, idx: Any) -> T_co: ...
 
@@ -126,18 +111,11 @@ def select_model(
 
 
 def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
-    """Pad/align node and edge features across a list of graphs by name.
-
-    Uses `x_feature_names` and `edge_feature_names` if present; otherwise aligns
-    by raw feature dimension (no-op if equal).
-    """
     if not graphs:
         return graphs
 
-    # Collect union of x feature names
     name_sets = [getattr(g, "x_feature_names", None) for g in graphs]
     if any(ns is None for ns in name_sets):
-        # fallback: try to ensure same dim; if not equal, pad to max dim
         max_x = max(int(g.x.size(1)) if hasattr(g, "x") and g.x is not None else 0 for g in graphs)
         out = []
         for g in graphs:
@@ -147,7 +125,6 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
                 g = g.clone()
                 g.x = x
             out.append(g)
-        # Edge attrs similar
         max_e = max(
             int(g.edge_attr.size(1)) if hasattr(g, "edge_attr") and g.edge_attr is not None else 0 for g in graphs
         )
@@ -166,7 +143,6 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
                 out2.append(g)
         return out2
 
-    # Named alignment
     union_x_names: List[str] = []
     seen = set()
     for ns in name_sets:
@@ -175,7 +151,6 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
                 union_x_names.append(n)
                 seen.add(n)
 
-    # Edge feature names union
     e_seen = set()
     union_e_names: List[str] = []
     for g in graphs:
@@ -188,7 +163,6 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
     aligned: List[PyGData] = []
     for g in graphs:
         gg = g.clone()
-        # Align x
         x_names = getattr(g, "x_feature_names", [])
         if gg.x is None:
             gg.x = torch.zeros((0, len(union_x_names)), dtype=torch.float)
@@ -201,7 +175,6 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
             gg.x = new_x
             gg.x_feature_names = union_x_names
 
-        # Align edge_attr
         e_names = getattr(g, "edge_feature_names", [])
         if getattr(gg, "edge_attr", None) is None or gg.edge_attr.numel() == 0:
             gg.edge_attr = torch.zeros((gg.edge_index.size(1), len(union_e_names)), dtype=torch.float)
@@ -219,7 +192,6 @@ def _harmonize_graph_dims(graphs: List[PyGData]) -> List[PyGData]:
 
 
 def collate_multi(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-    # Collect labels robustly; default to 0 if missing
     ys: List[torch.Tensor] = []
     for it in batch:
         try:
@@ -234,8 +206,6 @@ def collate_multi(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
             y_t = torch.tensor(int(y_val), dtype=torch.long)
         ys.append(y_t)
     out: Dict[str, Any] = {"y": torch.stack(ys)}
-
-    # Union of *_graph keys across all items
     graph_keys: List[str] = []
     seen: set[str] = set()
     for it in batch:
@@ -267,7 +237,6 @@ def collate_multi(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
         graphs = _harmonize_graph_dims(graphs)
         out[k] = Batch.from_data_list(graphs)
 
-    # Pass through union of non-graph, non-label metadata as lists
     meta_keys: List[str] = []
     seen_meta: set[str] = set()
     for it in batch:
@@ -284,10 +253,8 @@ def collate_multi(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _get_from_item(item: Any, key: str, default: Any = None) -> Any:
-    """Safely get attribute/key from dict-like or Data-like objects."""
     if isinstance(item, dict):
         return item.get(key, default)
-    # torch_geometric.data.Data supports attribute access
     try:
         return getattr(item, key)
     except Exception:
@@ -295,10 +262,6 @@ def _get_from_item(item: Any, key: str, default: Any = None) -> Any:
 
 
 def infer_dims_from_dataset(dataset: SupportsIndex[Sample], kinds: List[str]) -> Dict[str, Tuple[int, int]]:
-    """Inspect a few samples to infer x and edge_attr dims per kind.
-
-    Returns mapping: kind -> (x_dim, e_dim)
-    """
     dims: Dict[str, Tuple[int, int]] = {}
     sample_indices = [0]
     if len(dataset) > 1:
@@ -321,13 +284,11 @@ def infer_dims_from_dataset(dataset: SupportsIndex[Sample], kinds: List[str]) ->
 
 
 def save_training_config(cfg: TrainConfig, results_dir: str, model_info: Dict[str, Any]) -> None:
-    # Support both dataclasses and Pydantic BaseModel configs
     if hasattr(cfg, "model_dump"):
         cfg_dict = cfg.model_dump()  # type: ignore[attr-defined]
     elif is_dataclass(cfg):
         cfg_dict = asdict(cfg)
     else:
-        # best-effort fallback
         cfg_dict = dict(vars(cfg))
 
     config = {
@@ -358,7 +319,6 @@ def compute_class_weights(indices: List[int], dataset: SupportsIndex[Sample], nu
     total = sum(counts)
     if total == 0:
         return torch.ones(num_classes, dtype=torch.float)
-    # Smooth with sqrt to avoid extreme imbalance spikes
     weights = [total / (num_classes * (c**0.5)) if c > 0 else 0.0 for c in counts]
     s = sum(weights)
     if s > 0:
@@ -369,12 +329,10 @@ def compute_class_weights(indices: List[int], dataset: SupportsIndex[Sample], nu
 
 
 def forward_by_mode(model: torch.nn.Module, batch: Dict[str, Any], device: torch.device, mode: str) -> torch.Tensor:
-    """Default forward that routes by mode using keys in the collated batch."""
     if mode == "ast":
         return model(batch["ast_graph"].to(device))
     if mode == "dfg":
         return model(batch["dfg_graph"].to(device))
-    # both or late_fusion default to two-stream
     return model(batch["ast_graph"].to(device), batch["dfg_graph"].to(device))
 
 
@@ -392,9 +350,6 @@ def build_dataloader(
         shuffle=cfg.shuffle,
         collate_fn=collate_fn or collate_multi,
     )
-
-
-# build_datasets_and_stats was removed as overengineering; kept logic local to entrypoint
 
 
 def train_model_from_dataset(
@@ -425,31 +380,25 @@ def train_model_from_dataset(
                 optimizer.zero_grad()
 
                 labels = batch["y"].to(device)
-
                 logits = local_forward(model, batch, device, cfg.mode)
-
                 loss = criterion(logits, labels)
                 loss.backward()
                 optimizer.step()
 
-                # track loss per iteration and update plot
                 curr_loss = float(loss.item())
                 iter_losses.append(curr_loss)
                 running_loss += curr_loss
                 num_batches += 1
 
-                # update progress description with current loss
                 progress.update(
                     task,
                     advance=1,
                     description=f"Epoch {epoch + 1}/{cfg.epochs} | loss={curr_loss:.6f}",
                 )
 
-        # epoch summary
         if num_batches > 0:
             avg_loss = running_loss / num_batches
             epoch_avg_losses.append(avg_loss)
             console.print(f"Epoch {epoch + 1} average loss: {avg_loss:.6f}")
 
-        # keep epoch checkpoints (full model for backward compatibility)
         torch.save(model, os.path.join(results_dir, f"model_epoch_{epoch + 1}.pt"))

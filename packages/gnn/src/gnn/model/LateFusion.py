@@ -27,11 +27,10 @@ class LateFusionModel(nn.Module):
 
         self.ast_gnn = GINEStack(ast_in, ast_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers) if use_ast else None
         self.dfg_gnn = GINEStack(dfg_in, dfg_edge_dim, hid=hid, out_dim=hid, num_layers=gnn_layers) if use_dfg else None
-        # Build fusion MLP with configurable depth
         layers = []
         in_dim = hid * ((1 if use_ast else 0) + (1 if use_dfg else 0))
         if in_dim == 0:
-            in_dim = hid  # fallback to avoid zero-dim linear
+            in_dim = hid
         for i in range(max(1, fusion_depth)):
             out_dim_fc = hid if i < fusion_depth - 1 else out_classes
             layers.append(nn.Linear(in_dim, out_dim_fc))
@@ -47,7 +46,6 @@ class LateFusionModel(nn.Module):
         if self.use_dfg and self.dfg_gnn is not None and dfg_data is not None:
             reps.append(self.dfg_gnn(dfg_data))
         if not reps:
-            # Create a zero representation on the same device as the FC layer
             first_layer = self.fc[0] if len(self.fc) > 0 else None
             in_features = first_layer.in_features if isinstance(first_layer, nn.Linear) else 1
             model_device = next(self.fc.parameters()).device

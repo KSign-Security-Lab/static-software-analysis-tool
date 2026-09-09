@@ -1,11 +1,3 @@
-"""JSON Schema -> TypeScript interfaces.
-
-Only the subset of JSON Schema the wire models actually use is handled --
-objects, ``$ref``, arrays, string/number/boolean/null, enums, ``const`` and
-``anyOf`` nullables. Anything else raises rather than emitting ``any``, because
-an ``any`` here is exactly the drift this module exists to prevent.
-"""
-
 from __future__ import annotations
 
 import json
@@ -13,7 +5,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 class UnsupportedSchema(ValueError):
-    """A schema node the renderer will not guess at."""
+    pass
 
 
 _PRIMITIVES = {"string": "string", "integer": "number", "number": "number", "boolean": "boolean", "null": "null"}
@@ -24,7 +16,6 @@ def _ref_name(ref: str) -> str:
 
 
 def _type_of(schema: Mapping[str, Any]) -> str:
-    """One JSON-Schema node as a TypeScript type expression."""
     if "$ref" in schema:
         return _ref_name(schema["$ref"])
 
@@ -67,25 +58,6 @@ def render(
     extras: str | None = None,
     all_present: bool = False,
 ) -> str:
-    """The full generated TypeScript source.
-
-    ``roots`` is ``(name, json_schema)`` pairs whose ``$defs`` are hoisted and
-    emitted first, so the file reads top-down. ``extras`` is appended verbatim,
-    for the hand-maintained additions that are genuinely UI concerns.
-
-    ``all_present`` renders every property as required. Use it for a schema the
-    server only ever *writes*: a pydantic field with a default is absent from
-    ``required``, so it would otherwise render optional and force a ``?? []`` at
-    every read downstream -- for a value that is always serialised.
-
-    It has to be all-or-nothing rather than per-field, because a
-    ``default_factory`` leaves no trace in the JSON schema at all: pydantic
-    cannot emit a default it would have to call. What is left is the
-    implication -- a field with no default *is* required -- so under this flag
-    "not required" can only mean "has a default", and every property is present.
-    Off by default: the agent schema is read and written by the client, and a
-    drift test pins its output byte for byte.
-    """
     definitions: dict[str, Mapping[str, Any]] = {}
     tops: list[tuple[str, Mapping[str, Any]]] = []
 
@@ -113,9 +85,4 @@ def render(
 
 
 def schemas_of(models: Iterable[Any]) -> list[tuple[str, Mapping[str, Any]]]:
-    """``(name, schema)`` pairs from pydantic models, for callers that have them.
-
-    Lives here for convenience only -- it touches no pydantic API beyond the two
-    public attributes, so this module still imports nothing.
-    """
     return [(model.__name__, model.model_json_schema(ref_template="#/$defs/{model}")) for model in models]

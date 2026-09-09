@@ -6,7 +6,6 @@ from typing import Any, Dict, List
 
 DFG_NODE_SCHEMA = {
     "sid": int,
-    # "orig_id": int,
     "feat": {
         "node_type_id": str,
         "in_degree_dfg": int,
@@ -22,11 +21,6 @@ DFG_NODE_SCHEMA = {
         "call_size_nonconst": int,
         "call_danger_unbounded": int,
     },
-    # "debug": {
-    #     "code": str,
-    #     "def_vars": [str],
-    #     "use_vars": [str],
-    # },
 }
 
 DFG_EDGE_SCHEMA = {
@@ -37,20 +31,15 @@ DFG_EDGE_SCHEMA = {
         "has_upper_guard": int,
         "upper_guard_norm": float,
     },
-    # "debug": {
-    #     "var_key": str,
-    # },
 }
 
 DFG_SCHEMA = {
     "nodes": [DFG_NODE_SCHEMA],
-    # Enable to compare edges as list of tuples [src, dst, payload]
     "edges_dfg": [[int, int, DFG_EDGE_SCHEMA]],
 }
 
 
 def load_json(file_path: str) -> Dict[str, Any]:
-    """Load JSON file with error handling."""
     try:
         with open(file_path, "r") as f:
             return json.load(f)
@@ -61,14 +50,12 @@ def load_json(file_path: str) -> Dict[str, Any]:
 
 
 def compare_value(value1: Any, value2: Any, path: str = "") -> bool:
-    """Compare two values."""
     if value1 != value2:
         raise ValueError(f"Value mismatch at {path}: {value1} != {value2}")
     return True
 
 
 def compare_by_schema(obj1: Any, obj2: Any, schema: Any, path: str = "") -> bool:
-    # Dict schema
     if isinstance(schema, dict):
         if not isinstance(obj1, dict) or not isinstance(obj2, dict):
             raise ValueError(f"Type mismatch at {path}: expected dict")
@@ -79,12 +66,10 @@ def compare_by_schema(obj1: Any, obj2: Any, schema: Any, path: str = "") -> bool
             compare_by_schema(obj1[key], obj2[key], sub_schema, sub_path)
         return True
 
-    # List schema
     if isinstance(schema, list):
         if not isinstance(obj1, list) or not isinstance(obj2, list):
             raise ValueError(f"Type mismatch at {path}: expected list")
         if len(schema) == 1:
-            # Homogeneous list: all items follow the single inner schema
             inner_schema = schema[0]
             if len(obj1) != len(obj2):
                 raise ValueError(f"List length mismatch at {path}: {len(obj1)} != {len(obj2)}")
@@ -93,8 +78,6 @@ def compare_by_schema(obj1: Any, obj2: Any, schema: Any, path: str = "") -> bool
                 compare_by_schema(a, b, inner_schema, sub_path)
             return True
         else:
-            # Tuple-like schema for each element of outer list
-            # Example schema: [[int, int, DFG_EDGE_SCHEMA]]
             tuple_schema = schema
             if len(obj1) != len(obj2):
                 raise ValueError(f"List length mismatch at {path}: {len(obj1)} != {len(obj2)}")
@@ -110,7 +93,6 @@ def compare_by_schema(obj1: Any, obj2: Any, schema: Any, path: str = "") -> bool
                     compare_by_schema(item1[j], item2[j], sub_schema, f"{sub_path}[{j}]")
             return True
 
-    # Primitive schema
     return compare_value(obj1, obj2, path)
 
 
@@ -119,9 +101,7 @@ def get_enabled_keys() -> List[str]:
 
 
 def compare_dfg(dfg1: Dict[str, Any], dfg2: Dict[str, Any]) -> bool:
-    """Compare two DFG results strictly by DFG_SCHEMA."""
     print("Comparing DFG structures (schema-driven)...")
-    # Only compare keys defined in schema
     for key, sub_schema in DFG_SCHEMA.items():
         if key not in dfg1 or key not in dfg2:
             raise ValueError(f"Key '{key}' not found in both DFGs")
@@ -130,12 +110,9 @@ def compare_dfg(dfg1: Dict[str, Any], dfg2: Dict[str, Any]) -> bool:
 
 
 def get_file_pairs(dir1: str, dir2: str) -> List[tuple[str, str]]:
-    """Get matching file pairs from two directories."""
     files1 = sorted(glob.glob(os.path.join(dir1, "*.json")))
     files2 = sorted(glob.glob(os.path.join(dir2, "*.json")))
-
     files2_map = {os.path.basename(f): f for f in files2}
-
     pairs = []
     for file1 in files1:
         basename = os.path.basename(file1)
@@ -148,7 +125,6 @@ def get_file_pairs(dir1: str, dir2: str) -> List[tuple[str, str]]:
 
 
 def analyze_differences(dfg1: Dict[str, Any], dfg2: Dict[str, Any], file1: str, file2: str) -> Dict[str, Any]:
-    """Analyze specific differences between two DFG results (schema-driven)."""
     analysis: Dict[str, Any] = {
         "file1": file1,
         "file2": file2,
@@ -157,8 +133,6 @@ def analyze_differences(dfg1: Dict[str, Any], dfg2: Dict[str, Any], file1: str, 
     }
 
     enabled = set(get_enabled_keys())
-
-    # Structure differences limited to enabled keys
     keys1 = set(dfg1.keys()) & enabled
     keys2 = set(dfg2.keys()) & enabled
 
@@ -171,7 +145,6 @@ def analyze_differences(dfg1: Dict[str, Any], dfg2: Dict[str, Any], file1: str, 
             }
         )
 
-    # Size differences only for list keys in schema
     for key in keys1 & keys2:
         schema_entry = DFG_SCHEMA.get(key)
         if isinstance(schema_entry, list) and isinstance(dfg1.get(key), list) and isinstance(dfg2.get(key), list):
@@ -187,10 +160,8 @@ def analyze_differences(dfg1: Dict[str, Any], dfg2: Dict[str, Any], file1: str, 
 
 
 def save_failure_report(failure_details: List[Dict], error_types: Dict, dfg1_dir: str, dfg2_dir: str) -> None:
-    """Save detailed failure report to a JSON file for debugging."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_file = f"comparison_failure_report_{timestamp}.json"
-
     report = {
         "timestamp": timestamp,
         "directories": {"dfg1_dir": dfg1_dir, "dfg2_dir": dfg2_dir},
@@ -207,7 +178,6 @@ def save_failure_report(failure_details: List[Dict], error_types: Dict, dfg1_dir
 
 
 def main(dfg1_dir: str, dfg2_dir: str) -> None:
-    """Compare DFG results from two directories."""
     print("Comparing DFG results:")
     print(f"  Directory 1: {dfg1_dir}")
     print(f"  Directory 2: {dfg2_dir}")
@@ -232,7 +202,6 @@ def main(dfg1_dir: str, dfg2_dir: str) -> None:
     failure_details: List[Dict[str, Any]] = []
     error_types: Dict[str, int] = {}
     file_size_stats = {"dfg1": [], "dfg2": []}
-
     enabled = set(get_enabled_keys())
     edges_enabled = "edges_dfg" in enabled
 
@@ -253,7 +222,6 @@ def main(dfg1_dir: str, dfg2_dir: str) -> None:
             dfg1 = file1["dfg_result"]
             dfg2 = file2["dfg_result"]
 
-            # Collect size statistics (schema-driven)
             file_size_stats["dfg1"].append(
                 {
                     "file": os.path.basename(dfg1_file),
@@ -271,7 +239,6 @@ def main(dfg1_dir: str, dfg2_dir: str) -> None:
                 }
             )
 
-            # Compare DFG results (schema-driven)
             compare_dfg(dfg1, dfg2)
 
             print("  ✓ Files are identical")

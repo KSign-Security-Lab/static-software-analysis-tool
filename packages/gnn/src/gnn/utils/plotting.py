@@ -27,12 +27,6 @@ def draw_loss_plot(
     max_points: Optional[int] = None,
     title: str = "Training Loss (All)",
 ) -> str:
-    """Render loss curves to loss.png in results_dir.
-
-    - Downsamples iteration curve to at most `max_points` by uniform stride.
-    - Leaves epoch average points as-is.
-    Returns the output path.
-    """
     os.makedirs(results_dir, exist_ok=True)
     out_path = os.path.join(results_dir, "loss.png")
 
@@ -43,8 +37,6 @@ def draw_loss_plot(
         plt.plot(xs, ys, label="train (iter)", linewidth=1.2)
 
     if epoch_avg_losses:
-        # Plot at evenly spaced positions along the x-axis based on downsample stride
-        # This keeps a rough alignment with iteration scale without requiring dataloader length.
         ex = list(range(1, len(epoch_avg_losses) + 1))
         plt.plot(ex, epoch_avg_losses, marker="o", linestyle="--", label="epoch avg")
 

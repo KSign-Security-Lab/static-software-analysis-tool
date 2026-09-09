@@ -53,7 +53,6 @@ def _parse_train_args() -> TrainConfig:
 
 def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] = None) -> None:
     if cfg is None:
-        # When invoked via console script (gnn train), parse CLI flags
         cfg = _parse_train_args()
 
     torch.manual_seed(cfg.seed)
@@ -74,16 +73,12 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
     overall_total: int = 0
 
     for ds_idx, data_entry in enumerate(cfg.data_path):
-        # cfg.data_path is a list of DataPath items
         entry_path = data_entry.path
-        # Single label key per datapath (required)
         entry_label_key = data_entry.label_key
 
-        # Wrap converter to inject per-entry label_key
         def _conv(m, _lk=entry_label_key):
             return juliet_json_to_sample(m, label_keys=[{"keyword": _lk.keyword, "label": _lk.label}])
 
-        # Inject the filesystem path into JSON before validation, so the converter can use filename
         def _pre_inject_path(raw: dict, fp: str):
             raw["__file_path"] = fp
             return raw
@@ -96,7 +91,6 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
             strict=False,
             debug=False,
         )
-        # Split dataset into train/test using cfg.train_ratio
         n_items = len(dataset_part)
         if n_items > 0:
             gen = torch.Generator()
@@ -105,7 +99,7 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         else:
             perm = []
         if n_items <= 1:
-            split = n_items  # all to train if <=1
+            split = n_items
         else:
             split = int(round(n_items * float(cfg.train_ratio)))
             split = max(1, min(n_items - 1, split))
@@ -115,7 +109,6 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         train_datasets_list.append(Subset(dataset_part, train_idx))
         test_datasets_list.append(Subset(dataset_part, test_idx))
 
-        # Compute label statistics for this dataset
         counts: dict[int, int] = {}
         for i in range(len(dataset_part)):
             y = int(dataset_part[i].y.item())
@@ -125,9 +118,7 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         for k, v in counts.items():
             overall_counts[k] = overall_counts.get(k, 0) + v
 
-        # Build distribution as floats
         dist = {str(k): (v / total_n if total_n > 0 else 0.0) for k, v in counts.items()}
-        # Record the label_key used for this dataset for transparency
         used_lk = {"keyword": entry_label_key.keyword, "label": int(entry_label_key.label)}
 
         per_dataset_stats.append(
@@ -140,7 +131,6 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
             }
         )
 
-    # Save statistics JSON (per dataset and overall)
     overall_dist = {str(k): (v / overall_total if overall_total > 0 else 0.0) for k, v in overall_counts.items()}
     stats_out = {
         "datasets": per_dataset_stats,
@@ -157,16 +147,10 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         style="green",
     )
 
-    # Declare item type for sources, then build a typed ConcatDataset[Sample]
     train_dataset: ConcatDataset[Sample] = ConcatDataset(train_datasets_list)  # type: ignore[arg-type]
     test_dataset: ConcatDataset[Sample] = ConcatDataset(test_datasets_list)  # type: ignore[arg-type]
-
-    # Decide which graph kinds to probe based on mode
     kinds = ["ast"] if cfg.mode == "ast" else ["dfg"] if cfg.mode == "dfg" else ["ast", "dfg"]
-
     ast_in = ast_edge_dim = dfg_in = dfg_edge_dim = 0
-
-    # ConcatDataset[Sample] structurally satisfies SupportsIndex[Sample]
     inferred = infer_dims_from_dataset(train_dataset, kinds)
     ast_in = inferred.get("ast", (0, 0))[0]
     ast_edge_dim = inferred.get("ast", (0, 0))[1]
@@ -182,7 +166,6 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
 
     train_dataloader = build_dataloader(train_dataset, cfg, collate_fn=collate_multi)
     test_dataloader = build_dataloader(test_dataset, cfg, collate_fn=collate_multi)
-
     model = select_model(
         cfg=cfg,
         ast_in=ast_in,
@@ -215,11 +198,9 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
         results_dir=results_dir,
     )
 
-    # Save final weights (state_dict)
     weights_path = os.path.join(results_dir, "model.pt")
     torch.save(model.state_dict(), weights_path)
 
-    # Persist per-iteration losses as JSON/CSV for analysis
     with open(os.path.join(results_dir, "loss.json"), "w") as f:
         json.dump(
             {"iteration_losses": iter_losses, "epoch_avg_losses": epoch_avg_losses},
@@ -232,10 +213,8 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
             f.write(f"{i},{loss}\n")
     console.print(f"Saved loss history → {os.path.join(results_dir, 'loss.json')} and loss.png")
 
-    # Plot with downsampling
     draw_loss_plot(results_dir, iter_losses, epoch_avg_losses, max_points=plot_max_points)
 
-    # Save training configuration for evaluation
     model_info = {
         "model_type": cfg.mode,
         "model_class": model.__class__.__name__,
@@ -259,11 +238,6 @@ def train(cfg: Optional[TrainConfig] = None, *, plot_max_points: Optional[int] =
 
 
 def evaluate() -> None:
-    """Console entrypoint: gnn evaluate --results_dir <dir> [--device cuda:0] [--max_samples N]
-
-    Reconstructs the dataset and model from training_config.json in results_dir
-    and writes evaluation.json alongside.
-    """
     parser = argparse.ArgumentParser(description="Evaluate trained model (gnn evaluate)")
     parser.add_argument(
         "--results_dir", type=str, required=True, help="Directory containing training_config.json and checkpoints"
@@ -285,8 +259,6 @@ def evaluate() -> None:
         cfg.device = args.device
 
     device = torch.device(cfg.device)
-
-    # Rebuild datasets consistent with training config
     train_datasets_list: List[TorchDataset[Sample]] = []
     test_datasets_list: List[TorchDataset[Sample]] = []
     for ds_idx, data_entry in enumerate(cfg.data_path):
@@ -326,15 +298,12 @@ def evaluate() -> None:
         test_datasets_list.append(Subset(dataset_part, test_idx))
 
     test_dataset: ConcatDataset[Sample] = ConcatDataset(test_datasets_list)  # type: ignore[arg-type]
-
-    # Determine dims and model
     kinds = ["ast"] if cfg.mode == "ast" else ["dfg"] if cfg.mode == "dfg" else ["ast", "dfg"]
     inferred = infer_dims_from_dataset(test_dataset, kinds)
     ast_in = inferred.get("ast", (0, 0))[0]
     ast_edge_dim = inferred.get("ast", (0, 0))[1]
     dfg_in = inferred.get("dfg", (0, 0))[0]
     dfg_edge_dim = inferred.get("dfg", (0, 0))[1]
-
     model = select_model(
         cfg=cfg,
         ast_in=ast_in,
@@ -345,7 +314,6 @@ def evaluate() -> None:
     model_path = latest_epoch_checkpoint(results_dir) or os.path.join(results_dir, "model.pt")
     model = load_model_robust(model_path, device)
     mode = infer_mode_from_model(model)
-
     dataloader = build_dataloader(test_dataset, cfg, collate_fn=collate_multi)
     per_sample_out = os.path.join(results_dir, "evaluation")
     os.makedirs(per_sample_out, exist_ok=True)
@@ -367,12 +335,6 @@ def evaluate() -> None:
 
 
 def main() -> None:
-    """Top-level entry point.
-
-    Example:
-      gnn train --save_name results/exp1
-      gnn evaluate --results_dir results/exp1
-    """
     parser = argparse.ArgumentParser(prog="gnn", description="SSAT GNN training and evaluation")
     parser.add_argument("command", nargs="?", choices=["train", "evaluate"], help="Subcommand to run")
     args, _passthrough = parser.parse_known_args()

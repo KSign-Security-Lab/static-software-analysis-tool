@@ -1,10 +1,3 @@
-"""The graph as something to hand on: a JSON document, or a page to look at.
-
-The page is self-contained -- no CDN, no fonts, no fetch. It is written into a
-run directory beside the code it describes, and a visualisation that only works
-with a network connection is not a visualisation of a local run.
-"""
-
 from __future__ import annotations
 
 import json
@@ -15,7 +8,6 @@ from .model import KnowledgeGraph
 
 
 def to_json(graph: KnowledgeGraph, communities: list[Community]) -> dict[str, Any]:
-    """Everything, in one document. The shape the API and the studio read."""
     community_of = {member: c.id for c in communities for member in c.members}
     payload = graph.to_json()
     for node in payload["nodes"]:
@@ -55,12 +47,6 @@ _PAGE = """<!doctype html>
 
 
 def to_html(graph: KnowledgeGraph, communities: list[Community], title: str = "Knowledge graph") -> str:
-    """A readable page: the subsystems, and what is in each.
-
-    Not a force-directed picture. A hairball of two thousand nodes is a
-    screensaver; the useful question is "what groups exist and what is in them",
-    and that is a list.
-    """
     sections = []
     for community in communities:
         members = "".join(

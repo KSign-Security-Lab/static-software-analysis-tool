@@ -39,7 +39,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="graphify", description=__doc__)
     parser.add_argument("graph", type=Path, help="a graph.json, as written beside a run's index")
     sub = parser.add_subparsers(dest="command", required=True)
-
     show = sub.add_parser("show", help="the subsystems, largest first")
     show.add_argument("--limit", type=int, default=20)
 

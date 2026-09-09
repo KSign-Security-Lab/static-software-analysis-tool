@@ -63,15 +63,12 @@ class LabelKey(BaseModel):
 
 class DataPath(BaseModel):
     path: str
-    # Single label rule per datapath (required)
     label_key: LabelKey
 
 
 class TrainConfig(_BaseConfig):
     save_name: str = f"results/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     mode: Literal["both", "late_fusion", "ast", "dfg"] = "ast"
-
-    # data_path is explicitly a list of DataPath entries
     data_path: List[DataPath] = [
         DataPath(
             path="data/train/CWE121_Stack_Based_Buffer_Overflow",

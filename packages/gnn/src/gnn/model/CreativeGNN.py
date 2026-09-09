@@ -24,14 +24,12 @@ class _GraphTokenEncoder(nn.Module):
         super().__init__()
         layers = max(1, layers)
         self.kind = kind
-        # keep the same public contract: None disables edge features for TransformerConv
         self.edge_dim = edge_dim if edge_dim > 0 else None
         self._expected_edge_dim = int(edge_dim) if edge_dim > 0 else 0
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList()
 
         if self.kind == "attn":
-            # Use TransformerConv with optional edge attributes
             in_ch = in_dim
             for li in range(layers):
                 out_ch = hidden_dim
@@ -47,7 +45,6 @@ class _GraphTokenEncoder(nn.Module):
                 self.norms.append(nn.LayerNorm(out_ch))
                 in_ch = out_ch
         else:
-            # Simple SAGE stack; no edge features
             in_ch = in_dim
             for li in range(layers):
                 out_ch = hidden_dim
@@ -55,7 +52,6 @@ class _GraphTokenEncoder(nn.Module):
                 self.norms.append(nn.LayerNorm(out_ch))
                 in_ch = out_ch
 
-        # After pooling (mean + max → 2 * hidden)
         self.proj = nn.Linear(hidden_dim * 2, hidden_dim)
 
     def _normalize_edge_attr(
@@ -64,8 +60,6 @@ class _GraphTokenEncoder(nn.Module):
         edge_index: torch.Tensor,
         x_like: torch.Tensor,
     ) -> torch.Tensor | None:
-        """Make edge_attr match expected width for attention convs."""
-        # If we don’t use edge attributes (self.edge_dim is None), return None.
         if self.edge_dim is None:
             return None
 
@@ -81,8 +75,6 @@ class _GraphTokenEncoder(nn.Module):
             edge_attr = edge_attr.view(-1, 1)
 
         edge_attr = edge_attr.to(dtype=dtype, device=device)
-
-        # pad / truncate to match want
         c = edge_attr.size(1)
         if c < want:
             pad = torch.zeros((E, want - c), dtype=dtype, device=device)
@@ -90,7 +82,6 @@ class _GraphTokenEncoder(nn.Module):
         elif c > want:
             edge_attr = edge_attr[:, :want]
 
-        # row count sanity
         if edge_attr.size(0) != E:
             if E == 0:
                 edge_attr = torch.zeros((0, want), dtype=dtype, device=device)
@@ -119,7 +110,6 @@ class _GraphTokenEncoder(nn.Module):
             if self.kind == "attn":
                 edge_attr_norm = self._normalize_edge_attr(edge_attr, edge_index, x)
                 if edge_attr_norm is None:
-                    # (keeps your original fallback behavior)
                     num_edges = edge_index.size(1)
                     dummy_edge_attr = torch.zeros((num_edges, 1), dtype=x.dtype, device=x.device)
                     x = conv(x, edge_index, dummy_edge_attr)
@@ -199,7 +189,6 @@ class DualStreamCrossGraphNet(nn.Module):
         ast_data: Optional[Data] = None,
         dfg_data: Optional[Data] = None,
     ) -> torch.Tensor:
-        # Allow SingleBranch-style calls by remapping single arguments to the active stream
         if self.use_ast and not self.use_dfg and ast_data is None and dfg_data is not None:
             ast_data, dfg_data = dfg_data, None
         if self.use_dfg and not self.use_ast and dfg_data is None and ast_data is not None:

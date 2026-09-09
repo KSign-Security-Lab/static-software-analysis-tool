@@ -1,24 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Analyze graph JSON at scale:
-- Reads JSON arrays or JSONL (optionally .gz) of graphs with {nodes:[...], edges:[...]}.
-- Normalizes into two tables: nodes, edges.
-- Writes sharded Parquet for scale; also writes CSV summaries.
-- Computes distributions: node types, sink flags, degree stats, call names, edge flows.
-- Optional charts (PNG) for quick visual checks.
-
-Requirements:
-  pip install polars pyarrow tqdm matplotlib
-
-Usage:
-  python analyze_graph_json.py \
-    --input "data/**/*.jsonl.gz" \
-    --outdir out \
-    --format jsonl \
-    --batch-size 200000 \
-    --charts
-"""
 
 import argparse
 import glob
@@ -28,10 +8,8 @@ import os
 import sys
 from typing import Any, Dict, Iterable, List, Tuple
 
-# Charts (optional)
 import matplotlib.pyplot as plt
 
-# Data/compute
 import polars as pl
 from tqdm import tqdm
 
@@ -43,10 +21,6 @@ def open_text(path: str):
 
 
 def iter_graphs_from_file(path: str, file_format: str) -> Iterable[Dict[str, Any]]:
-    """
-    Yields one graph object at a time.
-    file_format: 'jsonl' (one graph per line) or 'json' (array of graphs)
-    """
     with open_text(path) as f:
         if file_format == "jsonl":
             for line in f:
@@ -60,7 +34,6 @@ def iter_graphs_from_file(path: str, file_format: str) -> Iterable[Dict[str, Any
                 for g in data:
                     yield g
             else:
-                # supports top-level object with list inside (rare)
                 for g in data.get("graphs", []):
                     yield g
         else:
@@ -89,7 +62,6 @@ def extract_rows(graph: Dict[str, Any], graph_id: int) -> Tuple[List[Dict[str, A
                 "label": d.get("label"),
                 "argCount": d.get("argCount"),
                 "reason": d.get("reason"),
-                # Keep file/type if present for per-file rollups later
                 "file": d.get("file"),
                 "type_dbg": d.get("type"),
             }
@@ -120,12 +92,9 @@ def build_summaries(nodes_glob: str, edges_glob: str, outdir: str, charts: bool)
 
     nodes = pl.scan_parquet(nodes_glob)
     edges = pl.scan_parquet(edges_glob)
-
-    # 1) Node Types — Counts
     node_type_counts = nodes.group_by("nodeType").agg(pl.len().alias("count")).sort("count", descending=True).collect()
     node_type_counts.write_csv(os.path.join(outdir, "node_types_counts.csv"))
 
-    # 2) Sink Flags — Counts
     sink_cols = [
         "isBufferAccess",
         "isSinkAssignment",
@@ -136,7 +105,6 @@ def build_summaries(nodes_glob: str, edges_glob: str, outdir: str, charts: bool)
     sink_counts = nodes.select(sink_exprs).collect()
     sink_counts.write_csv(os.path.join(outdir, "sink_flags_counts.csv"))
 
-    # 3) Degree Stats by nodeType
     deg_stats = (
         nodes.group_by("nodeType")
         .agg(
@@ -161,17 +129,13 @@ def build_summaries(nodes_glob: str, edges_glob: str, outdir: str, charts: bool)
     )
     deg_stats.write_csv(os.path.join(outdir, "degree_stats_by_nodeType.csv"))
 
-    # 4) Call Names — Counts
     call_counts = nodes.group_by("callName").agg(pl.len().alias("count")).sort("count", descending=True).collect()
     call_counts.write_csv(os.path.join(outdir, "call_names_counts.csv"))
 
-    # 5) Edge flow distribution
     edge_flows = edges.group_by("flow").agg(pl.len().alias("count")).sort("count", descending=True).collect()
     edge_flows.write_csv(os.path.join(outdir, "edge_flow_counts.csv"))
 
-    # Optional charts
     if charts:
-        # inDegreeDFG histogram
         nd = nodes.select(pl.col("inDegreeDFG")).collect()
         vals = nd["inDegreeDFG"].drop_nulls().to_list()
         if vals:
@@ -184,7 +148,6 @@ def build_summaries(nodes_glob: str, edges_glob: str, outdir: str, charts: bool)
             plt.savefig(os.path.join(outdir, "hist_inDegreeDFG.png"), dpi=160)
             plt.close()
 
-        # outDegreeDFG histogram
         nd2 = nodes.select(pl.col("outDegreeDFG")).collect()
         vals2 = nd2["outDegreeDFG"].drop_nulls().to_list()
         if vals2:
@@ -216,7 +179,6 @@ def main():
     )
     ap.add_argument("--charts", action="store_true", help="Emit basic PNG charts.")
     args = ap.parse_args()
-
     paths = sorted(glob.glob(args.input, recursive=True))
     if not paths:
         print("No files matched --input pattern.", file=sys.stderr)
@@ -253,7 +215,6 @@ def main():
                 edge_shard_idx += 1
                 edges_batch.clear()
 
-    # flush remaining
     if nodes_batch:
         df = pl.DataFrame(nodes_batch)
         write_parquet_shard(df, args.outdir, "nodes", node_shard_idx)
