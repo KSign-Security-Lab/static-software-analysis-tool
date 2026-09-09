@@ -36,7 +36,7 @@ services:
   # Behind a profile so a plain `docker compose up` for Joern does not pull 20 GB.
   # That also means a bare `docker compose up -d` silently leaves it out, which
   # reads as a failure -- so start it by name instead:
-  #   scripts/ssat.sh up vllm
+  #   docker compose --profile vllm up -d --wait vllm
   vllm:
     image: vllm/vllm-openai:latest
     container_name: ssat-vllm
@@ -90,7 +90,7 @@ services:
 
   # SEC-bench's own Docker daemon, so its images do not land on the host's.
   #
-  #   scripts/ssat.sh up secbench
+  #   docker compose --profile secbench up -d --wait secbench-docker
   #
   # The full set of evaluation images is around 200 GB. `/var/lib/docker` is on
   # the system disk, and image layers live in a daemon's data-root -- a volume

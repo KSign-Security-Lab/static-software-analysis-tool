@@ -116,9 +116,9 @@ def ingested(tmp_path: Path) -> Path:
 
 
 def test_re_ingesting_an_unchanged_corpus_does_no_work(ingested: Path, monkeypatch) -> None:
-    """The property `scripts/ssat.sh up` depends on.
+    """The property re-ingesting depends on.
 
-    Ingest runs on every dev start. Constructing the embedder costs about five
+    Ingest re-runs after a corpus edit. Constructing the embedder costs about five
     seconds cold, so "is there anything to do" has to be answered before the
     model is touched -- not after. Asserting on the count alone would pass even
     if it loaded the model to discover there was nothing to embed.

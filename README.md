@@ -60,7 +60,7 @@ and the repo still builds.
 - A CPG backend, either:
   - **jpype** (default) — a local Joern install; point `JOERN_HOME` at its
     `joern-cli` directory. Runs in-process, no container.
-  - **docker** — the bundled Joern image (`scripts/ssat.sh up joern`).
+  - **docker** — the bundled Joern image (`docker compose up -d joern`).
 - Node 20+ for the web UI
 
 ## Quick start
@@ -102,7 +102,13 @@ pseudo-call in place, which is the shape templates written before this produced.
 ## Web UI and API
 
 ```bash
-scripts/ssat.sh api         # FastAPI on :8001 with auto-reload
+# The API on :8001. --reload-dir and --timeout-graceful-shutdown are both
+# load-bearing; api/README.md says why.
+uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
+  --reload --timeout-graceful-shutdown 2 \
+  --reload-dir api --reload-dir packages/ssat/src/ssat \
+  --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
+
 cd web && npm run dev       # Next.js on :3000
 ```
 
@@ -117,19 +123,26 @@ return the SSAT pipeline's own artifacts.
 ## LLM inspection
 
 ```bash
-scripts/ssat.sh setup      # once
-scripts/ssat.sh up         # vLLM + API + web, one terminal
+uv sync && (cd web && npm install)                 # once
+cp .env.example .env                               # which model, which GPUs, where the weights go
+docker compose --profile vllm up -d --wait vllm    # the model server, on :8000
+docker compose up -d --wait postgres               # the run database
+agent corpus ingest                                # the corpus of known weaknesses
 ```
 
-`up` shows the vLLM config and offers to start everything or just some of the
-containers. The first run asks which model, which GPUs, and where to keep the
-weights, and writes them to `.env`. Compose reads that file itself; edit it, or
-press `c` at the prompt, or run `scripts/ssat.sh up --reconfigure`.
+`agent corpus ingest` embeds `corpus/` into Postgres so `search_corpus` has
+something to answer with. Run it after a checkout and after editing the corpus;
+sample ids are content-derived, so an unchanged corpus costs one query and never
+loads the embedding model.
 
-Choosing everything starts vLLM, reads the served model id back so `AGENT_MODEL`
-is never guessed, and runs the API and web on the host where their reloaders
-work. Ctrl-C stops those two; the containers keep running, and
-`scripts/ssat.sh down` stops them.
+Which weights, which tool-call and reasoning parser, which GPUs and where the
+cache lives are the `VLLM_*` variables in `.env`; Compose reads that file
+itself. `--wait` blocks until the server answers, which on a cold cache is a
+download.
+
+`AGENT_MODEL` does not have to be set: unset means ask the endpoint, and the
+served id — whatever `--served-model-name` chose — is the only right answer.
+Set it explicitly when one server serves several models.
 
 ```bash
 agent endpoints                  # what is reachable, and what it serves
@@ -156,27 +169,9 @@ Model choice, GPU sizing, port conflicts and how to read the output are in
 
 ## Development
 
-`scripts/ssat.sh` is the one entry point: run it bare for a menu of both the
-container stack and the dev tasks, or name any entry as an argument.
-
-```bash
-scripts/ssat.sh             # the menu
-scripts/ssat.sh check       # everything CI runs
-scripts/ssat.sh demo        # vLLM + an inspection of the sample tree
-scripts/ssat.sh status      # which containers and host processes are up
-scripts/ssat.sh logs vllm   # follow one container
-```
-
-`up`, `down`, `delete`, `status` and `logs` take a container name — `vllm`,
-`postgres`, `joern`, `secbench` — and ask which one when you leave it out.
-`delete` removes containers only: stored runs, downloaded weights and
-SEC-bench's images are never touched.
-
-The dev tasks are declared in **`[tool.tasks]` in `pyproject.toml`** — the
-`package.json` scripts block for the parts of this repo that are not npm. The
-script only dispatches those, so the list and the commands cannot drift.
-
-Or invoke the tools directly:
+There is no task runner and no wrapper script. Every command below is the real
+one, so what you run locally is what CI runs and what this file can be checked
+against.
 
 ```bash
 ruff check
@@ -188,10 +183,37 @@ cd web && npm run type-check && npm run lint && npm run test
 ```
 
 No path arguments: the targets live in `pyproject.toml`, so there is one
-definition of what gets checked rather than one per caller.
+definition of what gets checked rather than one per caller. That is exactly what
+CI runs — see `.github/workflows/ci.yml`.
 
-That is exactly what CI runs — see `.github/workflows/ci.yml`, which invokes
-the same commands directly rather than going through a task runner.
+The containers, by name — `vllm` and `secbench` are profile-gated, and Compose
+silently matches nothing if the profile is left off:
+
+```bash
+docker compose ps -a                                     # what is up
+docker compose up -d --wait postgres joern               # start
+docker compose --profile vllm up -d --wait vllm
+docker compose --profile vllm logs -f --tail 200 vllm    # follow one
+docker compose stop vllm                                 # stop, keep it
+docker compose --profile vllm rm -sf vllm                # remove the container
+```
+
+Removing a container is safe: stored runs live in a named volume, the weights in
+`HF_HOME`, and SEC-bench's images in its own daemon's data root. None of the
+three goes with the container.
+
+The other things worth knowing about:
+
+```bash
+python -m agent.schema_ts --write && python -m ssat.schema_ts --write
+agent inspect -v packages/agent/tests/fixtures/sample
+agent bench sweep
+```
+
+The first regenerates `web/lib/agent-schema.ts` from the pydantic wire models
+and a test fails on drift. The second is the end-to-end check that a model
+server, the database and the graph all work. The third is the unattended
+SEC-bench sweep — see `packages/agent/README.md`.
 
 ### Golden snapshots
 

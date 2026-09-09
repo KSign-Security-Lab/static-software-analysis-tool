@@ -87,12 +87,15 @@ it is recovered without loosening the match.
 ## Quickstart
 
 ```bash
-scripts/ssat.sh setup   # once
-scripts/ssat.sh up
+uv sync                                            # once
+cp .env.example .env                               # then edit it
+docker compose --profile vllm up -d --wait vllm
+docker compose up -d --wait postgres
+agent corpus ingest                                # once, and after editing corpus/
 ```
 
-The first `up` asks which model, which GPUs, and where to keep the weights, then
-writes the answers to `.env`:
+`.env` is where a machine says which model it serves, which GPUs it has and
+where the weights go. Compose reads it on its own:
 
 ```
 VLLM_MODEL=Qwen/Qwen3.8-27B-FP8
@@ -107,22 +110,19 @@ The default is Qwen3.8-27B at FP8: about 31 GiB of weights, so one 48 GiB card
 with `VLLM_TP=1`. FP8 wants sm89 or newer — on an Ampere card vLLM dequantises
 to bf16 and the model no longer fits, so pick a GPU accordingly.
 
-Compose reads `.env` on its own. `up` shows the current config and takes `c` to
-change it; you can also edit the file, or run `scripts/ssat.sh up --reconfigure`.
-
-It then starts vLLM, reads the served model id back so `AGENT_MODEL` is never
-guessed, and runs the API and web on the host where their reloaders work. Ctrl-C
-stops those two; vLLM keeps running, because reloading weights costs minutes.
-`scripts/ssat.sh down vllm` stops it.
+`--wait` blocks until the server answers `/v1/models`, which on a cold cache
+means the download finished. Nothing has to be told the model id afterwards:
+`AGENT_MODEL` unset means ask the endpoint, and the served id is the only right
+answer.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `VLLM_MODEL` | asked on first run | Hugging Face id |
-| `VLLM_GPUS` | asked when there is more than one | Device ids, e.g. `0,1` |
+| `VLLM_MODEL` | `Qwen/Qwen3.8-27B-FP8` | Hugging Face id |
+| `VLLM_GPUS` | `0` | Device ids, e.g. `0,1` |
 | `VLLM_TP` | `1` | Tensor-parallel size; `2` with two GPUs |
-| `HF_HOME` | asked on first run | **Where weights are downloaded to** |
-| `VLLM_TOOL_PARSER` | chosen with the model | Tool-call parser; must match the model family |
-| `VLLM_REASONING_PARSER` | chosen with the model | Only for models that think in-band; blank passes no flag |
+| `HF_HOME` | `~/.cache/huggingface` | **Where weights are downloaded to** |
+| `VLLM_TOOL_PARSER` | `qwen3_coder` | Tool-call parser; must match the model family |
+| `VLLM_REASONING_PARSER` | `qwen3` | Only for models that think in-band; blank passes no flag |
 | `VLLM_MAX_LEN` | `16384` | Must clear `AGENT_CONTEXT_CHARS` in tokens |
 | `VLLM_MAX_SEQS` | `32` | Concurrent sequences; also caps CUDA-graph capture |
 | `VLLM_PORT` | `8000` | Host port, vLLM's own default; the API is on 8001 |
@@ -132,19 +132,41 @@ torch 2.4, which predates `torch.library.infer_schema`, and this workspace is on
 Python 3.14, which vLLM does not publish wheels for. `--served-model-name` pins
 the served id to `agent`, so `AGENT_MODEL` does not change when the weights do.
 
-Without the wrapper:
-
 ```bash
-docker compose --profile vllm up -d --wait vllm
-docker compose --profile vllm logs -f vllm
-docker compose --profile vllm rm -sf vllm
+docker compose --profile vllm logs -f --tail 200 vllm
+docker compose stop vllm                     # keep the container
+docker compose --profile vllm rm -sf vllm    # remove it; the weights stay in HF_HOME
 ```
 
-### Doing it by hand
+### Models this has been run against
+
+The parser is the part that is easy to get wrong: vLLM refuses tool calling
+without one for the family, and the wrong one breaks it silently — verification
+falls back to context-only and says so. `vllm serve --help=all` lists all 33.
+Every id here was checked against the Hugging Face API; it is a starting point,
+not a whitelist.
+
+| `VLLM_MODEL` | what it is | ~GiB | `VLLM_TOOL_PARSER` | `VLLM_REASONING_PARSER` | GPUs |
+| --- | --- | --- | --- | --- | --- |
+| `Qwen/Qwen3.8-27B-FP8` | thinking; needs an sm89+ card | 31 | `qwen3_coder` | `qwen3` | 1 |
+| `Qwen/Qwen2.5-Coder-32B-Instruct-AWQ` | 4-bit code specialist | 19 | `hermes` | | 1 |
+| `Qwen/Qwen2.5-Coder-14B-Instruct` | FP16 | 28 | `hermes` | | 1 |
+| `mistralai/Devstral-Small-2507` | 24B, built for code agents | 48 | `mistral` | | 2 |
+| `openai/gpt-oss-20b` | MXFP4 | 13 | `openai` | *(none: vLLM parses harmony itself)* | 1 |
+| `openai/gpt-oss-120b` | MXFP4 | 61 | `openai` | *(none)* | 2 |
+| `deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct` | 16B MoE | 32 | `deepseek_v3` | | 1 |
+| `meta-llama/Llama-3.1-8B-Instruct` | gated: needs `HF_TOKEN` | 16 | `llama3_json` | | 1 |
+| `zai-org/GLM-4.5-Air` | 106B MoE | 60 | `glm45` | | 2 |
+| `ibm-granite/granite-3.3-8b-instruct` | | 16 | `granite` | | 1 |
+| `Qwen/Qwen2.5-0.5B-Instruct` | plumbing test only, finds nothing | 1 | `hermes` | | 1 |
+
+A model wanting two GPUs needs `VLLM_TP=2` with it, or it fails to allocate.
+
+### From the terminal
 
 ```bash
 export AGENT_BASE_URL=http://localhost:8000/v1
-export AGENT_MODEL=agent          # must match `curl $AGENT_BASE_URL/models`
+export AGENT_MODEL=agent          # optional; unset asks the endpoint
 
 agent index   path/to/src         # deterministic, no model calls
 agent inspect path/to/src -v      # the real thing
@@ -154,8 +176,8 @@ agent endpoints                   # what is reachable, and what it serves
 
 ### Choosing a model
 
-Any model vLLM can serve works -- the picker lists a few verified ids, and
-"something else" takes any Hugging Face id. Two things actually constrain the
+Any model vLLM can serve works -- the table above lists the verified ids, and
+`VLLM_MODEL` takes any Hugging Face id. Two things actually constrain the
 choice.
 
 **It needs a tool-call parser for its family.** vLLM refuses tool calling
@@ -163,11 +185,12 @@ without one and the wrong one breaks it silently, which costs verification its
 tools. `vllm serve --help=all` lists all 33: `hermes`, `qwen3_coder`,
 `mistral`, `llama3_json`, `llama4_json`, `openai`, `deepseek_v3`, `glm45`,
 `glm47`, `granite`, `jamba`, `phi4_mini_json`, `pythonic`, `kimi_k2`,
-`minimax`, `internlm`, `seed_oss`, `xlam` and more. The picker sets it with the
-model; for a custom id it asks, because it cannot be guessed from the name.
+`minimax`, `internlm`, `seed_oss`, `xlam` and more. It goes in `.env` beside
+the model, because it cannot be guessed from the name.
 
-**It has to be big enough to finish the schema.** guarantees the output *matches* the schema, not that the model
-ever finishes it. A model too small for `ChunkAnalysis` emits a valid-so-far
+**It has to be big enough to finish the schema.** Guided decoding guarantees
+the output *matches* the schema, not that the model ever finishes it. A model
+too small for `ChunkAnalysis` emits a valid-so-far
 prefix until it runs out of room -- measured on a 0.5B, which spent 8048 tokens
 without closing the object. `AGENT_MAX_TOKENS` (default 4096) bounds that into a
 fast, legible failure rather than a slow one, and the log says which model is at
@@ -356,7 +379,10 @@ is what calls the handlers.
 ### From the browser
 
 ```bash
-scripts/ssat.sh api               # FastAPI on :8001
+uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
+  --reload --timeout-graceful-shutdown 2 \
+  --reload-dir api --reload-dir packages/ssat/src/ssat \
+  --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
 cd web && npm run dev             # Next.js on :3000
 ```
 
@@ -417,12 +443,43 @@ misbehaving:
 AGENT_RUN_ID=<run> agent-mcp                # stdio
 ```
 
+## SEC-bench
+
+The public benchmark, run offline. Each instance is a real CVE: a ~3GB image, an
+inspection, a patch, and their evaluator's verdict on it — roughly half an hour
+each, over two hundred of them.
+
+```bash
+agent bench status      # every knob, and how much has been done
+agent bench fetch       # the dataset; 3.7MB
+agent bench run         # inspect and patch the selection
+agent bench score       # their evaluator over the accumulated patches
+agent bench sweep       # all of the above, unattended
+```
+
+Split into steps because each has a different cost and a different way of going
+wrong: `fetch` is network, `prepare` is gigabytes of it, `run` is the model, and
+`score` is a compiler. `sweep` is the one you start in tmux and walk away from —
+it checks every cheap precondition first (a model answering, its own Docker
+daemon up, the disk actually writable, room on both filesystems), because the
+failure worth preventing is discovering at hour six that the model was down and
+ten instances failed identically.
+
+It logs to `$SECB_ROOT/sweep.log` as well as to the terminal, and it is
+resumable: an instance that already has a result is skipped, so a re-run after a
+crash, a reboot or a Ctrl-C continues where it stopped. There is no `--detach` —
+tmux, screen or nohup does that better. 벤치마크 in the web UI starts and follows
+the same command.
+
+Every setting is an `SECB_*` variable read from the environment or `.env`, and
+they are all in one place with their reasons: `src/agent/bench/config.py`.
+
 ## Configuration
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `AGENT_BASE_URL` | `http://localhost:8000/v1` | OpenAI-compatible endpoint |
-| `AGENT_MODEL` | *(none — required)* | Model id the endpoint serves |
+| `AGENT_MODEL` | *(the endpoint's, when it serves one)* | Model id the endpoint serves |
 | `AGENT_DATABASE_URL` | `postgresql+psycopg://ssat:ssat@localhost:5432/ssat` | Where runs live |
 | `AGENT_CONTEXT_CHARS` | `24000` | Context-pack budget per chunk |
 | `AGENT_MAX_TOKENS` | `4096` | Ceiling on one response; bounds a model that cannot finish the schema |

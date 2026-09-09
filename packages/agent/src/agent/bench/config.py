@@ -81,13 +81,34 @@ DEFAULT_IMAGE_TAG = "patch"
 SOCKET_NAME = "run/docker.sock"
 
 
-def _repo_root() -> Path:
+def repo_root() -> Path:
     """The checkout, found the way `default_prompts_file` finds it."""
     current = Path.cwd().resolve()
     for candidate in (current, *current.parents):
         if (candidate / "pyproject.toml").exists():
             return candidate
     return current
+
+
+def load_env(path: Path | None = None) -> None:
+    """`.env` into the environment, without overriding anything already set.
+
+    Compose reads that file itself; a bench command has to be told, and the
+    machine-specific paths this config falls back on live nowhere else. Only
+    `KEY=value` lines, because that is all the file is.
+    """
+    env_file = path or repo_root() / ".env"
+    try:
+        text = env_file.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        # `${HOME}` in a value is Compose's syntax and reads the same here.
+        os.environ.setdefault(key.strip(), os.path.expandvars(value.strip().strip("\"'")))
 
 
 def default_root() -> Path:
@@ -100,8 +121,12 @@ def default_root() -> Path:
     """
     override = os.getenv(ENV_ROOT)
     if override:
-        return Path(override).expanduser()
-    return _repo_root() / "artifacts" / "secbench"
+        path = Path(override).expanduser()
+        # A relative override is relative to the checkout, not to wherever the
+        # command was typed: `.env` says `./artifacts/secbench` and means the
+        # one in the repository, whichever directory `agent bench` ran from.
+        return path if path.is_absolute() else repo_root() / path
+    return repo_root() / "artifacts" / "secbench"
 
 
 def _env_int(name: str, default: int) -> int:

@@ -203,8 +203,8 @@ def ingest(root: Path | None = None, config: AgentConfig | None = None) -> dict[
     and whitespace-normalised, so re-ingesting unchanged code computes the same
     ids and finds them all present.
 
-    That matters more than it sounds. This runs from `scripts/ssat.sh up` on every
-    dev start, and constructing the embedder costs about five seconds cold -- so
+    That matters more than it sounds. This is re-run after every edit to the
+    corpus, and constructing the embedder costs about five seconds cold -- so
     the check for "is there anything to do" happens *before* the model is
     touched, and a corpus that has not changed costs one query.
     """

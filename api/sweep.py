@@ -10,9 +10,9 @@ What this does *not* do is run the sweep in the API. A subprocess is the whole
 point: uvicorn's reloader kills its children on every code change, and a sweep
 that died because somebody saved a file would be worse than no button at all.
 
-The script is the one at `scripts/secbench-sweep.sh` -- the same one you would
-run in tmux. It already checks its preconditions, logs as it goes and resumes
-where it stopped, so there is nothing here worth reimplementing, and two
+What it runs is `agent bench sweep` -- the same command you would start in
+tmux. That already checks its preconditions, logs as it goes and resumes where
+it stopped, so there is nothing here worth reimplementing, and two
 implementations of "run the sweep" would drift.
 """
 
@@ -24,6 +24,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -32,15 +33,18 @@ log = logging.getLogger(__name__)
 
 #: The repository root, from this file.
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "secbench-sweep.sh"
+
+#: The sweep, run through this interpreter rather than a console script: the API
+#: is already inside the venv, and `sys.executable` cannot name the wrong one.
+SWEEP_ARGV = (sys.executable, "-m", "agent.cli", "bench", "sweep")
 
 #: How much of the log the surface gets. Enough to see the current instance and
 #: what went wrong before it, not enough to make polling expensive.
 TAIL_BYTES = 16_000
 TAIL_LINES = 40
 
-#: The script colours its own output, and the codes are in the file because
-#: `tee` writes what it is given. Harmless in a terminal, literal in a browser.
+#: The sweep colours its own output, and the codes reach the file because it
+#: tees what it is given. Harmless in a terminal, literal in a browser.
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 #: `bench: [7/200] njs.cve-2022-32414`, which the runner writes per instance.
@@ -103,7 +107,7 @@ def _alive(pid: int) -> bool:
     except OSError:
         # No procfs. Signal 0 succeeding is the best this platform offers.
         return True
-    return "secbench-sweep" in cmdline
+    return "agent.cli" in cmdline and "sweep" in cmdline
 
 
 def _tail(path: Path) -> list[str]:
@@ -146,7 +150,7 @@ def status() -> dict[str, Any]:
     running = bool(record) and _alive(int(record.get("pid", -1)))
     lines = _tail(logfile)
     if not running:
-        # Anything the script said before it took over its own logging, which is
+        # Anything the sweep said before it took over its own logging, which is
         # the only window where a failure would otherwise vanish.
         lines += [f"[시작 실패] {line}" for line in _tail(bootfile)]
     instance, position, total = _position(lines)
@@ -180,17 +184,15 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
     picking an instance that already has a result and watching it be skipped
     is not what anyone means by choosing it.
 
-    `start_new_session` is the load-bearing argument: it puts the script in its
+    `start_new_session` is the load-bearing argument: it puts the sweep in its
     own session and process group, so it does not die with the API worker that
     spawned it, and so stopping it later can signal the whole group rather than
-    a shell that has already handed off to python.
+    only the process that is waiting on docker.
     """
     pidfile, logfile, bootfile = _paths()
     record = _read_pidfile(pidfile)
     if record and _alive(int(record.get("pid", -1))):
         raise RuntimeError("이미 돌고 있습니다")
-    if not SCRIPT.is_file():
-        raise RuntimeError(f"{SCRIPT} 가 없습니다")
 
     # Appended, never truncated: a sweep is resumable and the log of the run
     # that crashed is how you find out why.
@@ -208,7 +210,7 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
         raise RuntimeError(f"{logfile.parent} 에 쓸 수 없습니다 — 디스크를 확인하세요: {err}") from err
 
     env = {**os.environ}
-    # Spawned from a service, PATH can be short of the things the script checks
+    # Spawned from a service, PATH can be short of the things the sweep checks
     # for first. Adding rather than replacing, so a configured PATH still wins.
     env["PATH"] = env.get("PATH", "") + ":/usr/local/bin:/usr/bin:/bin"
 
@@ -218,18 +220,18 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
     env["SECB_INSTANCES"] = ",".join(instances or ())
     env["SECB_RESUME"] = "1" if resume else "0"
 
-    # Discarded, not written to the log. The script's own `tee` writes the log
-    # *and* passes everything through to whatever it inherited, so pointing this
-    # at the same file wrote every line twice.
+    # Discarded, not written to the log. The sweep tees its own output into the
+    # log *and* through to whatever it inherited, so pointing this at the same
+    # file wrote every line twice.
     #
-    # stderr goes to its own small file instead: after the script redirects, its
-    # stderr goes through tee too, so this only ever catches what was said
-    # before logging started -- which is exactly the output that would otherwise
-    # be lost.
+    # stderr goes to its own small file instead: once the sweep has redirected
+    # its descriptors, its stderr is teed too, so this only ever catches what
+    # was said before logging started -- which is exactly the output that would
+    # otherwise be lost.
     boot = bootfile.open("w", encoding="utf-8")
     try:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-            ["/usr/bin/env", "bash", str(SCRIPT)],
+            list(SWEEP_ARGV),
             cwd=str(ROOT),
             stdout=subprocess.DEVNULL,
             stderr=boot,
@@ -257,9 +259,10 @@ def start(instances: list[str] | None = None, split: str = "cve", resume: bool =
 def stop() -> dict[str, Any]:
     """Ask the sweep to stop, and let it finish the instance it is on.
 
-    SIGTERM to the group rather than the pid, because the pid is bash and the
-    work is in its children. Resumable, so this costs the instance in flight and
-    nothing else -- which is what makes it safe to offer as a button.
+    SIGTERM to the group rather than the pid, because the work that has to stop
+    is in the docker children as much as in the process itself. Resumable, so
+    this costs the instance in flight and nothing else -- which is what makes it
+    safe to offer as a button.
     """
     pidfile, _, _ = _paths()
     record = _read_pidfile(pidfile)

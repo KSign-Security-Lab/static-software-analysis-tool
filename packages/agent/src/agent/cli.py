@@ -334,9 +334,9 @@ def cmd_runs(args: argparse.Namespace) -> int:
 def cmd_corpus(args: argparse.Namespace) -> int:
     """Ingest or describe the corpus of known weaknesses. See `agent/rag/`.
 
-    `ingest` runs from `scripts/ssat.sh up` on every start, so it has to be cheap
-    when nothing has changed: sample ids are content-derived, and an unchanged
-    tree never constructs the embedder at all.
+    `ingest` is run once after a checkout and again after editing the corpus.
+    Cheap when nothing has changed: sample ids are content-derived, and an
+    unchanged tree never constructs the embedder at all.
     """
     from .rag import corpus
 
@@ -484,13 +484,26 @@ def cmd_bench(args: argparse.Namespace) -> int:
     going wrong: `fetch` is 3.7MB of network, `prepare` is gigabytes of it,
     `run` is the model, and `score` is a compiler. A single command would make
     the expensive ones un-skippable after the cheap ones failed.
+
+    `sweep` is all of them in order, with the preconditions checked first -- the
+    unattended one, for tmux. See :mod:`agent.bench.sweep`.
     """
     from .bench import dataset as ds
-    from .bench.config import BenchConfig
+    from .bench.config import BenchConfig, load_env
     from .bench import runner as bench_runner
     from .bench import score as bench_score
 
+    # Where this machine says its space is. Compose reads `.env` itself; this
+    # has to be told, and every path below can come from it.
+    load_env()
     config = BenchConfig()
+
+    if args.action == "sweep":
+        from .bench.sweep import sweep as run_sweep
+
+        # The phases come back through here, so `agent bench run` and the `run`
+        # phase of a sweep are the same code rather than two that agree today.
+        return run_sweep(config, lambda action: cmd_bench(argparse.Namespace(action=action)))
 
     if args.action == "status":
         for key, value in config.describe().items():
@@ -599,7 +612,7 @@ def build_parser() -> argparse.ArgumentParser:
     tune_parser.set_defaults(func=cmd_tune)
 
     bench_parser = subparsers.add_parser("bench", help="The SEC-bench sweep (offline)")
-    bench_parser.add_argument("action", choices=("status", "fetch", "prepare", "run", "score"))
+    bench_parser.add_argument("action", choices=("status", "fetch", "prepare", "run", "score", "sweep"))
     bench_parser.set_defaults(func=cmd_bench)
 
     subparsers.add_parser("runs", help="List previous runs").set_defaults(func=cmd_runs)

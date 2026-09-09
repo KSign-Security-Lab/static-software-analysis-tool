@@ -3,11 +3,14 @@ the CLI and the MCP subprocess agree without threading config through layers."""
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .schema import LENSES, Lens
+
+log = logging.getLogger(__name__)
 
 # vLLM's own default. The SSAT API moved to 8001 to leave it free.
 DEFAULT_BASE_URL = "http://localhost:8000/v1"
@@ -25,7 +28,6 @@ ENV_CORPUS_DIR = "AGENT_CORPUS_DIR"
 ENV_SANDBOX = "AGENT_SANDBOX"
 ENV_REASONING_EFFORT = "AGENT_REASONING_EFFORT"
 ENV_RUN_ID = "AGENT_RUN_ID"
-
 
 
 def _env_int(name: str, default: int) -> int:
@@ -273,7 +275,16 @@ class AgentConfig:
 
     def require_model(self) -> str:
         """Called before the first request, so a misconfigured deployment fails
-        at startup rather than at chunk 400 of 600."""
+        at startup rather than at chunk 400 of 600.
+
+        Unset means ask the endpoint, which is not the same as guessing: the id
+        has to be whatever ``--served-model-name`` chose, and the server is the
+        only thing that knows it. Two served ids is the case that still has to
+        be answered by hand -- picking one of them would be the invented default
+        this deliberately does not have.
+        """
+        if not self.model:
+            self.model = self.resolve_model()
         if not self.model:
             raise RuntimeError(
                 f"No model configured. Set {ENV_MODEL} to a model served by your endpoint "
@@ -281,6 +292,18 @@ class AgentConfig:
                 "There is no default on purpose: a wrong model silently produces plausible nonsense."
             )
         return self.model
+
+    def resolve_model(self) -> str:
+        """The endpoint's model id, when it serves exactly one. Never raises."""
+        from .endpoint import list_models
+
+        served = list_models(self.base_url)
+        if len(served) == 1:
+            log.info("using %s, the only model %s serves", served[0], self.base_url)
+            return served[0]
+        if len(served) > 1:
+            log.warning("%s serves %s -- set %s to one of them", self.base_url, ", ".join(served), ENV_MODEL)
+        return ""
 
     #: Tokens a request spends on things that are not the prompt: the schema the
     #: reply is constrained to, the chat scaffolding, the tool definitions. Not

@@ -98,11 +98,32 @@ JOERN_HOME=/usr/bin/joern/joern-cli \
   uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 --app-dir .
 ```
 
-For development use `scripts/ssat.sh api`, which runs uvicorn `--reload` watching
-`packages/{ssat,agent,graphify}/src` and `api`, and asks the model server which
-model it serves so a scan is not refused with `configured: false`. `scripts/ssat.sh up`
-starts the same server alongside vLLM and the web app. Postgres is required and is
-not behind a compose profile: the API does not start without it.
+For development:
+
+```bash
+uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
+  --reload --timeout-graceful-shutdown 2 \
+  --reload-dir api --reload-dir packages/ssat/src/ssat \
+  --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
+```
+
+The two flags that look optional are not.
+
+`--reload-dir`, or the watcher takes the whole tree: `artifacts/` churns during
+a scan and every write restarted the server mid-run. The list is the packages
+this app imports, not only the two it started with — `packages/agent` was
+missing once, so an edit to the inspection graph left the server running the
+previous one, which looks exactly like a fix that did not work.
+
+`--timeout-graceful-shutdown 2`, or `--reload` is a trap. A reload waits for
+open requests to finish, and the progress stream does not finish: it ends when
+its run ends, and a tab left open on a finished run never delivers that. So
+every edit to a watched file hung the server with the port still listening and
+every request timing out, and the only way out was killing the worker by hand.
+
+Postgres is required and is not behind a compose profile: the API does not start
+without it. `AGENT_MODEL` need not be set — unset asks the endpoint, and a scan
+is refused with `configured: false` only when nothing is answering there.
 
 CORS is open so the Next.js dev server (localhost or tailnet) can call it.
 

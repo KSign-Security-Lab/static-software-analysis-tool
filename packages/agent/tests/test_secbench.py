@@ -462,6 +462,7 @@ def test_an_instance_is_scored_before_its_image_is_removed(tmp_path: Path, monke
     monkeypatch.setattr(
         bench_runner, "_score_now", lambda a, _c: calls.append(f"score:{a.instance_id}") or {"resolved": True}
     )
+
     # Returns a result rather than None: `_prune` reads the image list back out
     # of it to find what the evaluator left behind.
     class Listed:
@@ -534,3 +535,117 @@ def test_an_instance_takes_its_leavings_with_it(monkeypatch) -> None:
     assert "secb.eval.njs.cve-1.built:latest" in removed, "theirs, by search"
     assert ("image", "prune", "-f") in calls, "dangling layers"
     assert ("image", "prune", "-af") not in calls, "-a would take the shared base too"
+
+
+# -- the unattended sweep ----------------------------------------------------
+
+
+def test_a_relative_root_means_the_checkout_not_the_working_directory(monkeypatch) -> None:
+    """`.env` says `./artifacts/secbench` and means the one in the repository,
+    whichever directory `agent bench` was typed in."""
+    from agent.bench.config import repo_root
+
+    repo = repo_root()
+    monkeypatch.setenv("SECB_ROOT", "./artifacts/secbench")
+    monkeypatch.chdir(repo / "docs")
+
+    assert BenchConfig().root == repo / "artifacts" / "secbench"
+
+
+def test_the_env_file_never_overrides_the_environment(monkeypatch) -> None:
+    """An explicit setting is a decision; `.env` is a machine's default. The web
+    UI passes a split by environment and must not be overruled by a file."""
+    import os
+
+    from agent.bench.config import load_env
+
+    monkeypatch.setattr(os, "environ", dict(os.environ))
+    env_file = Path(__file__).parent / "fixtures" / "sweep.env"
+    env_file.write_text('# a comment\nSECB_SPLIT=oss\nSECB_LIMIT=7\nSECB_QUOTED="a"\n', encoding="utf-8")
+    os.environ["SECB_SPLIT"] = "cve"
+    os.environ.pop("SECB_LIMIT", None)
+    try:
+        load_env(env_file)
+    finally:
+        env_file.unlink()
+
+    assert os.environ["SECB_SPLIT"] == "cve"
+    assert os.environ["SECB_LIMIT"] == "7"
+    assert os.environ["SECB_QUOTED"] == "a"
+
+
+def test_a_missing_env_file_is_not_an_error(tmp_path: Path) -> None:
+    from agent.bench.config import load_env
+
+    load_env(tmp_path / "nothing-here")
+
+
+def test_the_log_carries_what_the_terminal_showed(tmp_path: Path, capfd) -> None:
+    """Including docker's output, which is most of it. tmux scrollback is finite
+    and a sweep runs for days, so the log is what is read afterwards.
+
+    With capturing suspended, because this works on the process's own
+    descriptors and pytest has replaced them with its own.
+    """
+    import subprocess
+    import sys
+
+    from agent.bench.sweep import _also_log
+
+    log = tmp_path / "sweep.log"
+    with capfd.disabled():
+        with _also_log(log):
+            print("a line of our own")
+            subprocess.run([sys.executable, "-c", "print('a line of docker\\'s')"], check=True)
+        print("after the sweep, terminal only")
+
+    assert log.read_text(encoding="utf-8").splitlines() == ["a line of our own", "a line of docker's"]
+
+
+def test_a_failed_precondition_spends_nothing(tmp_path: Path, monkeypatch) -> None:
+    """The whole point of the checks: no phase runs if one of them failed."""
+    from agent.bench import sweep as sweep_module
+
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    monkeypatch.setattr(sweep_module, "_preflight", lambda config: False)
+    ran: list[str] = []
+
+    code = sweep_module.sweep(BenchConfig(), lambda action: ran.append(action) or 0)
+
+    assert code == 1
+    assert ran == []
+
+
+def test_a_failed_fetch_never_reaches_the_expensive_phase(tmp_path: Path, monkeypatch) -> None:
+    from agent.bench import sweep as sweep_module
+
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    monkeypatch.setattr(sweep_module, "_preflight", lambda config: True)
+    ran: list[str] = []
+
+    def action(name: str) -> int:
+        ran.append(name)
+        return 1 if name == "fetch" else 0
+
+    assert sweep_module.sweep(BenchConfig(), action) == 1
+    assert "run" not in ran and "score" not in ran
+
+
+def test_the_phases_are_the_bench_actions_themselves(tmp_path: Path, monkeypatch) -> None:
+    """`agent bench run` and the `run` phase of a sweep are one implementation,
+    so they cannot drift."""
+    from agent.bench import sweep as sweep_module
+
+    monkeypatch.setenv("SECB_ROOT", str(tmp_path))
+    monkeypatch.setattr(sweep_module, "_preflight", lambda config: True)
+    monkeypatch.setattr(sweep_module, "_compose", lambda *a, **kw: _Compose())
+    ran: list[str] = []
+
+    assert sweep_module.sweep(BenchConfig(), lambda action: ran.append(action) or 0) == 0
+    assert ran == ["status", "fetch", "run", "score", "status"]
+
+
+class _Compose:
+    returncode = 0
+    stdout = ""
+    stderr = ""

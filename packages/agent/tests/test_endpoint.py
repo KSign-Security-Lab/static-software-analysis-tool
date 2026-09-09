@@ -173,3 +173,40 @@ def test_the_window_is_asked_for_once_and_remembered(mock_get) -> None:
     assert config.resolve_window() == 16384
     assert config.resolve_window() == 16384
     assert len(seen) == 1, "nothing on a hot path should be making this call twice"
+
+
+# -- resolving the model -----------------------------------------------------
+
+
+def test_an_unset_model_is_asked_for_rather_than_invented(mock_get) -> None:
+    """`--served-model-name` decides the id, so the server is the only thing
+    that knows it. Asking is not guessing."""
+    mock_get({"http://localhost:8000/v1/models": _models("agent")})
+    config = AgentConfig(model="", base_url="http://localhost:8000/v1")
+
+    assert config.require_model() == "agent"
+    assert config.model == "agent", "and remembered, so one run asks once"
+
+
+def test_two_served_models_still_have_to_be_chosen_by_hand(mock_get) -> None:
+    """Picking one would be exactly the invented default this does not have."""
+    mock_get({"http://localhost:8000/v1/models": _models("agent", "other")})
+    config = AgentConfig(model="", base_url="http://localhost:8000/v1")
+
+    with pytest.raises(RuntimeError, match="No model configured"):
+        config.require_model()
+
+
+def test_a_dead_endpoint_says_no_model_rather_than_raising_from_the_probe(mock_get) -> None:
+    mock_get({})
+    config = AgentConfig(model="", base_url="http://localhost:8000/v1")
+
+    assert config.resolve_model() == ""
+    with pytest.raises(RuntimeError, match="No model configured"):
+        config.require_model()
+
+
+def test_an_explicit_model_is_never_second_guessed(mock_get) -> None:
+    seen = mock_get({"http://localhost:8000/v1/models": _models("agent")})
+    assert AgentConfig(model="mine", base_url="http://localhost:8000/v1").require_model() == "mine"
+    assert seen == [], "an explicit choice wins without a round trip"

@@ -276,7 +276,7 @@ web_modules/
 
 # dotenv environment variable files
 .env
-# `scripts/ssat.sh --reconfigure` keeps the previous one beside it.
+# A reconfigured machine keeps the previous one beside it.
 .env.bak.*
 .env.development.local
 .env.test.local

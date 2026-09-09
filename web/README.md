@@ -50,7 +50,8 @@ produced it is exactly what resizable panes are for.
   nothing in common on screen; they still run independently, but a result is
   described the same way.
 - **Types** — `lib/agent-schema.ts` and `lib/f2a-schema.ts` are **generated** from
-  pydantic (`scripts/ssat.sh schema`) and a test fails on drift. Do not hand-edit.
+  pydantic (`python -m agent.schema_ts --write`, `python -m ssat.schema_ts --write`)
+  and a test fails on drift. Do not hand-edit.
 - **Design tokens** — `app/theme.css`, three layers: private OKLCH ramps →
   semantic roles per theme → `@theme inline` exposing both the SSAT vocabulary
   (`bg-surface`, `text-ink-muted`) and the shadcn contract. `/dev/tokens` renders
@@ -59,9 +60,11 @@ produced it is exactly what resizable panes are for.
 ## Running
 
 ```bash
-docker compose up -d postgres      # the API does not start without it
-scripts/ssat.sh api                # :8001
-cd web && npm install && npm run dev   # :3000
+docker compose up -d --wait postgres    # the API does not start without it
+uv run uvicorn api.main:app --port 8001 --reload --timeout-graceful-shutdown 2 \
+  --reload-dir api --reload-dir packages/ssat/src/ssat \
+  --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
+cd web && npm install && npm run dev    # :3000
 ```
 
 Override the backend with `NEXT_PUBLIC_API_URL` (see `.env.local.example`). Over
