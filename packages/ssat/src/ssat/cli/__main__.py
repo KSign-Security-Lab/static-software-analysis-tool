@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, cast
 from .logger import SimpleLogger
 from .parser import CliOptions, CliParser
 
-from ssat.cpg.backends import DockerBackend, joern_container_name
+from ssat.cpg.backends import EmbeddedBackend
 from ssat.cpg.generator import SUPPORTED_EXTENSIONS, batch_generate_cpg
 from ssat.types.cpg import CPGRoot
 from ssat.pipeline import (
@@ -119,7 +119,6 @@ def process_single_file(
         if is_source_file:
             cpg = generate_cpg_from_file(
                 file_path,
-                backend=options.backend,
                 representation=options.representation,
             )
         else:
@@ -254,19 +253,16 @@ def main() -> None:
 
         logger.info(f"Found {len(files)} file(s) to process")
 
-        # `cpg` mode runs Joern in the container, not in this process -- its
-        # driver is a process pool, and a pool of workers cannot share one JVM.
-        # One file or a thousand, and whatever `--backend` says.
-        #
-        # Asked here, before anything is created or spent: every worker used to
-        # fail on its own `docker exec`, so a container that was never up was
-        # reported as one error per file, and the output directory was made
-        # anyway.
-        if options.mode == "cpg" and not DockerBackend().is_available():
+        # Asked here, before anything is created or spent. Every pool worker
+        # would otherwise fail on its own missing JARs and report the same
+        # thing once per file, after the output directory had been made.
+        if not EmbeddedBackend().is_available():
+            from ssat.cpg.embedded import joern_home
+
             logger.error(
-                f"the Joern container {joern_container_name()} is not running, and `ssat cpg` needs it.\n"
-                "  start it with:  docker compose up -d joern\n"
-                "  or point at another one:  SSAT_JOERN_CONTAINER=<name> ssat cpg ..."
+                f"no Joern JARs under {joern_home()}, and Joern runs in this process.\n"
+                "  point JOERN_HOME at a joern-cli install:  JOERN_HOME=/path/to/joern-cli ssat ...\n"
+                "  a JDK has to be on the path too."
             )
             sys.exit(1)
 
@@ -276,12 +272,6 @@ def main() -> None:
         workers = int(options.workers) if options.workers else 4
 
         if options.mode == "cpg":
-            # `joern_container_name` rather than rebuilding the name here: this
-            # used to interpolate `$USER` itself, so `SSAT_JOERN_CONTAINER`
-            # worked for every other caller and was silently ignored by exactly
-            # the one that cannot fall back to an in-process JVM.
-            container_name = joern_container_name()
-
             completed = 0
             logger.start_progress(len(files))
 
@@ -296,10 +286,8 @@ def main() -> None:
                 files=files,
                 input_root=input_path,
                 output_root=output_path,
-                container_name=container_name,
                 workers=workers,
                 representation=options.representation,
-                export_format=options.export_format,
                 copy_source=options.copy_source,
                 progress_callback=on_progress,
             )

@@ -17,8 +17,7 @@ export interface Stage {
 }
 
 export const STAGES: Stage[] = [
-  { key: "cpg-jpype", path: "/cpg-jpype", label: "CPG (jpype)", note: "소스 → GraphSON, 인프로세스 Joern", acceptsCpg: false },
-  { key: "cpg-docker", path: "/cpg-docker", label: "CPG (docker)", note: "소스 → GraphSON, Joern 컨테이너", acceptsCpg: false },
+  { key: "cpg-jpype", path: "/cpg-jpype", label: "CPG", note: "소스 → GraphSON, 인프로세스 Joern", acceptsCpg: false },
   { key: "template", path: "/template", label: "Template", note: "CPG → 템플릿 노드", acceptsCpg: true },
   { key: "ast", path: "/ast", label: "AST", note: "CPG → 함수별 AST", acceptsCpg: true },
   { key: "dfg", path: "/dfg", label: "DFG", note: "CPG → 함수별 def-use DFG", acceptsCpg: true },

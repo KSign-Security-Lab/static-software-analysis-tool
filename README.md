@@ -25,7 +25,7 @@ neither `ssat` nor `gnn`.
 ```
 packages/ssat/          the analysis library and the `ssat` CLI
   src/ssat/
-    cpg/                CPG generation: two backends behind one interface
+    cpg/                CPG generation: Joern in this process, via JPype
     template/           CPG -> Template (KAST-style) conversion
     ast/                Template -> per-function AST
     dfg/                AST -> per-function def-use DFG
@@ -57,10 +57,9 @@ and the repo still builds.
 ## Prerequisites
 
 - Python 3.14+ and [uv](https://docs.astral.sh/uv/)
-- A CPG backend, either:
-  - **jpype** (default) — a local Joern install; point `JOERN_HOME` at its
-    `joern-cli` directory. Runs in-process, no container.
-  - **docker** — the bundled Joern image (`docker compose up -d joern`).
+- A local **Joern** install and a **JDK** — Joern's JARs run in this process
+  via JPype. Point `JOERN_HOME` at the `joern-cli` directory (it defaults to
+  `/usr/bin/joern/joern-cli`). There is no container alternative any more.
 - Node 20+ for the web UI
 
 ## Quick start
@@ -89,29 +88,17 @@ ssat template-functions  Template      -> one file per function
 ssat f2a                 CPG           -> OCPP evidence candidates
 ```
 
-The input path is positional. Every subcommand also takes `-o/--output` and
-`--backend {jpype,docker}`; `--workers` parallelises CPG generation only.
+The input path is positional. Every subcommand also takes `-o/--output`;
+`--workers` parallelises CPG generation only.
 
-Which Joern the two backends mean, because it decides whether you need a
-container:
+Joern runs in the process that asks for it, JARs loaded through JPype, so no
+container is involved anywhere. `ssat cpg` over a directory is a process pool
+and each worker starts its own JVM — one JVM cannot be shared across processes
+— so `--workers 4` means four of them, and the memory to match. Without JARs to
+load the command stops before doing any work and says to set `JOERN_HOME`.
 
-- **`jpype`** (default) loads Joern's JARs into this process. A local install
-  and `JOERN_HOME`; no container. This is what the web UI's `/analyze` uses.
-- **`docker`** runs `docker exec` against `ssat-joern-$USER`
-  (`SSAT_JOERN_CONTAINER` overrides the name). No local Joern needed.
-
-`ssat cpg` always takes the container route, whatever `--backend` says, for one
-file as much as for a directory: its driver is a process pool, and a pool of
-workers cannot share one JVM. Start it with `docker compose up -d joern`;
-without it the command stops before doing any work and says which command to
-run.
-
-`--backend` is therefore about the *other* stages, which generate their own CPG
-from source in-process — `ssat f2a --ext c path/to/file.c` needs no container at
-all.
-
-The agent is a separate line of analysis and uses neither: it parses with
-tree-sitter and needs only Postgres.
+The agent is a separate line of analysis and uses neither Joern nor a JVM: it
+parses with tree-sitter and needs only Postgres.
 
 The five stages that build a Template also take `--no-replace-macro`. Joern runs
 no preprocessor: it models a `#define` as a function and each use of it as a
@@ -133,9 +120,9 @@ uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
 cd web && pnpm dev          # Next.js on :3000
 ```
 
-The API exposes `/cpg-jpype`, `/cpg-docker`, `/template`, `/ast`, `/dfg`,
+The API exposes `/cpg-jpype`, `/template`, `/ast`, `/dfg`,
 `/analyze-functions`, `/f2a`, `/analyze` and `/health`. `GET /health` reports
-which CPG backends are usable on this host.
+whether Joern can run on this host.
 
 Note the UI derives AST/CFG/DFG/CG *views* from a CPG client-side, by edge
 label. Those are a different thing from the `/ast` and `/dfg` endpoints, which
@@ -212,7 +199,7 @@ silently matches nothing if the profile is left off:
 
 ```bash
 docker compose ps -a                                     # what is up
-docker compose up -d --wait postgres joern               # start
+docker compose up -d --wait postgres                     # start
 docker compose --profile vllm up -d --wait vllm
 docker compose --profile vllm logs -f --tail 200 vllm    # follow one
 docker compose stop vllm                                 # stop, keep it
@@ -253,10 +240,12 @@ python packages/ssat/tests/generate_golden.py
   memory reads and writes, buffer access, sink classification and guard bounds.
   An earlier second implementation only projected CPG `REF` edges — a filter,
   not an analysis — and has been removed.
-- **Two CPG backends, same output.** `jpype` and `docker` run the same Joern.
-  If they disagree, the two Joern versions differ; the container pins
-  `JOERN_VERSION` in the `Dockerfile`, and
-  `tests/test_cpg_backends.py::test_report_backend_skew` prints the delta.
+- **One CPG engine, in this process.** There was a second that ran `docker
+  exec` into a Joern container, which meant a second Joern to keep in step with
+  the first — and they had drifted, 4.0.377 locally against the container's
+  pinned 4.0.361. The container, the `/cpg-docker` endpoint, the `--backend`
+  flag and the test that measured the skew are all gone. The cost is that a
+  host with no local Joern can no longer generate a CPG.
 - **F2-A is frozen.** See `docs/v2/f2a-milestone-status.md`. Its knowledge base
   (`ssat/f2a/kb.py`) is OCPP protocol semantics and is deliberately separate
   from `ssat/knowledge/`, which holds libc memory facts.

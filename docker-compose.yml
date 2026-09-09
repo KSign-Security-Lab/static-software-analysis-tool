@@ -1,19 +1,18 @@
+# Per-user, so several accounts on one machine do not fight over containers.
+#
+# The name outlives what it was named after: there was a `joern` service here,
+# and Joern runs in the API process now. Renaming the project would rename its
+# volumes with it, and `ssat-joern-${USER}_ssat-postgres` is where every stored
+# run lives -- so the name stays until someone migrates that volume on purpose.
 name: ssat-joern-${USER}
 
 services:
-  joern:
-    build: .
-    container_name: ssat-joern-${USER}
-    restart: unless-stopped
-    volumes:
-      - ./artifacts/workspace:/workspace
-
   # Where every agent run lives. `pgvector/pgvector` rather than plain postgres
   # because `index/embed.py` stores one embedding per chunk and the semantic
   # fallback searches them -- without the extension that search is a scan.
   #
-  # Not behind a profile: the API does not start without it, unlike Joern's
-  # optional companions below.
+  # Not behind a profile: the API does not start without it, unlike the
+  # optional services below.
   postgres:
     image: pgvector/pgvector:pg17
     container_name: ssat-postgres-${USER}

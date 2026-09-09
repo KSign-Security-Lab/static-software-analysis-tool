@@ -3,17 +3,29 @@
 Single-file generation lives in :mod:`ssat.cpg.backends`; this module is the
 process-pool driver on top of it. Supports C, C++, and Java via Joern's
 multi-language frontends.
+
+Each worker starts its own JVM and keeps it warm for every file it is handed,
+which is the whole reason this is a process pool and not a thread pool: one JVM
+cannot be shared across processes, and Joern's frontends are not re-entrant
+within one. `spawn` rather than the default `fork`, because forking a process
+that has already started a JVM gives the child a JVM it cannot use.
+
+One thing the container path had that this does not: a per-file timeout. It
+passed `timeout=300` to `docker exec` and reported a hung file as a failed one.
+A JVM call in this process cannot be interrupted that way -- the only way back
+is killing the worker, which a `ProcessPoolExecutor` task cannot do to itself.
+A file Joern will not finish therefore stalls its worker rather than being
+reported, and the other workers carry on.
 """
 
 import json
+import multiprocessing
 import shutil
-import subprocess
-import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .backends import remove_job_dir, run_joern_in_container, workspace_dir
+from .backends import EmbeddedBackend
 
 # File extensions that Joern can process
 SUPPORTED_EXTENSIONS = frozenset(
@@ -60,40 +72,24 @@ def _worker_generate_one(
     source_file: str,
     input_root: str,
     output_root: str,
-    container_name: str,
-    workspace_dir: str,
     representation: str,
-    export_format: str,
     copy_source: bool = False,
 ) -> Dict[str, Any]:
     """Generate one CPG in a worker process and write it to the output tree.
 
-    The docker invocation itself lives in :func:`ssat.cpg.backends.run_joern_in_container`,
-    shared with the single-file path.
+    The JVM is started lazily by the first file this worker takes and reused by
+    the rest, so the cost is once per worker rather than once per file.
     """
     src = Path(source_file)
     out_root = Path(output_root)
-    job_id = uuid.uuid4().hex[:12]
-    job_dir = Path(workspace_dir) / f"job_{job_id}"
 
     try:
         rel_path = _relative_source_path(src, Path(input_root))
-        job_source = job_dir / rel_path
-        job_source.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, job_source)
-
-        graphson = run_joern_in_container(
-            job_dir,
-            f"/workspace/job_{job_id}/{rel_path}",
-            f"/workspace/job_{job_id}",
-            container_name=container_name,
-            representation=representation,
-            export_format=export_format,
-        )
+        result = EmbeddedBackend().generate_file(src, representation=representation)
 
         output_file = _cpg_json_output_path(out_root, rel_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        output_file.write_text(json.dumps(graphson, indent=2), encoding="utf-8")
+        output_file.write_text(json.dumps(result.graphson, indent=2), encoding="utf-8")
 
         if copy_source:
             source_copy = out_root / rel_path
@@ -102,71 +98,43 @@ def _worker_generate_one(
 
         return {"success": True, "file": source_file, "output": str(output_file)}
 
-    except subprocess.TimeoutExpired:
-        return {"success": False, "file": source_file, "error": "Timed out (300s limit)"}
     except Exception as exc:  # noqa: BLE001 - reported per-file, never kills the batch
         return {"success": False, "file": source_file, "error": str(exc)}
-    finally:
-        remove_job_dir(job_dir, f"/workspace/job_{job_id}", container_name)
 
 
 def batch_generate_cpg(
     files: List[Path],
     input_root: Path,
     output_root: Path,
-    container_name: str,
     workers: int = 4,
     representation: str = "all",
-    export_format: str = "graphson",
     copy_source: bool = False,
     progress_callback: Any = None,
 ) -> List[Dict[str, Any]]:
-    """Generate CPGs for multiple files using multiprocessing.
-
-    Each worker runs joern-parse + joern-export via docker exec in its own
-    unique workspace subdirectory to avoid file collisions.
+    """Generate CPGs for multiple files, one JVM per worker process.
 
     Args:
         files: Source files to process
         input_root: Root directory of the input (for computing relative paths)
         output_root: Where to write the JSON results
-        container_name: Docker container name running Joern
-        workers: Number of parallel workers
+        workers: Number of parallel worker processes, each with its own JVM
         representation: Joern representation (ast, cfg, cpg14, all)
-        export_format: Joern export format (graphson, dot, graphml)
         copy_source: If True, copy original source files alongside JSON output
         progress_callback: Optional callable(result_dict) for progress updates
     """
-    # The one definition of where the container's /workspace is mounted from.
-    # This used to be `<project root>/workspace`, which compose does not mount:
-    # joern-parse then failed on every file, with an empty error, because the
-    # source it was told to read was never inside the container.
-    workspace = workspace_dir()
-    workspace.mkdir(parents=True, exist_ok=True)
-
-    # Ensure workspace has correct permissions in Docker
-    try:
-        subprocess.run(
-            ["docker", "exec", container_name, "chmod", "-R", "777", "/workspace"],
-            capture_output=True,
-            timeout=10,
-        )
-    except Exception:
-        pass
-
     results: List[Dict[str, Any]] = []
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
+    # See the module docstring: fork would hand a child a JVM it cannot use.
+    context = multiprocessing.get_context("spawn")
+
+    with ProcessPoolExecutor(max_workers=workers, mp_context=context) as executor:
         future_to_file = {
             executor.submit(
                 _worker_generate_one,
                 str(f),
                 str(input_root),
                 str(output_root),
-                container_name,
-                str(workspace),
                 representation,
-                export_format,
                 copy_source,
             ): f
             for f in files

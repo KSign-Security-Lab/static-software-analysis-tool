@@ -1,34 +1,22 @@
-"""CPG generation backends: two engines behind one interface.
+"""CPG generation: Joern's JARs in a JVM inside this process.
 
-Both produce the same Joern GraphSON document; they differ only in how Joern is
-invoked.
+There were two engines behind one interface, `jpype` and `docker`. The second
+ran `docker exec` into a Joern container, which meant a second Joern install to
+keep in step with the first -- and they had drifted, 4.0.377 locally against the
+Dockerfile's 4.0.361. It is gone, with the container, the endpoint that reached
+it and the test that measured the skew.
 
-``jpype``
-    Joern's JARs run in a JVM inside this process. No Docker, no subprocess.
-    Fast after the first call (the JVM stays warm), which is what the web UI
-    needs. Requires a local Joern install -- see ``JOERN_HOME``.
-
-``docker``
-    ``docker exec`` into a running Joern container. No local Joern install
-    needed, and it is the engine the parallel batch driver uses
-    (:func:`ssat.cpg.generator.batch_generate_cpg`).
-
-Pick one with :func:`get_backend`.
+What that costs, stated plainly: a host with no local Joern can no longer
+generate a CPG at all. Set ``JOERN_HOME`` to a `joern-cli` install (it defaults
+to `/usr/bin/joern/joern-cli`) and have a JDK on the path -- see
+:mod:`ssat.cpg.embedded`.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
-import subprocess
-import tempfile
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Protocol, runtime_checkable
-
-DEFAULT_TIMEOUT_SECONDS = 300
+from typing import Any, Dict
 
 
 def count_methods(graphson: Dict[str, Any]) -> int:
@@ -57,21 +45,13 @@ class CpgResult:
         return {"export": self.graphson}
 
 
-@runtime_checkable
-class CpgBackend(Protocol):
-    """One way of turning source text into a CPG GraphSON document."""
-
-    name: str
-
-    def is_available(self) -> bool:
-        """True if this backend can run here (JARs present / container up)."""
-
-    def generate(self, source: str, *, filename: str = "main.c", representation: str = "all") -> CpgResult:
-        """Generate a CPG from source text."""
-
-
 class EmbeddedBackend:
-    """In-process Joern via JPype."""
+    """In-process Joern via JPype.
+
+    Still a class rather than two functions: `name` and `is_available` are what
+    `/health` reports, and the JVM being warm after the first call is the reason
+    this is the only engine now.
+    """
 
     name = "jpype"
 
@@ -86,177 +66,6 @@ class EmbeddedBackend:
         graphson = embedded.generate_cpg(source, filename=filename, representation=representation)
         return CpgResult(graphson, count_methods(graphson), self.name)
 
-
-def joern_container_name() -> str:
-    """Container the docker backend talks to (matches docker-compose.yml)."""
-    username = os.getenv("USER") or os.getenv("USERNAME") or "user"
-    return os.getenv("SSAT_JOERN_CONTAINER") or f"ssat-joern-{username}"
-
-
-def remove_job_dir(job_dir: Path, container_work_dir: str, container_name: str) -> None:
-    """Delete a staged job directory, from inside the container first.
-
-    Joern runs as root in there and writes `cpg.bin` and `out/export.json` as
-    root, so a host-side `rmtree` cannot remove them -- and with
-    `ignore_errors=True` it said nothing about failing. 729 job directories and
-    252MB had accumulated in `artifacts/workspace` before anyone looked.
-
-    Best effort by design: a leaked directory is litter, and raising here would
-    turn it into a failed analysis that actually produced its CPG.
-    """
-    try:
-        subprocess.run(
-            ["docker", "exec", container_name, "rm", "-rf", container_work_dir],
-            capture_output=True,
-            timeout=30,
-        )
-    except OSError, subprocess.SubprocessError:
-        pass
-    # The staging directory itself is ours, and empty by now unless the
-    # container never ran.
-    shutil.rmtree(job_dir, ignore_errors=True)
-
-
-def run_joern_in_container(
-    job_dir: Path,
-    container_source: str,
-    container_work_dir: str,
-    *,
-    container_name: str,
-    representation: str = "all",
-    export_format: str = "graphson",
-    timeout: int = DEFAULT_TIMEOUT_SECONDS,
-) -> Dict[str, Any]:
-    """Run joern-parse then joern-export inside the container; return GraphSON.
-
-    Single implementation of the docker invocation. There used to be two -- an
-    async one for single files and a sync one for the batch workers -- issuing
-    the same two ``docker exec`` calls.
-    """
-    parse = subprocess.run(
-        [
-            "docker",
-            "exec",
-            "-w",
-            container_work_dir,
-            container_name,
-            "/opt/joern/joern-cli/bin/joern-parse",
-            container_source,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if parse.returncode != 0:
-        raise RuntimeError(f"joern-parse failed: {parse.stderr}")
-    if not (job_dir / "cpg.bin").exists():
-        raise RuntimeError("cpg.bin not found after joern-parse")
-
-    export = subprocess.run(
-        [
-            "docker",
-            "exec",
-            "-w",
-            container_work_dir,
-            container_name,
-            "/opt/joern/joern-cli/bin/joern-export",
-            f"--repr={representation}",
-            f"--format={export_format}",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if export.returncode != 0:
-        raise RuntimeError(f"joern-export failed: {export.stderr}")
-
-    stdout = export.stdout.strip()
-    if stdout.startswith("{"):
-        try:
-            parsed: Dict[str, Any] = json.loads(stdout)
-            return parsed
-        except json.JSONDecodeError:
-            pass  # fall through to reading the output directory
-
-    out_dir = job_dir / "out"
-    if not out_dir.exists():
-        raise RuntimeError("joern-export produced no output directory")
-    json_files = sorted(out_dir.rglob("*.json"))
-    if not json_files:
-        raise RuntimeError("No JSON files found in joern-export output")
-
-    merged: Dict[str, Any] = {}
-    for json_file in json_files:
-        data = json.loads(json_file.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            merged.update(data)
-    return merged
-
-
-#: Host side of the container's /workspace bind mount, relative to the repo
-#: root. Must match the volume in docker-compose.yml.
-WORKSPACE_SUBDIR = Path("artifacts") / "workspace"
-
-
-def workspace_dir() -> Path:
-    """Host side of the container's /workspace bind mount.
-
-    Public because the batch driver stages files here too, and it used to
-    compute the path itself -- as `<root>/workspace`, which is not what compose
-    mounts. Every file it staged was invisible to the container.
-    """
-    override = os.getenv("SSAT_JOERN_WORKSPACE")
-    if override:
-        return Path(override)
-
-    current = Path.cwd()
-    while current != current.parent:
-        if (current / "pyproject.toml").exists():
-            return current / WORKSPACE_SUBDIR
-        current = current.parent
-    return Path.cwd() / WORKSPACE_SUBDIR
-
-
-class DockerBackend:
-    """Joern in a container, driven with ``docker exec``."""
-
-    name = "docker"
-
-    def is_available(self) -> bool:
-        try:
-            result = subprocess.run(
-                ["docker", "inspect", "-f", "{{.State.Running}}", joern_container_name()],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        except OSError, subprocess.SubprocessError:
-            return False
-        return result.returncode == 0 and result.stdout.strip() == "true"
-
-    def generate(self, source: str, *, filename: str = "main.c", representation: str = "all") -> CpgResult:
-        workspace = workspace_dir()
-        workspace.mkdir(parents=True, exist_ok=True)
-
-        job_id = uuid.uuid4().hex[:12]
-        job_dir = workspace / f"job_{job_id}"
-        job_source = job_dir / filename
-        job_source.parent.mkdir(parents=True, exist_ok=True)
-        job_source.write_text(source if source.endswith("\n") else source + "\n", encoding="utf-8")
-
-        try:
-            graphson = run_joern_in_container(
-                job_dir,
-                f"/workspace/job_{job_id}/{filename}",
-                f"/workspace/job_{job_id}",
-                container_name=joern_container_name(),
-                representation=representation,
-            )
-        finally:
-            remove_job_dir(job_dir, f"/workspace/job_{job_id}", joern_container_name())
-
-        return CpgResult(graphson, count_methods(graphson), self.name)
-
     def generate_file(self, source_file: Path, *, representation: str = "all") -> CpgResult:
         """Generate from a file on disk, preserving its name."""
         return self.generate(
@@ -266,37 +75,6 @@ class DockerBackend:
         )
 
 
-_BACKENDS: Dict[str, CpgBackend] = {
-    EmbeddedBackend.name: EmbeddedBackend(),
-    DockerBackend.name: DockerBackend(),
-}
-
-BACKEND_NAMES = tuple(_BACKENDS)
-
-
-def get_backend(name: str) -> CpgBackend:
-    """Look up a backend by name (``jpype`` or ``docker``)."""
-    try:
-        return _BACKENDS[name]
-    except KeyError:
-        raise ValueError(f"unknown CPG backend {name!r}; choose from {', '.join(BACKEND_NAMES)}") from None
-
-
-def generate_cpg(
-    source: str,
-    *,
-    backend: str = EmbeddedBackend.name,
-    filename: str = "main.c",
-    representation: str = "all",
-) -> CpgResult:
-    """Generate a CPG with the named backend."""
-    return get_backend(backend).generate(source, filename=filename, representation=representation)
-
-
-def write_temp_source(source: str, filename: str) -> Path:
-    """Write source to a throwaway directory; caller removes the parent."""
-    tmp_dir = Path(tempfile.mkdtemp(prefix="ssat-cpg-"))
-    path = tmp_dir / filename
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(source if source.endswith("\n") else source + "\n", encoding="utf-8")
-    return path
+def generate_cpg(source: str, *, filename: str = "main.c", representation: str = "all") -> CpgResult:
+    """Generate a CPG from source text."""
+    return EmbeddedBackend().generate(source, filename=filename, representation=representation)

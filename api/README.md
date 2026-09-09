@@ -12,17 +12,18 @@ imports neither `ssat` nor `gnn`.
 
 ## The structural line
 
-CPG generation runs Joern either **in-process** via an embedded JVM (JPype, the
-default) or through the Joern container — `ssat.cpg.backends`. The embedded JVM
-starts on the first request and is reused, so that request is seconds slower.
+CPG generation runs Joern **in-process**, via an embedded JVM (JPype) —
+`ssat.cpg.backends`. The JVM starts on the first request and is reused, so that
+request is seconds slower. A second engine used to shell into a Joern
+container; it is gone, with the container and its `/cpg-docker` endpoint.
 
 Requires a host **JDK** (17+, tested on 21) and a **Joern install**; set
 `JOERN_HOME` to its `joern-cli` directory (default `/usr/bin/joern/joern-cli`).
 
 | method | path | body | returns |
 | --- | --- | --- | --- |
-| GET | `/health` | — | `{status, backends: {jpype, docker}}` |
-| POST | `/cpg-jpype`, `/cpg-docker` | `{source, language, filename?}` | `{cpg, method_count, backend}` |
+| GET | `/health` | — | `{status, backends: {jpype}}` |
+| POST | `/cpg-jpype` | `{source, language, filename?}` | `{cpg, method_count, backend}` |
 | POST | `/template` | `{source\|cpg, …}` | template nodes |
 | POST | `/ast`, `/dfg` | `{source\|cpg, …}` | per-function trees / def-use flow |
 | POST | `/analyze-functions` | `{source\|cpg, …}` | AST + DFG per function |

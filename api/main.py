@@ -2,9 +2,8 @@
 
 Endpoints
 ---------
-GET  /health                 liveness + which CPG backends are usable
+GET  /health                 liveness + whether Joern can run here
 POST /cpg-jpype              {source, language, filename?} -> {cpg, method_count}
-POST /cpg-docker             same, via the Joern container
 POST /template               {source|cpg, ...}             -> template nodes
 POST /ast                    {source|cpg, ...}             -> per-function ASTs
 POST /dfg                    {source|cpg, ...}             -> per-function def-use DFGs
@@ -16,8 +15,9 @@ The ``/agent/*`` routes are a separate line of analysis -- an LLM inspecting
 uploaded source chunk by chunk -- and live in :mod:`api.agent`. They
 share this app but nothing else: ``agent`` does not import ``ssat``.
 
-The two CPG endpoints run the same Joern behind :mod:`ssat.cpg.backends`;
-``jpype`` is in-process, ``docker`` shells into the container.
+Joern runs in this process, behind :mod:`ssat.cpg.backends`. There was a second
+engine that shelled into a Joern container; it is gone, along with the container
+and the `/cpg-docker` endpoint that reached it.
 
 Note the frontend also derives AST/CFG/DFG/CG *views* from the returned CPG in
 TypeScript, by edge label. Those are a different thing from the ``/ast`` and
@@ -35,7 +35,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from ssat.cpg.backends import DockerBackend, EmbeddedBackend, get_backend
+from ssat.cpg.backends import EmbeddedBackend
 from ssat.f2a import run_f2a
 from ssat.pipeline import FunctionGraphs, analyze_template, generate_template, training_record
 from ssat.types.cpg import CPGRoot
@@ -107,7 +107,6 @@ class PipelineRequest(BaseModel):
     cpg: Optional[Dict[str, Any]] = Field(None, description="CPG GraphSON document")
     language: str = Field("c", description="c | cpp | java")
     filename: Optional[str] = None
-    backend: str = Field(EmbeddedBackend.name, description="jpype | docker")
 
 
 class F2aRequest(BaseModel):
@@ -118,17 +117,13 @@ def _filename_for(language: str, filename: Optional[str]) -> str:
     return filename or _LANG_EXT.get(language.lower(), "main.c")
 
 
-def _generate(req: SourceRequest, backend_name: str) -> Dict[str, Any]:
+def _generate(req: SourceRequest) -> Dict[str, Any]:
     """Generate a CPG, surfacing Joern failures to the UI as 502s."""
-    try:
-        backend = get_backend(backend_name)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    backend = EmbeddedBackend()
     try:
         result = backend.generate(req.source, filename=_filename_for(req.language, req.filename))
     except Exception as exc:  # noqa: BLE001 - surface the Joern error to the UI
-        raise HTTPException(status_code=502, detail=f"CPG generation failed ({backend_name}): {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"CPG generation failed ({backend.name}): {exc}") from exc
     return {"cpg": result.graphson, "method_count": result.method_count, "backend": result.backend}
 
 
@@ -149,10 +144,7 @@ def _cpg_document(req: PipelineRequest) -> CPGRoot:
     if not req.source:
         raise HTTPException(status_code=400, detail="provide either 'source' or 'cpg'")
 
-    generated = _generate(
-        SourceRequest(source=req.source, language=req.language, filename=req.filename),
-        req.backend,
-    )
+    generated = _generate(SourceRequest(source=req.source, language=req.language, filename=req.filename))
     return CPGRoot(export=generated["cpg"])
 
 
@@ -165,24 +157,16 @@ def _functions(req: PipelineRequest) -> List[FunctionGraphs]:
 
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    embedded, docker = EmbeddedBackend(), DockerBackend()
-    return {
-        "status": "ok",
-        "backends": {
-            embedded.name: embedded.is_available(),
-            docker.name: docker.is_available(),
-        },
-    }
+    embedded = EmbeddedBackend()
+    # Still a map, though there is one engine now: the web client reads it by
+    # key, and `{jpype: false}` is what tells a reader their JOERN_HOME is
+    # wrong rather than their request.
+    return {"status": "ok", "backends": {embedded.name: embedded.is_available()}}
 
 
 @app.post("/cpg-jpype")
 def cpg_jpype(req: SourceRequest) -> Dict[str, Any]:
-    return _generate(req, EmbeddedBackend.name)
-
-
-@app.post("/cpg-docker")
-def cpg_docker(req: SourceRequest) -> Dict[str, Any]:
-    return _generate(req, DockerBackend.name)
+    return _generate(req)
 
 
 @app.post("/template")
@@ -217,7 +201,7 @@ def f2a(req: F2aRequest) -> Dict[str, Any]:
 @app.post("/analyze")
 def analyze(req: SourceRequest) -> Dict[str, Any]:
     """CPG + F2-A in one call -- what the F2-A web UI uses."""
-    generated = _generate(req, EmbeddedBackend.name)
+    generated = _generate(req)
     cpg_doc = generated["cpg"]
     result = _fail_as_400("F2-A analysis", lambda: run_f2a(cpg_doc))
     return {

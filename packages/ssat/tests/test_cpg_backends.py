@@ -1,11 +1,12 @@
-"""The two CPG backends must be interchangeable.
+"""CPG generation, in the process that asks for it.
 
-``jpype`` and ``docker`` run the same Joern, one in-process and one in a
-container. Anything that reads a CPG must not care which produced it, so the
-GraphSON they return has to agree structurally.
+There were two engines here, `jpype` and `docker`, and most of this file
+existed to prove they agreed. The container is gone, so what is left is the one
+engine, the pure functions around it, and the batch driver that now runs
+through it.
 
-Both backends need a real Joern install, so the equivalence test skips when the
-environment cannot run them. The pure-function tests always run.
+The tests that need Joern skip when there are no JARs to load. The pure ones
+always run.
 """
 
 from __future__ import annotations
@@ -16,14 +17,7 @@ import pytest
 
 from legacy_chain import all_fixtures
 
-from ssat.cpg.backends import (
-    BACKEND_NAMES,
-    CpgBackend,
-    DockerBackend,
-    EmbeddedBackend,
-    count_methods,
-    get_backend,
-)
+from ssat.cpg.backends import EmbeddedBackend, count_methods
 
 SOURCE = """\
 #include <string.h>
@@ -42,19 +36,6 @@ int main(void) {
 
 def _graph(doc):
     return doc.get("@value", {})
-
-
-def test_both_backends_are_registered():
-    assert set(BACKEND_NAMES) == {"jpype", "docker"}
-    for name in BACKEND_NAMES:
-        backend = get_backend(name)
-        assert isinstance(backend, CpgBackend)
-        assert backend.name == name
-
-
-def test_unknown_backend_names_the_alternatives():
-    with pytest.raises(ValueError, match="jpype"):
-        get_backend("nope")
 
 
 def test_count_methods_counts_method_vertices():
@@ -86,146 +67,50 @@ def test_cpg_result_exposes_the_pipeline_shape():
     assert result.document == {"export": result.graphson}
 
 
-@pytest.mark.parametrize("backend_name", BACKEND_NAMES)
-def test_backend_produces_valid_graphson(backend_name):
-    backend = get_backend(backend_name)
+def test_the_engine_produces_valid_graphson():
+    backend = EmbeddedBackend()
     if not backend.is_available():
-        pytest.skip(f"{backend_name} backend unavailable in this environment")
+        pytest.skip("no Joern JARs; set JOERN_HOME")
 
     result = backend.generate(SOURCE, filename="main.c")
 
-    assert result.backend == backend_name
+    assert result.backend == "jpype"
     assert result.method_count >= 2, "expected at least store() and main()"
     graph = _graph(result.graphson)
     assert graph.get("vertices"), "no vertices in GraphSON"
     assert graph.get("edges"), "no edges in GraphSON"
 
 
-def test_backends_agree():
-    """Same source through both engines yields an equivalent graph.
+# -- the batch driver ---------------------------------------------------------
 
-    Asserted at the level that must hold whatever Joern version each side runs:
-    the same methods, and the same *kinds* of vertex and edge present. Exact
-    counts are deliberately not compared -- the container pins Joern 4.0.361
-    (see ``Dockerfile``) while a local install may be newer, and minor releases
-    change how many METHOD_PARAMETER_* and REACHING_DEF elements they emit.
-    Use :func:`test_report_backend_skew` to see the current difference.
+
+def test_the_batch_driver_writes_one_cpg_per_file(tmp_path):
+    """It used to drive `docker exec` per file. It drives a JVM per worker now.
+
+    The `spawn` start method is what makes that safe: forking a process that
+    has already started a JVM gives the child one it cannot use, and pytest may
+    well have started one in an earlier test.
     """
-    embedded, docker = EmbeddedBackend(), DockerBackend()
-    if not (embedded.is_available() and docker.is_available()):
-        pytest.skip("need both a local Joern install and a running Joern container")
+    from ssat.cpg.generator import batch_generate_cpg
 
-    embedded_result = embedded.generate(SOURCE, filename="main.c")
-    docker_result = docker.generate(SOURCE, filename="main.c")
+    if not EmbeddedBackend().is_available():
+        pytest.skip("no Joern JARs; set JOERN_HOME")
 
-    assert embedded_result.method_count == docker_result.method_count
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    (source_dir / "one.c").write_text(SOURCE, encoding="utf-8")
+    (source_dir / "two.c").write_text(SOURCE.replace("store", "keep"), encoding="utf-8")
+    out = tmp_path / "out"
 
-    def labels(result):
-        graph = _graph(result.graphson)
-        return (
-            {v.get("label") for v in graph.get("vertices", [])},
-            {e.get("label") for e in graph.get("edges", [])},
-        )
+    results = batch_generate_cpg(
+        files=sorted(source_dir.glob("*.c")),
+        input_root=source_dir,
+        output_root=out,
+        workers=2,
+    )
 
-    assert labels(embedded_result) == labels(docker_result)
-
-    def method_names(result):
-        graph = _graph(result.graphson)
-        names = set()
-        for vertex in graph.get("vertices", []):
-            if vertex.get("label") != "METHOD":
-                continue
-            prop = vertex.get("properties", {}).get("NAME", {})
-            inner = prop.get("@value", {})
-            values = inner.get("@value", []) if isinstance(inner, dict) else []
-            names.update(str(v) for v in values)
-        return names
-
-    assert method_names(embedded_result) == method_names(docker_result)
-
-
-def test_report_backend_skew():
-    """Diagnostic: print how far the two engines differ, never fails.
-
-    A non-empty report means the local Joern and the container's Joern are
-    different versions. Align them by matching ``JOERN_VERSION`` in the
-    Dockerfile to the local install, or accept the skew knowingly.
-    """
-    embedded, docker = EmbeddedBackend(), DockerBackend()
-    if not (embedded.is_available() and docker.is_available()):
-        pytest.skip("need both a local Joern install and a running Joern container")
-
-    from collections import Counter
-
-    def counts(result):
-        graph = _graph(result.graphson)
-        return (
-            Counter(v.get("label") for v in graph.get("vertices", [])),
-            Counter(e.get("label") for e in graph.get("edges", [])),
-        )
-
-    embedded_vertices, embedded_edges = counts(embedded.generate(SOURCE, filename="main.c"))
-    docker_vertices, docker_edges = counts(docker.generate(SOURCE, filename="main.c"))
-
-    differences = [
-        f"  {kind:<8} {label:<22} jpype={a.get(label, 0):<5} docker={b.get(label, 0)}"
-        for kind, a, b in (
-            ("vertex", embedded_vertices, docker_vertices),
-            ("edge", embedded_edges, docker_edges),
-        )
-        for label in sorted(set(a) | set(b))
-        if a.get(label, 0) != b.get(label, 0)
-    ]
-    if differences:
-        print("\nbackend skew (likely differing Joern versions):")
-        print("\n".join(differences))
-
-
-# -- the container's workspace -----------------------------------------------
-
-
-def test_the_batch_driver_stages_where_the_container_is_mounted():
-    """One definition of the bind mount, shared with the batch driver.
-
-    The bug this closes: the driver computed `<root>/workspace` while compose
-    mounts `<root>/artifacts/workspace`, so joern-parse was told to read a file
-    that was never inside the container. Every file in a batch failed, with an
-    empty error message, for as long as anyone had been running it.
-    """
-    from ssat.cpg import backends, generator
-
-    assert generator.workspace_dir is backends.workspace_dir, "a second definition of the mount point"
-    assert backends.WORKSPACE_SUBDIR.parts == ("artifacts", "workspace")
-    assert backends.workspace_dir().parts[-2:] == ("artifacts", "workspace")
-
-
-def test_the_workspace_can_be_pointed_elsewhere(monkeypatch, tmp_path):
-    from ssat.cpg.backends import workspace_dir
-
-    monkeypatch.setenv("SSAT_JOERN_WORKSPACE", str(tmp_path / "elsewhere"))
-    assert workspace_dir() == tmp_path / "elsewhere"
-
-
-def test_the_container_name_can_be_pointed_elsewhere(monkeypatch):
-    """The batch driver used to interpolate `$USER` itself, so this override
-    applied to every caller except the one that cannot run without a container."""
-    from ssat.cpg.backends import joern_container_name
-
-    monkeypatch.setenv("SSAT_JOERN_CONTAINER", "some-other-joern")
-    assert joern_container_name() == "some-other-joern"
-
-
-def test_a_job_directory_does_not_outlive_the_run():
-    """Joern runs as root in the container and writes its export as root, so a
-    host-side rmtree cannot remove it -- and with `ignore_errors=True` it said
-    nothing. 729 job directories, 252MB, had accumulated before anyone looked.
-    """
-    from ssat.cpg.backends import DockerBackend, workspace_dir
-
-    docker = DockerBackend()
-    if not docker.is_available():
-        pytest.skip("need a running Joern container")
-
-    docker.generate(SOURCE, filename="main.c")
-    leftovers = [path.name for path in workspace_dir().glob("job_*")]
-    assert leftovers == [], f"left behind: {leftovers}"
+    assert [r["success"] for r in results] == [True, True], results
+    written = sorted(p.name for p in out.glob("*.json"))
+    assert written == ["one.c.json", "two.c.json"]
+    for path in out.glob("*.json"):
+        assert count_methods(json.loads(path.read_text(encoding="utf-8"))) >= 2

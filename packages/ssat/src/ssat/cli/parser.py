@@ -11,11 +11,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
-from ..cpg.backends import BACKEND_NAMES
-
 Mode = Literal["cpg", "template", "ast", "dfg", "template-functions", "full", "f2a"]
-
-DEFAULT_BACKEND = "jpype"
 
 #: subcommand -> (help text, default input description, default extensions)
 COMMANDS: dict[str, tuple[str, str, str]] = {
@@ -63,9 +59,7 @@ class CliOptions:
     workers: Optional[str] = None
     debug: bool = False
     verbose: bool = False
-    backend: str = DEFAULT_BACKEND
     representation: str = "all"
-    export_format: str = "graphson"
     copy_source: bool = False
 
 
@@ -78,12 +72,6 @@ def _add_common_arguments(parser: argparse.ArgumentParser, input_help: str, defa
     parser.add_argument("-d", "--data", dest="data_flag", help=argparse.SUPPRESS)
     parser.add_argument("-o", "--output", help="Output directory (default: result/<mode>_<timestamp>)")
     parser.add_argument("--ext", default=default_ext, help="File extensions to process (comma-separated)")
-    parser.add_argument(
-        "--backend",
-        default=DEFAULT_BACKEND,
-        choices=BACKEND_NAMES,
-        help="CPG engine: 'jpype' runs Joern in-process, 'docker' uses the Joern container",
-    )
     parser.add_argument("--keep-intermediate", action="store_true", help="Keep intermediate files")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
@@ -121,9 +109,6 @@ class CliParser:
                 # real process pool. Later stages are sequential CPU work.
                 subparser.add_argument("--workers", default="4", help="Parallel workers for batch CPG generation")
                 subparser.add_argument("--repr", default="all", help="Representation (ast, cfg, cpg14, all, ...)")
-                subparser.add_argument(
-                    "-f", "--format", default="graphson", help="Export format (dot, graphson, graphml, ...)"
-                )
                 subparser.add_argument(
                     "--copy-source", action="store_true", help="Copy original source files alongside CPG output"
                 )
@@ -166,8 +151,6 @@ class CliParser:
             workers=getattr(args, "workers", None),
             debug=getattr(args, "debug", False),
             verbose=getattr(args, "verbose", False),
-            backend=getattr(args, "backend", DEFAULT_BACKEND),
             representation=getattr(args, "repr", "all"),
-            export_format=getattr(args, "format", "graphson"),
             copy_source=getattr(args, "copy_source", False),
         )

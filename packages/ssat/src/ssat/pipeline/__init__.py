@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Mapping, Sequence, Set, TypeVar, c
 
 from ..ast.extractor import ASTExtractor
 from ..ast.validate import validate_ast_results
-from ..cpg.backends import EmbeddedBackend, get_backend
+from ..cpg.backends import EmbeddedBackend
 from ..cpg.validate import validate_cpg_root
 from ..dfg.extractor import DFGExtractor
 from ..template.converter import TemplateConverter
@@ -30,9 +30,6 @@ from ..types.template import TemplateFlattenedGraph
 from ..types.template.BaseNode.base_types import TemplateNodeTypes
 from ..utils import get_functions_from_template
 from ..utils.tree_to_text import TreeToText
-
-#: In-process Joern by default -- no Docker daemon or container required.
-DEFAULT_BACKEND = EmbeddedBackend.name
 
 
 T = TypeVar("T")
@@ -121,17 +118,15 @@ def _build_template_artifacts(root: CPGRoot, *, replace_macro: bool = True) -> D
 def generate_cpg(
     source: str,
     *,
-    backend: str = DEFAULT_BACKEND,
     filename: str = "main.c",
     representation: str = "all",
 ) -> CPGRoot:
     """Generate a validated CPG document from source text.
 
-    ``backend`` is ``"jpype"`` (in-process) or ``"docker"``; see
-    :mod:`ssat.cpg.backends`. Returns the ``{"export": ...}`` shape the rest of
-    the pipeline consumes.
+    Joern runs in this process; see :mod:`ssat.cpg.backends`. Returns the
+    ``{"export": ...}`` shape the rest of the pipeline consumes.
     """
-    result = get_backend(backend).generate(source, filename=filename, representation=representation)
+    result = EmbeddedBackend().generate(source, filename=filename, representation=representation)
     validate_cpg_root([result.graphson])
     return CPGRoot(export=result.graphson)
 
@@ -139,14 +134,12 @@ def generate_cpg(
 def generate_cpg_from_file(
     file_path: str | Path,
     *,
-    backend: str = DEFAULT_BACKEND,
     representation: str = "all",
 ) -> CPGRoot:
     """Generate a validated CPG document from a source file on disk."""
     path = Path(file_path)
     return generate_cpg(
         path.read_text(encoding="utf-8", errors="replace"),
-        backend=backend,
         filename=path.name,
         representation=representation,
     )
