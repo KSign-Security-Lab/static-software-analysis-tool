@@ -183,10 +183,17 @@ The task list is `[tool.poe.tasks]` in the root `pyproject.toml`, and
 ```bash
 uv run poe               # the list, with what each one does
 uv run poe check         # lint, types, Python tests, then the web gate
-uv run poe api           # the API on :8001
-uv run poe web           # the Next.js dev server on :3000
+uv run poe dev-api       # the API on :8001, with reload
+uv run poe dev-web       # the Next.js dev server on :3000
 uv run poe stack         # what is running right now
 ```
+
+Every task that runs the app names its mode, because the two behave differently
+enough to be worth telling apart: `dev-api` reloads on edit and `dev-web` serves
+through HMR, while `prod-api` runs one process with no reloader and `prod-web`
+builds first and serves the build. Reach for the `prod-` pair when something
+only misbehaves in a real build. Neither is a deployment: there is no app image
+and no `api` or `web` service in Compose, so both run here on your machine.
 
 It reaches the web app too — those tasks set `cwd = "web"` and shell out to
 `pnpm`, so one file lists both halves of the repo. The list is short on purpose:
