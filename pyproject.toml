@@ -7,19 +7,13 @@ requires-python = ">=3.14"
 dependencies = [
     "ssat",
     "gnn",
-    # With `rag`, because the semantic lookup is not optional to the agent that
-    # has the tool: without the extra, `search_semantic` answers every question
-    # with an error string, and the agent -- which cannot tell a missing
-    # capability from an unhelpful one -- quietly falls back to `search_text`
-    # and looks like it chose to. Nobody installs an extra to fix a tool they
-    # were never told was broken.
+    # `rag` is not optional: without it `search_semantic` returns an error
+    # string and the agent falls back to `search_text` as though it chose to.
     "agent[rag]",
     "graphify",
     "pytest>=8.0.0",
     "ruff>=0.9.0",
     "mypy>=1.14.0",
-    # The task list at the bottom of this file. A dependency rather than a
-    # shell script, so `uv sync` is the whole install.
     "poethepoet>=0.32.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
@@ -28,7 +22,6 @@ dependencies = [
 
 [tool.uv]
 package = false
-
 
 [tool.uv.sources]
 ssat = { workspace = true }
@@ -53,9 +46,7 @@ target-version = "py314"
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
-# So `uv run mypy` needs no arguments. packages/gnn is excluded: it is a
-# consumer of the pipeline's output, not part of the analysis library, and is
-# not held to the strict bar.
+# So `uv run mypy` needs no arguments. packages/gnn is not held to the strict bar.
 files = [
     "packages/ssat/src/ssat",
     "packages/agent/src/agent",
@@ -67,19 +58,6 @@ files = [
 [tool.pytest.ini_options]
 testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/tests", "packages/schemagen/tests"]
 
-# ---------------------------------------------------------------------------
-# The task list, for the parts of this repo that are not npm and the parts that
-# are. `uv run poe` prints it; `uv run poe <name>` runs one.
-#
-# Additive on purpose. Every entry below is the real command, and running it
-# directly -- `ruff check`, `pnpm test` in web/, `docker compose ...` -- keeps
-# working exactly as before. CI calls the tools rather than going through this,
-# so nothing here can break a build by being wrong.
-#
-# Tasks that live in web/ set `cwd` rather than saying `cd web &&`: vitest and
-# eslint resolve their config from the working directory, and running them from
-# the repo root silently collects the wrong files.
-# ---------------------------------------------------------------------------
 [tool.poe.tasks]
 
 setup.help = "Install the Python workspace and the web dependencies"
@@ -89,10 +67,7 @@ setup.sequence = [
 ]
 
 check.help = "Everything CI runs: lint, types, Python tests, then the web gate"
-check.sequence = ["lint", "types", "test", "web-check"]
-
-test.help = "Python tests"
-test.cmd = "pytest -q"
+check.sequence = ["lint", { cmd = "mypy" }, "test", "web-check"]
 
 lint.help = "ruff check plus a format check, no writes"
 lint.sequence = [
@@ -106,33 +81,14 @@ fmt.sequence = [
   { cmd = "ruff check --fix ." },
 ]
 
-types.help = "mypy --strict over the gated packages"
-types.cmd = "mypy"
+test.help = "Python tests"
+test.cmd = "pytest -q"
 
 schema.help = "Regenerate the TypeScript wire models from the pydantic ones"
 schema.sequence = [
   { cmd = "python -m agent.schema_ts --write" },
   { cmd = "python -m ssat.schema_ts --write" },
 ]
-
-# -- the web app -------------------------------------------------------------
-
-web.help = "Next.js dev server on :3000"
-web.cmd = "pnpm dev"
-web.cwd = "web"
-
-build.help = "Production build of the web app"
-build.cmd = "pnpm build"
-build.cwd = "web"
-
-web-check.help = "The web half of CI: types, lint, tests, licences, build"
-web-check.cwd = "web"
-web-check.shell = """
-pnpm type-check && pnpm lint && pnpm test \
-  && pnpm run licenses && pnpm run licenses:check && pnpm build
-"""
-
-# -- the API and the containers ----------------------------------------------
 
 api.help = "FastAPI on :8001 with auto-reload scoped to the packages it imports"
 api.cmd = """
@@ -145,24 +101,18 @@ uvicorn api.main:app --host 0.0.0.0 --port 8001
 db.help = "Postgres, which the API does not start without"
 db.cmd = "docker compose up -d --wait postgres"
 
-vllm.help = "The model server, on :8000 (profile-gated, ~20GB image)"
-vllm.cmd = "docker compose --profile vllm up -d --wait vllm"
-
-# A shell task, not a `cmd` one: poe globs the tokens of a `cmd`, and the `*`
+# A shell task, not a `cmd` one: poe globs the tokens of a `cmd`, so the `*`
 # that means "every profile" to Compose became a directory listing.
 stack.help = "What is running right now, profiles included"
 stack.shell = "docker compose --profile '*' ps -a"
 
-# -- the agent ---------------------------------------------------------------
+web.help = "Next.js dev server on :3000"
+web.cmd = "pnpm dev"
+web.cwd = "web"
 
-agent.help = "Run an inspection (bare = interactive: endpoint, model, target)"
-agent.cmd = "agent"
-
-corpus.help = "Embed corpus/ into Postgres so search_corpus has something to answer with"
-corpus.cmd = "agent corpus ingest"
-
-endpoints.help = "Which model servers are reachable, and what they serve"
-endpoints.cmd = "agent endpoints"
-
-sweep.help = "The unattended SEC-bench sweep (start it in tmux)"
-sweep.cmd = "agent bench sweep"
+web-check.help = "The web half of CI: types, lint, tests, licences, build"
+web-check.cwd = "web"
+web-check.shell = """
+pnpm type-check && pnpm lint && pnpm test \
+  && pnpm run licenses && pnpm run licenses:check && pnpm build
+"""

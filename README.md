@@ -189,8 +189,10 @@ uv run poe stack         # what is running right now
 ```
 
 It reaches the web app too — those tasks set `cwd = "web"` and shell out to
-`pnpm`, so one file lists both halves of the repo. `uv run poe agent index src/`
-passes its extra arguments straight through.
+`pnpm`, so one file lists both halves of the repo. The list is short on purpose:
+a task earns its place by composing several commands or by carrying arguments
+that are easy to get wrong. Anything that is one short command is not in it, so
+the `agent` CLI is run directly — `uv run agent index src/`.
 
 Nothing is hidden behind it. Every task is the real command and running it
 yourself works exactly the same:
