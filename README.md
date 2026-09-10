@@ -183,10 +183,15 @@ The task list is `[tool.poe.tasks]` in the root `pyproject.toml`, and
 ```bash
 uv run poe               # the list, with what each one does
 uv run poe check         # lint, types, Python tests, then the web gate
-uv run poe dev-api       # the API on :8001, with reload
-uv run poe dev-web       # the Next.js dev server on :3000
+uv run poe dev           # the API and the web app together
+uv run poe dev-api       # just the API on :8001, with reload
+uv run poe dev-web       # just the Next.js dev server on :3000
 uv run poe stack         # what is running right now
 ```
+
+`dev` and `prod` run both halves at once in one terminal, with each line
+prefixed by the task it came from. One Ctrl-C stops both; poe has no background
+mode, so use tmux if you want them detached.
 
 Every task that runs the app names its mode, because the two behave differently
 enough to be worth telling apart: `dev-api` reloads on edit and `dev-web` serves

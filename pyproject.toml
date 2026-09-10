@@ -87,6 +87,9 @@ schema.sequence = [
   { cmd = "python -m ssat.schema_ts --write" },
 ]
 
+dev.help = "The API and the web app together, with reload on both"
+dev.parallel = ["dev-api", "dev-web"]
+
 dev-api.help = "FastAPI on :8001, auto-reload scoped to the packages it imports"
 dev-api.cmd = """
 uvicorn api.main:app --host 0.0.0.0 --port 8001
@@ -98,6 +101,9 @@ uvicorn api.main:app --host 0.0.0.0 --port 8001
 dev-web.help = "Next.js dev server on :3000, with HMR"
 dev-web.cmd = "pnpm dev"
 dev-web.cwd = "web"
+
+prod.help = "The API and a built web app together, as they run for real"
+prod.parallel = ["prod-api", "prod-web"]
 
 prod-api.help = "FastAPI on :8001 as it runs for real: no reload, one process"
 prod-api.cmd = "uvicorn api.main:app --host 0.0.0.0 --port 8001 --timeout-graceful-shutdown 2"
