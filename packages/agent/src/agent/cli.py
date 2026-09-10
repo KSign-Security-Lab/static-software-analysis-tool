@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from .config import ENV_BASE_URL, ENV_MODEL, AgentConfig
+from .config import ENV_BASE_URL, ENV_MODEL, AgentConfig, load_env_file
 from .endpoint import Endpoint, discover
 from .graph.build import run_inspection
 from .runs import (
@@ -507,6 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_env_file()
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,

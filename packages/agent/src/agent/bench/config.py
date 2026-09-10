@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..config import load_env_file, repo_root
+
 ENV_ROOT = "SECB_ROOT"
 ENV_SPLIT = "SECB_SPLIT"
 ENV_INSTANCES = "SECB_INSTANCES"
@@ -25,26 +27,8 @@ DEFAULT_IMAGE_TAG = "patch"
 SOCKET_NAME = "run/docker.sock"
 
 
-def repo_root() -> Path:
-    current = Path.cwd().resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    return current
-
-
 def load_env(path: Path | None = None) -> None:
-    env_file = path or repo_root() / ".env"
-    try:
-        text = env_file.read_text(encoding="utf-8")
-    except OSError:
-        return
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), os.path.expandvars(value.strip().strip("\"'")))
+    load_env_file(path)
 
 
 def default_root() -> Path:

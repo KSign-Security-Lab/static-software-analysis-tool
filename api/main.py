@@ -14,6 +14,7 @@ from ssat.f2a import run_f2a
 from ssat.pipeline import FunctionGraphs, analyze_template, generate_template, training_record
 from ssat.types.cpg import CPGRoot
 
+from agent.config import load_env_file
 from agent.runs import abandon_live_runs
 
 from .agent.channels import drain
@@ -28,6 +29,9 @@ SHUTDOWN_GRACE_SECONDS = 10.0
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    env_file = load_env_file()
+    if env_file:
+        log.info("read settings from %s", env_file)
     abandoned = abandon_live_runs()
     if abandoned:
         log.info("marked %d abandoned run(s) as failed: %s", len(abandoned), ", ".join(abandoned))

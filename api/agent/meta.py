@@ -39,9 +39,12 @@ def agent_health(probe: bool = False) -> Dict[str, Any]:
     }
     if probe:
         served = list_models(config.base_url)
+        effective = config.model_for(served)
         body["reachable"] = bool(served)
         body["served_models"] = served
-        body["model_is_served"] = config.model in served if (config.model and served) else False
+        body["configured"] = bool(effective)
+        body["model"] = effective or None
+        body["model_is_served"] = effective in served if (effective and served) else False
     return body
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +20,36 @@ ENV_CORPUS_DIR = "AGENT_CORPUS_DIR"
 ENV_SANDBOX = "AGENT_SANDBOX"
 ENV_REASONING_EFFORT = "AGENT_REASONING_EFFORT"
 ENV_RUN_ID = "AGENT_RUN_ID"
+ENV_ENV_FILE = "AGENT_ENV_FILE"
+
+
+def repo_root() -> Path:
+    current = Path.cwd().resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / "pyproject.toml").exists():
+            return candidate
+    return current
+
+
+def load_env_file(path: Path | None = None) -> Path | None:
+    """Fill unset variables from a `.env` file, returning the file that was read.
+
+    The real environment always wins, so an exported value beats the file and a
+    missing file is not an error. `AGENT_ENV_FILE` points somewhere else, which
+    is also how a test keeps the developer's own `.env` out of its way.
+    """
+    target = path or Path(os.getenv(ENV_ENV_FILE) or repo_root() / ".env")
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), os.path.expandvars(value.strip().strip("\"'")))
+    return target
 
 
 def _env_int(name: str, default: int) -> int:
@@ -67,22 +98,14 @@ def default_prompts_file() -> Path:
     override = os.getenv(ENV_PROMPTS_FILE)
     if override:
         return Path(override)
-    current = Path.cwd().resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate / "artifacts" / "prompts.json"
-    return current / "artifacts" / "prompts.json"
+    return repo_root() / "artifacts" / "prompts.json"
 
 
 def default_corpus_dir() -> Path:
     override = os.getenv(ENV_CORPUS_DIR)
     if override:
         return Path(override)
-    current = Path.cwd().resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / "pyproject.toml").exists():
-            return candidate / "corpus"
-    return current / "corpus"
+    return repo_root() / "corpus"
 
 
 @dataclass
@@ -134,16 +157,26 @@ class AgentConfig:
             )
         return self.model
 
+    def model_for(self, served: Sequence[str]) -> str:
+        """The model a run would use, given what the endpoint serves.
+
+        One definition, so `/agent/health` cannot claim a run is unconfigured
+        when starting one would have picked a model perfectly well.
+        """
+        if self.model:
+            return self.model
+        return served[0] if len(served) == 1 else ""
+
     def resolve_model(self) -> str:
         from .endpoint import list_models
 
         served = list_models(self.base_url)
-        if len(served) == 1:
-            log.info("using %s, the only model %s serves", served[0], self.base_url)
-            return served[0]
-        if len(served) > 1:
-            log.warning("%s serves %s -- set %s to one of them", self.base_url, ", ".join(served), ENV_MODEL)
-        return ""
+        picked = self.model_for(served)
+        if picked:
+            log.info("using %s, the only model %s serves", picked, self.base_url)
+        elif len(served) > 1:
+            log.warning("%s serves %s, set %s to one of them", self.base_url, ", ".join(served), ENV_MODEL)
+        return picked
 
     OVERHEAD_TOKENS = 1_500
 

@@ -394,7 +394,7 @@ def test_an_instance_takes_its_leavings_with_it(monkeypatch) -> None:
 
 
 def test_a_relative_root_means_the_checkout_not_the_working_directory(monkeypatch) -> None:
-    from agent.bench.config import repo_root
+    from agent.config import repo_root
 
     repo = repo_root()
     monkeypatch.setenv("SECB_ROOT", "./artifacts/secbench")

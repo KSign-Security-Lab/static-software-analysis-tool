@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import IO, Callable, Iterator
 
 from ..endpoint import list_models
-from .config import BenchConfig, repo_root
+from ..config import repo_root
+from .config import BenchConfig
 
 MIN_HOST_FREE_GB = 4
 MIN_DATA_FREE_GB = 20

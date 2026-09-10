@@ -17,12 +17,16 @@ pytest.importorskip("httpx", reason="fastapi.testclient needs httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from agent.config import ENV_MODEL  # noqa: E402
+from agent.config import ENV_BASE_URL, ENV_ENV_FILE, ENV_MODEL  # noqa: E402
 
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.delenv(ENV_MODEL, raising=False)
+    monkeypatch.setenv(ENV_ENV_FILE, str(tmp_path / "absent.env"))
+    # Port 9 is discard, so nothing here can reach a model server that happens
+    # to be running on this machine. Tests that want one patch `list_models`.
+    monkeypatch.setenv(ENV_BASE_URL, "http://127.0.0.1:9/v1")
 
     from api.main import app
 
@@ -193,6 +197,60 @@ def test_health_probe_flags_a_model_the_server_does_not_serve(
     body = client.get("/agent/health", params={"probe": "true"}).json()
     assert body["reachable"] is True
     assert body["model_is_served"] is False
+
+
+def test_health_probe_counts_a_single_served_model_as_configured(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What a run would do, so the UI does not refuse a setup that works.
+
+    `require_model` takes the only model an endpoint serves when AGENT_MODEL is
+    unset. Health used to read the variable directly and call that unconfigured.
+    """
+    import api.agent.meta as routes
+
+    monkeypatch.setattr(routes, "list_models", lambda _url: ["agent"])
+
+    body = client.get("/agent/health", params={"probe": "true"}).json()
+    assert body["configured"] is True
+    assert body["model"] == "agent"
+    assert body["model_is_served"] is True
+
+
+def test_health_probe_still_needs_a_choice_between_several_models(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import api.agent.meta as routes
+
+    monkeypatch.setattr(routes, "list_models", lambda _url: ["agent", "other"])
+
+    body = client.get("/agent/health", params={"probe": "true"}).json()
+    assert body["configured"] is False
+    assert body["model"] is None
+
+
+def test_the_api_reads_the_model_from_an_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("AGENT_MODEL=from-the-file\n", encoding="utf-8")
+    monkeypatch.delenv(ENV_MODEL, raising=False)
+    monkeypatch.setenv(ENV_ENV_FILE, str(env_file))
+
+    from api.main import app
+
+    with TestClient(app) as reader:
+        assert reader.get("/agent/health").json()["model"] == "from-the-file"
+
+
+def test_an_exported_model_beats_the_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("AGENT_MODEL=from-the-file\n", encoding="utf-8")
+    monkeypatch.setenv(ENV_MODEL, "exported")
+    monkeypatch.setenv(ENV_ENV_FILE, str(env_file))
+
+    from api.main import app
+
+    with TestClient(app) as reader:
+        assert reader.get("/agent/health").json()["model"] == "exported"
 
 
 def test_health_probe_survives_a_dead_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
