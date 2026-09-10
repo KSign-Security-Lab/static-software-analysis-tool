@@ -195,6 +195,12 @@ builds first and serves the build. Reach for the `prod-` pair when something
 only misbehaves in a real build. Neither is a deployment: there is no app image
 and no `api` or `web` service in Compose, so both run here on your machine.
 
+`prod-api` runs a single process on purpose. Do not add `--workers`: the SSE
+channels in `api/agent/channels.py` are a module-global dict, so with two
+workers a `GET /events` can land on the one that never saw the `POST` and the
+stream never attaches. Both API tasks pass `--timeout-graceful-shutdown`, which
+caps the wait on an idle `/events` stream that otherwise reads as a hang.
+
 It reaches the web app too — those tasks set `cwd = "web"` and shell out to
 `pnpm`, so one file lists both halves of the repo. The list is short on purpose:
 a task earns its place by composing several commands or by carrying arguments

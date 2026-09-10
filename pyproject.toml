@@ -7,8 +7,6 @@ requires-python = ">=3.14"
 dependencies = [
     "ssat",
     "gnn",
-    # `rag` is not optional: without it `search_semantic` returns an error
-    # string and the agent falls back to `search_text` as though it chose to.
     "agent[rag]",
     "graphify",
     "pytest>=8.0.0",
@@ -46,7 +44,6 @@ target-version = "py314"
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
-# So `uv run mypy` needs no arguments. packages/gnn is not held to the strict bar.
 files = [
     "packages/ssat/src/ssat",
     "packages/agent/src/agent",
@@ -102,28 +99,29 @@ dev-web.help = "Next.js dev server on :3000, with HMR"
 dev-web.cmd = "pnpm dev"
 dev-web.cwd = "web"
 
-# No `--workers`: the SSE channels in api/agent/channels.py are a module-global
-# dict, so a GET on /events would land on a worker that never saw the POST.
-# `--timeout-graceful-shutdown` is not optional either -- without it, shutdown
-# waits on an idle /events stream for the full start grace and looks like a hang.
 prod-api.help = "FastAPI on :8001 as it runs for real: no reload, one process"
 prod-api.cmd = "uvicorn api.main:app --host 0.0.0.0 --port 8001 --timeout-graceful-shutdown 2"
 
 prod-web.help = "Build the web app, then serve the build on :3000"
 prod-web.cwd = "web"
-prod-web.shell = "pnpm build && pnpm start"
+prod-web.sequence = [
+  { cmd = "pnpm build" },
+  { cmd = "pnpm start" },
+]
 
 db.help = "Postgres, which the API does not start without"
 db.cmd = "docker compose up -d --wait postgres"
 
-# A shell task, not a `cmd` one: poe globs the tokens of a `cmd`, so the `*`
-# that means "every profile" to Compose became a directory listing.
 stack.help = "What is running right now, profiles included"
-stack.shell = "docker compose --profile '*' ps -a"
+stack.cmd = "docker compose --profile '*' ps -a"
 
 web-check.help = "The web half of CI: types, lint, tests, licences, build"
 web-check.cwd = "web"
-web-check.shell = """
-pnpm type-check && pnpm lint && pnpm test \
-  && pnpm run licenses && pnpm run licenses:check && pnpm build
-"""
+web-check.sequence = [
+  { cmd = "pnpm type-check" },
+  { cmd = "pnpm lint" },
+  { cmd = "pnpm test" },
+  { cmd = "pnpm run licenses" },
+  { cmd = "pnpm run licenses:check" },
+  { cmd = "pnpm build" },
+]
