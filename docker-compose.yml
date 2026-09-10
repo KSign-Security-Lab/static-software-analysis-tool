@@ -47,9 +47,8 @@ services:
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
     ipc: host
-    # --served-model-name pins the id clients use, so AGENT_MODEL stays "agent"
-    # when the weights change. --tool-call-parser is what lets verification call
-    # tools; without it a run falls back to context-only and says so.
+    # --tool-call-parser is what lets verification call tools; without it a run
+    # falls back to context-only and says so.
     #
     # --max-num-seqs, or a hybrid-attention model dies in CUDA-graph capture.
     # Qwen3.8's Gated DeltaNet layers keep one conv-state cache line per slot,
@@ -66,7 +65,6 @@ services:
     # model like gpt-oss wants -- vLLM parses its harmony format itself.
     command: >
       --model ${VLLM_MODEL:-Qwen/Qwen3.8-27B-FP8}
-      --served-model-name agent
       --max-model-len ${VLLM_MAX_LEN:-16384}
       --tensor-parallel-size ${VLLM_TP:-1}
       --max-num-seqs ${VLLM_MAX_SEQS:-32}

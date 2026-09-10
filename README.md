@@ -148,9 +148,10 @@ cache lives are the `VLLM_*` variables in `.env`; Compose reads that file
 itself. `--wait` blocks until the server answers, which on a cold cache is a
 download.
 
-`AGENT_MODEL` does not have to be set: unset means ask the endpoint, and the
-served id — whatever `--served-model-name` chose — is the only right answer.
-Set it explicitly when one server serves several models.
+`AGENT_MODEL` does not have to be set: unset means ask the endpoint, and a
+server that serves exactly one model answers the question by itself. Set it
+explicitly when one server serves several, to an id `agent endpoints` reports —
+which is the weights vLLM loaded, `VLLM_MODEL`.
 
 ```bash
 agent endpoints                  # what is reachable, and what it serves

@@ -129,8 +129,8 @@ answer.
 
 vLLM runs in Docker because the host install cannot work: vllm 0.17 against
 torch 2.4, which predates `torch.library.infer_schema`, and this workspace is on
-Python 3.14, which vLLM does not publish wheels for. `--served-model-name` pins
-the served id to `agent`, so `AGENT_MODEL` does not change when the weights do.
+Python 3.14, which vLLM does not publish wheels for. The served id is whatever
+`VLLM_MODEL` names, so `AGENT_MODEL` can stay unset while it is the only one.
 
 ```bash
 docker compose --profile vllm logs -f --tail 200 vllm
@@ -166,7 +166,8 @@ A model wanting two GPUs needs `VLLM_TP=2` with it, or it fails to allocate.
 
 ```bash
 export AGENT_BASE_URL=http://localhost:8000/v1
-export AGENT_MODEL=agent          # optional; unset asks the endpoint
+# AGENT_MODEL is optional; unset asks the endpoint, and one served model settles
+# it. Set it to an id `agent endpoints` prints when a server serves several.
 
 agent index   path/to/src         # deterministic, no model calls
 agent inspect path/to/src -v      # the real thing
