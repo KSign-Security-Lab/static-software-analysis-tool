@@ -110,14 +110,14 @@ pseudo-call in place, which is the shape templates written before this produced.
 ## Web UI and API
 
 ```bash
-# The API on :8001. --reload-dir and --timeout-graceful-shutdown are both
+# The API on :4401. --reload-dir and --timeout-graceful-shutdown are both
 # load-bearing; api/README.md says why.
-uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
+uv run uvicorn api.main:app --host 0.0.0.0 --port 4401 \
   --reload --timeout-graceful-shutdown 2 \
   --reload-dir api --reload-dir packages/ssat/src/ssat \
   --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
 
-cd web && pnpm dev          # Next.js on :3000
+cd web && pnpm dev          # Next.js on :4400
 ```
 
 The API exposes `/cpg-jpype`, `/template`, `/ast`, `/dfg`,
@@ -133,7 +133,7 @@ return the SSAT pipeline's own artifacts.
 ```bash
 uv sync && (cd web && pnpm install)                # once
 cp .env.example .env                               # which model, which GPUs, where the weights go
-docker compose --profile vllm up -d --wait vllm    # the model server, on :8000
+docker compose --profile vllm up -d --wait vllm    # the model server, on :4403
 docker compose up -d --wait postgres               # the run database
 agent corpus ingest                                # the corpus of known weaknesses
 ```
@@ -186,8 +186,8 @@ The task list is `[tool.poe.tasks]` in the root `pyproject.toml`, and
 uv run poe               # the list, with what each one does
 uv run poe check         # lint, types, Python tests, then the web gate
 uv run poe dev           # the API and the web app together
-uv run poe dev-api       # just the API on :8001, with reload
-uv run poe dev-web       # just the Next.js dev server on :3000
+uv run poe dev-api       # just the API on :4401, with reload
+uv run poe dev-web       # just the Next.js dev server on :4400
 uv run poe stack         # what is running right now
 ```
 

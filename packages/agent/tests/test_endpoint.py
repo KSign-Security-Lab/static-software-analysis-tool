@@ -76,24 +76,24 @@ def test_only_model_is_none_when_the_choice_is_ambiguous(mock_get) -> None:
 
 
 def test_discover_skips_dead_candidates_and_keeps_order(mock_get) -> None:
-    mock_get({"http://localhost:8001/v1/models": _models("second")})
+    mock_get({"http://localhost:4401/v1/models": _models("second")})
     found = discover()
-    assert [e.base_url for e in found] == ["http://localhost:8001/v1"]
+    assert [e.base_url for e in found] == ["http://localhost:4401/v1"]
 
 
 def test_discover_returns_every_live_candidate(mock_get) -> None:
     mock_get(
         {
-            "http://localhost:8000/v1/models": _models("first"),
-            "http://localhost:8001/v1/models": _models("second"),
+            "http://localhost:4403/v1/models": _models("first"),
+            "http://localhost:4401/v1/models": _models("second"),
         }
     )
     assert [e.models[0] for e in discover()] == ["first", "second"]
 
 
 def test_vllms_default_port_is_probed_first() -> None:
-    assert DEFAULT_CANDIDATES[0].endswith(":8000/v1")
-    assert DEFAULT_CANDIDATES[1].endswith(":8001/v1")
+    assert DEFAULT_CANDIDATES[0].endswith(":4403/v1")
+    assert DEFAULT_CANDIDATES[1].endswith(":4401/v1")
 
 
 def test_no_ollama_port_is_probed() -> None:

@@ -22,7 +22,7 @@ services:
       POSTGRES_PASSWORD: ssat
       POSTGRES_DB: ssat
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-4402}:5432"
     volumes:
       - ssat-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -41,7 +41,7 @@ services:
     container_name: ssat-vllm
     profiles: [vllm]
     ports:
-      - "${VLLM_PORT:-8000}:8000"
+      - "${VLLM_PORT:-4403}:8000"
     volumes:
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface
     environment:

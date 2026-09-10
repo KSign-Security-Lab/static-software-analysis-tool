@@ -61,24 +61,24 @@ produced it is exactly what resizable panes are for.
 
 ```bash
 docker compose up -d --wait postgres    # the API does not start without it
-uv run uvicorn api.main:app --port 8001 --reload --timeout-graceful-shutdown 2 \
+uv run uvicorn api.main:app --port 4401 --reload --timeout-graceful-shutdown 2 \
   --reload-dir api --reload-dir packages/ssat/src/ssat \
   --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
-cd web && pnpm install && pnpm dev      # :3000
+cd web && pnpm install && pnpm dev      # :4400
 ```
 
 Override the backend with `NEXT_PUBLIC_API_URL` (see `.env.local.example`). Over
 Tailscale, set that and `ALLOWED_DEV_ORIGINS` to your tailnet IP:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://100.x.y.z:8001 ALLOWED_DEV_ORIGINS=100.x.y.z pnpm dev
+NEXT_PUBLIC_API_URL=http://100.x.y.z:4401 ALLOWED_DEV_ORIGINS=100.x.y.z pnpm dev
 ```
 
 ## Scripts
 
 | script | what |
 | --- | --- |
-| `pnpm dev` | dev server on :3000 |
+| `pnpm dev` | dev server on :4400 |
 | `pnpm build` / `pnpm start` | production build / serve |
 | `pnpm type-check` | `tsc --noEmit` |
 | `pnpm lint` | ESLint, including the dead-class and EventSource rules |

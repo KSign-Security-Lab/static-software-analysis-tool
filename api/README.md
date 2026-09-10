@@ -96,13 +96,13 @@ is mostly other people's.
 
 ```bash
 JOERN_HOME=/usr/bin/joern/joern-cli \
-  uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 --app-dir .
+  uv run uvicorn api.main:app --host 0.0.0.0 --port 4401 --app-dir .
 ```
 
 For development:
 
 ```bash
-uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
+uv run uvicorn api.main:app --host 0.0.0.0 --port 4401 \
   --reload --timeout-graceful-shutdown 2 \
   --reload-dir api --reload-dir packages/ssat/src/ssat \
   --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify

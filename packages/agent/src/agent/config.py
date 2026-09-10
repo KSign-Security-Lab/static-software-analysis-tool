@@ -9,7 +9,7 @@ from pathlib import Path
 from .schema import LENSES, Lens
 
 log = logging.getLogger(__name__)
-DEFAULT_BASE_URL = "http://localhost:8000/v1"
+DEFAULT_BASE_URL = "http://localhost:4403/v1"
 DEFAULT_MODEL = ""
 ENV_BASE_URL = "AGENT_BASE_URL"
 ENV_MODEL = "AGENT_MODEL"
@@ -87,7 +87,7 @@ def _env_globs(name: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg://ssat:ssat@localhost:5432/ssat"
+DEFAULT_DATABASE_URL = "postgresql+psycopg://ssat:ssat@localhost:4402/ssat"
 
 
 def default_database_url() -> str:

@@ -16,7 +16,7 @@ from agent.db import session as db_session
 SAMPLE_TREE = Path(__file__).resolve().parent / "fixtures" / "sample"
 
 
-TEST_DATABASE_URL = os.getenv("AGENT_TEST_DATABASE_URL", "postgresql+psycopg://ssat:ssat@localhost:5432/ssat_test")
+TEST_DATABASE_URL = os.getenv("AGENT_TEST_DATABASE_URL", "postgresql+psycopg://ssat:ssat@localhost:4402/ssat_test")
 
 
 @pytest.fixture(scope="session", autouse=True)

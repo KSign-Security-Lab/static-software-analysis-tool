@@ -41,7 +41,7 @@ describe("when the backend cannot be reached", () => {
     show();
 
     const alert = await waitFor(() => screen.getByRole("alert"));
-    expect(alert.textContent).toContain(":8001");
+    expect(alert.textContent).toContain(":4401");
     expect(alert.textContent).toContain("연결할 수 없습니다");
   });
 

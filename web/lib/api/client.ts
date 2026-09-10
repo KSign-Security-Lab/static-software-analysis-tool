@@ -1,6 +1,6 @@
 import { ownerHeaders } from "@/lib/run/whoami";
 
-const API_PORT = process.env.NEXT_PUBLIC_API_PORT || "8001";
+const API_PORT = process.env.NEXT_PUBLIC_API_PORT || "4401";
 
 export function apiBase(): string {
   const configured = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");

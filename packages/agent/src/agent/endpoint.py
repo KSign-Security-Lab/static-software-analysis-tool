@@ -7,8 +7,8 @@ import httpx
 
 log = logging.getLogger(__name__)
 DEFAULT_CANDIDATES: tuple[str, ...] = (
-    "http://localhost:8000/v1",
-    "http://localhost:8001/v1",
+    "http://localhost:4403/v1",
+    "http://localhost:4401/v1",
 )
 
 PROBE_TIMEOUT = 3.0

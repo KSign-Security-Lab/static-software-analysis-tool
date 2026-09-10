@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import ENV_BASE_URL, ENV_MODEL, AgentConfig, load_env_file
-from .endpoint import Endpoint, discover
+from .endpoint import DEFAULT_CANDIDATES, Endpoint, discover
 from .graph.build import run_inspection
 from .runs import (
     STATUS_DONE,
@@ -84,6 +84,11 @@ def _choose(prompt: str, options: list[str]) -> int:
         _err(f"not a choice: {raw}")
 
 
+def _probed() -> str:
+    ports = ", ".join(url.rsplit(":", 1)[-1].split("/")[0] for url in DEFAULT_CANDIDATES)
+    return f"port {ports}"
+
+
 def _pick_endpoint() -> Endpoint | None:
     endpoints = discover()
     if not endpoints:
@@ -99,7 +104,7 @@ def _interactive(config: AgentConfig) -> int:
 
     endpoint = _pick_endpoint()
     if endpoint is None:
-        _err("no vLLM server is answering on port 8000 or 8001.")
+        _err(f"no vLLM server is answering on {_probed()}.")
         print("Start one with:  docker compose --profile vllm up -d --wait vllm", file=sys.stderr)
         return 2
 
@@ -456,7 +461,7 @@ def cmd_endpoints(args: argparse.Namespace) -> int:
         for model in endpoint.models:
             print(f"  {model}")
     if not endpoints:
-        print("no vLLM server answering on port 8000 or 8001")
+        print(f"no vLLM server answering on {_probed()}")
         print("start one with: docker compose --profile vllm up -d --wait vllm")
 
     trace = tracing_status()

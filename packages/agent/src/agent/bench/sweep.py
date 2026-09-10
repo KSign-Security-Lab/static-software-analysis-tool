@@ -111,7 +111,7 @@ def _usable(root: Path) -> bool:
 
 
 def _check_model() -> bool:
-    base = os.getenv("AGENT_BASE_URL") or "http://localhost:8000/v1"
+    base = os.getenv("AGENT_BASE_URL") or "http://localhost:4403/v1"
     models = list_models(base, timeout=PROBE_TIMEOUT)
     if not models:
         _red(f"no model answering at {base}")
@@ -197,7 +197,7 @@ def sweep(config: BenchConfig, run_action: Callable[[str], int]) -> int:
         run_action("status")
         _info(f"results     {config.results_dir}")
         _info(f"patches     {config.predictions_file}")
-        _info("on screen   http://localhost:3000/bench?dataset=sec-bench")
+        _info("on screen   http://localhost:4400/bench?dataset=sec-bench")
         _info("")
         _info("the daemon is still up; stop it with:")
         _info("  docker compose --profile secbench down")

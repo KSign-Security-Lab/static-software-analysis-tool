@@ -6,9 +6,9 @@
   "packageManager": "pnpm@10.33.2",
   "description": "SSAT web UI — CPG views, SSAT pipeline artifacts, and F2-A evidence",
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -p 4400",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "next start -p 4400",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
     "test": "vitest run",

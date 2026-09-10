@@ -126,7 +126,7 @@ answer.
 | `VLLM_REASONING_PARSER` | `qwen3` | Only for models that think in-band; blank passes no flag |
 | `VLLM_MAX_LEN` | `16384` | Must clear `AGENT_CONTEXT_CHARS` in tokens |
 | `VLLM_MAX_SEQS` | `32` | Concurrent sequences; also caps CUDA-graph capture |
-| `VLLM_PORT` | `8000` | Host port, vLLM's own default; the API is on 8001 |
+| `VLLM_PORT` | `4403` | Host port; this project's band is 4400-4499, see `~/PORTS.md` |
 
 vLLM runs in Docker because the host install cannot work: vllm 0.17 against
 torch 2.4, which predates `torch.library.infer_schema`, and this workspace is on
@@ -166,7 +166,7 @@ A model wanting two GPUs needs `VLLM_TP=2` with it, or it fails to allocate.
 ### From the terminal
 
 ```bash
-export AGENT_BASE_URL=http://localhost:8000/v1
+export AGENT_BASE_URL=http://localhost:4403/v1
 # AGENT_MODEL is optional; unset asks the endpoint, and one served model settles
 # it. Set it to an id `agent endpoints` prints when a server serves several.
 
@@ -381,14 +381,14 @@ is what calls the handlers.
 ### From the browser
 
 ```bash
-uv run uvicorn api.main:app --host 0.0.0.0 --port 8001 \
+uv run uvicorn api.main:app --host 0.0.0.0 --port 4401 \
   --reload --timeout-graceful-shutdown 2 \
   --reload-dir api --reload-dir packages/ssat/src/ssat \
   --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
-cd web && pnpm dev                # Next.js on :3000
+cd web && pnpm dev                # Next.js on :4400
 ```
 
-Open <http://localhost:3000/inspect>, upload a zip or a set of files, and press
+Open <http://localhost:4400/inspect>, upload a zip or a set of files, and press
 검사 실행. Findings stream in as each chunk finishes; click one for the
 explanation, evidence and proposed fix. The `AGENT_*` variables have to be set
 in the shell that starts the API, and the banner says so if they are not.
@@ -480,9 +480,9 @@ they are all in one place with their reasons: `src/agent/bench/config.py`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AGENT_BASE_URL` | `http://localhost:8000/v1` | OpenAI-compatible endpoint |
+| `AGENT_BASE_URL` | `http://localhost:4403/v1` | OpenAI-compatible endpoint |
 | `AGENT_MODEL` | *(the endpoint's, when it serves one)* | Model id the endpoint serves |
-| `AGENT_DATABASE_URL` | `postgresql+psycopg://ssat:ssat@localhost:5432/ssat` | Where runs live |
+| `AGENT_DATABASE_URL` | `postgresql+psycopg://ssat:ssat@localhost:4402/ssat` | Where runs live |
 | `AGENT_CONTEXT_CHARS` | `24000` | Context-pack budget per chunk |
 | `AGENT_MAX_TOKENS` | `4096` | Ceiling on one response; bounds a model that cannot finish the schema |
 | `AGENT_MAX_VERIFY_PER_CHUNK` | `8` | Cap on refute calls per chunk |
