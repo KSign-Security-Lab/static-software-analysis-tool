@@ -95,7 +95,8 @@ agent corpus ingest                                # once, and after editing cor
 ```
 
 `.env` is where a machine says which model it serves, which GPUs it has and
-where the weights go. Compose reads it on its own:
+where the weights go. Compose reads it on its own, and so do the API and this
+CLI, so the `AGENT_*` settings belong there too:
 
 ```
 VLLM_MODEL=Qwen/Qwen3.8-27B-FP8

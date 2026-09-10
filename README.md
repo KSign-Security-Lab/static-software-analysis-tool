@@ -144,9 +144,10 @@ sample ids are content-derived, so an unchanged corpus costs one query and never
 loads the embedding model.
 
 Which weights, which tool-call and reasoning parser, which GPUs and where the
-cache lives are the `VLLM_*` variables in `.env`; Compose reads that file
-itself. `--wait` blocks until the server answers, which on a cold cache is a
-download.
+cache lives are the `VLLM_*` variables in `.env`. Compose reads that file
+itself, and so do the API and the `agent` CLI, which is where the `AGENT_*`
+half of it is read from; anything exported in your shell wins over the file.
+`--wait` blocks until the server answers, which on a cold cache is a download.
 
 `AGENT_MODEL` does not have to be set: unset means ask the endpoint, and a
 server that serves exactly one model answers the question by itself. Set it
@@ -207,8 +208,8 @@ workers a `GET /events` can land on the one that never saw the `POST` and the
 stream never attaches. Both API tasks pass `--timeout-graceful-shutdown`, which
 caps the wait on an idle `/events` stream that otherwise reads as a hang.
 
-It reaches the web app too — those tasks set `cwd = "web"` and shell out to
-`pnpm`, so one file lists both halves of the repo. The list is short on purpose:
+The list reaches the web app too — those tasks set `cwd = "web"` and run
+`pnpm`, so one file covers both halves of the repo. It is short on purpose:
 a task earns its place by composing several commands or by carrying arguments
 that are easy to get wrong. Anything that is one short command is not in it, so
 the `agent` CLI is run directly — `uv run agent index src/`.
