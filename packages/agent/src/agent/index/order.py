@@ -83,21 +83,45 @@ def call_levels(chunks: Sequence[Chunk], links: Sequence[Link]) -> dict[str, int
     return levels
 
 
-def wave(
+# Edges pointing forward in the order are exactly the cycle edges -- the traversal
+# above meets those chunks already on its own path. Dropping them here is what makes
+# readiness a partial order, and so what makes a round impossible to deadlock.
+def blockers(order: Sequence[str], links: Sequence[Link]) -> dict[str, tuple[str, ...]]:
+    position = {chunk_id: index for index, chunk_id in enumerate(order)}
+    found: dict[str, set[str]] = defaultdict(set)
+    for link in links:
+        if link.kind != CALLS:
+            continue
+        src, dst = link.src, link.dst
+        if src == dst or src not in position or dst not in position:
+            continue
+        if position[dst] < position[src]:
+            found[src].add(dst)
+    return {chunk_id: tuple(sorted(found[chunk_id])) for chunk_id in order if found.get(chunk_id)}
+
+
+# A blocker still in `pending` has not written its note yet. While pending keeps the
+# computed order the head is always ready -- its blockers all sit before it, so they
+# have left the queue -- and a round is never empty. Advisory planning may reorder the
+# queue and break that, so the head goes alone rather than stalling.
+def ready(
     pending: Sequence[str],
-    levels: Mapping[str, int],
+    blocked: Mapping[str, Sequence[str]],
     width: int,
     affinity: Mapping[str, int] | None = None,
 ) -> list[str]:
-    if not pending or width <= 1:
+    if not pending:
+        return []
+    if width <= 1:
         return list(pending[:1])
-    head = pending[0]
-    if head not in levels:
-        return [head]
 
-    depth = levels[head]
-    candidates = [chunk_id for chunk_id in pending[1:] if levels.get(chunk_id) == depth]
+    waiting = set(pending)
+    free = [chunk_id for chunk_id in pending if not waiting.intersection(blocked.get(chunk_id, ()))]
+    if not free:
+        return list(pending[:1])
+
+    head, *rest = free
     if affinity:
         home = affinity.get(head)
-        candidates.sort(key=lambda chunk_id: affinity.get(chunk_id) != home)
-    return [head, *candidates[: width - 1]]
+        rest.sort(key=lambda chunk_id: affinity.get(chunk_id) != home)
+    return [head, *rest[: width - 1]]

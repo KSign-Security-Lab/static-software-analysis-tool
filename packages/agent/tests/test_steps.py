@@ -78,9 +78,10 @@ def test_every_deterministic_node_says_what_it_does() -> None:
 
 
 def test_a_node_reads_and_writes_real_channels() -> None:
-    from agent.graph.state import InspectionState
+    from agent.graph.state import ChunkState, InspectionState
 
-    channels = set(InspectionState.__annotations__)
+    # A chunk's own pipeline keeps its accumulators in its own state; both are real.
+    channels = set(InspectionState.__annotations__) | set(ChunkState.__annotations__)
     for name, notes in NODE_NOTES.items():
         for channel in [*notes["reads"], *notes["writes"]]:
             assert channel in channels, f"{name} names a channel the state does not have: {channel}"

@@ -31,6 +31,14 @@ class InspectionState(TypedDict, total=False):
     wave: list[str]
     current: str | None
     packs: Annotated[dict[str, str], merge]
+    confirmed: Annotated[list[dict[str, Any]], concat]
+    stats: Annotated[dict[str, int], add_counts]
+
+
+# One chunk's own pipeline. The accumulators that used to be wave-wide live here, so
+# they are bounded by the chunk rather than cleared by the next round.
+class ChunkState(TypedDict, total=False):
+    chunk_id: str
     triaged: Annotated[dict[str, Any], merge]
     scouted: Annotated[dict[str, Any], merge]
     candidates: Annotated[list[dict[str, Any]], concat]
@@ -40,7 +48,7 @@ class InspectionState(TypedDict, total=False):
     stats: Annotated[dict[str, int], add_counts]
 
 
-WAVE_CHANNELS = ("packs", "triaged", "scouted", "candidates", "located", "verdicts", "confirmed")
+WAVE_CHANNELS = ("packs", "confirmed")
 
 
 def clear_wave() -> dict[str, Any]:
@@ -67,11 +75,6 @@ def initial_state(order: list[str], chunks_total: int, stats: dict[str, int] | N
         wave=[],
         current=None,
         packs={},
-        triaged={},
-        scouted={},
-        candidates=[],
-        located=[],
-        verdicts=[],
         confirmed=[],
         stats=base,
     )

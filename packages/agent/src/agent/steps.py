@@ -34,7 +34,15 @@ STEP_TOOLS: dict[str, tuple[str, ...]] = {
     **{lens_prompt(lens): tuple(LENS_TOOLS) for lens in LENSES},
 }
 
-STEP_ORDER: tuple[str, ...] = ("triage", "scout", *(lens_prompt(lens) for lens in LENSES), "gather", "verify", "fix", "replan")
+STEP_ORDER: tuple[str, ...] = (
+    "triage",
+    "scout",
+    *(lens_prompt(lens) for lens in LENSES),
+    "gather",
+    "verify",
+    "fix",
+    "replan",
+)
 
 
 def _fields(schema: type[BaseModel] | None) -> list[str]:
@@ -83,21 +91,21 @@ def _tool_catalogue() -> dict[str, dict[str, Any]]:
 DETERMINISTIC: tuple[str, ...] = ("plan", "context", "skip", "locate", "reduce")
 NODE_NOTES: dict[str, dict[str, Any]] = {
     "plan": {
-        "does": "Takes the next wave off the queue: skips chunks already inspected, then cuts at the first call-depth boundary, because chunks at one depth cannot need each other's notes.",
+        "does": "Takes the next round off the queue: skips chunks already inspected, then takes every chunk whose callees are already done, up to AGENT_WAVE_WIDTH. Readiness is read off the computed order, so a call cycle cannot deadlock it.",
         "reads": ["pending"],
         "writes": ["pending", "wave", "current"],
         "router": "has_work",
-        "rule": "wave is empty -> __end__, otherwise -> context",
+        "rule": "nothing was ready -> __end__, otherwise -> context",
     },
     "context": {
-        "does": "Assembles one context pack per chunk in the wave -- the unit's source, how the things it calls are declared and what analysing them found, the file's declarations, its callers -- once, for everyone who will read it.",
+        "does": "Assembles one context pack per chunk in the round -- the unit's source, how the things it calls are declared and what analysing them found, the file's declarations, its callers. Every pack is built before any specialist in the round runs, so two chunks going at once can never see each other's notes.",
         "reads": ["wave"],
         "writes": ["packs"],
         "router": "dispatch",
-        "rule": "AGENT_TRIAGE=1 -> one triage per chunk; off -> every configured lens per chunk directly",
+        "rule": "one Send per chunk, each carrying that chunk's whole pipeline",
     },
     "skip": {
-        "does": "Nothing, and that is the point: every chunk passes through this layer so the join below the specialists fires exactly once per wave.",
+        "does": "Nothing, and that is the point: every chunk passes through this layer so the join below the specialists fires exactly once for the chunk.",
         "reads": [],
         "writes": [],
         "router": None,
@@ -111,8 +119,8 @@ NODE_NOTES: dict[str, dict[str, Any]] = {
         "rule": "one gather per finding under AGENT_MAX_VERIFY_PER_CHUNK; none left -> reduce",
     },
     "reduce": {
-        "does": "Writes what survived to the run's store and closes the wave. Findings over the verify cap are kept but marked unverified rather than silently blessed.",
-        "reads": ["located", "verdicts", "wave"],
+        "does": "Writes what survived to the run's store and closes the chunk. Findings over the verify cap are kept but marked unverified rather than silently blessed.",
+        "reads": ["located", "verdicts", "chunk_id"],
         "writes": ["confirmed"],
         "router": None,
         "rule": "always -> plan",

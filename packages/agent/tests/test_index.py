@@ -8,7 +8,7 @@ from agent.runs import new_run
 from agent.index import ChunkStore, build_index
 from agent.index.chunk import FILE_CHUNK_KIND, chunk_id_for, chunk_source, line_windows, normalize_body
 from agent.index.links import CALLS, FILE_DEPENDS, USES_TYPE, resolve_links
-from agent.index.order import call_levels, inspection_order, wave
+from agent.index.order import blockers, call_levels, inspection_order, ready
 from agent.languages import spec_for_path
 
 
@@ -186,18 +186,22 @@ def test_file_chunks_and_leaves_are_level_zero(tree: Path) -> None:
     assert levels[outer] > levels[inner]
 
 
-def test_a_wave_takes_only_chunks_that_share_a_level() -> None:
-    levels = {"a": 0, "b": 1, "c": 0, "d": 0}
-    assert wave(["a", "b", "c", "d"], levels, width=4) == ["a", "c", "d"]
-    assert wave(["b", "a", "c"], levels, width=4) == ["b"]
+def test_a_round_leaves_out_chunks_whose_callees_are_still_queued() -> None:
+    blocked = {"b": ("a",)}
+    assert ready(["a", "b", "c", "d"], blocked, width=4) == ["a", "c", "d"]
+    assert ready(["b", "a", "c"], blocked, width=4) == ["a", "c"]
+    assert ready(["b", "c"], blocked, width=4) == ["b", "c"], "a is done, so b is free"
 
 
-def test_a_wave_is_bounded_and_degrades_to_one() -> None:
-    levels = {name: 0 for name in "abcdef"}
-    assert wave(list("abcdef"), levels, width=3) == ["a", "b", "c"]
-    assert wave(list("abcdef"), levels, width=1) == ["a"]
-    assert wave(["a", "b"], {}, width=4) == ["a"]
-    assert wave([], levels, width=4) == []
+def test_a_round_is_bounded_and_degrades_to_one() -> None:
+    assert ready(list("abcdef"), {}, width=3) == ["a", "b", "c"]
+    assert ready(list("abcdef"), {}, width=1) == ["a"]
+    assert ready([], {}, width=4) == []
+
+
+def test_a_round_is_never_empty_even_when_the_queue_was_reordered() -> None:
+    # Advisory planning may put a blocked chunk first; it goes alone rather than stalling.
+    assert ready(["b"], {"b": ("a",)}, width=4) == ["b"]
 
 
 def test_levels_survive_a_round_trip_through_the_store(tmp_path: Path, tree: Path) -> None:
@@ -377,14 +381,49 @@ def test_one_store_serves_many_threads(tmp_path: Path, tree: Path) -> None:
     store.close()
 
 
-def test_a_wave_prefers_the_head_s_own_subsystem() -> None:
-    levels = {name: 0 for name in "abcd"}
+def test_a_round_prefers_the_head_s_own_subsystem() -> None:
     subsystems = {"a": 1, "b": 2, "c": 1, "d": 2}
-    assert wave(list("abcd"), levels, width=3, affinity=subsystems) == ["a", "c", "b"]
-    assert wave(list("abd"), levels, width=3, affinity={"a": 1, "b": 2, "d": 2}) == ["a", "b", "d"]
+    assert ready(list("abcd"), {}, width=3, affinity=subsystems) == ["a", "c", "b"]
+    assert ready(list("abd"), {}, width=3, affinity={"a": 1, "b": 2, "d": 2}) == ["a", "b", "d"]
 
 
-def test_wave_order_is_still_the_index_s_order_within_a_subsystem() -> None:
-    levels = {name: 0 for name in "abcd"}
+def test_round_order_is_still_the_index_s_order_within_a_subsystem() -> None:
     same = {name: 7 for name in "abcd"}
-    assert wave(list("abcd"), levels, width=4, affinity=same) == ["a", "b", "c", "d"]
+    assert ready(list("abcd"), {}, width=4, affinity=same) == ["a", "b", "c", "d"]
+
+
+def test_a_mutual_recursion_pair_never_blocks_itself(tree: Path) -> None:
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    order = inspection_order(chunks, links)
+    blocked = blockers(order, links)
+    by_id = {c.chunk_id: c for c in chunks}
+    named = {by_id[cid].symbol: {by_id[d].symbol for d in deps} for cid, deps in blocked.items()}
+
+    assert "pong" in named.get("ping", set()) or "ping" in named.get("pong", set()), (
+        "fixture no longer contains the mutual-recursion case"
+    )
+    assert not ("pong" in named.get("ping", set()) and "ping" in named.get("pong", set())), (
+        "both halves of the cycle block each other, so neither can ever run"
+    )
+
+
+def test_draining_the_queue_visits_every_chunk_after_its_callees(tree: Path) -> None:
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    order = inspection_order(chunks, links)
+    blocked = blockers(order, links)
+
+    pending, done, rounds = list(order), [], 0
+    while pending:
+        chosen = ready(pending, blocked, width=4)
+        assert chosen, "a round came back empty while work remained"
+        for chunk_id in chosen:
+            assert set(blocked.get(chunk_id, ())).issubset(done), "dispatched before its callees"
+        done.extend(chosen)
+        pending = [c for c in pending if c not in set(chosen)]
+        rounds += 1
+        assert rounds <= len(order), "the drain did not terminate"
+
+    assert len(done) == len(set(done)) == len(order)
+    assert done != list(order), "nothing overtook, so this fixture does not exercise the ready set"

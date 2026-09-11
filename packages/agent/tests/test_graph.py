@@ -572,7 +572,9 @@ def test_a_run_checkpoints_every_super_step(indexed, tmp_path: Path) -> None:
     steps = [h["step"] for h in history if h["step"] is not None]
     assert steps == sorted(steps)
 
-    assert {h["node"] for h in history} >= {"plan", "context", "triage", "injection", "locate", "verify", "reduce"}
+    assert {h["node"] for h in history} >= {"plan", "context", "inspect"}, (
+        "the run's own history is the parent's; a chunk's steps live in its subgraph"
+    )
 
     by_id = {h["checkpoint_id"]: h for h in history}
     parented = [h for h in history if h["parent_checkpoint_id"]]
@@ -581,7 +583,7 @@ def test_a_run_checkpoints_every_super_step(indexed, tmp_path: Path) -> None:
 
     values = history[-1]["values"]
     assert set(values["pending"]) == {"remaining", "next"}
-    assert set(values["candidates"]) == {"count"}
+    assert set(values["confirmed"]) == {"count"}
     store.close()
 
 
@@ -638,12 +640,13 @@ def test_a_breakpoint_stops_the_run_before_that_node(indexed, tmp_path: Path) ->
 
         assert session.interrupted
         assert session.next_nodes == ["injection"]
-        assert not session.values.get("candidates")
+        assert not session.values.get("confirmed")
 
         session.resume()
         assert session.interrupted
 
-        session.resume(values={"pending": []})
+        while session.interrupted:
+            session.resume()
 
     assert not session.interrupted
     assert session.values["pending"] == []
@@ -656,15 +659,15 @@ def test_resuming_with_an_edit_does_not_repeat_the_node_that_just_ran(indexed, t
         if event == "node_started" and payload.get("node"):
             seen.append(payload["node"])
 
-    with _session(indexed, tmp_path, breakpoints=["injection"], emit=watch) as session:
+    with _session(indexed, tmp_path, breakpoints=["context"], emit=watch) as session:
         session.start()
-        assert session.interrupted and session.next_nodes == ["injection"]
+        assert session.interrupted and session.next_nodes == ["context"]
         before = list(seen)
 
         session.resume(values={"pending": []})
 
     ran = seen[len(before) :]
-    assert ran and ran[0] == "injection", f"expected to carry on into the specialist, went to {ran[:2]}"
+    assert ran and ran[0] == "context", f"expected to carry on into the round, went to {ran[:2]}"
 
 
 def test_a_breakpoint_needs_somewhere_to_stop(indexed, tmp_path: Path) -> None:
@@ -925,6 +928,31 @@ def test_a_run_is_the_same_however_the_endpoint_answers(indexed, tmp_path: Path)
         return report.model_dump_json(exclude={"run_id"})
 
     assert report_for(1) == report_for(2)
+
+
+def test_the_report_does_not_depend_on_how_many_chunks_go_at_once(indexed, tmp_path: Path) -> None:
+    root, _ = indexed
+
+    def report_for(width: int) -> str:
+        store = ChunkStore(new_run().run_id)
+        build_index(read_tree(root), store)
+        caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+        report = run_inspection(
+            run_id="test",
+            files=read_tree(root),
+            store=store,
+            config=AgentConfig(
+                model="fake", enable_tools=False, lenses=("injection",), wave_width=width, max_inflight=width
+            ),
+            caller=caller,  # type: ignore[arg-type]
+            warm=False,
+        )
+        store.close()
+        return report.model_dump_json(exclude={"run_id"})
+
+    # A chunk only ever goes once its callees are done, so the notes it reads -- and so
+    # every prompt, and so the report -- cannot depend on the width of a round.
+    assert report_for(1) == report_for(16)
 
 
 def test_a_breakpoint_stops_every_task_of_a_fanned_out_step(indexed, tmp_path: Path) -> None:

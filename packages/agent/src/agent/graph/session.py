@@ -7,6 +7,7 @@ from ..cache import ResultCache, recipe_of
 from ..config import AgentConfig
 from ..harness import record as record_config
 from ..index.reach import stamp as stamp_reach
+from ..index.order import blockers as compute_blockers
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
 from ..mcp.client import ALL_TOOLS, ToolSession, open_session
@@ -14,7 +15,7 @@ from ..promptstore import resolve as resolve_prompts
 from ..schema import Finding, Report, RunStats
 from ..trace import SpanRecorder, SpanStore
 from ..tracing import apply_default_project
-from .build import NODE_VISITS_PER_CHUNK, RECURSION_HEADROOM, build_graph
+from .build import CONTAINER, NODE_VISITS_PER_CHUNK, RECURSION_HEADROOM, build_graph
 from .checkpoints import checkpoint_saver, summarise
 from .nodes import NodeDeps, ProgressSink
 from .plan import PlanStore
@@ -91,17 +92,25 @@ class InspectionSession:
 
         self.plan = PlanStore(store.run_id, config)
 
+        self.order = store.order()
+        blocked = compute_blockers(self.order, store.links())
+
+        self._owned_caller = caller is None
+        self.caller = caller if caller is not None else StructuredCaller(config)
+        self.caller.cancelled = self._cancelled
+
         deps = NodeDeps(
             store=store,
             cache=self._cache,
             config=config,
-            caller=caller if caller is not None else StructuredCaller(config),
+            caller=self.caller,
             files=files,
             emit=self._emit,
             run_id=run_id,
             tools=tools,
             prompts=self.prompts,
             subsystems=_subsystems(store),
+            blockers=blocked,
             plan=self.plan,
             cancelled=self._cancelled,
         )
@@ -121,8 +130,6 @@ class InspectionSession:
         self.breakpoints_after = list(breakpoints_after) if self._saver is not None else []
         if (breakpoints or breakpoints_after) and self._saver is None:
             log.warning("breakpoints ignored: this session was built without a checkpointer")
-
-        self.order = store.order()
 
         self.plan.seed(self.order)
 
@@ -156,6 +163,9 @@ class InspectionSession:
         return warmed
 
     def close(self) -> None:
+        # Whatever ended the run, nothing of ours may still be decoding on the server.
+        if self._owned_caller:
+            self._abort()
         if self._cache is not None:
             self._cache.close()
             self._cache = None
@@ -190,6 +200,14 @@ class InspectionSession:
         if self._saver is None:
             return None
         snapshot = self._app.get_state(config)
+        parked = list(snapshot.next or ())
+        # Parked inside a chunk's own pipeline. Writing here would land the edit as
+        # though the whole chunk had run, so there is no honest node to write as.
+        if CONTAINER in parked:
+            raise ParallelStep(
+                f"this step is inside {parked.count(CONTAINER)} chunk pipeline(s); "
+                "edit the state at the step that joins them instead"
+            )
         if not snapshot.parent_config:
             return self._last_node
         queued = list(self._app.get_state(snapshot.parent_config).next)
@@ -209,24 +227,39 @@ class InspectionSession:
         }
 
     def _stream(self, payload: Any, config: dict[str, Any]) -> None:
-        for mode, frame in self._app.stream(payload, config=config, stream_mode=["debug", "values"]):
+        for namespace, mode, frame in self._app.stream(
+            payload, config=config, stream_mode=["debug", "values"], subgraphs=True
+        ):
+            root = not namespace
             if mode == "values":
-                if isinstance(frame, dict):
+                # A chunk's own final state is not the run's. Only the root's is.
+                if root and isinstance(frame, dict):
                     self._values = frame
             else:
-                self._report(frame)
+                self._report(frame, root)
             if self._cancelled():
                 self.stopped = True
+                self._abort()
                 break
         self._refresh()
 
-    def _report(self, frame: Any) -> None:
+    def _abort(self) -> None:
+        abort = getattr(self.caller, "abort", None)
+        if abort is not None:
+            abort()
+
+    def _report(self, frame: Any, root: bool = True) -> None:
         if not isinstance(frame, dict):
             return
         body = frame.get("payload") or {}
         step = frame.get("step")
         try:
             kind = frame.get("type")
+            # The subgraph is a container, not a step anyone asked for.
+            if body.get("name") == CONTAINER:
+                return
+            if kind == "checkpoint" and not root:
+                return
             if kind == "task":
                 self._emit("node_started", {"node": body.get("name"), "step": step})
             elif kind == "task_result":
@@ -259,8 +292,8 @@ class InspectionSession:
         if self._saver is None:
             self._next = ()
             return
-        snapshot = self._app.get_state({"configurable": {"thread_id": self.run_id}})
-        self._next = tuple(snapshot.next)
+        snapshot = self._app.get_state({"configurable": {"thread_id": self.run_id}}, subgraphs=True)
+        self._next = tuple(_parked(snapshot))
         self._checkpoint_id = (snapshot.config.get("configurable") or {}).get("checkpoint_id")
 
     @property
@@ -285,13 +318,26 @@ class InspectionSession:
         report = Report(
             run_id=self.run_id,
             findings=[
-                Finding.model_validate(payload)
-                for payload in stamp_reach(self.store.findings(), self.store.reach())
+                Finding.model_validate(payload) for payload in stamp_reach(self.store.findings(), self.store.reach())
             ],
             stats=stats,
         )
         report.findings = report.sorted_findings()
         return report
+
+
+# A breakpoint inside a chunk parks the subgraph, so the run's next nodes are the
+# children's, not the container's.
+def _parked(snapshot: Any) -> list[str]:
+    names: list[str] = []
+    for task in getattr(snapshot, "tasks", ()) or ():
+        inner = getattr(task, "state", None)
+        nested = _parked(inner) if inner is not None and getattr(inner, "next", None) else []
+        if nested:
+            names.extend(nested)
+        elif getattr(task, "name", None) and task.name != CONTAINER:
+            names.append(task.name)
+    return names or [name for name in (getattr(snapshot, "next", ()) or ()) if name != CONTAINER]
 
 
 def _subsystems(store: ChunkStore) -> dict[str, int]:

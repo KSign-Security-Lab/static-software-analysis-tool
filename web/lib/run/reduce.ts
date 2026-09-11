@@ -29,6 +29,7 @@ export interface RunLive {
   wave: { chunks: string[]; remaining: number } | null;
   inflight: Map<string, string>;
   scanned: Set<string>;
+  done: Set<string>;
   cancelling: boolean;
   attached: boolean;
   revision: number;
@@ -48,6 +49,7 @@ export const IDLE: RunLive = {
   wave: null,
   inflight: new Map(),
   scanned: new Set(),
+  done: new Set(),
   cancelling: false,
   attached: false,
   revision: 0,
@@ -77,7 +79,7 @@ export type RunAction =
 export function reduceRun(state: RunLive, action: RunAction): RunLive {
   switch (action.type) {
     case "reset":
-      return { ...IDLE, visited: new Set(), inflight: new Map(), scanned: new Set(), attached: state.attached };
+      return { ...IDLE, visited: new Set(), inflight: new Map(), scanned: new Set(), done: new Set(), attached: state.attached };
 
     case "attached":
       return state.attached === action.open ? state : { ...state, attached: action.open };
@@ -94,6 +96,7 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
         visited: new Set(),
         inflight: new Map(),
         scanned: new Set(),
+        done: new Set(),
         attached: state.attached,
         active: true,
         revision: state.revision + 1,
@@ -139,6 +142,7 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
         ...state,
         inflight,
         scanned: file ? new Set(state.scanned).add(file) : state.scanned,
+        done: new Set(state.done).add(chunk_id),
       };
     }
 

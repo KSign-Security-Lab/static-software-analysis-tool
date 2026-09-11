@@ -217,7 +217,10 @@ def _callees_for(
             if first <= chunk.start_line + offset <= last:
                 in_region.update(_NAME.findall(line))
 
-    notes = {callee.chunk_id: store.note(callee.chunk_id) or "" for callee in candidates}
+    ids = [callee.chunk_id for callee in candidates]
+    found = store.notes_for(ids)
+    notes = {chunk_id: found.get(chunk_id, "") for chunk_id in ids}
+    inspected = store.inspected_among([chunk_id for chunk_id in ids if not notes[chunk_id]])
 
     def rank(callee: Chunk) -> tuple[int, int, int]:
         return (
@@ -234,7 +237,7 @@ def _callees_for(
         entry = f"- {where}  {_signature(callee)}"
         if note:
             entry += f"\n    {note}"
-        elif not store.is_inspected(callee.chunk_id):
+        elif callee.chunk_id not in inspected:
             entry += "\n    (아직 분석하지 않았습니다)"
         lines.append(entry)
     return lines

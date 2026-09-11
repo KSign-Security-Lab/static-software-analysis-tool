@@ -10,7 +10,7 @@ from ..config import AgentConfig
 from ..context import ContextPack, build_context
 from ..ids import finding_id, normalize_cwe
 from ..index.chunk import FILE_CHUNK_KIND, Chunk, line_windows
-from ..index.order import wave as pick_wave
+from ..index.order import ready as pick_ready
 from ..index.reach import stamp as stamp_reach
 from ..index.store import ChunkStore
 from ..llm import StructuredCaller
@@ -46,7 +46,7 @@ from ..schema import (
     Verdict,
 )
 from .plan import PlanEvent
-from .state import InspectionState, clear_wave
+from .state import ChunkState, InspectionState, clear_wave
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,8 @@ class ProgressSink(Protocol):
 
 
 class InspectionNode(Protocol):
-    def __call__(self, state: InspectionState) -> dict[str, Any]: ...
+    # Either state: the parent's nodes read the run's, a chunk's read its own.
+    def __call__(self, state: Any) -> dict[str, Any]: ...
 
 
 def _noop(event: str, payload: dict[str, Any]) -> None:
@@ -83,6 +84,7 @@ class NodeDeps:
     tools: Any = None
     prompts: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PROMPTS))
     subsystems: dict[str, int] = field(default_factory=dict)
+    blockers: dict[str, tuple[str, ...]] = field(default_factory=dict)
     cache: Any = None
     plan: Any = None
     cancelled: Callable[[], bool] = lambda: False
@@ -210,7 +212,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         if not pending:
             return {**fresh, "pending": [], "wave": [], "current": None}
 
-        chosen = pick_wave(pending, deps.store.levels(), deps.config.wave_width, deps.subsystems)
+        chosen = pick_ready(pending, deps.blockers, deps.config.wave_width, deps.subsystems)
         taken = set(chosen)
         remaining = [chunk_id for chunk_id in pending if chunk_id not in taken]
 
@@ -441,7 +443,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
     def skip(state: Any) -> dict[str, Any]:
         return {}
 
-    def locate(state: InspectionState) -> dict[str, Any]:
+    def locate(state: ChunkState) -> dict[str, Any]:
         raw = sorted(
             state.get("candidates", []),
             key=lambda item: (
@@ -619,7 +621,8 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         built = build_remediation(candidate.value, span, text)
         return built.model_dump() if built.replacement else None
 
-    def reduce(state: InspectionState) -> dict[str, Any]:
+    def reduce(state: Any) -> dict[str, Any]:
+        mine = [state["chunk_id"]] if state.get("chunk_id") else []
         rulings = {str(v["finding_id"]): v for v in state.get("verdicts", [])}
         by_chunk: dict[str, list[dict[str, Any]]] = {}
         refuted = 0
@@ -646,12 +649,12 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     finding.remediation = Remediation.model_validate(fixed)
             by_chunk.setdefault(str(item["chunk_id"]), []).append(finding.model_dump())
 
-        _plan_mark(deps, state.get("wave", []), "done")
+        _plan_mark(deps, mine, "done")
 
         confirmed: list[dict[str, Any]] = []
         inspected = 0
         reach = deps.store.reach()
-        for chunk_id in state.get("wave", []):
+        for chunk_id in mine:
             chunk = deps.store.chunk(chunk_id)
             if chunk is None:
                 continue
@@ -705,14 +708,13 @@ def has_work(state: InspectionState) -> str:
     return "context" if state.get("wave") else "done"
 
 
+# One Send per chunk, each carrying a whole pipeline rather than a phase of one.
+# Every key here must be a declared ChunkState channel: LangGraph drops the rest
+# without raising, and a chunk that arrives without its id inspects nothing.
 def dispatch(config: AgentConfig) -> Any:
     def route(state: InspectionState) -> Any:
         chunks = list(state.get("wave", []))
-        if not chunks:
-            return "skip"
-        if config.triage:
-            return [Send("triage", {"chunk_id": chunk_id}) for chunk_id in chunks]
-        return [Send("scout", {"chunk_id": chunk_id}) for chunk_id in chunks]
+        return [Send("inspect", {"chunk_id": chunk_id}) for chunk_id in chunks]
 
     return route
 
@@ -743,7 +745,7 @@ def specialists(config: AgentConfig) -> Any:
     return route
 
 
-def claims(state: InspectionState) -> Any:
+def claims(state: ChunkState) -> Any:
     sends = [
         Send(
             "gather",

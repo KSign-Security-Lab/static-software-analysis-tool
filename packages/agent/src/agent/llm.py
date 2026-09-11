@@ -18,7 +18,11 @@ log = logging.getLogger(__name__)
 ModelT = TypeVar("ModelT", bound=BaseModel)
 StructuredMethod = Literal["json_schema", "function_calling"]
 STRUCTURED_METHODS: tuple[StructuredMethod, ...] = ("json_schema", "function_calling")
-FailureReason = Literal["length", "too_long", "refused", "transport"]
+FailureReason = Literal["length", "too_long", "refused", "transport", "cancelled"]
+
+
+class Cancelled(Exception):
+    pass
 
 
 def _is_overflow(err: Exception) -> bool:
@@ -64,6 +68,11 @@ class StructuredCaller:
     def __init__(self, config: AgentConfig, llm: ChatOpenAI | None = None) -> None:
         self.config = config
         self._lock = threading.Lock()
+        # The only bound on what reaches the endpoint. The graph may have far more
+        # tasks runnable than the server has room for -- a nested subgraph brings its
+        # own thread pool -- so the ceiling cannot live in the graph's shape.
+        self._slots = threading.BoundedSemaphore(max(1, config.max_inflight))
+        self.cancelled: Callable[[], bool] = lambda: False
         self.llm = llm if llm is not None else make_llm(config)
         self._method: StructuredMethod | None = None
         self.tools_available = config.enable_tools
@@ -74,6 +83,25 @@ class StructuredCaller:
             current = self.llm
         llm = current if headroom is None else current.model_copy(update={"max_tokens": headroom})
         return llm.with_structured_output(schema, method=method)
+
+    def _invoke(self, runnable: Any, messages: Any, trace: RunnableConfig | None) -> Any:
+        if self.cancelled():
+            raise Cancelled()
+        with self._slots:
+            # Checked again on the way in: a run cancelled while this was queued must
+            # not spend a slot, or cancelling costs one full call per queued task.
+            if self.cancelled():
+                raise Cancelled()
+            return runnable.invoke(messages, config=trace)
+
+    # vLLM frees a sequence when its client goes away, so closing the transport is
+    # what ends requests already on the wire. Without it a killed run leaves the
+    # server decoding into nothing.
+    def abort(self) -> None:
+        try:
+            self.llm.root_client.close()
+        except Exception:  # noqa: BLE001 - an abort must not raise
+            log.debug("could not close the endpoint transport", exc_info=True)
 
     def _headroom(self, err: LengthFinishReasonError, prompt: str, system: str) -> int | None:
         window = self.config.resolve_window()
@@ -124,7 +152,9 @@ class StructuredCaller:
 
         for method in methods:
             try:
-                result = self._runnable(schema, method).invoke(messages, config=trace)
+                result = self._invoke(self._runnable(schema, method), messages, trace)
+            except Cancelled:
+                return Outcome.failed("cancelled")
             except LengthFinishReasonError as length_err:
                 headroom = self._headroom(length_err, user, system)
                 if headroom is None:
@@ -145,7 +175,7 @@ class StructuredCaller:
                     headroom,
                 )
                 try:
-                    result = self._runnable(schema, method, headroom=headroom).invoke(messages, config=trace)
+                    result = self._invoke(self._runnable(schema, method, headroom=headroom), messages, trace)
                 except LengthFinishReasonError:
                     log.warning(
                         "%s still did not finish a %s object within %d tokens -- the model is "
@@ -167,7 +197,7 @@ class StructuredCaller:
                     return Outcome.failed("too_long")
                 if self._drop_effort_if_rejected(err):
                     try:
-                        result = self._runnable(schema, method).invoke(messages, config=trace)
+                        result = self._invoke(self._runnable(schema, method), messages, trace)
                     except Exception as retried:  # noqa: BLE001
                         log.warning("structured call failed via %s after dropping effort: %s", method, retried)
                         last = "transport"
@@ -232,7 +262,9 @@ class StructuredCaller:
             if cancelled is not None and cancelled():
                 break
             try:
-                reply = bound.invoke(messages, config=trace)
+                reply = self._invoke(bound, messages, trace)
+            except Cancelled:
+                break
             except Exception as err:  # noqa: BLE001
                 if "tool-call-parser" in str(err) or "tool_choice" in str(err):
                     self._disable_tools(err)

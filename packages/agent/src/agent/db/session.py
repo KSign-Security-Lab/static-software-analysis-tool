@@ -8,6 +8,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import AgentConfig
 
+# A round now runs many chunks at once, each doing its own small reads between model
+# calls. The default pool (5 + 10) is below that, and a starved checkout blocks for
+# 30s before raising, which reads as the model being slow.
+POOL_SIZE = 32
+MAX_OVERFLOW = 32
+
 _engine: Engine | None = None
 _factory: sessionmaker[Session] | None = None
 
@@ -16,7 +22,14 @@ def engine(config: AgentConfig | None = None) -> Engine:
     global _engine, _factory
     if _engine is None:
         url = (config or AgentConfig()).database_url
-        _engine = create_engine(url, pool_pre_ping=True, future=True)
+        _engine = create_engine(
+            url,
+            pool_pre_ping=True,
+            pool_size=POOL_SIZE,
+            max_overflow=MAX_OVERFLOW,
+            pool_recycle=1800,
+            future=True,
+        )
         _factory = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
 

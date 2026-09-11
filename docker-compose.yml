@@ -50,13 +50,22 @@ services:
     # --tool-call-parser is what lets verification call tools; without it a run
     # falls back to context-only and says so.
     #
+    # --max-num-batched-tokens raises the chunked-prefill budget from its 2048 default:
+    # a ~3.4k-token prompt otherwise splits across two scheduler steps, each of which
+    # stalls the decode batch. --enable-prefix-caching is the V1 default, pinned here so
+    # an image bump cannot quietly drop it; a lens's lookup and analyse calls share the
+    # whole context pack as a prefix. --gpu-memory-utilization buys that prefix somewhere
+    # to live: what is left after the weights is the KV pool, and the KV pool is what
+    # bounds how many chunks can be in flight.
+    #
     # --max-num-seqs, or a hybrid-attention model dies in CUDA-graph capture.
     # Qwen3.8's Gated DeltaNet layers keep one conv-state cache line per slot,
     # sized from whatever KV memory is left after the weights, while capture
     # batches run up to 512 -- and `causal_conv1d_update` asserts
     # `num_cache_lines >= batch`. Capping the sequence count caps the capture
-    # batch with it. 32 is well above AGENT_MAX_CONCURRENCY (16), and a smaller
-    # ceiling also makes startup capture fewer graphs.
+    # batch with it. 32 is above AGENT_MAX_INFLIGHT (16), which is the number that
+    # actually bounds requests now, and a smaller ceiling also makes startup capture
+    # fewer graphs.
     #
     # --reasoning-parser is separate and only some families need one. Qwen3.8
     # thinks by default and wraps it in <think>...</think>; without the parser
@@ -68,6 +77,9 @@ services:
       --max-model-len ${VLLM_MAX_LEN:-16384}
       --tensor-parallel-size ${VLLM_TP:-1}
       --max-num-seqs ${VLLM_MAX_SEQS:-32}
+      --max-num-batched-tokens ${VLLM_MAX_BATCHED:-8192}
+      --gpu-memory-utilization ${VLLM_GPU_FRACTION:-0.95}
+      --enable-prefix-caching
       --tool-call-parser ${VLLM_TOOL_PARSER:-qwen3_coder}
       ${VLLM_REASONING_PARSER:+--reasoning-parser ${VLLM_REASONING_PARSER}}
       --enable-auto-tool-choice

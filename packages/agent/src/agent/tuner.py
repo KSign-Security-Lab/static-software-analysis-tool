@@ -59,9 +59,7 @@ def _completed(config_hash: str, config: AgentConfig | None) -> list[RunRow]:
     with session_factory(config)() as session:
         rows = session.scalars(select(RunRow).where(RunRow.status == "done")).all()
     return [
-        row
-        for row in rows
-        if (row.meta or {}).get("config_hash") == config_hash and not (row.meta or {}).get("replay")
+        row for row in rows if (row.meta or {}).get("config_hash") == config_hash and not (row.meta or {}).get("replay")
     ]
 
 
@@ -92,9 +90,7 @@ def _lens_record(config_hash: str, config: AgentConfig | None) -> dict[str, dict
 
     runs = _completed(config_hash, config)
     ids = {row.id for row in runs}
-    counts: dict[str, dict[str, int]] = {
-        lens: {"calls": 0, "raised": 0, "confirmed": 0} for lens in LENSES
-    }
+    counts: dict[str, dict[str, int]] = {lens: {"calls": 0, "raised": 0, "confirmed": 0} for lens in LENSES}
     if not ids:
         return counts
 
@@ -127,9 +123,7 @@ def _tool_record(config_hash: str, config: AgentConfig | None) -> dict[str, int]
     if not ids:
         return counts
     with session_factory(config)() as session:
-        spans = session.scalars(
-            select(SpanRow).where(SpanRow.run_id.in_(ids), SpanRow.kind == "tool")
-        ).all()
+        spans = session.scalars(select(SpanRow).where(SpanRow.run_id.in_(ids), SpanRow.kind == "tool")).all()
     for span in spans:
         counts[span.name or "?"] = counts.get(span.name or "?", 0) + 1
     return counts
@@ -202,10 +196,7 @@ def _propose_idle_lens(
         evidence=Evidence(
             runs=list(seen["runs"]),
             observations={"per_lens": record_by_lens, "refuted_throughout": refuted, "never_called": silent},
-            note=(
-                f"Across {seen['totals']['runs']} runs and {total_calls} specialist calls: "
-                f"{'; '.join(reasons)}."
-            ),
+            note=(f"Across {seen['totals']['runs']} runs and {total_calls} specialist calls: {'; '.join(reasons)}."),
         ),
         metric="confirmed_per_call",
         direction="up",
@@ -257,11 +248,11 @@ def _propose_visit_budget(
     if hits < MIN_RUNS or hits < seen["totals"]["runs"] / 2:
         return None
 
-    width = int(current.get("wave_width") or 4)
-    if width >= 16:
+    width = int(current.get("wave_width") or 16)
+    if width >= 64:
         return None
 
-    changes = {"wave_width": min(16, width * 2)}
+    changes = {"wave_width": min(64, width * 2)}
     return Proposal(
         id=_proposal_id(config_hash, changes),
         base_hash=config_hash,

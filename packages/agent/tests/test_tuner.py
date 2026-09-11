@@ -28,6 +28,7 @@ def test_settings_that_only_change_speed_do_not() -> None:
     same = harness.fingerprint(_config())
     assert harness.fingerprint(_config(request_timeout=999)) == same
     assert harness.fingerprint(_config(max_concurrency=1)) == same
+    assert harness.fingerprint(_config(max_inflight=1)) == same
     assert harness.fingerprint(_config(api_key="another")) == same
 
 
@@ -55,7 +56,7 @@ def test_a_run_records_the_config_that_produced_it(tmp_path) -> None:
 
     root = tmp_path / "src"
     root.mkdir()
-    (root / "app.c").write_text("#include <stdio.h>\nvoid f(void) { puts(\"x\"); }\n", encoding="utf-8")
+    (root / "app.c").write_text('#include <stdio.h>\nvoid f(void) { puts("x"); }\n', encoding="utf-8")
     store = ChunkStore(new_run().run_id)
     build_index(read_tree(root), store)
 
