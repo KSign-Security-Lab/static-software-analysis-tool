@@ -1,58 +1,50 @@
 # Static Software Analysis Tool (SSAT)
 
-Static analysis of source code by two independent routes.
+Finds vulnerabilities in source by two independent routes: a **structural** one
+built on [Joern](https://joern.io) Code Property Graphs, and an **LLM** one that
+reads the code function by function. Neither depends on the other — `agent`
+imports neither `ssat` nor `gnn` — and both are reachable from one API and one
+web UI.
 
-**Structural**, built on [Joern](https://joern.io) Code Property Graphs. Two
-lines share one CPG front end:
+```mermaid
+graph TB
+  WEB["<b>web</b> — Next.js :4400<br/>검사 · f2a · extract · bench"]
+  API["<b>api</b> — FastAPI :4401"]
+  WEB -->|"HTTP + SSE"| API
 
-- **F2-A** — OCPP-native evidence extraction. Asks the four CPG views
-  (AST / CFG / DFG / CG) whether an untrusted OCPP payload field reaches a
-  dangerous sink without adequate checks, and emits reviewable evidence.
-- **Graph extraction** — CPG → Template → per-function AST and def-use DFG, in
-  the JSON schema the GNN trainer in `packages/gnn` consumes.
+  subgraph S ["structural route — needs Joern + a JDK"]
+    SSAT["<b>packages/ssat</b><br/>CPG → Template → AST · DFG<br/>F2-A evidence"]
+    GNN["<b>packages/gnn</b><br/>trains on the extracted graphs"]
+    SSAT -->|"one JSON per function"| GNN
+  end
 
-**LLM-based**, in `packages/agent`: a model reads the code one syntactic chunk
-at a time, with callees analysed before their callers so what a callee does to
-its inputs is known by the time its caller is judged. Findings carry resolved
-line-level spans, so each one can show the code it is about, the evidence trail
-behind it, and a patch for exactly those lines.
+  subgraph L ["LLM route — needs Postgres + an endpoint"]
+    AG["<b>packages/agent</b><br/>chunk-by-chunk inspection"]
+    GF["<b>packages/graphify</b><br/>knowledge graph, traversals"]
+    AG --> GF
+  end
 
-The two routes coexist and neither depends on the other — `agent` imports
-neither `ssat` nor `gnn`.
-
-## Layout
-
-```
-packages/ssat/          the analysis library and the `ssat` CLI
-  src/ssat/
-    cpg/                CPG generation: Joern in this process, via JPype
-    template/           CPG -> Template (KAST-style) conversion
-    ast/                Template -> per-function AST
-    dfg/                AST -> per-function def-use DFG
-    knowledge/          shared C stdlib facts (sinks, allocators, bounds)
-    pipeline/           stage orchestration + artifact writing
-    f2a/                F2-A evidence extraction (self-contained)
-    cli/                the `ssat` command
-  tests/                pytest suite + golden snapshots
-packages/gnn/           GNN training/evaluation over the extracted graphs
-packages/agent/         LLM inspection over an OpenAI-compatible endpoint
-  src/agent/
-    index/              tree-sitter chunking, link resolution, chunk store
-    graph/              the LangGraph inspection loop
-    mcp/                the tool surface, served over MCP
-api/                    FastAPI service (SSAT routes + /agent/*)
-web/                    Next.js UI — five surfaces, two shells:
-                          /agent           검사: upload, scan, triage, patch
-                          /f2a             F2-A evidence over a CPG
-                          /extract         AST / CFG / DFG / call graph views
-                          /extract/stages  run one pipeline stage, read raw JSON
-                          /bench           public-benchmark results
-docs/v2/                F2-A design documents
-artifacts/              generated output, scratch and corpora (gitignored)
+  API --> SSAT
+  API --> AG
+  SSAT -.->|JPype| JO["Joern, in process"]
+  AG -.-> PG[("Postgres")]
+  AG -.-> VL["vLLM"]
 ```
 
-Nothing in `artifacts/` is source — see `artifacts/README.md`. Delete any of it
-and the repo still builds.
+## Packages
+
+| | what it is | read next |
+| --- | --- | --- |
+| `packages/ssat` | CPG → Template → per-function AST and def-use DFG, plus **F2-A** OCPP evidence extraction. The `ssat` CLI. | [README](packages/ssat/README.md) |
+| `packages/agent` | Chunk-by-chunk LLM inspection over an OpenAI-compatible endpoint. The `agent` CLI. | [README](packages/agent/README.md) |
+| `packages/gnn` | Trains GNNs on what `ssat full` extracts. A consumer, not a stage. | [README](packages/gnn/README.md) |
+| `packages/graphify` | Knowledge graph over an indexed tree; the traversals the agent's MCP tools expose. | [README](packages/graphify/README.md) |
+| `packages/schemagen` | JSON Schema → TypeScript, so a wire type is defined once. | [README](packages/schemagen/README.md) |
+| `api` | FastAPI on :4401 — structural routes plus `/agent/*`. | [README](api/README.md) |
+| `web` | Next.js on :4400 — 검사, f2a, extract, bench. | [README](web/README.md) |
+
+`docs/v2/` holds the F2-A design documents. Nothing in `artifacts/` is source —
+delete any of it and the repo still builds.
 
 ## Prerequisites
 
@@ -67,45 +59,44 @@ and the repo still builds.
 ```bash
 uv sync                       # Python workspace
 source .venv/bin/activate     # or prefix each command with `uv run`
+```
 
+### Structural — needs Joern and a JDK
+
+```bash
 ssat f2a  path/to/file.c      # OCPP evidence candidates
 ssat full path/to/file.c      # AST + DFG per function
 ```
 
 Output lands in `result/<mode>_<timestamp>/` unless you pass `-o`.
 
+### LLM inspection — needs Postgres and a model endpoint
+
+```bash
+cp .env.example .env                               # model, GPUs, weights path
+docker compose up -d --wait postgres               # the run database
+docker compose --profile vllm up -d --wait vllm    # the model server, on :4403
+agent corpus ingest                                # the corpus of known weaknesses
+
+agent inspect path/to/src -v                       # minutes, not seconds
+```
+
+Or open `/agent` in the web UI. Give it a folder, a `.zip` or a git URL, and
+findings stream in as they are found: severity, CWE, the code, the evidence
+trail, and a patch for those exact lines. Tick the ones that matter and the
+bucket becomes a unified `.patch`, a patched `.zip`, or a pushed branch.
+
+**Nothing is ever applied to the analysed tree.** That is what keeps a finding's
+anchor meaningful afterwards and a patch reproducible; the fix leaves as a diff.
+
+Model choice, GPU sizing and how to read the output:
+[`packages/agent/README.md`](packages/agent/README.md).
+
 ## CLI
 
-One command, one subcommand per stage:
-
-```
-ssat cpg                 source        -> CPG (GraphSON)
-ssat template            CPG           -> Template nodes
-ssat ast                 CPG           -> per-function AST
-ssat dfg                 CPG           -> per-function def-use DFG
-ssat full                CPG           -> AST + DFG per function (GNN schema)
-ssat template-functions  Template      -> one file per function
-ssat f2a                 CPG           -> OCPP evidence candidates
-```
-
-The input path is positional. Every subcommand also takes `-o/--output`;
-`--workers` parallelises CPG generation only.
-
-Joern runs in the process that asks for it, JARs loaded through JPype, so no
-container is involved anywhere. `ssat cpg` over a directory is a process pool
-and each worker starts its own JVM — one JVM cannot be shared across processes
-— so `--workers 4` means four of them, and the memory to match. Without JARs to
-load the command stops before doing any work and says to set `JOERN_HOME`.
-
-The agent is a separate line of analysis and uses neither Joern nor a JVM: it
-parses with tree-sitter and needs only Postgres.
-
-The five stages that build a Template also take `--no-replace-macro`. Joern runs
-no preprocessor: it models a `#define` as a function and each use of it as a
-call, inlining the expansion beneath the use site. By default that pseudo-call
-is folded into its expansion, so `if (len < MAX)` carries a real bound and a
-macro-wrapped `strcpy` is attributed to `strcpy`. The flag leaves the
-pseudo-call in place, which is the shape templates written before this produced.
+`ssat` is one command with a subcommand per stage; `agent` is the LLM route's.
+Both are documented in their own packages —
+[ssat](packages/ssat/README.md#stages), [agent](packages/agent/README.md#cli).
 
 ## Web UI and API
 
@@ -128,148 +119,21 @@ Note the UI derives AST/CFG/DFG/CG *views* from a CPG client-side, by edge
 label. Those are a different thing from the `/ast` and `/dfg` endpoints, which
 return the SSAT pipeline's own artifacts.
 
-## LLM inspection
-
-```bash
-uv sync && (cd web && pnpm install)                # once
-cp .env.example .env                               # which model, which GPUs, where the weights go
-docker compose --profile vllm up -d --wait vllm    # the model server, on :4403
-docker compose up -d --wait postgres               # the run database
-agent corpus ingest                                # the corpus of known weaknesses
-```
-
-`agent corpus ingest` embeds `corpus/` into Postgres so `search_corpus` has
-something to answer with. Run it after a checkout and after editing the corpus;
-sample ids are content-derived, so an unchanged corpus costs one query and never
-loads the embedding model.
-
-Which weights, which tool-call and reasoning parser, which GPUs and where the
-cache lives are the `VLLM_*` variables in `.env`. Compose reads that file
-itself, and so do the API and the `agent` CLI, which is where the `AGENT_*`
-half of it is read from; anything exported in your shell wins over the file.
-`--wait` blocks until the server answers, which on a cold cache is a download.
-
-`AGENT_MODEL` does not have to be set: unset means ask the endpoint, and a
-server that serves exactly one model answers the question by itself. Set it
-explicitly when one server serves several, to an id `agent endpoints` reports —
-which is the weights vLLM loaded, `VLLM_MODEL`.
-
-```bash
-agent endpoints                  # what is reachable, and what it serves
-agent index   path/to/src        # deterministic, no model calls
-agent inspect path/to/src -v     # the real thing; minutes, not seconds
-```
-
-Or open `/agent` in the web UI — 검사. Give it a folder, a `.zip` or a git URL,
-press 검사 시작, and findings stream in as they are found: severity, CWE, the
-code, the evidence trail, how to fix it, and a patch for those exact lines. Tick
-the ones that matter and the bucket becomes a unified `.patch`, a patched source
-`.zip`, or -- for a run cloned from a repository -- a pushed branch.
-
-Nothing is applied to the analysed tree, ever. That is what makes a finding's
-anchor still mean something afterwards and a patch reproducible; the fix leaves
-as a diff and is applied wherever the reader chooses.
-
-Backed by `/agent/runs`, `/agent/runs/git`, and
-`/agent/runs/{id}/{files,file,inspect,events,findings,propose,patch,archive,push}`.
-Progress streams over SSE because a chunk-by-chunk run takes minutes.
-
-Model choice, GPU sizing, port conflicts and how to read the output are in
-[`packages/agent/README.md`](packages/agent/README.md).
-
 ## Development
-
-The task list is `[tool.poe.tasks]` in the root `pyproject.toml`, and
-[poethepoet](https://poethepoet.natn.io/) runs it:
 
 ```bash
 uv run poe               # the list, with what each one does
 uv run poe check         # lint, types, Python tests, then the web gate
 uv run poe dev           # the API and the web app together
-uv run poe dev-api       # just the API on :4401, with reload
-uv run poe dev-web       # just the Next.js dev server on :4400
 uv run poe stack         # what is running right now
 ```
 
-`dev` and `prod` run both halves at once in one terminal, with each line
-prefixed by the task it came from. One Ctrl-C stops both; poe has no background
-mode, so use tmux if you want them detached.
+The task list is `[tool.poe.tasks]` in the root `pyproject.toml`. Nothing is
+hidden behind it — every task is the real command, and CI calls the tools
+directly so a mistake in the task list cannot turn a build green.
 
-Every task that runs the app names its mode, because the two behave differently
-enough to be worth telling apart: `dev-api` reloads on edit and `dev-web` serves
-through HMR, while `prod-api` runs one process with no reloader and `prod-web`
-builds first and serves the build. Reach for the `prod-` pair when something
-only misbehaves in a real build. Neither is a deployment: there is no app image
-and no `api` or `web` service in Compose, so both run here on your machine.
-
-`prod-api` runs a single process on purpose. Do not add `--workers`: the SSE
-channels in `api/agent/channels.py` are a module-global dict, so with two
-workers a `GET /events` can land on the one that never saw the `POST` and the
-stream never attaches. Both API tasks pass `--timeout-graceful-shutdown`, which
-caps the wait on an idle `/events` stream that otherwise reads as a hang.
-
-The list reaches the web app too — those tasks set `cwd = "web"` and run
-`pnpm`, so one file covers both halves of the repo. It is short on purpose:
-a task earns its place by composing several commands or by carrying arguments
-that are easy to get wrong. Anything that is one short command is not in it, so
-the `agent` CLI is run directly — `uv run agent index src/`.
-
-Nothing is hidden behind it. Every task is the real command and running it
-yourself works exactly the same:
-
-```bash
-ruff check
-ruff format --check
-mypy
-pytest
-
-cd web && pnpm type-check && pnpm lint && pnpm test
-```
-
-No path arguments: the targets live in `pyproject.toml`, so there is one
-definition of what gets checked rather than one per caller. CI calls the tools
-directly rather than going through poe — see `.github/workflows/ci.yml` — so a
-mistake in the task list cannot turn a build green.
-
-The containers, by name — `vllm` and `secbench` are profile-gated, and Compose
-silently matches nothing if the profile is left off:
-
-```bash
-docker compose ps -a                                     # what is up
-docker compose up -d --wait postgres                     # start
-docker compose --profile vllm up -d --wait vllm
-docker compose --profile vllm logs -f --tail 200 vllm    # follow one
-docker compose stop vllm                                 # stop, keep it
-docker compose --profile vllm rm -sf vllm                # remove the container
-```
-
-Removing a container is safe: stored runs live in a named volume, the weights in
-`HF_HOME`, and SEC-bench's images in its own daemon's data root. None of the
-three goes with the container.
-
-The other things worth knowing about:
-
-```bash
-python -m agent.schema_ts --write && python -m ssat.schema_ts --write
-agent inspect -v packages/agent/tests/fixtures/sample
-agent bench sweep
-```
-
-The first regenerates `web/lib/agent-schema.ts` from the pydantic wire models
-and a test fails on drift. The second is the end-to-end check that a model
-server, the database and the graph all work. The third is the unattended
-SEC-bench sweep — see `packages/agent/README.md`.
-
-### Golden snapshots
-
-`packages/ssat/tests/golden/` records the exact AST and DFG the pipeline
-produces for every CPG fixture. They answer *"did this change?"*, never *"is
-this correct?"* — a diff there is a regression unless the change was
-deliberate, in which case rerun the generator and review the diff:
-
-```bash
-python packages/ssat/tests/generate_golden.py
-```
+Containers, golden snapshots, why `prod-api` must stay single-process, and the
+rest: [docs/development.md](docs/development.md).
 
 ## Notes
 
