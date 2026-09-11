@@ -139,6 +139,7 @@ def _run(
     config_kwargs.setdefault("lenses", ("injection",))
     config_kwargs.setdefault("lens_tools", False)
     warm = config_kwargs.pop("warm", True)
+    emit = config_kwargs.pop("emit", None)
     config = AgentConfig(model="fake", enable_tools=False, **config_kwargs)
     return run_inspection(
         run_id="test",
@@ -147,6 +148,7 @@ def _run(
         config=config,
         caller=caller,  # type: ignore[arg-type]
         tools=tools,
+        emit=emit,
         warm=warm,
     )
 
@@ -884,6 +886,28 @@ def test_a_started_chunk_says_which_file_it_is_in(indexed) -> None:
         chunk = store.chunk(payload["chunk_id"])
         assert payload["file"] == chunk.file
         assert payload["symbol"] == chunk.symbol
+
+
+def test_progress_counts_what_has_finished_not_what_has_been_dispatched(indexed) -> None:
+    root, store = indexed
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    seen: list[tuple[int, int]] = []
+
+    def watch(event: str, payload: Any) -> None:
+        if event == "chunk_started":
+            seen.append((payload["remaining"], payload["total"]))
+
+    _run(root, store, caller, emit=watch, wave_width=4)
+
+    total = len(store.order())
+    first_remaining, first_total = seen[0]
+    assert first_total == total
+    # The whole first round is in flight, none of it is read yet, so nothing is done.
+    assert first_remaining == total, (
+        f"dispatching {total - first_remaining} chunks moved the bar before any of them ran"
+    )
+    assert all(remaining <= total for remaining, _ in seen)
+    assert seen[-1][0] < total, "the queue must drain as chunks finish"
 
 
 def test_a_wave_still_gets_its_callees_notes(indexed) -> None:

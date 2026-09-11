@@ -215,8 +215,13 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
         chosen = pick_ready(pending, deps.blockers, deps.config.wave_width, deps.subsystems)
         taken = set(chosen)
         remaining = [chunk_id for chunk_id in pending if chunk_id not in taken]
+        # What is left to *finish*, so the chunks about to run still count. Dispatching
+        # is not progress -- a round of 16 that reported itself done on the way out
+        # would step the bar by 16 before a single one of them had been read. This is
+        # the same quantity `_progress_now` seeds a reattaching tab with.
+        unfinished = len(remaining) + len(chosen)
 
-        deps.emit("wave_started", {"chunks": chosen, "remaining": len(remaining)})
+        deps.emit("wave_started", {"chunks": chosen, "remaining": unfinished})
         for chunk_id in chosen:
             chunk = deps.store.chunk(chunk_id)
             deps.emit(
@@ -225,7 +230,7 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     "chunk_id": chunk_id,
                     "file": chunk.file if chunk is not None else None,
                     "symbol": chunk.symbol if chunk is not None else None,
-                    "remaining": len(remaining),
+                    "remaining": unfinished,
                     "total": state.get("stats", {}).get("chunks_total", 0),
                 },
             )
