@@ -14,6 +14,11 @@ const finished = (chunk_id: string, file: string): RunAction => ({
   event: { chunk_id, file, symbol: "f", findings: [], stats: {} },
 });
 
+const progress = (remaining: number, total: number): RunAction => ({
+  type: "progress",
+  event: { run_id: "r1", remaining, total },
+});
+
 function run(actions: RunAction[], from: RunLive = IDLE): RunLive {
   return actions.reduce(reduceRun, from);
 }
@@ -360,5 +365,21 @@ describe("starting a second run on the same id", () => {
   it("keeps the attachment, which is a fact about the socket and not the run", () => {
     const attached = run([{ type: "attached", open: true }, START]);
     expect(attached.attached).toBe(true);
+  });
+});
+
+describe("progress, the snapshot a reattaching tab gets", () => {
+  it("seeds the bar, so coming back mid-chunk shows one straight away", () => {
+    const state = run([progress(732, 860)]);
+    expect(state.chunk).toEqual({ id: "", remaining: 732, total: 860 });
+  });
+
+  it("never overrides a live chunk, which knows more than the snapshot", () => {
+    const state = run([started("c1", "a.c", 100, 860), progress(732, 860)]);
+    expect(state.chunk).toEqual({ id: "c1", remaining: 100, total: 860 });
+  });
+
+  it("is ignored when the run has no chunks to count", () => {
+    expect(run([progress(0, 0)]).chunk).toBeNull();
   });
 });

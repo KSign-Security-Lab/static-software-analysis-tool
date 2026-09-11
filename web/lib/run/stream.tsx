@@ -91,6 +91,7 @@ export function RunStreamProvider({ runId, children }: { runId: string | null; c
         },
 
         onWaveStarted: (event) => dispatch({ type: "wave_started", event }),
+        onProgress: (event) => dispatch({ type: "progress", event }),
         onChunkStarted: (event) => dispatch({ type: "chunk_started", event }),
         onNodeStarted: (event) => dispatch({ type: "node_started", event }),
 

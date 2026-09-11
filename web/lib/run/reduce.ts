@@ -2,6 +2,7 @@ import type {
   CheckpointEvent,
   ChunkFinishedEvent,
   ChunkStartedEvent,
+  RunProgressEvent,
   FailedEvent,
   FinishedEvent,
   InterruptEvent,
@@ -57,6 +58,7 @@ export type RunAction =
   | { type: "attached"; open: boolean }
   | { type: "run_started"; event: RunStartedEvent }
   | { type: "wave_started"; event: WaveEvent }
+  | { type: "progress"; event: RunProgressEvent }
   | { type: "chunk_started"; event: ChunkStartedEvent }
   | { type: "chunk_finished"; event: ChunkFinishedEvent }
   | { type: "node_started"; event: NodeEvent }
@@ -109,6 +111,13 @@ export function reduceRun(state: RunLive, action: RunAction): RunLive {
 
     case "wave_started":
       return { ...state, wave: { chunks: action.event.chunks, remaining: action.event.remaining }, active: true };
+
+    case "progress": {
+      const { remaining, total } = action.event;
+      // Only seeds an empty bar. A live chunk event always knows better.
+      if (total <= 0 || state.chunk) return state;
+      return { ...state, chunk: { id: "", remaining, total } };
+    }
 
     case "chunk_started": {
       const { chunk_id, file, remaining, total } = action.event;

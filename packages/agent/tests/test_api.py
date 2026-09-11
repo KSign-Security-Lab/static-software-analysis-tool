@@ -283,6 +283,51 @@ def test_a_run_that_dies_mid_flight_still_surfaces_on_the_stream(
     assert "checkpointer" in row["error"]
 
 
+def test_attaching_to_a_stream_reports_where_the_run_already_is(client: TestClient) -> None:
+    """A tab that navigates away and back has no numbers for the progress bar.
+
+    The stream only carries what happens next, so without this the bar stays
+    hidden until the current chunk ends, which with a model in the loop is
+    minutes.
+    """
+    from agent.config import AgentConfig
+    from agent.index.chunk import Chunk
+    from agent.index.store import ChunkStore
+
+    run_id = _upload(client)["run_id"]
+    store = ChunkStore(run_id, AgentConfig())
+    chunks = [
+        Chunk(
+            chunk_id=f"c{n}",
+            file="src/app.c",
+            symbol=f"f{n}",
+            kind="function",
+            start_line=1,
+            end_line=2,
+            start_byte=0,
+            end_byte=1,
+            body="void f(void) {}",
+            language="c",
+        )
+        for n in range(4)
+    ]
+    store.add_chunks(chunks)
+    store.set_order([c.chunk_id for c in chunks])
+    store.mark_inspected("c0")
+
+    with client.stream("GET", f"/agent/runs/{run_id}/events") as stream:
+        name = payload = None
+        for line in stream.iter_lines():
+            if line.startswith("event: "):
+                name = line.removeprefix("event: ").strip()
+            elif line.startswith("data: ") and name is not None:
+                payload = json.loads(line.removeprefix("data: "))
+                break
+
+    assert name == "progress", name
+    assert payload == {"run_id": run_id, "remaining": 3, "total": 4}
+
+
 def _collect_events(stream, limit: int) -> list[str]:
     names: list[str] = []
     for line in stream.iter_lines():

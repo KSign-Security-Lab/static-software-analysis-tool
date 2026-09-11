@@ -302,11 +302,31 @@ def cancel_inspection(run: RunDep) -> Dict[str, Any]:
     return {"run_id": run.run_id, "cancelled": True}
 
 
+def _progress_now(run: Run) -> Dict[str, Any] | None:
+    """Where the run has got to, for a client that just attached.
+
+    The stream only carries what happens next, so a tab that navigates away and
+    back learns nothing until the current chunk ends -- minutes, with a model in
+    the loop, during which the progress bar has no numbers and hides itself.
+    """
+    store = run.store()
+    total = len(store.order())
+    remaining = len(store.uninspected())
+    # Only when some of it is already done. A run nobody has started has nothing
+    # to report, and announcing 0% would put a bar where there was none.
+    if not total or remaining >= total:
+        return None
+    return {"run_id": run.run_id, "remaining": remaining, "total": total}
+
+
 @router.get("/runs/{run_id}/events")
 async def run_events(run: RunDep) -> StreamingResponse:
     channel = _channel(run.run_id)
 
     async def stream() -> AsyncIterator[str]:
+        snapshot = await asyncio.to_thread(_progress_now, run)
+        if snapshot is not None:
+            yield f"event: progress\ndata: {json.dumps(snapshot)}\n\n"
         with channel.listen() as events:
             watching = channel.live
             idle = waited = 0.0

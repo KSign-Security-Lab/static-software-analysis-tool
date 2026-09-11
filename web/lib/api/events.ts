@@ -8,6 +8,12 @@ export interface WaveEvent {
   chunks: string[];
   remaining: number;
 }
+/** Where the run already is, sent once when a client attaches. */
+export interface RunProgressEvent {
+  run_id: string;
+  remaining: number;
+  total: number;
+}
 export interface ChunkStartedEvent {
   chunk_id: string;
   file: string | null;
@@ -55,6 +61,7 @@ export interface FailedEvent {
 export interface RunHandlers {
   onOpen?: () => void;
   onRunStarted?: (event: RunStartedEvent) => void;
+  onProgress?: (event: RunProgressEvent) => void;
   onWaveStarted?: (event: WaveEvent) => void;
   onChunkStarted?: (event: ChunkStartedEvent) => void;
   onChunkFinished?: (event: ChunkFinishedEvent) => void;
@@ -73,6 +80,7 @@ export interface RunHandlers {
 
 const NAMES = [
   ["run_started", "onRunStarted"],
+  ["progress", "onProgress"],
   ["wave_started", "onWaveStarted"],
   ["chunk_started", "onChunkStarted"],
   ["chunk_finished", "onChunkFinished"],
