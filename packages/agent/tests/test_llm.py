@@ -8,7 +8,7 @@ from openai import LengthFinishReasonError
 from pydantic import BaseModel
 
 from agent.config import AgentConfig
-from agent.llm import Outcome, StructuredCaller
+from agent.llm import Outcome, StructuredCaller, make_llm
 
 
 class Answer(BaseModel):
@@ -197,3 +197,25 @@ def test_the_headroom_is_clamped_to_what_is_left_not_simply_doubled(config) -> N
 
     assert outcome.ok
     assert llm.bound == [4096, 5884]
+
+
+def test_a_run_that_aborts_does_not_close_another_run_s_transport() -> None:
+    config = AgentConfig(model="fake")
+    mine, theirs = make_llm(config), make_llm(config)
+
+    assert mine.root_client._client is not theirs.root_client._client, (
+        "langchain hands every ChatOpenAI in a process the same httpx client; "
+        "closing it to end one run strands every other run on 'Connection error'"
+    )
+
+    StructuredCaller(config, llm=mine).abort()
+
+    assert mine.http_client.is_closed, "abort must actually close the run's own transport"
+    assert not theirs.http_client.is_closed
+
+
+def test_aborting_a_caller_built_around_a_borrowed_llm_closes_nothing() -> None:
+    # Tests and the bench hand in their own model; it is not ours to close.
+    borrowed = SimpleNamespace(invoke=lambda *a, **k: None)
+    caller = StructuredCaller(AgentConfig(model="fake"), llm=borrowed)  # type: ignore[arg-type]
+    caller.abort()

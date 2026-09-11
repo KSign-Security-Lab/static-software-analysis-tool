@@ -6,6 +6,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Literal, Sequence, TypeVar
 
+import httpx
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
@@ -50,9 +51,21 @@ class Outcome(Generic[ModelT]):
         return cls(reason=reason)
 
 
+# Our own connection pool, not the one langchain hands out. Every ChatOpenAI in a
+# process shares a single httpx client by default, so closing it to end a run would
+# strand every other run in that process on "Connection error" for good.
+def _transport(config: AgentConfig) -> httpx.Client:
+    room = max(32, config.max_inflight * 2)
+    return httpx.Client(
+        timeout=config.request_timeout,
+        limits=httpx.Limits(max_connections=room, max_keepalive_connections=room),
+    )
+
+
 def make_llm(config: AgentConfig, *, reasoning_effort: str | None = None) -> ChatOpenAI:
     effort = config.reasoning_effort if reasoning_effort is None else reasoning_effort
     return ChatOpenAI(
+        http_client=_transport(config),
         base_url=config.base_url,
         api_key=config.api_key,  # type: ignore[arg-type]
         model=config.require_model(),
@@ -62,6 +75,11 @@ def make_llm(config: AgentConfig, *, reasoning_effort: str | None = None) -> Cha
         max_completion_tokens=config.max_tokens,
         reasoning_effort=effort or None,
     )
+
+
+def _own_client(llm: ChatOpenAI) -> list[httpx.Client]:
+    client = getattr(llm, "http_client", None)
+    return [client] if isinstance(client, httpx.Client) else []
 
 
 class StructuredCaller:
@@ -74,6 +92,7 @@ class StructuredCaller:
         self._slots = threading.BoundedSemaphore(max(1, config.max_inflight))
         self.cancelled: Callable[[], bool] = lambda: False
         self.llm = llm if llm is not None else make_llm(config)
+        self._clients: list[httpx.Client] = _own_client(self.llm)
         self._method: StructuredMethod | None = None
         self.tools_available = config.enable_tools
         self._effort_supported = bool(config.reasoning_effort)
@@ -96,12 +115,15 @@ class StructuredCaller:
 
     # vLLM frees a sequence when its client goes away, so closing the transport is
     # what ends requests already on the wire. Without it a killed run leaves the
-    # server decoding into nothing.
+    # server decoding into nothing. Only ever our own clients -- see `_transport`.
     def abort(self) -> None:
-        try:
-            self.llm.root_client.close()
-        except Exception:  # noqa: BLE001 - an abort must not raise
-            log.debug("could not close the endpoint transport", exc_info=True)
+        with self._lock:
+            mine, self._clients = list(self._clients), []
+        for client in mine:
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001 - an abort must not raise
+                log.debug("could not close the endpoint transport", exc_info=True)
 
     def _headroom(self, err: LengthFinishReasonError, prompt: str, system: str) -> int | None:
         window = self.config.resolve_window()
@@ -134,6 +156,7 @@ class StructuredCaller:
             )
             self._effort_supported = False
             self.llm = make_llm(self.config, reasoning_effort="")
+            self._clients.extend(_own_client(self.llm))
             self._method = None
         return True
 
