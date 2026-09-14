@@ -313,6 +313,46 @@ def test_chunks_are_analysed_callees_first(indexed) -> None:
     store.close()
 
 
+def test_a_unit_no_specialist_could_read_is_not_recorded_as_clean(indexed) -> None:
+    root, store = indexed
+
+    class Mute(ScriptedCaller):
+        def call(self, schema: type[BaseModel], system: str, user: str, trace: Any = None) -> Any:
+            if schema is ChunkAnalysis:
+                return Outcome.failed("length")
+            return super().call(schema, system, user, trace)
+
+    report = _run(root, store, Mute(), warm=False)
+
+    assert report.stats.failed > 0, "the specialists were supposed to fail"
+    assert store.uninspected() == store.order(), (
+        "a unit nobody could read must stay on the queue, or a re-run skips it for ever"
+    )
+    assert report.stats.chunks_unread > 0
+
+
+def test_a_unit_no_specialist_could_read_is_not_cached(indexed) -> None:
+    root, store = indexed
+
+    class Mute(ScriptedCaller):
+        def call(self, schema: type[BaseModel], system: str, user: str, trace: Any = None) -> Any:
+            if schema is ChunkAnalysis:
+                return Outcome.failed("length")
+            return super().call(schema, system, user, trace)
+
+    _run(root, store, Mute(), warm=False)
+
+    # A second run, with a model that works, must do the work rather than reuse the
+    # empty result the first one would otherwise have cached against these chunk ids.
+    again = ChunkStore(new_run().run_id)
+    build_index(read_tree(root), again)
+    caller = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})
+    report = _run(root, again, caller)
+
+    assert report.findings, "the retry reused a cached failure instead of reading the unit"
+    again.close()
+
+
 def test_a_second_run_skips_already_inspected_chunks(indexed) -> None:
     root, store = indexed
     first = ScriptedCaller(analyses={"run_command": ChunkAnalysis(findings=[_finding("system(cmd);")])})

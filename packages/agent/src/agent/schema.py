@@ -259,6 +259,8 @@ class RunStats(BaseModel):
     dropped_unlocatable: int = 0
     refuted: int = 0
     failed: int = 0
+    unread: int = 0
+    chunks_unread: int = 0
 
 
 class Report(BaseModel):

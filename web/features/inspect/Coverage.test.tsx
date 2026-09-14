@@ -57,7 +57,7 @@ describe("judgements that failed", () => {
 
   it("names the lever that actually moves it", async () => {
     await show({ failed: 1 });
-    expect(screen.getByRole("alert").textContent).toContain("AGENT_REASONING_EFFORT");
+    expect(screen.getByRole("alert").textContent).toContain("다시 검사를 돌리면");
   });
 });
 

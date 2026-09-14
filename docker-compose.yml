@@ -74,7 +74,7 @@ services:
     # model like gpt-oss wants -- vLLM parses its harmony format itself.
     command: >
       --model ${VLLM_MODEL:-Qwen/Qwen3.8-27B-FP8}
-      --max-model-len ${VLLM_MAX_LEN:-16384}
+      --max-model-len ${VLLM_MAX_LEN:-32768}
       --tensor-parallel-size ${VLLM_TP:-1}
       --max-num-seqs ${VLLM_MAX_SEQS:-32}
       --max-num-batched-tokens ${VLLM_MAX_BATCHED:-8192}

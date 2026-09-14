@@ -60,6 +60,8 @@ export interface RunStats {
   dropped_unlocatable?: number;
   refuted?: number;
   failed?: number;
+  unread?: number;
+  chunks_unread?: number;
 }
 
 export interface Span {

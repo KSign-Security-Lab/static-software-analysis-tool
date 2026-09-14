@@ -423,7 +423,9 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             )
             if not outcome.ok:
                 log.warning("%s produced nothing usable for %s (%s)", lens, chunk.symbol, outcome.reason)
-                return {"stats": {"failed": 1}}
+                # Not merely a failed call: this unit went unread, and `reduce` must not
+                # record it as clean. Triage and scout have fallbacks; a specialist has none.
+                return {"stats": {"failed": 1, "unread": 1}}
             result = outcome.value
 
             if result.note.strip():
@@ -656,6 +658,11 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
 
         _plan_mark(deps, mine, "done")
 
+        # A specialist that never answered leaves this unit unread. Marking it inspected
+        # would hide that, and caching it would launder the failure into a clean result
+        # every later run reuses -- `results` is keyed by chunk, not by run.
+        unread = int(state.get("stats", {}).get("unread", 0) or 0)
+
         confirmed: list[dict[str, Any]] = []
         inspected = 0
         reach = deps.store.reach()
@@ -666,9 +673,10 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
             found = by_chunk.get(chunk_id, [])
             if found:
                 deps.store.add_findings(chunk_id, found)
-            deps.store.mark_inspected(chunk_id)
-            if deps.cache is not None:
-                deps.cache.remember(chunk_id, found, deps.store.note(chunk_id) or "")
+            if not unread:
+                deps.store.mark_inspected(chunk_id)
+                if deps.cache is not None:
+                    deps.cache.remember(chunk_id, found, deps.store.note(chunk_id) or "")
             inspected += 1
             confirmed.extend(found)
             deps.emit(
@@ -678,13 +686,18 @@ def make_nodes(deps: NodeDeps) -> dict[str, InspectionNode]:
                     "file": chunk.file,
                     "symbol": chunk.symbol,
                     "findings": stamp_reach(found, reach),
+                    "unread": bool(unread),
                     "stats": _tally(state, inspected),
                 },
             )
 
         return {
             "confirmed": confirmed,
-            "stats": {"chunks_inspected": inspected, **({"refuted": refuted} if refuted else {})},
+            "stats": {
+                "chunks_inspected": inspected,
+                **({"refuted": refuted} if refuted else {}),
+                **({"chunks_unread": len(mine)} if unread else {}),
+            },
         }
 
     def _tally(state: InspectionState, inspected_now: int) -> dict[str, int]:

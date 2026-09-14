@@ -122,7 +122,7 @@ class AgentConfig:
     max_verify_per_chunk: int = field(default_factory=lambda: _env_int("AGENT_MAX_VERIFY_PER_CHUNK", 8))
     request_timeout: int = field(default_factory=lambda: _env_int("AGENT_REQUEST_TIMEOUT", 300))
     max_retries: int = field(default_factory=lambda: _env_int("AGENT_MAX_RETRIES", 2))
-    max_tokens: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOKENS", 4096))
+    max_tokens: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOKENS", 8192))
     reasoning_effort: str = field(default_factory=lambda: os.getenv(ENV_REASONING_EFFORT, "low"))
     enable_tools: bool = field(default_factory=lambda: os.getenv("AGENT_TOOLS", "1") != "0")
     max_tool_calls: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOOL_CALLS", 4))
@@ -185,7 +185,10 @@ class AgentConfig:
         if not self.context_window:
             return self.context_char_budget
         room = self.context_window - self.max_tokens - self.OVERHEAD_TOKENS
-        return max(2_000, int(room * self.chars_per_token))
+        # Capped by the budget, not merely by what fits: a larger window is there so
+        # the model can finish its answer, and spending it on a longer prompt is how
+        # you arrive back at an unfinished schema with a bigger bill.
+        return max(2_000, min(self.context_char_budget, int(room * self.chars_per_token)))
 
     def resolve_window(self) -> int:
         if self.context_window or not self.model:

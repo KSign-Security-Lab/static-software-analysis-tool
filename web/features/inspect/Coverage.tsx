@@ -34,9 +34,9 @@ export default function Coverage({ stats }: { stats: RunStats | undefined }) {
             않았습니다
           </span>
           <span className="w-full pl-5 text-2xs leading-relaxed text-ink-faint">
-            아래 목록은 실제로 읽힌 부분의 결과입니다 — 없다는 뜻이 아니라 못 봤다는 뜻입니다. 대개 모델이 답을 끝까지
-            쓰지 못해서입니다. <code className="font-mono">AGENT_REASONING_EFFORT</code> 를 낮추거나 더 큰 모델을 쓰면
-            줄어듭니다.
+            아래 목록은 실제로 읽힌 부분의 결과입니다 — 없다는 뜻이 아니라 못 봤다는 뜻입니다. 읽지 못한 단위는{" "}
+            <strong className="font-semibold">검사했다고 기록하지 않으므로</strong>, 다시 검사를 돌리면 그 단위만
+            새로 읽습니다. 끝난 단위는 그대로 재사용합니다.
           </span>
           {blind.size > 0 && (
             <details className="w-full pl-5">
