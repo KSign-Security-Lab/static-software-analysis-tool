@@ -53,6 +53,7 @@ files = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/tests", "packages/schemagen/tests"]
 
 [tool.poe.tasks]
