@@ -7,6 +7,9 @@ workspace-devel02/
 
 cpg_results/*
 
+# Where every stage writes when -o is left off.
+result/
+
 # Joern intermediates
 *.bin
 tmp/*

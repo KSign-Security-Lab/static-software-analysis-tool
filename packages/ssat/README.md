@@ -23,11 +23,24 @@ graph LR
 uv sync && source .venv/bin/activate
 export JOERN_HOME=/usr/bin/joern/joern-cli    # if it is not there already
 
-ssat full path/to/src        # AST + DFG per function
-ssat f2a  path/to/file.c     # OCPP evidence candidates
+ssat                            # pick the stage and the paths by arrow key
+ssat full path/to/src --ext c   # or type it: AST + DFG per function
+ssat f2a  path/to/cpg           # OCPP evidence candidates, from a CPG
 ```
 
+`ssat` with no arguments on a terminal asks instead of printing a usage error:
+arrow keys through the stages, then through the tree to the input and the
+output directory, then the options that stage actually has. It prints the
+command it assembled before running it, so the next time you can type it. One
+of the stage choices is `cpg+full`, which runs the two in order and leaves the
+CPG behind for `ast`, `dfg` and `f2a` to reuse.
+
 Output lands in `result/<mode>_<timestamp>/` unless you pass `-o`.
+
+Every stage after `cpg` reads a CPG, so `--ext` defaults to `json`. Point one
+at source and pass `--ext c` (or `c,cpp,h`) or it finds nothing to do — the CPG
+is then generated in memory and thrown away. The menu picks `--ext` from what
+you selected, so interactively this cannot go wrong.
 
 ## Stages
 
@@ -38,7 +51,7 @@ Output lands in `result/<mode>_<timestamp>/` unless you pass `-o`.
 | `ssat ast` | CPG | per-function AST |
 | `ssat dfg` | CPG | per-function def-use DFG |
 | `ssat full` | CPG | AST + DFG per function, in the schema `gnn` reads |
-| `ssat template-functions` | Template | one file per function |
+| `ssat template-functions` | CPG | one file per function node of the Template |
 | `ssat f2a` | CPG | OCPP evidence candidates |
 
 One command, one subcommand per stage:
@@ -49,7 +62,7 @@ ssat template            CPG           -> Template nodes
 ssat ast                 CPG           -> per-function AST
 ssat dfg                 CPG           -> per-function def-use DFG
 ssat full                CPG           -> AST + DFG per function (GNN schema)
-ssat template-functions  Template      -> one file per function
+ssat template-functions  CPG           -> one file per function node of the Template
 ssat f2a                 CPG           -> OCPP evidence candidates
 ```
 

@@ -64,11 +64,14 @@ source .venv/bin/activate     # or prefix each command with `uv run`
 ### Structural — needs Joern and a JDK
 
 ```bash
-ssat f2a  path/to/file.c      # OCPP evidence candidates
-ssat full path/to/file.c      # AST + DFG per function
+ssat                             # pick the stage and the paths by arrow key
+ssat full path/to/src --ext c    # or type it: AST + DFG per function
+ssat f2a  path/to/cpg            # OCPP evidence candidates, from a CPG
 ```
 
-Output lands in `result/<mode>_<timestamp>/` unless you pass `-o`.
+Output lands in `result/<mode>_<timestamp>/` unless you pass `-o`. Every stage
+after `cpg` reads a CPG, so `--ext` defaults to `json`; point one at source and
+pass `--ext c` (or `c,cpp,h`) or it will find nothing to do.
 
 ### LLM inspection — needs Postgres and a model endpoint
 

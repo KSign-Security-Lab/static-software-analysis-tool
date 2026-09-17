@@ -14,8 +14,8 @@ COMMANDS: dict[str, tuple[str, str, str]] = {
     "template": ("Generate Template artifacts from CPG data", "CPG file or directory", "json"),
     "ast": ("Generate Abstract Syntax Trees from CPG data", "CPG file or directory", "json"),
     "template-functions": (
-        "Extract every function node from a Template, one file per function",
-        "Template file or directory",
+        "Extract every function node of the Template, one file per function",
+        "CPG file or directory",
         "json",
     ),
     "dfg": ("Generate def-use Data Flow Graphs from CPG data", "CPG file or directory", "json"),

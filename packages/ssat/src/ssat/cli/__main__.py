@@ -2,7 +2,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, cast
+from typing import Any, Callable, Dict, List, Optional, cast
 
 from .logger import SimpleLogger
 from .parser import CliOptions, CliParser
@@ -94,6 +94,14 @@ def extract_name_from_code(code: str | None, fallback: str) -> str:
     return sanitize_token(m) if m else fallback
 
 
+def load_cpg_file(file_path: Path) -> CPGRoot:
+    """`ssat cpg` writes bare GraphSON; the later stages take it under an `export` key."""
+    data = json.loads(file_path.read_text(encoding="utf-8"))
+    if isinstance(data, dict) and "export" in data:
+        return cast(CPGRoot, data)
+    return CPGRoot(export=cast(Dict[str, Any], data))
+
+
 def process_single_file(
     file_path: Path,
     input_root: Path,
@@ -111,7 +119,7 @@ def process_single_file(
                 representation=options.representation,
             )
         else:
-            cpg = cast(CPGRoot, json.loads(file_path.read_text(encoding="utf-8")))
+            cpg = load_cpg_file(file_path)
 
         result: Any = None
         macro = options.replace_macro
@@ -187,9 +195,9 @@ def process_single_file(
             traceback.print_exc()
 
 
-def main() -> None:
+def main(argv: Optional[List[str]] = None) -> None:
     parser = CliParser()
-    options = parser.parse()
+    options = parser.parse(argv)
     logger = SimpleLogger(options.debug)
 
     if options.debug:
@@ -285,6 +293,11 @@ def main() -> None:
 
 
 def ssat_main() -> None:
+    # No arguments on a terminal: ask, rather than print a usage error.
+    if len(sys.argv) == 1 and sys.stdin.isatty():
+        from .interactive import run_interactive
+
+        sys.exit(run_interactive(main))
     main()
 
 
