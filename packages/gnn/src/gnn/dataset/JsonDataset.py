@@ -34,12 +34,6 @@ def _empty_graph() -> Data:
 
 
 def _infer_label_from_path(path: str) -> int:
-    """Heuristic label from file path.
-
-    Vulnerable (1) if path contains any of: 'bad', 'vuln', 'unpatched', 'unsafe'.
-    Safe (0) if path contains any of: 'good', 'patched', 'safe', 'fixed'.
-    Default 0 when unsure.
-    """
     try:
         s = path.lower()
         if any(k in s for k in ["patched", "good", "safe", "fixed"]):
@@ -52,10 +46,6 @@ def _infer_label_from_path(path: str) -> int:
 
 
 def _flatten_numeric(obj: Any, prefix: str = "", out: Optional[Dict[str, float]] = None) -> Dict[str, float]:
-    """
-    Recursively flatten dictionaries/lists/objects into {key: float}, keeping numeric leaves only.
-    Keys are dot/idx-joined for stability.
-    """
     if out is None:
         out = {}
     key_prefix = (prefix + ".") if prefix else ""
@@ -80,10 +70,6 @@ def _union_sorted_keys(dicts: Iterable[Dict[str, float]]) -> List[str]:
 
 
 def _build_x_from_nodes(nodes: List[Any]) -> Tuple[torch.Tensor, List[str]]:
-    """
-    Accepts list of nodes (dicts or NodeModel).
-    If node has 'feat' dict, flatten it; else flatten entire node.
-    """
     flats: List[Dict[str, float]] = []
     for n in nodes:
         if isinstance(n, BaseModel):
@@ -102,10 +88,6 @@ def _build_x_from_nodes(nodes: List[Any]) -> Tuple[torch.Tensor, List[str]]:
 
 
 def _normalize_edge_item(e: Any) -> Tuple[int, int, float]:
-    """
-    Normalize a single edge into (src, dst, attr_float).
-    Supports [src,dst], [src,dst,attr], or {src,dst,attr}.
-    """
     if isinstance(e, (list, tuple)) and len(e) >= 2:
         src = _to_int(e[0])
         dst = _to_int(e[1])
@@ -120,16 +102,9 @@ def _normalize_edge_item(e: Any) -> Tuple[int, int, float]:
 
 
 def _collect_config(model_obj: BaseModel) -> Tuple[List[str], Dict[str, List[str]]]:
-    """
-    Reads node/edge keys from model_config.
-    - node_keys: List[str]
-    - edge_keys: either List[str] (family==field name) OR Dict[str, str|List[str]]
-      Returns (node_keys, edge_map) where edge_map: family_name -> List[field_names]
-    """
     cfg = getattr(model_obj, "model_config", {}) or {}
     node_keys = list(cfg.get("node_keys", ["nodes"]))
     raw_edges = cfg.get("edge_keys", ["edges"])
-
     edge_map: Dict[str, List[str]] = {}
     if isinstance(raw_edges, dict):
         for fam, fields in raw_edges.items():
@@ -138,47 +113,23 @@ def _collect_config(model_obj: BaseModel) -> Tuple[List[str], Dict[str, List[str
             elif isinstance(fields, list):
                 edge_map[fam] = [str(f) for f in fields]
     elif isinstance(raw_edges, list):
-        # family name is the field name itself
         for f in raw_edges:
             edge_map[str(f)] = [str(f)]
     else:
-        # fallback
         edge_map["edges"] = ["edges"]
 
-    # dedupe while preserving order
     seen = set()
     node_keys = [k for k in node_keys if not (k in seen or seen.add(k))]
-    # ensure deterministic order of families
     edge_map = {fam: fields for fam, fields in sorted(edge_map.items(), key=lambda kv: kv[0])}
     return node_keys, edge_map
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Juliet-style JSON → Sample(Data with nested graphs)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 class AnyGraphModel(BaseModel):
-    """Permissive model to accept arbitrary JSON structures.
-
-    We only use `.model_dump()` to access the raw JSON payload.
-    """
-
     model_config = ConfigDict(extra="allow")
 
 
 def _build_graph_from_section(section: Dict[str, Any], *, edge_family_prefixes: Optional[List[str]] = None) -> Data:
-    """Build a PyG Data from a JSON section with 'nodes' and edge lists.
-
-    - Nodes: expect list of dicts with a 'feat' dict → flatten numeric features
-    - Edges: if multiple families are present (e.g., edges_ast_pc, edges_ast_sb, ...),
-      create one-hot family indicators plus optional scalar 'value' when triples include it.
-      If a single family with rich attributes is present (e.g., DFG's edges_dfg with 'feat'),
-      flatten that attribute dict to edge features.
-    """
     nodes = section.get("nodes", []) if isinstance(section, dict) else []
-
-    # Build node feature matrix
     node_feats: List[Dict[str, float]] = []
     for n in nodes:
         if isinstance(n, dict) and isinstance(n.get("feat"), dict):
@@ -194,25 +145,19 @@ def _build_graph_from_section(section: Dict[str, Any], *, edge_family_prefixes: 
     else:
         x = torch.zeros((max(1, len(nodes)), 0), dtype=torch.float)
 
-    # Collect edge families if present. Support mixed families: some rich (dict attrs), some simple.
     edges: List[List[int]] = []
     per_edge_feat_dicts: List[Dict[str, float]] = []
 
-    # Determine families: any key starting with 'edges_'
     if edge_family_prefixes is None:
         edge_family_prefixes = [
             k for k in (section.keys() if isinstance(section, dict) else []) if str(k).startswith("edges_")
         ]
     fams = sorted(edge_family_prefixes)
-
-    # Build features: one-hot family flags + flattened attributes (edge_type/value/guard fields, etc.)
     fam_col_names = [f"fam_{fam}" for fam in fams]
     attr_keys_seen: set[str] = set()
-
     temp_rows: List[Tuple[List[int], Dict[str, float]]] = []
     for fam_idx, fam in enumerate(fams):
         raw = section.get(fam, [])
-        # Normalize singleton objects into list
         if isinstance(raw, dict):
             raw = [raw]
         if not isinstance(raw, list):
@@ -220,7 +165,6 @@ def _build_graph_from_section(section: Dict[str, Any], *, edge_family_prefixes: 
         for e in raw:
             src = dst = 0
             feat: Dict[str, float] = {}
-            # family one-hot
             feat[fam_col_names[fam_idx]] = 1.0
 
             if isinstance(e, (list, tuple)):
@@ -228,7 +172,6 @@ def _build_graph_from_section(section: Dict[str, Any], *, edge_family_prefixes: 
                     src = _to_int(e[0])
                     dst = _to_int(e[1])
                 if len(e) >= 3:
-                    # third field could be dict or scalar. If scalar treat as edge_type for AST triples.
                     if isinstance(e[2], dict):
                         flat = _flatten_numeric(e[2].get("feat", e[2]))
                         for k, v in flat.items():
@@ -238,44 +181,36 @@ def _build_graph_from_section(section: Dict[str, Any], *, edge_family_prefixes: 
             elif isinstance(e, dict):
                 src = _to_int(e.get("src", 0))
                 dst = _to_int(e.get("dst", 0))
-                # flatten known fields; prefer explicit edge_type/guard_kind/guard_branch
                 if "edge_type" in e:
                     feat["edge_type"] = _to_float(e.get("edge_type", 0))
                 if "guard_kind" in e:
                     feat["guard_kind"] = _to_float(e.get("guard_kind", 0))
                 if "guard_branch" in e:
                     feat["guard_branch"] = _to_float(e.get("guard_branch", 0))
-                # flatten nested attr/feat if provided
                 attr_obj = e.get("attr") or e.get("feat")
                 if isinstance(attr_obj, dict):
                     flat = _flatten_numeric(attr_obj)
                     for k, v in flat.items():
-                        # avoid clobbering already set keys
                         if k not in ("src", "dst") and k not in feat:
                             feat[str(k)] = float(v)
 
-            # track attribute keys
             for k in feat.keys():
                 if k not in fam_col_names:
                     attr_keys_seen.add(k)
             temp_rows.append(([src, dst], feat))
 
-    # Lay out features with consistent columns
     attr_cols = sorted(attr_keys_seen - set(fam_col_names))
     edge_feat_names = fam_col_names + attr_cols
 
     for srcdst, feat in temp_rows:
         edges.append(srcdst)
         row: List[float] = []
-        # fam cols
         for name in fam_col_names:
             row.append(float(feat.get(name, 0.0)))
-        # attr cols
         for name in attr_cols:
             row.append(float(feat.get(name, 0.0)))
         per_edge_feat_dicts.append({name: val for name, val in zip(edge_feat_names, row)})
 
-    # Build tensors
     edge_attr_rows: List[List[float]] = [[feat.get(n, 0.0) for n in edge_feat_names] for feat in per_edge_feat_dicts]
 
     if edges:
@@ -302,14 +237,6 @@ def _infer_label_from_json(
     fallback_path: Optional[str] = None,
     label_keys: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
-    """Simple label inference.
-
-    Priority:
-      1) Explicit 'label' if numeric/bool
-      2) Single label_key against filename (binary partition)
-      3) Basic filename heuristic ('patched'->0, 'vuln/bad/unpatched/unsafe'->1)
-      4) Path heuristic as last resort
-    """
     label = raw.get("label")
     if isinstance(label, bool):
         return 1 if label else 0
@@ -318,7 +245,6 @@ def _infer_label_from_json(
     if isinstance(label, str) and label.strip().isdigit():
         return 1 if int(label.strip()) != 0 else 0
 
-    # Filename (prefer real on-disk path)
     fname = None
     if fallback_path:
         import os as _os
@@ -328,7 +254,6 @@ def _infer_label_from_json(
         fname = raw.get("file") or raw.get("filename") or raw.get("source_template") or ""
     f = str(fname).lower()
 
-    # Configured single label rule
     if label_keys and len(label_keys) >= 1:
         kw = str(label_keys[0].get("keyword", "")).lower()
         lbl = int(label_keys[0].get("label", 0))
@@ -336,13 +261,11 @@ def _infer_label_from_json(
             return 1 if lbl != 0 else 0
         return 0 if lbl != 0 else 1
 
-    # Basic filename heuristics
     if any(k in f for k in ("patched", "good", "safe", "fixed")):
         return 0
     if any(k in f for k in ("bad", "vuln", "unpatched", "unsafe")):
         return 1
 
-    # Fallback to path
     return _infer_label_from_path(fallback_path or "")
 
 
@@ -351,31 +274,20 @@ def juliet_json_to_sample(
     *,
     label_keys: Optional[List[Dict[str, Any]]] = None,
 ) -> Data:
-    """Converter: take raw Juliet-like JSON and build a sample Data stub
-    with attributes:
-      - y: label tensor (0: good, 1: bad)
-      - ast_graph: Data
-      - dfg_graph: Data (if available)
-      - function_name, path, file
-    """
     raw = model_obj.model_dump()
-
     ast_section = raw.get("ast", {}) if isinstance(raw, dict) else {}
     dfg_section = raw.get("dfg", {}) if isinstance(raw, dict) else {}
-
     ast_graph = _build_graph_from_section(
         ast_section,
         edge_family_prefixes=[k for k in ast_section.keys() if str(k).startswith("edges_")],
     )
     dfg_graph = None
     if isinstance(dfg_section, dict) and dfg_section:
-        dfg_graph = _build_graph_from_section(dfg_section, edge_family_prefixes=["edges_dfg"])  # dfg-specific
+        dfg_graph = _build_graph_from_section(dfg_section, edge_family_prefixes=["edges_dfg"])
 
-    # Derive label (filename-based, with optional explicit 'label' field)
     file_name = raw.get("file") or raw.get("filename") or raw.get("source_template")
     func_name = raw.get("function_name") or raw.get("function")
     y = _infer_label_from_json(raw, fallback_path=raw.get("__file_path"), label_keys=label_keys)
-
     sample = Data()
     sample.y = torch.tensor(y, dtype=torch.long)
     sample.ast_graph = ast_graph
@@ -388,23 +300,9 @@ def juliet_json_to_sample(
     return sample
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Default converter that obeys model_config["node_keys"]/["edge_keys"]
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 def config_pydantic_to_pyg(instance: BaseModel) -> Data:
-    """
-    Conversion logic:
-      1) If 'x' + 'edge_index' exist → use directly (edge_attr optional).
-      2) Else, read node/edge collections from model_config keys and build:
-         - Nodes: merge all node collections; flatten numeric features (preferring node.feat).
-         - Edges: merge all configured families with one-hot family channels.
-           If any edge has nonzero attr, append a scalar 'value' column.
-    """
     dump = instance.model_dump()
 
-    # Fast path: direct tensors
     if "x" in dump and "edge_index" in dump:
         x = torch.tensor(dump["x"], dtype=torch.float)
         edge_index = torch.tensor(dump["edge_index"], dtype=torch.long)
@@ -421,10 +319,8 @@ def config_pydantic_to_pyg(instance: BaseModel) -> Data:
                 setattr(data, k, v)
         return data
 
-    # Config-driven path
     node_keys, edge_map = _collect_config(instance)
 
-    # Nodes: merge all configured node lists
     node_acc: List[Any] = []
     for k in node_keys:
         v = dump.get(k, [])
@@ -432,7 +328,6 @@ def config_pydantic_to_pyg(instance: BaseModel) -> Data:
             node_acc.extend(v)
     x, x_cols = _build_x_from_nodes(node_acc)
 
-    # Edges: collect per-family (family name from config)
     fam_names: List[str] = []
     edges_by_family: List[List[Tuple[int, int, float]]] = []
 
@@ -472,10 +367,10 @@ def config_pydantic_to_pyg(instance: BaseModel) -> Data:
             oh = torch.tensor(onehots, dtype=torch.float)
             if any_scalar:
                 val = torch.tensor(scalars, dtype=torch.float).view(-1, 1)
-                edge_attr = torch.cat([oh, val], dim=1)  # [E, F+1]
+                edge_attr = torch.cat([oh, val], dim=1)
                 edge_feat_names = fam_names + ["value"]
             else:
-                edge_attr = oh  # [E, F]
+                edge_attr = oh
                 edge_feat_names = fam_names
     else:
         edge_index = torch.zeros((2, 0), dtype=torch.long)
@@ -486,7 +381,6 @@ def config_pydantic_to_pyg(instance: BaseModel) -> Data:
     data.x_feature_names = x_cols
     data.edge_feature_names = edge_feat_names
 
-    # Attach undeclared fields as attributes for convenience
     declared = set(node_keys)
     for fam_fields in edge_map.values():
         declared.update(fam_fields)
@@ -497,25 +391,7 @@ def config_pydantic_to_pyg(instance: BaseModel) -> Data:
     return data
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Dataset
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 class GenericJsonDataset(Dataset):
-    """
-    Generic JSON → Pydantic (user model REQUIRED) → PyG Data (config-driven).
-
-    Args:
-      paths:     File or directory; recurses for *.json
-      model_cls: Required Pydantic model class (BaseGraphModel or subclass)
-      converter: Optional converter (defaults to config_pydantic_to_pyg)
-      pre:       Optional pre(json_obj, path)->json_obj
-      post:      Optional post(Data, model_obj, path)->Data
-      strict:    If True, invalid files are skipped; else they become empty graphs
-      debug:     Print summary
-    """
-
     def __init__(
         self,
         paths: str,
@@ -558,15 +434,12 @@ class GenericJsonDataset(Dataset):
                 self.items.append(data)
                 kept += 1
             except Exception:
-                # Invalid or unreadable JSON: keep a placeholder sample with
-                # consistent structure so downstream collate never breaks.
                 if self.strict:
                     skipped += 1
                     continue
                 placeholder = Data()
                 placeholder.y = torch.tensor(_infer_label_from_path(fp), dtype=torch.long)
                 placeholder.ast_graph = _empty_graph()
-                # Some datasets may not have DFG; keep attribute for consistency
                 placeholder.dfg_graph = _empty_graph()
                 placeholder.path = fp
                 self.items.append(placeholder)

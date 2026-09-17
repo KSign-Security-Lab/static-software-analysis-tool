@@ -1,11 +1,12 @@
 # gnn — GNN training and evaluation
 
-Trains graph neural networks over the AST and def-use DFG that `ssat` extracts.
-It is a *consumer* of the analysis pipeline: `ssat full` writes one JSON per
-function, and `gnn.dataset.JsonDataset` reads it.
+Trains graph neural networks over the AST and def-use DFG that
+[`ssat`](../ssat/README.md) extracts. It is a *consumer* of the analysis
+pipeline, not a stage in it: `ssat full` writes one JSON per function, and
+`gnn.dataset.JsonDataset` reads it.
 
-Until this branch the package was named `agent`, which it never was — there is
-no agent here, only a trainer. The LLM agent is a separate package.
+There is no agent here, only a trainer — the LLM route is
+[`packages/agent`](../agent/README.md).
 
 ## Setup
 

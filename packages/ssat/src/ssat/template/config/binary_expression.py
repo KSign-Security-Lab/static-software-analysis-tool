@@ -1,5 +1,3 @@
-"""Binary expression operator mappings."""
-
 BinaryExpressionOperatorMap: dict[str, str] = {
     "<operator>.addition": "+",
     "<operator>.subtraction": "-",

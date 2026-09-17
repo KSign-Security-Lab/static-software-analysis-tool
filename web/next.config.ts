@@ -1,22 +1,36 @@
 import type { NextConfig } from "next";
+import { networkInterfaces } from "os";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+function devOrigins(): string[] {
+  const found = new Set(["127.0.0.1", "::1", "[::1]"]);
+
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (address.internal) continue;
+      found.add(address.address);
+      if (address.family === "IPv6") found.add(`[${address.address}]`);
+    }
+  }
+
+  for (const extra of (process.env.ALLOWED_DEV_ORIGINS ?? "").split(",")) {
+    const trimmed = extra.trim();
+    if (trimmed) found.add(trimmed);
+  }
+
+  return [...found];
+}
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Keep the dev-only indicator out of the sidebar's bottom-left corner.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  images: { unoptimized: true },
   devIndicators: { position: "bottom-right" },
-  // This app is self-contained; pin the tracing root so the repo-root
-  // lockfile doesn't trigger a workspace-root warning.
   outputFileTracingRoot: here,
-  // Allow the Next dev server to serve HMR/assets to a browser reaching it over
-  // the tailnet (add your Tailscale IP/host here, or set ALLOWED_DEV_ORIGINS).
-  allowedDevOrigins: (process.env.ALLOWED_DEV_ORIGINS ?? "100.91.75.39")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
+  allowedDevOrigins: devOrigins(),
 };
 
 export default nextConfig;

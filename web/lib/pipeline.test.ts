@@ -29,7 +29,6 @@ describe("pipelineAstView", () => {
 
     expect(view.key).toBe("pipeline-ast");
     expect(view.nodes.map((n) => n.id)).toEqual(["0", "1", "2"]);
-    // 2 parent/child + 1 statement-order + 1 guard
     expect(view.edges).toHaveLength(4);
     expect(view.edges.filter((e) => e.label === "next")).toHaveLength(1);
     expect(view.edges.filter((e) => e.label === "upper")).toHaveLength(1);

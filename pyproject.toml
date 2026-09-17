@@ -7,9 +7,12 @@ requires-python = ">=3.14"
 dependencies = [
     "ssat",
     "gnn",
+    "agent[rag]",
+    "graphify",
     "pytest>=8.0.0",
     "ruff>=0.9.0",
     "mypy>=1.14.0",
+    "poethepoet>=0.32.0",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "jpype1>=1.5.0",
@@ -18,15 +21,19 @@ dependencies = [
 [tool.uv]
 package = false
 
-
 [tool.uv.sources]
 ssat = { workspace = true }
 gnn = { workspace = true }
+agent = { workspace = true }
+graphify = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "packages/ssat",
     "packages/gnn",
+    "packages/agent",
+    "packages/graphify",
+    "packages/schemagen",
 ]
 
 [tool.ruff]
@@ -37,10 +44,91 @@ target-version = "py314"
 python_version = "3.14"
 strict = true
 ignore_missing_imports = true
-# So `uv run mypy` needs no arguments. packages/gnn is excluded: it is a
-# consumer of the pipeline's output, not part of the analysis library, and is
-# not held to the strict bar.
-files = ["packages/ssat/src/ssat", "api"]
+files = [
+    "packages/ssat/src/ssat",
+    "packages/agent/src/agent",
+    "packages/graphify/src/graphify",
+    "packages/schemagen/src/schemagen",
+    "api",
+]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/ssat/tests"]
+pythonpath = ["."]
+testpaths = ["packages/ssat/tests", "packages/agent/tests", "packages/graphify/tests", "packages/schemagen/tests"]
+
+[tool.poe.tasks]
+
+setup.help = "Install the Python workspace and the web dependencies"
+setup.sequence = [
+  { cmd = "uv sync" },
+  { cmd = "pnpm install", cwd = "web" },
+]
+
+check.help = "Everything CI runs: lint, types, Python tests, then the web gate"
+check.sequence = ["lint", { cmd = "mypy" }, "test", "web-check"]
+
+lint.help = "ruff check plus a format check, no writes"
+lint.sequence = [
+  { cmd = "ruff check" },
+  { cmd = "ruff format --check" },
+]
+
+fmt.help = "Format and autofix Python in place"
+fmt.sequence = [
+  { cmd = "ruff format ." },
+  { cmd = "ruff check --fix ." },
+]
+
+test.help = "Python tests"
+test.cmd = "pytest -q"
+
+schema.help = "Regenerate the TypeScript wire models from the pydantic ones"
+schema.sequence = [
+  { cmd = "python -m agent.schema_ts --write" },
+  { cmd = "python -m ssat.schema_ts --write" },
+]
+
+dev.help = "The API and the web app together, with reload on both"
+dev.parallel = ["dev-api", "dev-web"]
+
+dev-api.help = "FastAPI on :4401, auto-reload scoped to the packages it imports"
+dev-api.cmd = """
+uvicorn api.main:app --host 0.0.0.0 --port 4401
+  --reload --timeout-graceful-shutdown 2
+  --reload-dir api --reload-dir packages/ssat/src/ssat
+  --reload-dir packages/agent/src/agent --reload-dir packages/graphify/src/graphify
+"""
+
+dev-web.help = "Next.js dev server on :4400, with HMR"
+dev-web.cmd = "pnpm dev"
+dev-web.cwd = "web"
+
+prod.help = "The API and a built web app together, as they run for real"
+prod.parallel = ["prod-api", "prod-web"]
+
+prod-api.help = "FastAPI on :4401 as it runs for real: no reload, one process"
+prod-api.cmd = "uvicorn api.main:app --host 0.0.0.0 --port 4401 --timeout-graceful-shutdown 2"
+
+prod-web.help = "Build the web app, then serve the build on :4400"
+prod-web.cwd = "web"
+prod-web.sequence = [
+  { cmd = "pnpm build" },
+  { cmd = "pnpm start" },
+]
+
+db.help = "Postgres, which the API does not start without"
+db.cmd = "docker compose up -d --wait postgres"
+
+stack.help = "What is running right now, profiles included"
+stack.cmd = "docker compose --profile '*' ps -a"
+
+web-check.help = "The web half of CI: types, lint, tests, licences, build"
+web-check.cwd = "web"
+web-check.sequence = [
+  { cmd = "pnpm type-check" },
+  { cmd = "pnpm lint" },
+  { cmd = "pnpm test" },
+  { cmd = "pnpm run licenses" },
+  { cmd = "pnpm run licenses:check" },
+  { cmd = "pnpm build" },
+]

@@ -1,5 +1,3 @@
-"""Public entry point for F2-A: run the pipeline on a CPG and emit artifacts."""
-
 from __future__ import annotations
 
 import json
@@ -17,7 +15,6 @@ def run_f2a(
     kb: Optional[KnowledgeBase] = None,
     source_cpg: str = "",
 ) -> F2AResult:
-    """Run the 7-step F2-A pipeline over one in-memory CPG (GraphSON) document."""
     model = CPGModel(cpg_json)
     analyzer = F2AAnalyzer(model, kb=kb)
     return analyzer.analyze(source_cpg=source_cpg)
@@ -27,13 +24,11 @@ def run_f2a_file(
     cpg_path: str | Path,
     kb: Optional[KnowledgeBase] = None,
 ) -> F2AResult:
-    """Load a CPG JSON file and run F2-A over it."""
     path = Path(cpg_path)
     data = json.loads(path.read_text(encoding="utf-8"))
     return run_f2a(data, kb=kb, source_cpg=str(path))
 
 
-# Files written by :func:`write_artifacts`, mirroring the design's output set (§15).
 _ARTIFACT_FILES: dict[str, Callable[[F2AResult], List[Any]]] = {
     "handler_map.json": lambda r: [m.model_dump() for m in r.handler_maps],
     "field_binding_map.json": lambda r: [b.model_dump() for b in r.field_bindings],
@@ -47,7 +42,6 @@ _ARTIFACT_FILES: dict[str, Callable[[F2AResult], List[Any]]] = {
 
 
 def write_artifacts(result: F2AResult, output_dir: str | Path) -> list[Path]:
-    """Write the individual F2-A artifact files plus a combined report."""
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []

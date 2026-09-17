@@ -1,55 +1,41 @@
-"""Recognition set for "is this call part of a known library?".
-
-Deliberately separate from :mod:`ssat.knowledge.c_stdlib`, which answers the
-narrower question of what a libc call does to memory. This set is much broader
-(C++ STL, POSIX networking, LDAP, PostgreSQL, the SySeVR list) and is used only
-to classify a call as library vs user-defined during template conversion.
-Do not merge the two -- widening this set would silently reclassify calls.
-"""
-
-# C Standard Library functions
 c_std_lib_functions: list[str] = [
-    "memset",  # <string.h>
-    "memcpy",  # <string.h>
-    "memmove",  # <string.h>
-    "strlen",  # <string.h>
-    "strcpy",  # <string.h>
-    "wcscpy",  # <wchar.h>
-    "wcslen",  # <wchar.h>
-    "atoi",  # <stdlib.h>
-    "fgets",  # <stdio.h>
-    "fscanf",  # <stdio.h>
-    "calloc",  # <stdlib.h>
-    "free",  # <stdlib.h>
-    "exit",  # <stdlib.h>
-    "srand",  # <stdlib.h>
-    "time",  # <time.h>
+    "memset",
+    "memcpy",
+    "memmove",
+    "strlen",
+    "strcpy",
+    "wcscpy",
+    "wcslen",
+    "atoi",
+    "fgets",
+    "fscanf",
+    "calloc",
+    "free",
+    "exit",
+    "srand",
+    "time",
 ]
 
-# POSIX Networking functions
 posix_networking_functions: list[str] = [
-    "socket",  # <sys/socket.h>
-    "bind",  # <sys/socket.h>
-    "listen",  # <sys/socket.h>
-    "accept",  # <sys/socket.h>
-    "connect",  # <sys/socket.h>
-    "recv",  # <sys/socket.h>
-    "htons",  # <arpa/inet.h>
-    "inet_addr",  # <arpa/inet.h> (obsolete; prefer inet_pton/getaddrinfo)
-    "close",  # <unistd.h>
+    "socket",
+    "bind",
+    "listen",
+    "accept",
+    "connect",
+    "recv",
+    "htons",
+    "inet_addr",
+    "close",
 ]
 
-# C++ STL container methods
 cpp_stl_methods: list[str] = [
-    "insert",  # e.g., std::vector, std::list, std::set, etc.
-    "push_back",  # e.g., std::vector, std::deque, std::list
-    "end",  # returns iterator past last element
-    "back",  # access last element in sequence containers
+    "insert",
+    "push_back",
+    "end",
+    "back",
 ]
 
-# Combined list
 standard_lib_calls: list[str] = [
-    # C Standard Library
     "malloc",
     "memset",
     "memcpy",
@@ -66,7 +52,6 @@ standard_lib_calls: list[str] = [
     "exit",
     "srand",
     "time",
-    # POSIX Networking
     "socket",
     "bind",
     "listen",
@@ -76,14 +61,12 @@ standard_lib_calls: list[str] = [
     "htons",
     "inet_addr",
     "close",
-    # C++ STL
     "insert",
     "push_back",
     "end",
     "back",
 ]
 
-# Sysevr list (very long list from the TypeScript file)
 sysevr = [
     "StrNCat",
     "getaddrinfo",

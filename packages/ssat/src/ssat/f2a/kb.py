@@ -1,21 +1,7 @@
-"""F1 OCPP-centric Knowledge Layer used by F2-A.
-
-This is a compact, data-driven seed of the F1 profiles described in the
-concept design (Appendix B). It is intentionally small and extensible — the
-default content covers the deck's ``UpdateFirmware.location → system(cmd)``
-walkthrough, plus a handful of generic dangerous sinks and check patterns so
-the pipeline degrades gracefully on other inputs.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-
-
-# ---------------------------------------------------------------------------
-# Profile dataclasses
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -25,18 +11,8 @@ class ActionProfile:
     component_type: str = "charge_point"
     message_direction: str = "CSMS_TO_CHARGE_POINT"
     sensitive_fields: List[str] = field(default_factory=list)
-    # Handler discovery hints (used when the action reaches its handler without
-    # a dispatch string literal):
-    #  - handler_patterns: function-name patterns for the name-match fallback
-    #    (e.g. handle_data_transfer).
-    #  - action_symbols: explicit enum/macro constant names, for the enum/switch
-    #    strategy. Usually unneeded — the action name is normalized to
-    #    UPPER_SNAKE (DataTransfer -> DATA_TRANSFER) and matched against case
-    #    labels automatically; set this only when the constant differs.
     handler_patterns: List[str] = field(default_factory=list)
     action_symbols: List[str] = field(default_factory=list)
-    # Numeric OCPP message-type id(s), matched against literals in a handler
-    # registration table (e.g. { 41, process_configuration }).
     numeric_ids: List[int] = field(default_factory=list)
 
 
@@ -50,7 +26,6 @@ class FieldProfile:
     expected_checks: List[str] = field(default_factory=list)
     related_cwe: List[str] = field(default_factory=list)
     validation_requirement: List[str] = field(default_factory=list)
-    # Extra tokens that identify this field in code (besides ``field_name``).
     field_source_aliases: List[str] = field(default_factory=list)
 
 
@@ -59,9 +34,6 @@ class ExpectedCheckProfile:
     check_id: str
     check_type: str
     description: str = ""
-    # Sink domains whose presence on the flow is structural *negative* evidence
-    # for this check (e.g. reaching a COMMAND_EXECUTION sink disproves
-    # SAFE_DOWNLOAD_API_NO_SHELL). Matched by sink symbol → domain, not text.
     negative_sink_domains: List[str] = field(default_factory=list)
     expected_before_sink: bool = True
     related_cwe: List[str] = field(default_factory=list)
@@ -71,12 +43,9 @@ class ExpectedCheckProfile:
 class SinkDomainProfile:
     sink_domain: str
     description: str
-    apis: List[str]  # C APIs (lower-cased match)
+    apis: List[str]
     related_cwe: List[str] = field(default_factory=list)
     severity: str = "HIGH"
-    # Advisory: which 1-based argument positions carry the dangerous value.
-    # Recorded from the KB for reference; sink detection currently flags a
-    # tainted value in ANY argument (arg conventions vary across APIs).
     dangerous_arg_indexes: List[int] = field(default_factory=list)
 
 
@@ -89,32 +58,8 @@ class RootCause:
     related_cwe: List[str] = field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Rule-based check catalog (F2-A7-1)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class CheckPattern:
-    """Maps a condition/call *shape* to a ``check_type`` + baseline strength.
-
-    Matching is purely structural / symbolic — never a regex over source text
-    (see the deck, slide 13: classify by function name and condition shape, not
-    text). The fields are the structural signals a classifier looks for:
-
-    * ``call_names`` — helper-function NAME symbols in the condition
-      (e.g. ``verify_signature``, ``strncmp``). Strongest signal.
-    * ``operators`` — Joern operator-call NAME symbols the comparison uses
-      (e.g. ``<operator>.equals``), combined with an operand constraint below.
-    * ``operand_identifiers`` — an operand IDENTIFIER whose NAME confirms the
-      type (e.g. ``NULL`` / ``nullptr`` for a null check).
-    * ``operand_literal_prefixes`` — a string-LITERAL operand whose value starts
-      with one of these (e.g. ``http`` for a URL-scheme check). This inspects a
-      *literal node's value*, not the surrounding code text.
-    * ``standalone_operators`` — operators that classify on their own, with no
-      operand constraint (e.g. ``<operator>.logicalNot`` → ``!ptr``).
-    """
-
     check_type: str
     default_strength: str = "WEAK"
     operators: List[str] = field(default_factory=list)
@@ -179,7 +124,6 @@ DEFAULT_CHECK_PATTERNS: List[CheckPattern] = [
         call_names=["is_authorized", "check_permission", "has_permission", "authorize"],
         matched_expected_check="OPERATOR_PERMISSION_CHECK",
     ),
-    # DataTransfer.data — vendor payload validation + safe SQL usage.
     CheckPattern(
         check_type="SCHEMA_VALIDATION",
         default_strength="STRONG",
@@ -198,9 +142,6 @@ DEFAULT_CHECK_PATTERNS: List[CheckPattern] = [
         call_names=["sqlite3_prepare_v2", "sqlite3_bind_text", "parameterized_query"],
         matched_expected_check="SQL_PARAMETERIZATION",
     ),
-    # SetChargingProfile — a relational bound on the copy length. A comparison
-    # operator (`len < CAP`, `CAP > len`, ...) is sufficient on its own; the
-    # NULL check uses equals/notEquals, so the two never collide.
     CheckPattern(
         check_type="LENGTH_BOUND_CHECK",
         default_strength="STRONG",
@@ -216,8 +157,6 @@ DEFAULT_CHECK_PATTERNS: List[CheckPattern] = [
 
 
 class KnowledgeBase:
-    """The F1 knowledge layer: profiles + catalogs, indexed for lookup."""
-
     def __init__(
         self,
         actions: List[ActionProfile],
@@ -234,13 +173,10 @@ class KnowledgeBase:
         self.root_causes = root_causes
         self.check_patterns = check_patterns
 
-        # Reverse index: lower-cased sink api -> (domain, profile)
         self._sink_api_index: Dict[str, SinkDomainProfile] = {}
         for prof in sink_domains:
             for api in prof.apis:
                 self._sink_api_index[api.lower()] = prof
-
-    # -- lookups ---------------------------------------------------------
 
     def field_profile(self, action: str, field_name: str) -> Optional[FieldProfile]:
         return self._fields.get((action, field_name))
@@ -271,11 +207,6 @@ class KnowledgeBase:
             if sink_domain in rc.related_sink_domains or (missing_set & set(rc.related_missing_checks)):
                 out.append(rc.root_cause_id)
         return out
-
-
-# ---------------------------------------------------------------------------
-# Default knowledge base (deck's firmware / command-execution domain)
-# ---------------------------------------------------------------------------
 
 
 def default_knowledge_base() -> KnowledgeBase:
@@ -316,10 +247,6 @@ def default_knowledge_base() -> KnowledgeBase:
                 "process_set_charging_profile",
                 "set_charging_profile",
             ],
-            # Numeric OCPP message id 41 dispatches through these constants; the
-            # action name normalizes to SET_CHARGING_PROFILE (already a substring
-            # of ACTION_SET_CHARGING_PROFILE), MSG_SET_PROFILE is listed so the
-            # enum/switch strategy also matches that spelling.
             action_symbols=["MSG_SET_PROFILE", "ACTION_SET_CHARGING_PROFILE"],
             numeric_ids=[41],
         ),
@@ -329,8 +256,6 @@ def default_knowledge_base() -> KnowledgeBase:
             component_type="charge_point",
             message_direction="CSMS_TO_CHARGE_POINT",
             sensitive_fields=["idTag"],
-            # No handler_patterns: this profile intentionally adds no handler-name
-            # hints. Only the protocol-level identifiers below are declared.
             action_symbols=["ACTION_REMOTE_START"],
             numeric_ids=[15],
         ),
@@ -375,8 +300,6 @@ def default_knowledge_base() -> KnowledgeBase:
                 "reject payloads over the max length",
                 "use parameterized queries instead of string concatenation",
             ],
-            # matched against FIELD_IDENTIFIER canonical names + string-literal
-            # subscripts (request->data, request.data, payload["data"]).
             field_source_aliases=["data"],
         ),
         FieldProfile(
@@ -394,8 +317,6 @@ def default_knowledge_base() -> KnowledgeBase:
                 "the charging schedule pointer must be non-null before use",
                 "the copied length must be bounded by the destination capacity",
             ],
-            # leaf FIELD_IDENTIFIER of request->charging_schedule.schedule
-            # (the leaf `.schedule`, not the intermediate struct member)
             field_source_aliases=["schedule"],
         ),
         FieldProfile(
@@ -411,7 +332,6 @@ def default_knowledge_base() -> KnowledgeBase:
             validation_requirement=[
                 "the length must be checked against PROFILE_BUFFER_SIZE before the copy",
             ],
-            # leaf FIELD_IDENTIFIER of request->charging_schedule.schedule_length
             field_source_aliases=["schedule_length", "chargingScheduleLength"],
         ),
         FieldProfile(
@@ -457,8 +377,6 @@ def default_knowledge_base() -> KnowledgeBase:
             check_id="SAFE_DOWNLOAD_API_NO_SHELL",
             check_type="SAFE_API_USAGE",
             description="Firmware download must not be performed through a shell.",
-            # Reaching a shell/command-exec sink is structural negative evidence:
-            # the download went through a shell instead of a safe API.
             negative_sink_domains=["COMMAND_EXECUTION"],
             related_cwe=["CWE-78"],
         ),
@@ -478,8 +396,6 @@ def default_knowledge_base() -> KnowledgeBase:
             check_id="SQL_PARAMETERIZATION",
             check_type="SAFE_API_USAGE",
             description="Use a prepared statement / bound parameter instead of concatenating payload into SQL.",
-            # Reaching a raw DB-query sink is structural negative evidence: the
-            # payload was concatenated into SQL rather than bound.
             negative_sink_domains=["database_query_execution"],
             related_cwe=["CWE-89"],
         ),
@@ -493,9 +409,6 @@ def default_knowledge_base() -> KnowledgeBase:
             check_id="SCP_PROFILE_LENGTH_BOUND",
             check_type="INPUT_VALIDATION",
             description="The copy length is bounded (e.g. length < PROFILE_BUFFER_SIZE) before memcpy.",
-            # Reaching memcpy is NOT itself negative evidence — a bounds check can
-            # legitimately precede the copy — so this is UNVERIFIED unless the
-            # bound is structurally observed.
             related_cwe=["CWE-120", "CWE-787", "CWE-20"],
         ),
         ExpectedCheckProfile(
@@ -508,8 +421,6 @@ def default_knowledge_base() -> KnowledgeBase:
             check_id="RS_NO_SHELL_EXECUTION",
             check_type="SAFE_API_USAGE",
             description="Authorization must not be performed by constructing and executing a shell command.",
-            # Reaching a command-execution sink is structural negative evidence:
-            # the id was passed to a shell rather than a safe API.
             negative_sink_domains=["COMMAND_EXECUTION"],
             related_cwe=["CWE-78"],
         ),

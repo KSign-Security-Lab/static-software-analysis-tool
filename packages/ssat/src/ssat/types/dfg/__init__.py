@@ -1,5 +1,3 @@
-"""DFG type definitions."""
-
 from enum import Enum
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -7,8 +5,6 @@ from ..template.BaseNode.base_types import TemplateNodeTypes
 
 
 class FlowType(str, Enum):
-    """Flow type enumeration."""
-
     BASE = "BASE"
     INDEX = "INDEX"
     SIZE = "SIZE"
@@ -16,16 +12,12 @@ class FlowType(str, Enum):
 
 
 class GuardType(str, Enum):
-    """Guard type enumeration."""
-
     IF = "IF"
     LOOP = "LOOP"
     NONE = "NONE"
 
 
 class IDFGEdgeFeature(TypedDict):
-    """DFG edge feature structure."""
-
     flow: FlowType
     guard: GuardType
     hasLowerGuard: bool
@@ -34,8 +26,6 @@ class IDFGEdgeFeature(TypedDict):
 
 
 class IDFGNodeFeature(TypedDict):
-    """DFG node feature structure."""
-
     nodeType: TemplateNodeTypes
     inDegreeDFG: int
     outDegreeDFG: int
@@ -52,8 +42,6 @@ class IDFGNodeFeature(TypedDict):
 
 
 class IDFGNode(TypedDict):
-    """DFG node structure."""
-
     sid: int
     id: int
     features: IDFGNodeFeature
@@ -61,8 +49,6 @@ class IDFGNode(TypedDict):
 
 
 class IDFGEdge(TypedDict):
-    """DFG edge structure."""
-
     source: int
     destination: int
     features: IDFGEdgeFeature
@@ -70,8 +56,6 @@ class IDFGEdge(TypedDict):
 
 
 class IDFGGraph(TypedDict):
-    """DFG graph structure."""
-
     nodes: List[IDFGNode]
     edges: List[IDFGEdge]
 

@@ -1,0 +1,429 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from conftest import read_tree
+
+from agent.runs import new_run
+from agent.index import ChunkStore, build_index
+from agent.index.chunk import FILE_CHUNK_KIND, chunk_id_for, chunk_source, line_windows, normalize_body
+from agent.index.links import CALLS, FILE_DEPENDS, USES_TYPE, resolve_links
+from agent.index.order import blockers, call_levels, inspection_order, ready
+from agent.languages import spec_for_path
+
+
+def _chunks(tree: Path) -> list:
+    out = []
+    for name, text in sorted(read_tree(tree).items()):
+        out.extend(chunk_source(name, text))
+    return out
+
+
+def test_functions_become_their_own_chunks(tree: Path) -> None:
+    chunks = _chunks(tree)
+    functions = {c.symbol for c in chunks if c.kind != FILE_CHUNK_KIND}
+    assert {"inner", "outer", "entry", "ping", "pong", "log_msg"} <= functions
+
+
+def test_every_file_gets_a_file_chunk(tree: Path) -> None:
+    chunks = _chunks(tree)
+    file_chunks = {c.file for c in chunks if c.kind == FILE_CHUNK_KIND}
+    assert file_chunks == {"app.c", "util.c", "util.h"}
+
+    header = next(c for c in chunks if c.file == "util.h" and c.kind == FILE_CHUNK_KIND)
+    assert "Request" in header.defines, "the typedef must be attributed to the header"
+
+
+def test_chunk_spans_are_one_based_and_inclusive(tree: Path) -> None:
+    source = (tree / "app.c").read_text(encoding="utf-8")
+    lines = source.splitlines()
+    for chunk in chunk_source("app.c", source):
+        if chunk.kind == FILE_CHUNK_KIND:
+            continue
+        assert chunk.start_line >= 1
+        assert chunk.symbol in lines[chunk.start_line - 1], (
+            f"{chunk.symbol} claims line {chunk.start_line}, which reads {lines[chunk.start_line - 1]!r}"
+        )
+
+
+BIG = "void big(void) {\n" + "\n".join(f"    int v{i} = {i};" for i in range(60)) + "\n}\n"
+
+
+def _big() -> object:
+    return next(c for c in chunk_source("b.c", BIG) if c.symbol == "big")
+
+
+def test_a_range_renders_the_same_lines_the_whole_body_would() -> None:
+    chunk = _big()
+    assert chunk.numbered_body() == chunk.numbered_range(chunk.start_line, chunk.end_line)
+
+    slice_ = chunk.numbered_range(3, 5).splitlines()
+    assert len(slice_) == 3
+    assert slice_[0].startswith("003| ")
+    assert slice_ == chunk.numbered_body().splitlines()[2:5]
+
+
+def test_a_unit_is_read_in_passes_rather_than_cut_short() -> None:
+    chunk = _big()
+    body_lines = len(chunk.body.splitlines())
+
+    assert line_windows(chunk, 10_000) == [(chunk.start_line, chunk.start_line + body_lines - 1)], (
+        "a unit that fits is one pass"
+    )
+
+    windows = line_windows(chunk, 400)
+    assert len(windows) > 1, windows
+    assert windows[0][0] == chunk.start_line
+    assert windows[-1][1] == chunk.start_line + body_lines - 1
+    for (_, before), (after, _) in zip(windows, windows[1:]):
+        assert before + 1 == after, windows
+    assert sum(last - first + 1 for first, last in windows) == body_lines
+
+
+def test_a_line_longer_than_the_budget_still_gets_a_pass() -> None:
+    chunk = _big()
+    windows = line_windows(chunk, 1)
+    assert len(windows) == len(chunk.body.splitlines())
+    assert all(first == last for first, last in windows)
+
+
+def test_verbatim_chunk_body_matches_its_byte_span(tree: Path) -> None:
+    raw = (tree / "app.c").read_bytes()
+    chunks = chunk_source("app.c", raw.decode())
+
+    for chunk in chunks:
+        if chunk.body_is_verbatim:
+            assert chunk.body == raw[chunk.start_byte : chunk.end_byte].decode()
+
+    file_chunk = next(c for c in chunks if c.kind == FILE_CHUNK_KIND)
+    assert file_chunk.body_is_verbatim is False
+    assert all(c.body_is_verbatim for c in chunks if c.kind != FILE_CHUNK_KIND)
+
+
+def test_references_exclude_nested_definitions(tree: Path) -> None:
+    chunks = {c.symbol: c for c in _chunks(tree) if c.kind != FILE_CHUNK_KIND}
+    assert set(chunks["inner"].references) == {"log_msg", "system"}
+    assert set(chunks["outer"].references) == {"inner"}
+    assert set(chunks["entry"].references) == {"outer"}
+
+
+def test_calls_resolve_to_real_definitions(tree: Path) -> None:
+    chunks = _chunks(tree)
+    by_id = {c.chunk_id: c for c in chunks}
+    edges = {(by_id[link.src].symbol, by_id[link.dst].symbol) for link in resolve_links(chunks) if link.kind == CALLS}
+    assert ("entry", "outer") in edges
+    assert ("outer", "inner") in edges
+    assert ("inner", "log_msg") in edges, "cross-file call did not resolve"
+    assert not any(dst == "system" for _, dst in edges), "libc is not in the tree; nothing to link to"
+
+
+def test_type_and_include_links_resolve(tree: Path) -> None:
+    chunks = _chunks(tree)
+    by_id = {c.chunk_id: c for c in chunks}
+    links = resolve_links(chunks)
+    type_edges = {(by_id[x.src].symbol, x.symbol) for x in links if x.kind == USES_TYPE}
+    assert ("inner", "Request") in type_edges
+
+    include_edges = {(by_id[x.src].file, by_id[x.dst].file) for x in links if x.kind == FILE_DEPENDS}
+    assert ("app.c", "util.h") in include_edges
+    assert not any(dst.startswith("<") for _, dst in include_edges), "system headers must not resolve"
+
+
+def test_callees_are_always_inspected_before_callers(tree: Path) -> None:
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    position = {chunk_id: i for i, chunk_id in enumerate(inspection_order(chunks, links))}
+    by_id = {c.chunk_id: c for c in chunks}
+    call_edges = {(link.src, link.dst) for link in links if link.kind == CALLS}
+    acyclic = [(src, dst) for src, dst in call_edges if (dst, src) not in call_edges]
+    assert len(acyclic) < len(call_edges), "fixture no longer contains the mutual-recursion case"
+
+    violations = [(by_id[src].symbol, by_id[dst].symbol) for src, dst in acyclic if position[dst] > position[src]]
+    assert violations == [], f"callee analysed after its caller: {violations}"
+
+
+def test_mutual_recursion_does_not_hang_or_duplicate(tree: Path) -> None:
+    chunks = _chunks(tree)
+    order = inspection_order(chunks, resolve_links(chunks))
+    assert len(order) == len(set(order)) == len(chunks)
+
+
+def test_file_chunks_come_first(tree: Path) -> None:
+    chunks = _chunks(tree)
+    order = inspection_order(chunks, resolve_links(chunks))
+    by_id = {c.chunk_id: c for c in chunks}
+    kinds = [by_id[cid].kind for cid in order]
+    assert kinds[: kinds.count(FILE_CHUNK_KIND)] == [FILE_CHUNK_KIND] * kinds.count(FILE_CHUNK_KIND)
+
+
+def test_no_two_chunks_at_one_level_call_each_other(tree: Path) -> None:
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    levels = call_levels(chunks, links)
+    by_id = {c.chunk_id: c for c in chunks}
+    clashes = [
+        (by_id[link.src].symbol, by_id[link.dst].symbol)
+        for link in links
+        if link.kind == CALLS and link.src in levels and link.dst in levels and levels[link.src] == levels[link.dst]
+    ]
+    assert clashes == [], f"a caller and its callee share a level: {clashes}"
+
+
+def test_every_chunk_gets_a_level_including_a_cycle(tree: Path) -> None:
+    chunks = _chunks(tree)
+    levels = call_levels(chunks, resolve_links(chunks))
+    assert set(levels) == {c.chunk_id for c in chunks}
+    assert all(level >= 0 for level in levels.values())
+
+
+def test_file_chunks_and_leaves_are_level_zero(tree: Path) -> None:
+    chunks = _chunks(tree)
+    levels = call_levels(chunks, resolve_links(chunks))
+    by_id = {c.chunk_id: c for c in chunks}
+    assert all(levels[c.chunk_id] == 0 for c in chunks if c.kind == FILE_CHUNK_KIND)
+    inner = next(cid for cid, c in by_id.items() if c.symbol == "inner")
+    outer = next(cid for cid, c in by_id.items() if c.symbol == "outer")
+    assert levels[outer] > levels[inner]
+
+
+def test_a_round_leaves_out_chunks_whose_callees_are_still_queued() -> None:
+    blocked = {"b": ("a",)}
+    assert ready(["a", "b", "c", "d"], blocked, width=4) == ["a", "c", "d"]
+    assert ready(["b", "a", "c"], blocked, width=4) == ["a", "c"]
+    assert ready(["b", "c"], blocked, width=4) == ["b", "c"], "a is done, so b is free"
+
+
+def test_a_round_is_bounded_and_degrades_to_one() -> None:
+    assert ready(list("abcdef"), {}, width=3) == ["a", "b", "c"]
+    assert ready(list("abcdef"), {}, width=1) == ["a"]
+    assert ready([], {}, width=4) == []
+
+
+def test_a_round_is_never_empty_even_when_the_queue_was_reordered() -> None:
+    # Advisory planning may put a blocked chunk first; it goes alone rather than stalling.
+    assert ready(["b"], {"b": ("a",)}, width=4) == ["b"]
+
+
+def test_levels_survive_a_round_trip_through_the_store(tmp_path: Path, tree: Path) -> None:
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(tree), store)
+    stored = store.levels()
+    store.close()
+
+    chunks = _chunks(tree)
+    assert stored == call_levels(chunks, resolve_links(chunks))
+
+
+def test_chunk_ids_are_stable_across_reindexing(tree: Path) -> None:
+    assert [c.chunk_id for c in _chunks(tree)] == [c.chunk_id for c in _chunks(tree)]
+
+
+def test_chunk_id_ignores_reformatting_but_not_edits() -> None:
+    original = "void f(void) {\n    g();\n}"
+    reindented = "void f(void) {\n        g();\n}"
+    edited = "void f(void) {\n    h();\n}"
+
+    assert chunk_id_for("a.c", "f", original) == chunk_id_for("a.c", "f", reindented)
+    assert chunk_id_for("a.c", "f", original) != chunk_id_for("a.c", "f", edited)
+    assert normalize_body("a  \n\t b") == "a b"
+
+
+def test_numbered_body_starts_at_the_real_line(tree: Path) -> None:
+    chunk = next(c for c in _chunks(tree) if c.symbol == "entry")
+    first = chunk.numbered_body().splitlines()[0]
+    assert first.startswith(f"{chunk.start_line:03d}| ")
+
+
+def test_unsupported_files_are_not_indexed() -> None:
+    assert spec_for_path("notes.txt") is None
+    assert spec_for_path("Makefile") is None
+    assert chunk_source("notes.txt", "hello") == []
+    assert spec_for_path("a.hpp") is not None and spec_for_path("a.hpp").name == "cpp"
+    assert spec_for_path("a.h") is not None and spec_for_path("a.h").name == "c"
+
+
+def test_build_index_round_trips_through_the_store(tree: Path, tmp_path: Path) -> None:
+    store = ChunkStore(new_run().run_id)
+    result = build_index(read_tree(tree), store)
+
+    assert result.files_indexed == 3
+    assert result.chunks > 0 and result.links > 0
+    assert len(store.order()) == result.chunks
+    assert set(store.files()) == {"app.c", "util.c", "util.h"}
+
+    entry = next(c for c in store.chunks() if c.symbol == "entry")
+    assert [c.symbol for c in store.callees_of(entry.chunk_id)] == ["outer"]
+    outer = next(c for c in store.chunks() if c.symbol == "outer")
+    assert [c.symbol for c in store.callers_of(outer.chunk_id)] == ["entry"]
+    assert [c.file for c in store.definition_of("Request")] == ["util.h"]
+    store.close()
+
+
+def test_notes_and_inspection_state_persist(tree: Path) -> None:
+    run_id = new_run().run_id
+    store = ChunkStore(run_id)
+    build_index(read_tree(tree), store)
+    chunk_id = store.order()[0]
+    assert store.is_inspected(chunk_id) is False
+    store.set_note(chunk_id, "returns attacker-controlled data")
+    store.mark_inspected(chunk_id)
+    store.close()
+
+    reopened = ChunkStore(run_id)
+    assert reopened.note(chunk_id) == "returns attacker-controlled data"
+    assert reopened.is_inspected(chunk_id) is True
+    reopened.close()
+
+
+def test_sample_tree_indexes_without_ordering_violations(fixture_root: Path, tmp_path: Path) -> None:
+    store = ChunkStore(new_run().run_id)
+    result = build_index(read_tree(fixture_root), store)
+    assert result.files_indexed == 5
+    assert result.files_skipped == 0
+
+    position = {chunk_id: i for i, chunk_id in enumerate(store.order())}
+    violations = [link for link in store.links() if link.kind == CALLS and position[link.dst] > position[link.src]]
+    assert violations == []
+    store.close()
+
+
+def test_sample_tree_resolves_its_cross_file_chain(fixture_root: Path, tmp_path: Path) -> None:
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(fixture_root), store)
+
+    handler = next(c for c in store.chunks() if c.symbol == "handle_download")
+    callees = {c.symbol for c in store.callees_of(handler.chunk_id)}
+    assert {"read_param", "fetch_firmware", "log_line"} <= callees
+
+    read_param = next(c for c in store.chunks() if c.symbol == "read_param")
+    assert read_param.file == "util.c", "cross-file call did not resolve"
+
+    position = {chunk_id: i for i, chunk_id in enumerate(store.order())}
+    fetch = next(c for c in store.chunks() if c.symbol == "fetch_firmware")
+    assert position[fetch.chunk_id] < position[handler.chunk_id]
+    assert position[read_param.chunk_id] < position[handler.chunk_id]
+    store.close()
+
+
+def test_sample_tree_labels_both_halves_of_each_pair(fixture_root: Path) -> None:
+    text = "\n".join(p.read_text(encoding="utf-8") for p in sorted(fixture_root.glob("*.c")))
+    for symbol in ("fetch_firmware", "handle_download", "store_payload"):
+        assert f"{symbol} " in text or f"{symbol}(" in text
+    assert "VULNERABLE" in text and "SAFE" in text
+    assert "f2a" not in text.lower(), "the sample tree must not reference another package's fixtures"
+
+
+def test_the_store_survives_reads_while_a_run_is_writing(tree: Path) -> None:
+    import threading
+
+    run_id = new_run().run_id
+    boot = ChunkStore(run_id)
+    build_index(read_tree(tree), boot)
+    boot.close()
+
+    errors: list[str] = []
+
+    def write() -> None:
+        try:
+            store = ChunkStore(run_id)
+            for i in range(100):
+                store.set_note(f"chunk{i}", "x" * 400)
+            store.close()
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"writer: {err}")
+
+    def read() -> None:
+        try:
+            for _ in range(100):
+                store = ChunkStore(run_id)
+                store.findings()
+                list(store.chunks())
+                store.close()
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"reader: {err}")
+
+    threads = [threading.Thread(target=write), *(threading.Thread(target=read) for _ in range(2))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+
+    assert errors == []
+
+
+def test_one_store_serves_many_threads(tmp_path: Path, tree: Path) -> None:
+    import threading
+
+    store = ChunkStore(new_run().run_id)
+    build_index(read_tree(tree), store)
+    ids = store.order()
+    errors: list[str] = []
+
+    def work(n: int) -> None:
+        try:
+            for chunk_id in ids:
+                store.set_note(chunk_id, f"note from {n}")
+                store.mark_inspected(chunk_id)
+                store.chunk(chunk_id)
+                store.callees_of(chunk_id)
+                store.is_inspected(chunk_id)
+        except Exception as err:  # noqa: BLE001
+            errors.append(f"{n}: {err}")
+
+    threads = [threading.Thread(target=work, args=(n,)) for n in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+
+    assert errors == []
+    assert all(store.is_inspected(chunk_id) for chunk_id in ids)
+    store.close()
+
+
+def test_a_round_prefers_the_head_s_own_subsystem() -> None:
+    subsystems = {"a": 1, "b": 2, "c": 1, "d": 2}
+    assert ready(list("abcd"), {}, width=3, affinity=subsystems) == ["a", "c", "b"]
+    assert ready(list("abd"), {}, width=3, affinity={"a": 1, "b": 2, "d": 2}) == ["a", "b", "d"]
+
+
+def test_round_order_is_still_the_index_s_order_within_a_subsystem() -> None:
+    same = {name: 7 for name in "abcd"}
+    assert ready(list("abcd"), {}, width=4, affinity=same) == ["a", "b", "c", "d"]
+
+
+def test_a_mutual_recursion_pair_never_blocks_itself(tree: Path) -> None:
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    order = inspection_order(chunks, links)
+    blocked = blockers(order, links)
+    by_id = {c.chunk_id: c for c in chunks}
+    named = {by_id[cid].symbol: {by_id[d].symbol for d in deps} for cid, deps in blocked.items()}
+
+    assert "pong" in named.get("ping", set()) or "ping" in named.get("pong", set()), (
+        "fixture no longer contains the mutual-recursion case"
+    )
+    assert not ("pong" in named.get("ping", set()) and "ping" in named.get("pong", set())), (
+        "both halves of the cycle block each other, so neither can ever run"
+    )
+
+
+def test_draining_the_queue_visits_every_chunk_after_its_callees(tree: Path) -> None:
+    chunks = _chunks(tree)
+    links = resolve_links(chunks)
+    order = inspection_order(chunks, links)
+    blocked = blockers(order, links)
+
+    pending, done, rounds = list(order), [], 0
+    while pending:
+        chosen = ready(pending, blocked, width=4)
+        assert chosen, "a round came back empty while work remained"
+        for chunk_id in chosen:
+            assert set(blocked.get(chunk_id, ())).issubset(done), "dispatched before its callees"
+        done.extend(chosen)
+        pending = [c for c in pending if c not in set(chosen)]
+        rounds += 1
+        assert rounds <= len(order), "the drain did not terminate"
+
+    assert len(done) == len(set(done)) == len(order)
+    assert done != list(order), "nothing overtook, so this fixture does not exercise the ready set"

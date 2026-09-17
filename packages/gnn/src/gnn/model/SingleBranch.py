@@ -45,26 +45,20 @@ class GINEStack(nn.Module):
         edge_index: torch.Tensor,
         x_like: torch.Tensor,
     ) -> torch.Tensor | None:
-        """Ensure edge_attr matches self.edge_dim; pad/truncate or synthesize zeros."""
         if self.edge_dim <= 0:
-            return None  # model was built without edge features
+            return None
 
         E = int(edge_index.size(1)) if isinstance(edge_index, torch.Tensor) else 0
         dtype = x_like.dtype
         device = x_like.device
 
-        # synthesize when missing/empty
         if not isinstance(edge_attr, torch.Tensor) or edge_attr.numel() == 0:
             return torch.zeros((E, self.edge_dim), dtype=dtype, device=device)
 
-        # ensure 2D
         if edge_attr.dim() == 1:
             edge_attr = edge_attr.view(-1, 1)
 
-        # dtype/device match
         edge_attr = edge_attr.to(dtype=dtype, device=device)
-
-        # pad/truncate to expected width
         c = edge_attr.size(1)
         if c < self.edge_dim:
             pad = torch.zeros((E, self.edge_dim - c), dtype=dtype, device=device)
@@ -72,12 +66,10 @@ class GINEStack(nn.Module):
         elif c > self.edge_dim:
             edge_attr = edge_attr[:, : self.edge_dim]
 
-        # ensure correct number of rows (in case of malformed inputs)
         if edge_attr.size(0) != E:
             if E == 0:
                 edge_attr = torch.zeros((0, self.edge_dim), dtype=dtype, device=device)
             else:
-                # best-effort: crop or tile to match E
                 if edge_attr.size(0) > E:
                     edge_attr = edge_attr[:E]
                 else:
@@ -98,7 +90,6 @@ class GINEStack(nn.Module):
             if i < len(self.convs) - 1:
                 x = torch.relu(x)
 
-        # pool per graph
         batch_vec = getattr(data, "batch", None)
         if isinstance(batch_vec, torch.Tensor) and batch_vec.numel() == x.size(0):
             return global_mean_pool(x, batch_vec)

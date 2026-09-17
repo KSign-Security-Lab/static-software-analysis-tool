@@ -4,15 +4,37 @@ import { defineConfig } from "vitest/config";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+const shared = {
+  resolve: { alias: { "@": here } },
+  oxc: { jsx: { runtime: "automatic" as const } },
+};
+
 export default defineConfig({
-  resolve: {
-    alias: { "@": here },
-  },
+  ...shared,
   test: {
-    environment: "node",
-    include: ["lib/**/*.test.ts", "components/**/*.test.tsx"],
+    projects: [
+      {
+        ...shared,
+        test: {
+          name: "lib",
+          environment: "node",
+          include: ["lib/**/*.test.ts", "scripts/**/*.test.ts"],
+        },
+      },
+      {
+        ...shared,
+        test: {
+          name: "ui",
+          environment: "jsdom",
+          setupFiles: ["./vitest.setup.dom.ts"],
+          include: [
+            "components/**/*.test.{ts,tsx}",
+            "features/**/*.test.{ts,tsx}",
+            "app/**/*.test.{ts,tsx}",
+            "lib/**/*.test.tsx",
+          ],
+        },
+      },
+    ],
   },
-  // App tsconfig uses jsx:"preserve" (Next compiles it); compile JSX to the
-  // automatic runtime for the vitest (rolldown/oxc) transform instead.
-  oxc: { jsx: { runtime: "automatic" } },
 });

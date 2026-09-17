@@ -1,5 +1,3 @@
-"""Expression node type definitions."""
-
 from typing import Required
 
 
@@ -7,66 +5,56 @@ from .BaseNode.base_types import IBaseNode
 
 
 class IAddressOfExpression(IBaseNode):
-    """Address-of expression node."""
+    pass
 
 
 class IArraySizeAllocation(IBaseNode):
-    """Array size allocation node."""
+    pass
 
 
 class IArraySubscriptExpression(IBaseNode):
-    """Array subscript expression node."""
+    pass
 
 
 class IAssignmentExpression(IBaseNode):
-    """Assignment expression node."""
-
     operator: Required[str]
 
 
 class IBinaryExpression(IBaseNode):
-    """Binary expression node."""
-
     operator: str
 
 
 class ICastExpression(IBaseNode):
-    """Cast expression node."""
-
     targetType: Required[str]
 
 
 class IIdentifier(IBaseNode):
-    """Identifier node."""
+    pass
 
 
 class ILiteral(IBaseNode):
-    """Literal node."""
-
     value: Required[str]
 
 
 class IMemberAccess(IBaseNode):
-    """Member access node."""
+    pass
 
 
 class IPointerDereference(IBaseNode):
-    """Pointer dereference node."""
+    pass
 
 
 class ISizeOfExpression(IBaseNode):
-    """Sizeof expression node."""
+    pass
 
 
 class IStandardLibCall(IBaseNode):
-    """Standard library call node."""
+    pass
 
 
 class IUnaryExpression(IBaseNode):
-    """Unary expression node."""
-
     operator: str
 
 
 class IUserDefinedCall(IBaseNode):
-    """User-defined call node."""
+    pass

@@ -1,10 +1,3 @@
-// Complexity-reducers applied to a GraphView before rendering:
-//   - scopeToMethod : keep only one function's nodes (kills node count)
-//   - contract      : drop "noise" nodes, reconnecting edges through them
-//   - neighborhood  : focus a node + its N-hop neighbours
-//   - search        : node ids matching a query
-// All are pure transforms over GraphView, composable in any order.
-
 import type { GraphView, ParsedCpg, ViewEdge, ViewNode } from "./types";
 
 export interface MethodRef {
@@ -13,7 +6,6 @@ export interface MethodRef {
   file: string;
 }
 
-/** Internal (user-defined) methods, for the function picker. */
 export function internalMethods(cpg: ParsedCpg): MethodRef[] {
   const out: MethodRef[] = [];
   for (const n of cpg.nodes.values()) {
@@ -25,7 +17,6 @@ export function internalMethods(cpg: ParsedCpg): MethodRef[] {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Joern labels / operator calls that add noise without structural meaning.
 const NOISE_LABELS = new Set([
   "LITERAL",
   "BLOCK",
@@ -66,7 +57,6 @@ export function scopeToMethod(view: GraphView, cpg: ParsedCpg, methodId: string)
   return induce(view, ids, view.edges);
 }
 
-/** For the (already method-level) CG view: keep the method + direct neighbours. */
 export function scopeCallGraph(view: GraphView, methodId: string): GraphView {
   const edges = view.edges.filter((e) => e.source === methodId || e.target === methodId);
   const ids = new Set<string>([methodId]);
@@ -77,10 +67,6 @@ export function scopeCallGraph(view: GraphView, methodId: string): GraphView {
   return induce(view, ids, edges);
 }
 
-/**
- * Remove nodes failing `keep`, reconnecting survivors through the dropped nodes
- * (transitive contraction) so the graph stays connected and meaningful.
- */
 export function contract(view: GraphView, keep: (n: ViewNode) => boolean): GraphView {
   const kept = new Set(view.nodes.filter(keep).map((n) => n.id));
   if (kept.size === view.nodes.length) return view;
@@ -114,7 +100,6 @@ export function contract(view: GraphView, keep: (n: ViewNode) => boolean): Graph
   return { ...view, nodes: view.nodes.filter((n) => kept.has(n.id)), edges };
 }
 
-/** Node ids whose name/code/label match the query (case-insensitive). */
 export function searchNodes(view: GraphView, query: string): Set<string> {
   const q = query.trim().toLowerCase();
   const hits = new Set<string>();
@@ -131,7 +116,6 @@ export function searchNodes(view: GraphView, query: string): Set<string> {
   return hits;
 }
 
-/** Keep a node and everything within `hops` edges of it (undirected). */
 export function neighborhood(view: GraphView, nodeId: string, hops: number): GraphView {
   const adj = new Map<string, string[]>();
   for (const e of view.edges) {

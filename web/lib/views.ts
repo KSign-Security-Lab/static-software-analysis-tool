@@ -1,6 +1,3 @@
-// Project the four graph views out of a parsed CPG, purely by edge label —
-// the same "extract by structure, not text" idea F2-A uses.
-
 import type { CpgEdge, CpgViewKey, GraphView, ParsedCpg, ViewEdge, ViewNode } from "./types";
 
 function toViewNode(cpg: ParsedCpg, id: string): ViewNode | undefined {
@@ -9,7 +6,6 @@ function toViewNode(cpg: ParsedCpg, id: string): ViewNode | undefined {
   return { id: n.id, label: n.label, name: n.name, code: n.code, line: n.line, props: n.props };
 }
 
-/** Build a view from a set of directed edges, inducing the touched node set. */
 function induced(
   cpg: ParsedCpg,
   key: CpgViewKey,
@@ -79,17 +75,12 @@ export function dfgView(cpg: ParsedCpg): GraphView {
   );
 }
 
-/**
- * Call graph between functions. Each Joern CALL edge goes call-site → callee
- * METHOD; we lift the call-site to its enclosing METHOD so the view is
- * method → method (deduplicated). Isolated internal methods are kept as nodes.
- */
 export function cgView(cpg: ParsedCpg): GraphView {
   const seen = new Set<string>();
   const edges: ViewEdge[] = [];
   for (const e of cpg.edgesByLabel.get("CALL") ?? []) {
     const caller = cpg.methodOf(e.source);
-    const callee = e.target; // already a METHOD
+    const callee = e.target;
     if (!caller || !callee) continue;
     const k = `${caller}->${callee}`;
     if (seen.has(k)) continue;
@@ -126,8 +117,6 @@ export function cpgView(cpg: ParsedCpg): GraphView {
   );
 }
 
-// Candidate edge labels the user can toggle per drill-down tab (CG is special —
-// its edges are lifted to method level, so it has no toggles). `on` = default.
 export const EDGE_TABS: Record<Exclude<CpgViewKey, "cg">, { label: string; on: boolean }[]> = {
   ast: [{ label: "AST", on: true }],
   cfg: [
@@ -162,7 +151,6 @@ const TAB_TITLES: Record<CpgViewKey, { title: string; description: string }> = {
   cfg: { title: "CFG", description: "Control flow inside functions — execution order." },
 };
 
-/** Build a view from an arbitrary set of edge labels (drives the edge toggles). */
 export function buildViewFromLabels(cpg: ParsedCpg, key: CpgViewKey, labels: string[]): GraphView {
   const edges: ViewEdge[] = [];
   for (const l of labels) {

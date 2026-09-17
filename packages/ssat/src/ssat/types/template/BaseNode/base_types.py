@@ -1,12 +1,8 @@
-"""Base types and enums for template nodes."""
-
 from enum import Enum
 from typing import List, Optional, Required, TypedDict, Union
 
 
 class TemplateNodeTypes(str, Enum):
-    """Enumeration of all template node types."""
-
     AddressOfExpression = "AddressOfExpression"
     ArrayDeclaration = "ArrayDeclaration"
     ArraySizeAllocation = "ArraySizeAllocation"
@@ -48,8 +44,6 @@ class TemplateNodeTypes(str, Enum):
     UserDefinedCall = "UserDefinedCall"
     VariableDeclaration = "VariableDeclaration"
     WhileStatement = "WhileStatement"
-
-    # Additional types for CPG compatibility
     UNKNOWN = "UNKNOWN"
     IDENTIFIER = "IDENTIFIER"
     LOCAL = "LOCAL"
@@ -77,23 +71,8 @@ class TemplateNodeTypes(str, Enum):
 
 
 class IBaseNode(TypedDict, total=False):
-    """Base shape every template node shares.
-
-    A TypedDict, not a pydantic model: nothing in the pipeline ever constructs
-    or validates these. The template stage builds plain dicts and reads them
-    with ``.get()``, so modelling them as BaseModel made every access a type
-    error while changing nothing at runtime.
-
-    ``total=False`` with explicit ``Required`` mirrors the old pydantic
-    defaults -- ``id`` and ``nodeType`` were mandatory, everything else
-    defaulted to None.
-    """
-
     id: Required[int]
     nodeType: Required[TemplateNodeTypes]
-    # Optional both ways: the key may be absent, and the converter also writes
-    # an explicit None for several of these (matching the old pydantic
-    # `Optional[...] = None` defaults).
     code: Optional[str]
     children: Optional[List["IBaseNode"]]
     name: Optional[str]
@@ -105,12 +84,10 @@ class IBaseNode(TypedDict, total=False):
 
 
 def is_node_type(node: IBaseNode, node_type: TemplateNodeTypes) -> bool:
-    """Type guard to check if a node has a specific type."""
     return node.get("nodeType") == node_type
 
 
 def is_statement(node: IBaseNode) -> bool:
-    """Type guard to check if a node is a statement."""
     statement_types = [
         TemplateNodeTypes.CompoundStatement,
         TemplateNodeTypes.BreakStatement,
@@ -127,7 +104,6 @@ def is_statement(node: IBaseNode) -> bool:
 
 
 def is_expression(node: IBaseNode) -> bool:
-    """Type guard to check if a node is an expression."""
     expression_types = [
         TemplateNodeTypes.AddressOfExpression,
         TemplateNodeTypes.ArraySizeAllocation,
@@ -148,7 +124,6 @@ def is_expression(node: IBaseNode) -> bool:
 
 
 def is_declaration(node: IBaseNode) -> bool:
-    """Type guard to check if a node is a declaration."""
     declaration_types = [
         TemplateNodeTypes.ArrayDeclaration,
         TemplateNodeTypes.FunctionDeclaration,

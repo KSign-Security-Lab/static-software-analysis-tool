@@ -1,5 +1,3 @@
-// Turn a GraphView into positioned React-Flow nodes/edges via a dagre layout.
-
 import dagre from "dagre";
 import type { Edge, Node } from "@xyflow/react";
 import type { GraphView, ViewKey } from "./types";
@@ -7,22 +5,21 @@ import type { GraphView, ViewKey } from "./types";
 const NODE_W = 190;
 const NODE_H = 46;
 
-// A colour per Joern vertex label so each view is readable at a glance.
 const LABEL_COLORS: Record<string, string> = {
-  METHOD: "#6956a8",
-  CALL: "#2f5f98",
-  IDENTIFIER: "#0f766e",
-  LITERAL: "#c8641a",
-  FIELD_IDENTIFIER: "#3f8f2f",
-  CONTROL_STRUCTURE: "#b8791a",
-  METHOD_PARAMETER_IN: "#4a6b6b",
-  LOCAL: "#4a6b6b",
-  RETURN: "#7a5a3a",
-  BLOCK: "#5f676e",
+  METHOD: "var(--alt)",
+  CALL: "var(--accent)",
+  IDENTIFIER: "var(--teal-500)",
+  LITERAL: "var(--warn)",
+  FIELD_IDENTIFIER: "var(--ok)",
+  CONTROL_STRUCTURE: "var(--amber-500)",
+  METHOD_PARAMETER_IN: "var(--ink-muted)",
+  LOCAL: "var(--ink-muted)",
+  RETURN: "var(--violet-300)",
+  BLOCK: "var(--ink-faint)",
 };
 
 export function labelColor(label: string): string {
-  return LABEL_COLORS[label] ?? "#556070";
+  return LABEL_COLORS[label] ?? "var(--line-3)";
 }
 
 const DIRECTION: Record<ViewKey, "TB" | "LR"> = {
@@ -85,8 +82,8 @@ export function layoutView(view: GraphView): LaidOut {
         width: NODE_W,
         borderRadius: 10,
         border: `2px solid ${color}`,
-        background: "var(--node-bg)",
-        color: "var(--fg)",
+        background: "var(--surface-2)",
+        color: "var(--ink)",
         fontSize: 12,
         padding: "6px 8px",
       },
@@ -99,8 +96,8 @@ export function layoutView(view: GraphView): LaidOut {
     target: e.target,
     label: e.label || undefined,
     animated: view.key === "dfg",
-    style: { stroke: "#9aa0aa", strokeWidth: 1.5 },
-    labelStyle: { fill: "#c8641a", fontSize: 10 },
+    style: { stroke: "var(--line-3)", strokeWidth: 1.5 },
+    labelStyle: { fill: "var(--warn)", fontSize: 10 },
   }));
 
   return { nodes, edges: flowEdges };

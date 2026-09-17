@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<title>Template Port Audit</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+<style>
+  :root {
+    --ground: #f6f8f8;
+    --surface: #ffffff;
+    --surface-2: #eef2f2;
+    --line: #d6dedf;
+    --line-soft: #e6ecec;
+    --ink: #1b2427;
+    --ink-2: #46565b;
+    --ink-3: #6d7d82;
+    --accent: #1c5560;
+    --accent-soft: #e2eced;
+    --loss: #9c3b34;
+    --loss-soft: #f7e9e7;
+    --drift: #8a5420;
+    --drift-soft: #f8eee1;
+    --cosmetic: #5d6b70;
+    --cosmetic-soft: #eceff0;
+    --match: #2b6349;
+    --match-soft: #e5efe9;
+    --measure: 68ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #13181a;
+      --surface: #1a2124;
+      --surface-2: #202a2d;
+      --line: #2e3b3f;
+      --line-soft: #263134;
+      --ink: #e6eded;
+      --ink-2: #a9babe;
+      --ink-3: #7f9296;
+      --accent: #6fb3bf;
+      --accent-soft: #1d2f33;
+      --loss: #e8938a;
+      --loss-soft: #2e1f1e;
+      --drift: #d9a45f;
+      --drift-soft: #2c2418;
+      --cosmetic: #9aa9ae;
+      --cosmetic-soft: #232c2f;
+      --match: #7ec39f;
+      --match-soft: #1b2a23;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #13181a;
+    --surface: #1a2124;
+    --surface-2: #202a2d;
+    --line: #2e3b3f;
+    --line-soft: #263134;
+    --ink: #e6eded;
+    --ink-2: #a9babe;
+    --ink-3: #7f9296;
+    --accent: #6fb3bf;
+    --accent-soft: #1d2f33;
+    --loss: #e8938a;
+    --loss-soft: #2e1f1e;
+    --drift: #d9a45f;
+    --drift-soft: #2c2418;
+    --cosmetic: #9aa9ae;
+    --cosmetic-soft: #232c2f;
+    --match: #7ec39f;
+    --match-soft: #1b2a23;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 61rem;
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.1rem, 4vw, 2.5rem) 5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2.75rem;
+  }
+  h1, h2, h3, .sans { font-family: "IBM Plex Sans", system-ui, sans-serif; }
+  code, .mono, .num { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---- masthead ---- */
+  header { display: flex; flex-direction: column; gap: 1.1rem; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .69rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(1.85rem, 4.4vw, 2.7rem);
+    font-weight: 600;
+    letter-spacing: -.022em;
+    line-height: 1.1;
+    text-wrap: balance;
+  }
+  .standfirst {
+    margin: 0;
+    max-width: var(--measure);
+    font-size: 1.09rem;
+    color: var(--ink-2);
+  }
+  .standfirst strong { color: var(--ink); font-weight: 500; }
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: .6rem 1.6rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--line);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .74rem;
+    color: var(--ink-3);
+  }
+  .meta b { display: block; color: var(--ink-2); font-weight: 500; letter-spacing: .04em; text-transform: uppercase; font-size: .66rem; margin-bottom: .15rem; }
+
+  /* ---- verdict ---- */
+  .verdict {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--loss);
+    padding: 1.4rem 1.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+  }
+  .verdict p { margin: 0; max-width: var(--measure); }
+  .verdict .lede { font-family: "IBM Plex Sans", sans-serif; font-size: 1.24rem; font-weight: 600; letter-spacing: -.01em; }
+  .tally { display: flex; flex-wrap: wrap; gap: 0 2.4rem; }
+  .tally div { display: flex; flex-direction: column; }
+  .tally .n { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-size: 1.5rem; font-weight: 500; line-height: 1.15; }
+  .tally .k { font-family: "IBM Plex Sans", sans-serif; font-size: .74rem; color: var(--ink-3); }
+
+  section > h2 {
+    margin: 0 0 .2rem;
+    font-size: .95rem;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  section { display: flex; flex-direction: column; gap: 1rem; }
+  section > p { margin: 0; max-width: var(--measure); color: var(--ink-2); }
+
+  /* ---- matched list ---- */
+  .matched { display: flex; flex-direction: column; gap: 0; border-top: 1px solid var(--line-soft); }
+  .matched li {
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1.4rem 1fr;
+    gap: .7rem;
+    padding: .6rem 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: .95rem;
+  }
+  .matched { margin: 0; padding: 0; }
+  .tick { color: var(--match); font-family: "IBM Plex Mono", monospace; font-weight: 600; }
+  .matched code { font-size: .84em; }
+
+  /* ---- findings ---- */
+  .finding {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--stripe, var(--cosmetic));
+    display: flex;
+    flex-direction: column;
+    gap: .85rem;
+    padding: 1.25rem 1.4rem;
+  }
+  .finding.loss { --stripe: var(--loss); }
+  .finding.drift { --stripe: var(--drift); }
+  .finding.cosmetic { --stripe: var(--cosmetic); }
+  .fhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem .8rem; }
+  .fhead h3 {
+    margin: 0;
+    font-size: 1.09rem;
+    font-weight: 600;
+    letter-spacing: -.012em;
+    flex: 1 1 22rem;
+    text-wrap: balance;
+  }
+  .chip {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .64rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: .2rem .5rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .chip.loss { background: var(--loss-soft); color: var(--loss); }
+  .chip.drift { background: var(--drift-soft); color: var(--drift); }
+  .chip.cosmetic { background: var(--cosmetic-soft); color: var(--cosmetic); }
+  .chip.count { background: var(--accent-soft); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .finding > p { margin: 0; max-width: var(--measure); }
+  .finding > p.impact {
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: .89rem;
+    color: var(--ink-2);
+    padding-top: .7rem;
+    border-top: 1px dashed var(--line);
+  }
+  .finding > p.impact b { color: var(--ink); font-weight: 600; }
+
+  /* side-by-side source pair */
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); overflow-x: auto; }
+  @media (max-width: 44rem) { .pair { grid-template-columns: 1fr; } }
+  .pane { background: var(--surface-2); padding: .6rem .75rem; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
+  .pane .who {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .65rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .pane .who b { color: var(--ink-2); font-weight: 600; }
+  .pane pre {
+    margin: 0;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .765rem;
+    line-height: 1.55;
+    color: var(--ink);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .pane .hl { color: var(--loss); font-weight: 500; }
+
+  table { border-collapse: collapse; width: 100%; font-family: "IBM Plex Sans", sans-serif; font-size: .855rem; }
+  .tscroll { overflow-x: auto; border: 1px solid var(--line); }
+  th, td { text-align: left; padding: .5rem .7rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th { font-size: .67rem; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; background: var(--surface-2); }
+  td.n { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  td code { font-size: .84em; }
+
+  code {
+    background: var(--surface-2);
+    padding: .06em .3em;
+    border-radius: 2px;
+    font-size: .87em;
+  }
+  .pane code, pre code { background: none; padding: 0; }
+  .runbox { background: var(--surface-2); border: 1px solid var(--line); padding: .85rem 1rem; overflow-x: auto; }
+  .runbox pre { margin: 0; font-family: "IBM Plex Mono", monospace; font-size: .765rem; line-height: 1.7; white-space: pre; }
+  footer { border-top: 1px solid var(--line); padding-top: 1.2rem; font-family: "IBM Plex Sans", sans-serif; font-size: .8rem; color: var(--ink-3); max-width: var(--measure); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">CPG → Template · equivalence audit</div>
+    <h1>Is the Python Template converter the same as the TypeScript it replaced?</h1>
+    <p class="standfirst">
+      <strong>No — but close.</strong> The port kept every dispatch table, every handler and the
+      whole orchestration intact. It diverges at the value-coercion boundaries, in eight measurable
+      classes, and it introduced one bug that makes the stage's own output non-reproducible.
+    </p>
+    <div class="meta">
+      <div><b>TypeScript read at</b> 23c411b^ = 75252f1<br>packages/core/template/</div>
+      <div><b>Python read at</b> feat/agentic-approach<br>packages/ssat/src/ssat/template/</div>
+      <div><b>Inputs</b> 19 C fixture CPGs + Sample.json (5.9 MB, Java)</div>
+      <div><b>Method</b> pairwise reading + differential execution</div>
+    </div>
+  </header>
+
+  <div class="verdict">
+    <p class="lede">Structurally a faithful port. Semantically, it loses three fields and one guarantee.</p>
+    <div class="tally">
+      <div><span class="n">8</span><span class="k">divergence classes</span></div>
+      <div><span class="n">20</span><span class="k">inputs compared</span></div>
+      <div><span class="n">0</span><span class="k">crashes, either side</span></div>
+      <div><span class="n">0</span><span class="k">node-census differences</span></div>
+    </div>
+    <p>
+      Both implementations produce the same node types, in the same quantities, in the same tree
+      shape, on all 20 inputs. What differs is the content of four fields and the order of the root
+      array. Nothing in the analysis output changes as a result — but nothing in the analysis output
+      was checking, either.
+    </p>
+  </div>
+
+  <section>
+    <h2>What matched exactly</h2>
+    <p>Worth stating first, because it is most of the surface area and it means the divergences below are local rather than systemic.</p>
+    <ul class="matched">
+      <li><span class="tick">=</span><span>All three operator tables, byte-for-byte after syntax normalisation: <code>BinaryExpressionOperatorMap</code> (25), <code>BinaryExpressionBooleanMap</code> (8), <code>UnaryExpressionOperatorMap</code> (13), <code>PredefinedIdentifierTypes</code> (7), <code>IdentifierToLiteralMap</code>.</span></li>
+      <li><span class="tick">=</span><span>The label dispatch: the same 11 skipped labels, the same 17 handler mappings, the same default → raise.</span></li>
+      <li><span class="tick">=</span><span>The operator dispatch and its <em>order</em>: binary map → unary map → <code>addressOf</code> → <code>assignment</code> → <code>cast</code> → <code>fieldAccess</code>/<code>indirectFieldAccess</code> → <code>indirectIndexAccess</code> → <code>sizeOf</code> → passthrough.</span></li>
+      <li><span class="tick">=</span><span>The control-structure dispatch, all seven kinds, including the <code>IF</code> child re-ordering and <code>SWITCH</code> going through <code>reshapeLabelChildren</code>.</span></li>
+      <li><span class="tick">=</span><span>The orchestrator: same four stages in the same order, the same 19-entry <code>PlanationTool</code> blacklist in the same order, the same <code>TreeToText(["properties","line_no","code"])</code>, the same duplicate-id assertion. Both skip <code>mergeArraySizeAllocation</code> and <code>isolateTranslationUnit</code>.</span></li>
+      <li><span class="tick">=</span><span>Node census and tree shape on every input: 20/20 identical, and the root <em>multiset</em> is identical on 20/20.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Divergences</h2>
+    <p>
+      Ordered by consequence. <span class="chip loss">loss</span> means information the TypeScript
+      produced and the Python does not; <span class="chip drift">drift</span> means both produce a
+      value and the values differ; <span class="chip cosmetic">cosmetic</span> means the same
+      information in a different wire shape. Counts are node occurrences across the 19 C fixtures.
+    </p>
+
+    <div class="finding loss">
+      <div class="fhead">
+        <h3>Root order is not merely different — it is non-deterministic</h3>
+        <span class="chip loss">loss</span>
+        <span class="chip count">8 / 19 fixtures</span>
+      </div>
+      <p>
+        The TypeScript builds its root set from a JS <code>Set</code>, which preserves insertion
+        order, so roots come out in CPG vertex order. The Python iterates a Python <code>set</code>,
+        whose order is hash-derived — and <code>str</code> hashing is randomised per process.
+      </p>
+      <div class="pair">
+        <div class="pane">
+          <div class="who"><b>TypeScript</b> · TemplateExtractor.ts:86</div>
+<pre>const allIds = new Set&lt;string&gt;(
+  Object.keys(nodeInfoMap));   <span class="hl">// insertion-ordered</span>
+const childIds = new Set&lt;string&gt;();</pre>
+        </div>
+        <div class="pane">
+          <div class="who"><b>Python</b> · extractor.py:72,77</div>
+<pre>all_ids = <span class="hl">set(</span>node_info_map.keys()<span class="hl">)</span>
+...
+root_ids = [rid for rid in <span class="hl">all_ids</span>
+            if rid not in child_ids]</pre>
+        </div>
+      </div>
+      <p>
+        Demonstrated on <code>update_firmware.c</code>: across three fresh processes,
+        <code>TranslationUnit</code> came back at root index <span class="mono num">0</span>, then
+        <span class="mono num">20</span>, then <span class="mono num">20</span>. Under fixed seeds,
+        <code>PYTHONHASHSEED=0,1</code> put it last and <code>2,12345</code> put it first.
+      </p>
+      <p class="impact">
+        <b>Reaches:</b> the array order of every <code>*_template.json</code> artifact and of
+        <code>POST /template</code>. Function order is <em>currently</em> safe by luck — all 19
+        fixtures have exactly one function-bearing root, so the shuffle only moves orphan roots
+        around it. A CPG with two file-level roots would make function order flake too, and the
+        golden snapshots would not catch it: they record <code>template_root_count</code>, a count,
+        not an order.
+      </p>
+    </div>
+
+    <div class="finding loss">
+      <div class="fhead">
+        <h3><code>storage</code> is dropped on every declaration whose type name is not literally in its code</h3>
+        <span class="chip loss">loss</span>
+        <span class="chip count">145 nodes</span>
+      </div>
+      <p>
+        When the type name does not occur in the declaration's source text, JS
+        <code>split</code> returns a one-element array and the TypeScript takes the whole code
+        string. The Python added a <code>len(parts) &gt; 1</code> guard and returns
+        <code>None</code> there instead.
+      </p>
+      <div class="pair">
+        <div class="pane">
+          <div class="who"><b>TypeScript</b> · TemplateConverter.ts (handleLocal)</div>
+<pre>const storage =
+  node.code.includes(typeFullName)
+  &amp;&amp; node.code.trim().startsWith(typeFullName)
+    ? undefined
+    : <span class="hl">node.code.split(typeFullName)[0].trim()</span>;</pre>
+        </div>
+        <div class="pane">
+          <div class="who"><b>Python</b> · converter.py (_handle_local)</div>
+<pre>elif type_full_name_str:
+    parts = code.split(type_full_name_str)
+    storage = (parts[0].strip()
+               if <span class="hl">len(parts) &gt; 1</span>
+               <span class="hl">else None</span>)</pre>
+        </div>
+      </div>
+      <p>
+        Split by kind: <span class="mono num">91</span> <code>VariableDeclaration</code>,
+        <span class="mono num">28</span> <code>ArrayDeclaration</code>,
+        <span class="mono num">26</span> <code>PointerDeclaration</code>. The TypeScript values were
+        largely nonsense for a field named "storage" — <code>"char sql[512]"</code>,
+        <code>"*data"</code>, <code>"ACTION_BOOT_NOTIFICATION = 1"</code> — so the Python is
+        arguably more honest. It is still a silent behaviour change.
+      </p>
+      <p class="impact">
+        <b>Reaches:</b> one consumer, <code>ast/extractor.py:830</code>, which puts it in
+        <code>debug_extra</code> for <code>PointerDeclaration</code> only. No feature, no edge, no
+        verdict depends on it — so this degrades debug output rather than analysis. Visible in the
+        artifact you have open: every <code>storage</code> in
+        <code>loop_induction_unresolved_guard_template.json</code> is <code>null</code>.
+      </p>
+    </div>
+
+    <div class="finding loss">
+      <div class="fhead">
+        <h3>The <code>&lt;not-array&gt;</code> marker is lost inside <code>PointerDereference</code></h3>
+        <span class="chip loss">loss</span>
+        <span class="chip count">88 nodes</span>
+      </div>
+      <p>
+        Both handlers compute <code>size</code> the same way and both attach it to a bare
+        <code>Identifier</code> only when it is an array. But in the pointer-dereference branch the
+        TypeScript passes the computed <code>size</code> through unconditionally, so a non-array
+        identifier carries the sentinel <code>"&lt;not-array&gt;"</code>. The Python re-tests
+        <code>is_array</code> and writes <code>None</code>.
+      </p>
+      <div class="pair">
+        <div class="pane">
+          <div class="who"><b>TypeScript</b> · handleIdentifier, pointer branch</div>
+<pre>children: [{
+  nodeType: TemplateNodeTypes.Identifier,
+  name: node.name,
+  type: predefinedType ?? type,
+  <span class="hl">size,</span>
+  ...</pre>
+        </div>
+        <div class="pane">
+          <div class="who"><b>Python</b> · _handle_identifier, pointer branch</div>
+<pre>{
+  "nodeType": TemplateNodeTypes.Identifier,
+  "name": node_name,
+  "type": predefined_type or type_val,
+  <span class="hl">"size": size if is_array else None,</span>
+  ...</pre>
+        </div>
+      </div>
+      <p class="impact">
+        <b>Reaches:</b> nothing. No reader of <code>Identifier.size</code> exists in
+        <code>ast/</code>, <code>dfg/</code> or <code>nodes/</code> — the only <code>size</code>
+        lookups there are call-argument slots, an unrelated table. The field is dead data on both
+        sides, which is why the loss went unnoticed.
+      </p>
+    </div>
+
+    <div class="finding drift">
+      <div class="fhead">
+        <h3>The <code>&lt;dynamic&gt;</code> fallback for an unsized array was not ported</h3>
+        <span class="chip drift">drift</span>
+        <span class="chip count">12 nodes</span>
+      </div>
+      <p>
+        For <code>char[]</code> — brackets present, nothing between them — the TypeScript's
+        <code>||</code> substitutes the sentinel. The Python has no fallback and yields the empty
+        string.
+      </p>
+      <div class="pair">
+        <div class="pane">
+          <div class="who"><b>TypeScript</b> · handleIdentifier</div>
+<pre>const size = isArray
+  ? typeFullName.split("[")[1].split("]")[0]
+    <span class="hl">|| "&lt;dynamic&gt;"</span>
+  : "&lt;not-array&gt;";</pre>
+        </div>
+        <div class="pane">
+          <div class="who"><b>Python</b> · _handle_identifier</div>
+<pre>size = (
+  type_full_name_str.split("[")[1].split("]")[0]
+  <span class="hl"># no fallback → ""</span>
+  if is_array else "&lt;not-array&gt;")</pre>
+        </div>
+      </div>
+      <p class="impact">
+        <b>Reaches:</b> nothing today, for the same reason as above. But <code>""</code> is falsy
+        where <code>"&lt;dynamic&gt;"</code> is truthy, so any future reader that tests the field
+        will read "unsized array" as "no information".
+      </p>
+    </div>
+
+    <div class="finding drift">
+      <div class="fhead">
+        <h3>Pointer types lose every <code>*</code>, not just the first</h3>
+        <span class="chip drift">drift</span>
+        <span class="chip count">1 observed · latent beyond</span>
+      </div>
+      <p>
+        JS <code>String.replace</code> with a string pattern replaces the <em>first</em> match only;
+        Python's <code>str.replace</code> replaces all of them. So a double pointer keeps one star in
+        the TypeScript and loses both in the Python.
+      </p>
+      <div class="pair">
+        <div class="pane">
+          <div class="who"><b>TypeScript</b> · handleLocal / handleIdentifier</div>
+<pre>const pointsTo = typeFullName<span class="hl">.replace("*", "")</span>;
+// "char**"        → "char*"
+// "void()(void*)" → "void()(void)"  ← observed</pre>
+        </div>
+        <div class="pane">
+          <div class="who"><b>Python</b> · converter.py:15, 508, 646</div>
+<pre>points_to = type_full_name_str<span class="hl">.replace("*", "")</span>
+# "char**"        → "char"
+# "void()(void*)" → "void()(void)"</pre>
+        </div>
+      </div>
+      <p>
+        Caught by the differential run on <code>designated_init_negatives.c</code>, as
+        <code>PointerDeclaration.pointingType</code>. Only one occurrence in the fixture set because
+        double pointers are rare in it — <code>level</code> is computed separately and correctly on
+        both sides, so the star count itself is not lost.
+      </p>
+      <p class="impact">
+        <b>Reaches:</b> <code>ast/extractor.py:828</code>, again as <code>debug_extra</code> for
+        <code>PointerDeclaration</code>. Cosmetic today; wrong if anything ever matches on the
+        pointee type.
+      </p>
+    </div>
+
+    <div class="finding cosmetic">
+      <div class="fhead">
+        <h3>Optional fields are <code>null</code> in Python where they are absent in TypeScript</h3>
+        <span class="chip cosmetic">cosmetic</span>
+        <span class="chip count">483 nodes</span>
+      </div>
+      <p>
+        <code>JSON.stringify</code> drops keys whose value is <code>undefined</code>; Python emits
+        <code>null</code>. Same information, different wire shape — but
+        <code>"size" in node</code> answers differently, and so does any schema that distinguishes
+        absent from null.
+      </p>
+      <div class="tscroll">
+        <table>
+          <thead><tr><th>Field</th><th class="n">Count</th><th>TypeScript</th><th>Python</th></tr></thead>
+          <tbody>
+            <tr><td><code>ParameterDeclaration.size</code></td><td class="n">289</td><td>key absent</td><td><code>null</code></td></tr>
+            <tr><td><code>ParameterList.code</code></td><td class="n">100</td><td>key absent</td><td><code>null</code></td></tr>
+            <tr><td><code>Identifier.code</code></td><td class="n">88</td><td>key absent</td><td><code>null</code></td></tr>
+            <tr><td><code>VariableDeclaration.storage</code></td><td class="n">6</td><td>key absent</td><td><code>null</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="impact">
+        <b>Reaches:</b> anything comparing a pre-migration artifact to a post-migration one, which
+        is exactly what a "did the port change anything" check would do. Nothing in the pipeline
+        itself distinguishes the two.
+      </p>
+    </div>
+
+    <div class="finding drift">
+      <div class="fhead">
+        <h3>Two numeric coercions disagree, on inputs Joern does not currently produce</h3>
+        <span class="chip drift">drift</span>
+        <span class="chip cosmetic">latent</span>
+      </div>
+      <p>
+        Found by reading, not by the differential run — the fixtures never hit them, which is
+        precisely why both methods were needed.
+      </p>
+      <div class="tscroll">
+        <table>
+          <thead><tr><th>Site</th><th>TypeScript</th><th>Python</th><th>Disagrees when</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>id</code>, every handler</td>
+              <td><code>Number(node.id) || -999</code></td>
+              <td><code>int(...) if str(...).isdigit() else -999</code></td>
+              <td>id is <code>0</code> (TS → <code>-999</code>, PY → <code>0</code>) or negative (TS keeps it, PY → <code>-999</code>)</td>
+            </tr>
+            <tr>
+              <td><code>length</code>, array decl + alloc</td>
+              <td><code>Number(raw) || raw</code></td>
+              <td><code>int(raw) if raw.isdigit() else raw</code></td>
+              <td><code>char[0]</code> — TS yields the string <code>"0"</code>, PY the int <code>0</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="impact">
+        <b>Reaches:</b> the <code>length</code> one passes through
+        <code>ast/extractor.py:1483</code>, which branches on <code>isinstance(length, str)</code> —
+        so TS took the direct path and Python falls through to a regex over <code>code</code>,
+        arriving at the same value by coincidence rather than by design.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Three things that turned out not to be true</h2>
+    <p>Each of these was a reasonable expectation going in. The differential run contradicted all three.</p>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Expected</th><th>Actual</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>The <code>&lt;operator&gt;.alloc</code> crash was inherited from the TypeScript, so 4 of 19 fixtures would throw there.</td>
+            <td><strong>Nothing threw on either side.</strong> The TypeScript read the property with <code>.join("/")</code> and handled it fine. The crash the tests describe — "returned the property list where callers expected the scalar", 4/19 fixtures and ~37% of the corpus — was <em>introduced by the port</em> and later fixed by <code>_unwrap_graphson_scalar</code>. The Python is now better than the TypeScript here, not restored to it.</td>
+          </tr>
+          <tr>
+            <td><code>PostProcessor.updateMemberAccessTypeLength</code> is missing from the Python — 105 lines of struct-member length recovery, gone.</td>
+            <td>Dead in the TypeScript too: no caller, and it <code>throw</code>s on success. It accounts for the entire 282 → 177 line gap between the two <code>PostProcessor</code>s. Not a regression.</td>
+          </tr>
+          <tr>
+            <td><code>Sample.json</code> exercises a second front end, so the Java path is covered.</td>
+            <td>Both implementations extract <strong>zero functions</strong> from it — 104 roots, no <code>FunctionDefinition</code>. <code>handleMethod</code>'s gate requires <code>FILENAME + ":&lt;global&gt;" == AST_PARENT_FULL_NAME</code>, which Java's class-parented methods never satisfy. Identical in both, so not a migration issue — but the test asserting it "converts" only asserts the template is non-empty.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>How this was checked</h2>
+    <p>
+      Two independent methods, because neither alone is sufficient: reading finds the latent
+      coercions the fixtures never reach, and execution finds what 800 lines of reading misses.
+    </p>
+    <p>
+      The TypeScript was exported read-only with <code>git archive</code> — never checked out —
+      transpiled with the <code>tsc</code> already in <code>web/node_modules</code>, and driven
+      through the same four stages in the same order as the Python. It needed no dependency install:
+      the template modules import only local types, config and <code>randomIntWithLength</code>.
+      Both sides' synthetic-id RNG was stubbed to a function of its own argument, so a mismatch in
+      the argument would still surface as a diff. Nothing was written into the repo; the working
+      tree is untouched and <code>pytest packages/ssat</code> is green at 190 passed.
+    </p>
+    <div class="runbox">
+<pre>git archive 23c411b^ packages/core | tar -x -C $S/src
+web/node_modules/.bin/tsc --module commonjs --moduleResolution node \
+  --target es2022 --skipLibCheck --outDir $S/js --rootDir packages/core \
+  packages/core/template/*.ts packages/core/utils/treeToText.ts
+
+node $S/js/driver.js  &lt;cpg.json&gt;   # getTemplateTree → convertTree
+uv run python $S/py_driver.py &lt;cpg.json&gt;   # → removeInvalidNodes → addCodeProperties
+python3 $S/aggregate.py $S/out     # census, root order, per-field diff classes</pre>
+    </div>
+  </section>
+
+  <footer>
+    Scope note: only the Template stage is a genuine TypeScript → Python port. The AST extractor was
+    already Python before the migration — <code>endpoint/index.ts</code> shelled out to
+    <code>ASTExtractor.py</code> through <code>python-shell</code> — so there is no TypeScript AST
+    logic to compare. <code>DFGBuilder.ts</code> (670 lines, features derived by regex over
+    <code>CODE</code>) was abandoned rather than ported; today's <code>dfg/extractor.py</code>
+    descends from the Python extractor that ran beside it. CFG was never converted in either
+    language: the TypeScript's <code>CPGFilter.filterDFG()</code> filtered <code>CFG</code>/<code>CDG</code>
+    edges despite its name and had no callers, and the only CFG that exists now is
+    <code>cfgView()</code> in <code>web/lib/views.ts</code>, a projection of the raw CPG by edge label.
+  </footer>
+
+</div>
+</body>
+</html>

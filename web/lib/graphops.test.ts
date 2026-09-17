@@ -14,7 +14,7 @@ describe("graph reducers", () => {
   it("lists internal methods for the function picker", () => {
     const names = internalMethods(cpg()).map((m) => m.name);
     expect(names).toContain("handle_update_firmware");
-    expect(names).not.toContain("system"); // external
+    expect(names).not.toContain("system");
   });
 
   it("scopeToMethod keeps only that function's nodes", () => {
@@ -34,7 +34,6 @@ describe("graph reducers", () => {
     const ast = buildViewFromLabels(c, "ast", ["AST"]);
     const folded = contract(ast, (n) => !isNoise(n));
     expect(folded.nodes.length).toBeLessThan(ast.nodes.length);
-    // no operator/literal nodes survive
     expect(folded.nodes.every((n) => !isNoise(n))).toBe(true);
   });
 

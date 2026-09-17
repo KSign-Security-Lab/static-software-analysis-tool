@@ -1,5 +1,3 @@
-"""Template type definitions."""
-
 from typing import Dict, List, TypedDict
 
 from typing import Union
@@ -49,7 +47,6 @@ from .program_structures import (
     IVariableDeclaration,
 )
 
-# Union type of all possible template nodes
 TemplateNodes = Union[
     IBaseNode,
     ICompoundStatement,
@@ -95,19 +92,9 @@ TemplateNodes = Union[
     IVariableDeclaration,
 ]
 
-# Template flattened node and graph
-
 
 class TemplateFlattenedGraph(TypedDict):
-    """A flattened template: the same nodes, plus explicit parent/child edges.
-
-    ``nodes`` holds the original template nodes -- flattening collects and sorts
-    them, it does not reshape them. There used to be a separate
-    ``TemplateFlattenedNode`` stub here declaring only ``id`` and ``nodeType``
-    with a "... other fields from IBaseNode" comment; nothing referenced it.
-    """
-
-    edges: List[Dict[str, int]]  # { from: int, to: int }
+    edges: List[Dict[str, int]]
     nodes: List["TemplateNodes"]
 
 
@@ -116,7 +103,6 @@ __all__ = [
     "IBaseNode",
     "TemplateNodes",
     "TemplateFlattenedGraph",
-    # Expressions
     "IAddressOfExpression",
     "IArraySizeAllocation",
     "IArraySubscriptExpression",
@@ -131,9 +117,7 @@ __all__ = [
     "IStandardLibCall",
     "IUnaryExpression",
     "IUserDefinedCall",
-    # Blocks
     "ICompoundStatement",
-    # Control structures
     "IBreakStatement",
     "ICaseLabel",
     "IContinueStatement",
@@ -146,15 +130,12 @@ __all__ = [
     "IReturnStatement",
     "ISwitchStatement",
     "IWhileStatement",
-    # Data types
     "IEnumType",
     "IStructType",
     "ITypeDefinition",
     "IUnionType",
-    # Preprocessor
     "IIncludeDirective",
     "IMacroDefinition",
-    # Program structures
     "IArrayDeclaration",
     "IFunctionDeclaration",
     "IFunctionDefinition",

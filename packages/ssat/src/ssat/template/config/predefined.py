@@ -1,5 +1,3 @@
-"""Predefined identifier types and mappings."""
-
 PredefinedIdentifierTypes: dict[str, str] = {
     "stdin": "FILE*",
     "stdout": "FILE*",

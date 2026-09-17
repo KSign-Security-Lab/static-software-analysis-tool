@@ -1,25 +1,10 @@
-"""Data models for the F2-A OCPP-native evidence extraction pipeline.
-
-Field names and enums follow the F2-A concept design
-(``docs/v2/refs/V4_2 1 F2-A_개념상세 설계 …a1a85c.md``) and the implementation
-deck (``docs/v2/f2a_deck_v7_implementation.html``).
-
-The overarching invariant of F2-A: it does **not** confirm vulnerabilities.
-Every artifact is a *candidate* backed by file/function/line evidence, a
-connection-quality confidence, and explicit limitations, handed off to F6.
-"""
-
 from __future__ import annotations
 
 from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-# ---------------------------------------------------------------------------
-# Enums (verbatim from the concept design)
-# ---------------------------------------------------------------------------
 
-# §10.2 Dangerous Sink Domain Profile
 SinkDomain = Literal[
     "COMMAND_EXECUTION",
     "UNSAFE_FIRMWARE_DOWNLOAD",
@@ -37,10 +22,7 @@ SinkDomain = Literal[
     "database_query_execution",
 ]
 
-# §11.6 observed-check strength
 CheckStrength = Literal["STRONG", "PARTIAL", "WEAK", "UNKNOWN", "CONFLICTED"]
-
-# §12.4 expected↔observed matching status
 MatchingStatus = Literal[
     "SATISFIED",
     "PARTIALLY_SATISFIED",
@@ -52,36 +34,20 @@ MatchingStatus = Literal[
 ]
 
 DetectionMethod = Literal["RULE_BASED", "LLM_ASSISTED"]
-
-# §16.4 F2-A only ever emits a static-suspect hint (never CONFIRMED/DISMISSED)
 LifecycleStateHint = Literal["STATIC_SUSPECT_HVVD", "REVIEW_READY_HVVD"]
 
 
-# ---------------------------------------------------------------------------
-# Shared building blocks
-# ---------------------------------------------------------------------------
-
-
 class CodeLocation(BaseModel):
-    """A file/function/line anchor. Every piece of evidence is traceable."""
-
     file: str = ""
     function: str = ""
     line: Union[int, str] = ""
 
 
 class MappingEvidence(BaseModel):
-    """Evidence backing a handler mapping (``DISPATCH_STRING_MATCH`` / ``HANDLER_CALL``)."""
-
     type: str
     value: str = ""
     file: str = ""
     line: Union[int, str] = ""
-
-
-# ---------------------------------------------------------------------------
-# F2-A2 · Handler mapping
-# ---------------------------------------------------------------------------
 
 
 class HandlerRef(CodeLocation):
@@ -89,36 +55,11 @@ class HandlerRef(CodeLocation):
 
 
 class HandlerMap(BaseModel):
-    """F2-A2 output — which function handles an OCPP action.
-
-    Back-compat: populated only for RESOLVED actions. The authoritative
-    per-action diagnostic (including AMBIGUOUS / UNRESOLVED) is
-    ``F2AResult.handler_resolutions``.
-
-    CONFIDENCE — the two values are NOT interchangeable:
-
-    * ``HandlerMap.confidence`` is the *selected evidence weight* — the raw prior
-      of the single strongest piece of evidence that backs the mapping (e.g. 0.90
-      for a string dispatch). It is a backward-compatibility value with the
-      historical meaning; it is NOT the aggregated resolution score.
-    * ``HandlerResolution.candidates[*].confidence`` (see below) is the
-      authoritative Phase-2 *aggregated* score (per-evidence scoring, provenance
-      grouping, noisy-OR, caps). Downstream consumers that want the resolution
-      confidence must read that field, not this one.
-
-    Longer term ``HandlerMap.confidence`` should be deprecated or renamed to
-    ``selected_evidence_weight`` to remove the ambiguity.
-    """
-
     handler_map_id: str
     action: str
     handler: HandlerRef
     mapping_evidence: List[MappingEvidence] = Field(default_factory=list)
-    confidence: float = 0.0  # selected evidence weight (back-compat); NOT the aggregated score
-
-
-# --- Public handler-resolution view (serializable projection of the internal
-#     SelectionResult; carries no CPG node references) -----------------------
+    confidence: float = 0.0
 
 
 class UnresolvedDispatchSite(BaseModel):
@@ -128,8 +69,6 @@ class UnresolvedDispatchSite(BaseModel):
 
 
 class ActionIdentifierView(BaseModel):
-    """The action-id observation(s) a piece of evidence matched on."""
-
     protocol_string: Optional[str] = None
     symbol: Optional[str] = None
     numeric_id: Optional[int] = None
@@ -139,42 +78,33 @@ class ActionIdentifierView(BaseModel):
 
 
 class EvidenceRecord(BaseModel):
-    """One line of the resolution trail (a CPG anchor with its code)."""
-
-    type: str  # DISPATCH_*, HANDLER_REF, ACTION_STORE, SLOT, CHAIN_CALL, CHAIN_STORE, ...
-    value: str = ""  # the original code / value at that site
+    type: str
+    value: str = ""
     file: str = ""
     line: Union[int, str] = ""
 
 
 class HandlerResolutionEvidence(BaseModel):
-    """A single auditable evidence record behind a candidate — the "how it was
-    resolved" detail: kind, matched identifier, provenance, scores, and the trail
-    of CPG sites (paired assignments / registrar chain)."""
-
     kind: str
     extractor: str = ""
-    match_strength: str = ""  # EXACT_IDENTIFIER | RESOLVED_VALUE | NORMALIZED_NAME | HEURISTIC_SUBSTRING | NONE
+    match_strength: str = ""
     action_id_consistency: str = "PARTIAL"
     provenance_group: str = ""
     weight: float = 0.0
-    score: float = 0.0  # post-penalty score used by the calculus
-    score_pre_penalty: float = 0.0  # W*M before any identifier-consistency penalty
+    score: float = 0.0
+    score_pre_penalty: float = 0.0
     action_id: ActionIdentifierView = Field(default_factory=ActionIdentifierView)
     dispatch_site: Optional[UnresolvedDispatchSite] = None
     records: List[EvidenceRecord] = Field(default_factory=list)
 
 
 class HandlerResolutionCandidate(BaseModel):
-    """One competing handler candidate, resolved to source coordinates, with the
-    underlying evidence trail so the mapping is auditable."""
-
     function: str = ""
     file: str = ""
     line: Union[int, str] = ""
-    confidence: float = 0.0  # authoritative Phase-2 aggregated score (NOT HandlerMap.confidence)
+    confidence: float = 0.0
     evidence_kinds: List[str] = Field(default_factory=list)
-    action_id_consistency: str = "PARTIAL"  # CONSISTENT | CONFLICTING | PARTIAL
+    action_id_consistency: str = "PARTIAL"
     evidence: List[HandlerResolutionEvidence] = Field(default_factory=list)
 
 
@@ -198,36 +128,16 @@ class UnresolvedReportView(BaseModel):
 
 
 class HandlerResolution(BaseModel):
-    """Authoritative per-action resolution outcome (one per requested action).
-
-    ``chosen`` is set *iff* ``status == 'RESOLVED'`` and is taken directly from
-    the selector — assembly never re-derives a winner.
-
-    ``candidates`` are in **selection order**: the selected candidate (when
-    present) is always first, and the remainder is ordered by the selection
-    policy (its post-policy confidence score) with a documented tie-break of
-    (function, file, line). This tracks the selector rather than raw scoring, so
-    it stays correct if a future policy selects a non-max-confidence candidate.
-
-    ``conflict`` is present whenever more than one callback competed;
-    ``unresolved`` when nothing bound.
-    """
-
     action: str
-    status: str  # RESOLVED | AMBIGUOUS | UNRESOLVED
+    status: str
     chosen: Optional[HandlerRef] = None
     candidates: List[HandlerResolutionCandidate] = Field(default_factory=list)
     conflict: Optional[ConflictReportView] = None
     unresolved: Optional[UnresolvedReportView] = None
 
 
-# ---------------------------------------------------------------------------
-# F2-A3 · Payload field source extraction
-# ---------------------------------------------------------------------------
-
-
 class BindingEvidence(BaseModel):
-    type: str  # e.g. STRUCT_FIELD_ASSIGNMENT
+    type: str
     expression: str = ""
 
 
@@ -241,8 +151,6 @@ class FieldBindingDetail(BaseModel):
 
 
 class FieldBinding(BaseModel):
-    """F2-A3 output — the payload field bound to a concrete code variable."""
-
     field_binding_id: str
     action: str
     field: str
@@ -252,25 +160,13 @@ class FieldBinding(BaseModel):
     confidence: float = 0.0
 
 
-# ---------------------------------------------------------------------------
-# F2-A4 · Semantic binding (from the F1 knowledge base)
-# ---------------------------------------------------------------------------
-
-
 class SemanticBinding(BaseModel):
-    """F2-A4 output — KB meaning attached to the field."""
-
     field_semantic: str = ""
     trust_level: str = ""
     expected_checks: List[str] = Field(default_factory=list)
     dangerous_sink_domains: List[str] = Field(default_factory=list)
     related_cwe: List[str] = Field(default_factory=list)
     validation_requirement: List[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# F2-A5 · Source→sink flow
-# ---------------------------------------------------------------------------
 
 
 class FlowStep(BaseModel):
@@ -297,14 +193,7 @@ class SinkInfo(BaseModel):
     line: Union[int, str] = ""
 
 
-# ---------------------------------------------------------------------------
-# F2-A6 · Dangerous sink mapping
-# ---------------------------------------------------------------------------
-
-
 class SinkMapping(BaseModel):
-    """F2-A6 output — the reached dangerous call, mapped to a domain + CWE."""
-
     sink_mapping_id: str
     sink: CodeLocation
     api: str = ""
@@ -312,11 +201,6 @@ class SinkMapping(BaseModel):
     related_cwe: List[str] = Field(default_factory=list)
     severity_hint: str = ""
     mapping_evidence: List[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# F2-A7 · Observed check detection
-# ---------------------------------------------------------------------------
 
 
 class ObservedCheck(BaseModel):
@@ -344,11 +228,6 @@ class NegativeCheckEvidence(BaseModel):
     function: str = ""
     line: Union[int, str] = ""
     confidence: float = 0.0
-
-
-# ---------------------------------------------------------------------------
-# F2-A8 · Expected check matching
-# ---------------------------------------------------------------------------
 
 
 class MatchingResult(BaseModel):
@@ -381,14 +260,9 @@ class ExpectedCheckMatching(BaseModel):
     missing_check_summary: MissingCheckSummary = Field(default_factory=MissingCheckSummary)
 
 
-# ---------------------------------------------------------------------------
-# F2-A9 · Missing check candidate
-# ---------------------------------------------------------------------------
-
-
 class MissingCheckItem(BaseModel):
     check_id: str
-    basis: str = ""  # UNVERIFIED / WEAKLY_RELATED / NEGATIVE_EVIDENCE_FOUND
+    basis: str = ""
     confidence: float = 0.0
     reason: str = ""
 
@@ -408,11 +282,6 @@ class MissingCheckCandidateSet(BaseModel):
     weak_or_partial_check_candidates: List[WeakCheckItem] = Field(default_factory=list)
     review_required_missing_check_candidates: List[MissingCheckItem] = Field(default_factory=list)
     limitations: List[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# F2-A10/A11 · Evidence package (the primary F6 hand-off)
-# ---------------------------------------------------------------------------
 
 
 class OcppContext(BaseModel):
@@ -465,8 +334,6 @@ class SecurityInterpretation(BaseModel):
 
 
 class EvidencePackage(BaseModel):
-    """F2-A10 output — the OCPP-native evidence package."""
-
     evidence_id: str
     candidate_type: Literal["OCPP_NATIVE_EVIDENCE_PACKAGE"] = "OCPP_NATIVE_EVIDENCE_PACKAGE"
     language: str = "c"
@@ -484,8 +351,6 @@ class EvidencePackage(BaseModel):
 
 
 class CandidateFragment(BaseModel):
-    """F2-A15 output — the ``OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT`` handed to F6."""
-
     candidate_id: str
     candidate_type: Literal["OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"] = "OCPP_NATIVE_CANDIDATE_HVVD_FRAGMENT"
     language: str = "c"
@@ -503,8 +368,6 @@ class CandidateFragment(BaseModel):
 
 
 class FlowCandidate(BaseModel):
-    """F2-A5 output row (``ocpp_flow_candidates.jsonl``)."""
-
     candidate_id: str
     language: str = "c"
     component_type: str = ""
@@ -523,8 +386,6 @@ class FlowCandidate(BaseModel):
 
 
 class F2AResult(BaseModel):
-    """The full bundle produced for one CPG (all artifacts of one run)."""
-
     source_cpg: str = ""
     handler_maps: List[HandlerMap] = Field(default_factory=list)
     handler_resolutions: List[HandlerResolution] = Field(default_factory=list)

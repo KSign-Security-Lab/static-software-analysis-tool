@@ -1,17 +1,5 @@
-// Parse a Joern CPG GraphSON document into a normalized, queryable model.
-//
-// Mirrors the edge/property semantics that ssat.f2a.graph.CPGModel relies on
-// (verified against real exports):
-//   - property value = VertexProperty -> List -> [value]  (single-element)
-//   - AST edge: outV = parent, inV = child
-//   - CALL edge: outV = call-site, inV = callee METHOD
-//   - REACHING_DEF: outV = def, inV = use (variable in edge property)
-//   - REF: outV = IDENTIFIER, inV = declaration
-//   - CFG / DOMINATE: control-flow / dominance edges
-
 import type { CpgDocument, CpgEdge, CpgNode, ParsedCpg, RawEdge, RawGraph, RawVertex } from "./types";
 
-/** Recursively strip GraphSON `@value` wrappers. */
 export function unwrap(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     if ("@value" in (value as Record<string, unknown>)) {
@@ -24,7 +12,6 @@ export function unwrap(value: unknown): unknown {
   return value;
 }
 
-/** A single scalar from an unwrapped value that may be a one-element array. */
 function scalarize(value: unknown): unknown {
   const u = unwrap(value);
   if (Array.isArray(u)) {
@@ -38,7 +25,19 @@ function toId(value: unknown): string {
   return typeof u === "object" ? JSON.stringify(u) : String(u);
 }
 
-/** Find the {vertices, edges} object inside any accepted document shape. */
+export function unwrapCpgDocument(raw: unknown): unknown {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const o = raw as Record<string, unknown>;
+    if ("export" in o) return o.export;
+  }
+  return raw;
+}
+
+export function looksLikeCpg(raw: unknown): boolean {
+  const { vertices } = extractGraph(unwrapCpgDocument(raw) as CpgDocument);
+  return vertices.length > 0;
+}
+
 export function extractGraph(doc: CpgDocument): RawGraph {
   const vertices: RawVertex[] = [];
   const edges: RawEdge[] = [];
@@ -100,7 +99,7 @@ export function parseCpg(doc: CpgDocument): ParsedCpg {
   const edges: CpgEdge[] = [];
   const edgesByLabel = new Map<string, CpgEdge[]>();
   const edgeLabelCounts: Record<string, number> = {};
-  const astParent = new Map<string, string>(); // child -> parent
+  const astParent = new Map<string, string>();
 
   rawEdges.forEach((e, idx) => {
     const source = toId(e.outV);

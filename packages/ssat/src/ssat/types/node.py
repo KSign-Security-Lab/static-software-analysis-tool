@@ -1,5 +1,3 @@
-"""Node type definitions and unions."""
-
 from typing import Union
 
 from .template import (
@@ -49,7 +47,6 @@ from .template import (
     TemplateNodeTypes,
 )
 
-# Union type of all possible template nodes
 TemplateNodes = Union[
     IBaseNode,
     ICompoundStatement,

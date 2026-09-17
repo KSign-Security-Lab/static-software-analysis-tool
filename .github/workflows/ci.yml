@@ -37,8 +37,10 @@ jobs:
         run: uv run mypy
 
       # Covers the F2-A suite, the golden characterization snapshots, the
-      # GNN training-data contract, and the CPG backend equivalence checks.
-      # Backend tests that need a Joern install or the container skip cleanly.
+      # GNN training-data contract, CPG generation, and the agent package
+      # (index, schema, locate, tools, graph, API). Tests needing Joern or
+      # bubblewrap skip cleanly, and no test calls a model -- the inspection
+      # loop is driven by a scripted one.
       - name: pytest
         run: uv run pytest -q
 
@@ -51,16 +53,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Before setup-node, which needs pnpm on PATH to find the store to cache.
+      # The version comes from `packageManager` in web/package.json.
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          # One source of truth for CI, dev and Docker. Node 20 went
+          # end-of-life in April 2026, and vite 8 (under vitest) already wants
+          # ^20.19 || >=22.12 -- latest-20.x satisfied that with no headroom.
+          node-version-file: web/.nvmrc
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - run: npm ci
+      # --frozen-lockfile is what keeps the licence gate honest: it reads the
+      # resolved tree, so a lockfile that disagrees with package.json has to
+      # fail here rather than be installed around.
+      - run: pnpm install --frozen-lockfile
 
-      - run: npm run type-check
+      # `pnpm run <name>`, not `pnpm <name>`: `pnpm licenses` is pnpm's own
+      # command and would shadow the script.
+      - run: pnpm run type-check
 
-      - run: npm run lint
+      - run: pnpm run lint
 
-      - run: npm run test
+      - run: pnpm run test
+
+      # Every dependency is permissively licensed, or has a reviewed exception
+      # with a written reason. Runs before the build so a bad dependency fails
+      # fast rather than after a full compile.
+      - run: pnpm run licenses
+
+      - run: pnpm run licenses:check
+
+      # tsc --noEmit does not catch a server component importing a client-only
+      # module, or a broken dynamic() boundary. Only a real build does.
+      - run: pnpm run build

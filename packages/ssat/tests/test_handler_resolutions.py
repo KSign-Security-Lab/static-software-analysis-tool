@@ -1,12 +1,3 @@
-"""Adversarial tests for the public `F2AResult.handler_resolutions` output.
-
-These exercise the SelectionResult -> HandlerResolution assembly on real fixture
-CPGs under the current cascade policy (no corroboration). They lock down the six
-details agreed for this increment: one entry per action, deterministic ordering,
-`chosen` only when RESOLVED, structured unresolved reasons, all-registration
-emission, and competitors retained with a conflict report.
-"""
-
 import json
 from pathlib import Path
 
@@ -41,36 +32,24 @@ def _res(result, action):
     return next(h for h in result.handler_resolutions if h.action == action)
 
 
-# --- detail 6: registration->foo vs switch->bar -------------------------------
-
-
 def test_competing_registration_vs_switch_retains_loser_and_conflict():
     _need(A)
     r = run_f2a_file(A)
     dt = _res(r, "DataTransfer")
 
     assert dt.status == "RESOLVED"
-    assert dt.chosen is not None and dt.chosen.function == "bar"  # switch wins
-    # chosen is first; the registration loser `foo` is retained as a ranked candidate
+    assert dt.chosen is not None and dt.chosen.function == "bar"
     assert dt.candidates[0].function == "bar"
     assert {c.function for c in dt.candidates} == {"bar", "foo"}
-    # conflict is exposed with both competitors and the margin. Under the
-    # corroborate policy (default) DataTransfer has no KB symbol/numeric, so both
-    # matches are weak-basis: enum NORMALIZED 0.85*0.85=0.7225, registration
-    # HEURISTIC 0.80*0.70=0.56 -> margin 0.1625.
     assert dt.conflict is not None
     assert {c.function for c in dt.conflict.competing} == {"bar", "foo"}
     assert dt.conflict.margin == round(0.7225 - 0.56, 6)
-
-
-# --- detail 1: exactly one entry per requested action -------------------------
 
 
 def test_one_resolution_entry_per_requested_action():
     _need(A)
     r = run_f2a_file(A)
     actions = [h.action for h in r.handler_resolutions]
-    # one entry per KB action, no duplicates, including unresolved ones
     assert actions == sorted(set(actions), key=actions.index)
     assert set(actions) == {
         "UpdateFirmware",
@@ -83,9 +62,6 @@ def test_one_resolution_entry_per_requested_action():
     assert statuses["UpdateFirmware"] == "UNRESOLVED"
 
 
-# --- detail 3: chosen set iff RESOLVED; unresolved carries a structured reason -
-
-
 def test_chosen_only_when_resolved_and_unresolved_is_structured():
     _need(A)
     r = run_f2a_file(A)
@@ -93,23 +69,18 @@ def test_chosen_only_when_resolved_and_unresolved_is_structured():
     assert uf.status == "UNRESOLVED"
     assert uf.chosen is None
     assert uf.unresolved is not None
-    assert uf.unresolved.reason  # a non-empty reason string
+    assert uf.unresolved.reason
     assert uf.candidates == []
-
-
-# --- back-compat: handler_maps still populated, resolved-only -----------------
 
 
 def test_handler_maps_backcompat_resolved_only():
     _need(A)
     r = run_f2a_file(A)
     mapped = {h.action: h.handler.function for h in r.handler_maps}
-    assert mapped == {"DataTransfer": "bar"}  # only the resolved action
+    assert mapped == {"DataTransfer": "bar"}
 
 
 def test_chosen_is_always_first_candidate_invariant():
-    """Selection-order invariant: for a RESOLVED action, chosen is candidates[0]
-    (not merely the max-confidence entry, though they coincide under cascade)."""
     _need(A)
     r = run_f2a_file(A)
     for res in r.handler_resolutions:
@@ -121,10 +92,7 @@ def test_chosen_is_always_first_candidate_invariant():
 def test_result_is_json_serializable():
     _need(A)
     r = run_f2a_file(A)
-    json.dumps(r.model_dump(), default=str)  # no CPG node refs leak into the public model
-
-
-# --- detail 5: duplicate registrations -> one candidate, multiple evidence ----
+    json.dumps(r.model_dump(), default=str)
 
 
 def test_duplicate_registrations_form_one_candidate_multi_evidence():
@@ -132,18 +100,12 @@ def test_duplicate_registrations_form_one_candidate_multi_evidence():
     m = CPGModel(json.loads(B.read_text()))
     sel = F2AAnalyzer(m)._resolve_handler("SetChargingProfile")
     assert sel.status is ResolutionStatus.RESOLVED
-    assert len(sel.candidates) == 1  # same callback -> one candidate
-    assert len(sel.candidates[0].evidence) == 2  # two registrations -> two evidences
-    assert sel.conflict is None  # not competing
-
-
-# --- match-strength distinction: exact numeric registration beats weak name ---
+    assert len(sel.candidates) == 1
+    assert len(sel.candidates[0].evidence) == 2
+    assert sel.conflict is None
 
 
 def test_ambiguous_two_registrations_no_binding():
-    """Two rows for the same action id (41) pointing to different callbacks: two
-    candidates at 0.80, margin 0 < AMBIGUITY_MARGIN -> AMBIGUOUS, no binding, both
-    retained, conflict exposed, and no HandlerMap emitted."""
     _need(D)
     r = run_f2a_file(D)
     scp = _res(r, "SetChargingProfile")
@@ -152,14 +114,10 @@ def test_ambiguous_two_registrations_no_binding():
     assert {c.function for c in scp.candidates} == {"handler_a", "handler_b"}
     assert scp.conflict is not None
     assert scp.conflict.margin == 0.0
-    # AMBIGUOUS must not leak into the back-compat resolved-only projection
     assert "SetChargingProfile" not in {h.action for h in r.handler_maps}
 
 
 def test_producer1_correlated_field_store():
-    """Producer 1: `t[0].action = ID; t[0].fn = FN;` as separate statements. The
-    id is recovered from the sibling store to the same slot -> REGISTRATION_ASSIGN
-    resolves the handler (previously the V2 gap)."""
     _need(E)
     r = run_f2a_file(E)
     scp = _res(r, "SetChargingProfile")
@@ -169,8 +127,6 @@ def test_producer1_correlated_field_store():
 
 
 def test_producer2_registrar_direct():
-    """Producer 2: register_handler(id, fn) that stores the params into a slot
-    itself (depth 1) -> REGISTRAR_CALL resolves the handler."""
     _need(R_DIRECT)
     scp = _res(run_f2a_file(R_DIRECT), "SetChargingProfile")
     assert scp.status == "RESOLVED"
@@ -179,8 +135,6 @@ def test_producer2_registrar_direct():
 
 
 def test_producer2_registrar_two_level():
-    """Producer 2: register_handler -> store (depth 2), followed via resolved call
-    targets + arg->param substitution."""
     _need(R_TWO)
     scp = _res(run_f2a_file(R_TWO), "SetChargingProfile")
     assert scp.status == "RESOLVED"
@@ -189,8 +143,6 @@ def test_producer2_registrar_two_level():
 
 
 def test_producer2_registrar_store_not_reached_emits_no_evidence():
-    """A call that receives (id, fn) but never stores fn into a table yields NO
-    REGISTRAR_CALL evidence; the miss is reported as REGISTRAR_STORE_NOT_REACHED."""
     _need(R_NOSTORE)
     scp = _res(run_f2a_file(R_NOSTORE), "SetChargingProfile")
     assert scp.status == "UNRESOLVED"
@@ -200,11 +152,6 @@ def test_producer2_registrar_store_not_reached_emits_no_evidence():
 
 
 def test_producer2_registrar_search_then_write_is_named_specifically():
-    """A registrar that locates the slot at runtime (loop + action predicate) and
-    stores only the callback yields NO evidence, and the miss is diagnosed as the
-    specific REGISTRAR_SEARCH_THEN_WRITE idiom — not the generic store miss — so
-    the limitation is actionable. (The plain no-store case above still reports the
-    generic REGISTRAR_STORE_NOT_REACHED, confirming this is a true specialization.)"""
     _need(R_SEARCH)
     scp = _res(run_f2a_file(R_SEARCH), "SetChargingProfile")
     assert scp.status == "UNRESOLVED"
@@ -214,15 +161,11 @@ def test_producer2_registrar_search_then_write_is_named_specifically():
 
 
 def test_designated_initializer_resolves_like_positional_aggregate():
-    """TC3: `{ .action = ACTION_REMOTE_START, .fn = remote_handler }` resolves to
-    the same result as the positional `{ ACTION_REMOTE_START, remote_handler }`
-    form — REGISTRATION_INIT, RESOLVED — and the trail preserves the source."""
     _need(DI)
     rs = _res(run_f2a_file(DI), "RemoteStartTransaction")
     assert rs.status == "RESOLVED"
     assert rs.chosen is not None and rs.chosen.function == "remote_handler"
     assert rs.candidates[0].evidence_kinds == ["REGISTRATION_INIT"]
-    # requirement 5: the original source expressions/locations survive in the trail
     records = rs.candidates[0].evidence[0].records
     kinds = {r.type for r in records}
     assert {"DISPATCH_HANDLER_TABLE", "ACTION_STORE", "HANDLER_REF"} <= kinds
@@ -231,13 +174,10 @@ def test_designated_initializer_resolves_like_positional_aggregate():
 
 
 def test_designated_initializer_is_field_order_independent_and_multi_entry():
-    """Field order must not matter, and multiple designated entries in one array
-    each resolve: callback-before-action (RemoteStart) and action-before-callback
-    (DataTransfer) both bind, via REGISTRATION_INIT."""
     _need(DI_ORDER)
     result = run_f2a_file(DI_ORDER)
-    rs = _res(result, "RemoteStartTransaction")  # `.fn` before `.action`
-    dt = _res(result, "DataTransfer")  # `.action` before `.fn`
+    rs = _res(result, "RemoteStartTransaction")
+    dt = _res(result, "DataTransfer")
     assert rs.status == "RESOLVED" and rs.chosen.function == "remote_handler"
     assert dt.status == "RESOLVED" and dt.chosen.function == "data_handler"
     assert rs.candidates[0].evidence_kinds == ["REGISTRATION_INIT"]
@@ -245,22 +185,15 @@ def test_designated_initializer_is_field_order_independent_and_multi_entry():
 
 
 def test_designated_initializer_negatives_stay_unresolved():
-    """No guessing: an incomplete entry (callback only, no action field) and an
-    unrelated designated struct with a function-pointer field must NOT produce a
-    handler candidate — everything stays UNRESOLVED."""
     _need(DI_NEG)
     result = run_f2a_file(DI_NEG)
     assert all(h.status == "UNRESOLVED" for h in result.handler_resolutions)
-    # the incomplete/unrelated callbacks must never appear as a candidate
     fns = {c.function for h in result.handler_resolutions for c in h.candidates}
     assert "lonely_handler" not in fns
     assert "log_sink" not in fns
 
 
 def test_ambiguous_compat_limitation_names_competitors_not_not_found():
-    """The compatibility limitation for an AMBIGUOUS action must reflect that
-    handlers WERE found (selector declined), derived from the candidates —
-    not the misleading 'No handler found'."""
     _need(D)
     r = run_f2a_file(D)
     scp_lims = [x for x in r.limitations if "'SetChargingProfile'" in x]
@@ -273,9 +206,9 @@ def test_exact_numeric_registration_beats_weak_name():
     r = run_f2a_file(C)
     scp = _res(r, "SetChargingProfile")
     assert scp.status == "RESOLVED"
-    assert scp.chosen.function == "store_profile"  # registration 0.80 > name 0.70
+    assert scp.chosen.function == "store_profile"
     by_fn = {c.function: c for c in scp.candidates}
-    assert "handle_set_charging_profile" in by_fn  # weak name retained as competitor
+    assert "handle_set_charging_profile" in by_fn
     assert by_fn["store_profile"].evidence_kinds == ["REGISTRATION_INIT"]
     assert by_fn["handle_set_charging_profile"].evidence_kinds == ["NAME_MATCH"]
     assert scp.conflict is not None

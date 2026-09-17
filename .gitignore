@@ -7,6 +7,9 @@ workspace-devel02/
 
 cpg_results/*
 
+# Where every stage writes when -o is left off.
+result/
+
 # Joern intermediates
 *.bin
 tmp/*
@@ -276,6 +279,8 @@ web_modules/
 
 # dotenv environment variable files
 .env
+# A reconfigured machine keeps the previous one beside it.
+.env.bak.*
 .env.development.local
 .env.test.local
 .env.production.local
@@ -329,3 +334,8 @@ dist
 
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
+
+# The seed corpus is checked in -- it is the ground truth the retrieval test
+# asserts against. A CVE harvest is not: it is large, regenerable, and would
+# land in history for ever.
+corpus/scraped/

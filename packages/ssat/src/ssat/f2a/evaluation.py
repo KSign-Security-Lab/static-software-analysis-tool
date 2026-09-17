@@ -1,21 +1,3 @@
-"""F2-A handler-resolution evaluation harness.
-
-Runs the resolver over a corpus (a directory of pre-generated CPG GraphSON
-``.json`` files, or a directory of C/C++ sources compiled to CPGs on the fly) and
-produces a deterministic JSON report plus a human-readable Markdown summary.
-
-This is *evaluation tooling*, not an analysis backend: it never resolves handlers
-itself, adds no dispatch support, and does not change the calculus. It classifies
-each unresolved / ambiguous outcome into a fixed taxonomy, and — crucially — does
-not claim certainty when the required information is absent (every classification
-carries a confidence and its supporting observations).
-
-Determinism: the ``metrics`` and ``actions`` sections are a pure function of the
-corpus + calculus config. The ``run`` metadata (timestamp, tool commit) and the
-``performance`` section (wall-clock runtime) are intentionally NOT deterministic
-and are excluded from equality checks.
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,27 +10,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .graph import CPGModel
 from .kb import KnowledgeBase, default_knowledge_base
-from .pipeline import F2AAnalyzer, cpg_id
+from .graph import cpg_id
+from .pipeline import F2AAnalyzer
 from .resolution import CalculusConfig
 
-# ---------------------------------------------------------------------------
-# Fixed classification taxonomy (locked before running)
-# ---------------------------------------------------------------------------
-#
-# UNRESOLVED
-# ├── ANALYSIS_SCOPE
-# │   ├── EXTERNAL_DEFINITION
-# │   ├── CROSS_TU_REGISTRATION
-# │   └── MISSING_CPG_RELATION
-# ├── POTENTIALLY_SUPPORTABLE
-# │   ├── INDIRECT_CALL
-# │   ├── ALIAS_OR_POINTS_TO
-# │   ├── VARIABLE_INDEX_CORRELATION
-# │   └── PREPROCESSOR_OR_MACRO
-# ├── POLICY
-# │   ├── LOW_CONFIDENCE
-# │   └── COMPETING_CANDIDATES
-# └── UNKNOWN
 
 TIER_ANALYSIS_SCOPE = "ANALYSIS_SCOPE"
 TIER_POTENTIALLY_SUPPORTABLE = "POTENTIALLY_SUPPORTABLE"
@@ -60,14 +25,11 @@ TIER_UNKNOWN = "UNKNOWN"
 class Classification:
     tier: str
     backend_category: Optional[str]
-    classification_confidence: str  # HIGH | MEDIUM | LOW
+    classification_confidence: str
     supporting_observations: List[str] = field(default_factory=list)
 
 
 def classify_outcome(hr: Any, action_referenced: bool) -> Optional[Classification]:
-    """Classify a non-RESOLVED outcome into the taxonomy. Returns None for
-    RESOLVED. Confidence reflects how directly the structured reason implies the
-    leaf; alternatives are listed rather than silently discarded."""
     if hr.status == "AMBIGUOUS":
         return Classification(
             TIER_POLICY,
@@ -146,15 +108,7 @@ def classify_outcome(hr: Any, action_referenced: bool) -> Optional[Classificatio
     return Classification(TIER_UNKNOWN, None, "LOW", [f"unmapped reason {reason}"] + obs)
 
 
-# ---------------------------------------------------------------------------
-# Corpus evaluation
-# ---------------------------------------------------------------------------
-
-
 def _action_referenced(cpg: CPGModel, kb: KnowledgeBase, action: str) -> bool:
-    """Cheap observation: does the action id appear anywhere in this CPG (as a
-    string/enum symbol or numeric id)? Used only to distinguish cross-TU
-    registration from an action that is simply absent — never to resolve."""
     prof = kb.actions.get(action)
     up = "".join(
         "_" + c if c.isupper() and i and not action[i - 1].isupper() else c.upper() for i, c in enumerate(action)
@@ -189,19 +143,16 @@ def _stats(values: List[float]) -> Dict[str, Any]:
 
 
 def _evaluate_one(cpg: CPGModel, corpus_file: str, kb: KnowledgeBase, cfg: CalculusConfig) -> List[Dict[str, Any]]:
-    """Per-action records for one CPG."""
     analyzer = F2AAnalyzer(cpg, kb=kb, calculus=cfg)
     result = analyzer.analyze()
     by_action = {hr.action: hr for hr in result.handler_resolutions}
     selection = getattr(analyzer, "_selection", {})
-
     records: List[Dict[str, Any]] = []
     for action in sorted(by_action):
         hr = by_action[action]
         sel = selection.get(action)
         cands = sel.candidates if sel is not None else []
         evidence_count = sum(len(c.evidence) for c in cands)
-
         top = sel.chosen if (sel is not None and sel.chosen is not None) else (cands[0] if cands else None)
         top_conf = top.confidence if top is not None else None
         runner = cands[1].confidence if len(cands) > 1 else None
@@ -242,7 +193,7 @@ def _aggregate(records: List[Dict[str, Any]], n_cpgs: int, cfg: CalculusConfig) 
     outcomes: Dict[str, int] = {"RESOLVED": 0, "AMBIGUOUS": 0, "UNRESOLVED": 0}
     reason_hist: Dict[str, int] = {}
     tier_hist: Dict[str, int] = {}
-    backend_hist: Dict[str, Dict[str, int]] = {}  # backend -> {confidence: count}
+    backend_hist: Dict[str, Dict[str, int]] = {}
     resolved_conf: List[float] = []
     margins: List[float] = []
     lifts: List[float] = []
@@ -271,19 +222,14 @@ def _aggregate(records: List[Dict[str, Any]], n_cpgs: int, cfg: CalculusConfig) 
                 )
 
     return {
-        # 1. resolution outcome counts
         "outcome_counts": outcomes,
-        # 2. unresolved-reason histogram with analysis-scope separation (tier_histogram)
         "unresolved_reason_histogram": dict(sorted(reason_hist.items())),
         "tier_histogram": dict(sorted(tier_hist.items())),
-        # 3. likely backend required
         "backend_histogram": {k: dict(sorted(v.items())) for k, v in sorted(backend_hist.items())},
-        # 4. confidence / corroboration-lift / ambiguity-margin distributions
         "resolved_confidence": _stats(resolved_conf),
         "corroboration_lift": _stats(lifts),
         "margin": _stats(margins),
         "within_ambiguity_margin": within_margin,
-        # 5. volume
         "totals": {
             "cpgs": n_cpgs,
             "actions": len(records),
@@ -311,10 +257,8 @@ def evaluate_cpgs(
     cpg_config: str = "pre-generated",
     timestamp: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Core evaluator over an ordered list of ``(name, CPGModel)`` pairs."""
     kb = kb or default_knowledge_base()
     cfg = cfg or CalculusConfig()
-
     records: List[Dict[str, Any]] = []
     per_cpg_runtime: Dict[str, float] = {}
     t_all = time.perf_counter()
@@ -331,7 +275,7 @@ def evaluate_cpgs(
             "calculus_config": asdict(cfg),
             "corpus_id": corpus_id,
             "cpg_generation_config": cpg_config,
-            "timestamp": timestamp,  # metadata only; excluded from determinism checks
+            "timestamp": timestamp,
         },
         "metrics": _aggregate(records, len(cpgs), cfg),
         "actions": records,
@@ -343,7 +287,6 @@ def evaluate_cpgs(
 
 
 def evaluate_cpg_dir(cpg_dir: Path, corpus_id: Optional[str] = None, **kw: Any) -> Dict[str, Any]:
-    """Evaluate a directory of pre-generated CPG GraphSON ``.json`` files."""
     cpg_dir = Path(cpg_dir)
     files = sorted(cpg_dir.glob("*.json"))
     cpgs = [(f.name, CPGModel(json.loads(f.read_text()))) for f in files]
@@ -351,8 +294,6 @@ def evaluate_cpg_dir(cpg_dir: Path, corpus_id: Optional[str] = None, **kw: Any) 
 
 
 def evaluate_source_dir(src_dir: Path, corpus_id: Optional[str] = None, **kw: Any) -> Dict[str, Any]:
-    """Evaluate a directory of C/C++ sources, generating a CPG per file via the
-    embedded Joern frontend. Imported lazily so CPG-mode needs no JVM."""
     from .. import cpg as _cpgpkg  # noqa: F401  (ensure package import path)
     from ssat.cpg.embedded import generate_cpg, joern_home
 
@@ -360,11 +301,6 @@ def evaluate_source_dir(src_dir: Path, corpus_id: Optional[str] = None, **kw: An
     files = sorted(p for p in src_dir.rglob("*") if p.suffix in (".c", ".cc", ".cpp", ".cxx"))
     cpgs = [(str(p.relative_to(src_dir)), CPGModel(generate_cpg(p.read_text(), p.name))) for p in files]
     return evaluate_cpgs(cpgs, corpus_id or src_dir.name, cpg_config=f"embedded-joern:{joern_home()}", **kw)
-
-
-# ---------------------------------------------------------------------------
-# Markdown rendering
-# ---------------------------------------------------------------------------
 
 
 def render_markdown(report: Dict[str, Any]) -> str:
@@ -432,8 +368,6 @@ def write_reports(report: Dict[str, Any], out_dir: Path) -> None:
 
 
 def deterministic_view(report: Dict[str, Any]) -> Dict[str, Any]:
-    """The parts guaranteed reproducible across runs (excludes run metadata +
-    wall-clock performance)."""
     return {"metrics": report["metrics"], "actions": report["actions"]}
 
 
@@ -448,7 +382,6 @@ def main() -> None:  # pragma: no cover - thin CLI wrapper
     ap.add_argument("--corpus-id", type=str, default=None)
     ap.add_argument("--out", type=Path, required=True, help="output directory for report.json / report.md")
     args = ap.parse_args()
-
     ts = datetime.now(timezone.utc).isoformat()
     if args.cpg_dir:
         report = evaluate_cpg_dir(args.cpg_dir, args.corpus_id, timestamp=ts)
